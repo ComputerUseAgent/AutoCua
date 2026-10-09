@@ -60,7 +60,7 @@ PROJECT    = WDA_DIR / XCODEPROJ_NAME
 def ensure_project():
     """Clone WebDriverAgent if it isn't here yet, and report whether it is.
 
-    ios_setup.sh does this for a checkout; a `pip install AutoCua` runs no
+    setup_ios.sh does this for a checkout; a `pip install AutoCua` runs no
     shell script, so the fetch has to happen on first use instead. This file
     runs as a SCRIPT (setup_server spawns `python setup.py` with cwd=this
     folder), so AutoCua is not necessarily importable — a wheel install finds
@@ -840,7 +840,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._sse("fatal", "no device UDID -- pick one or type it in")
         rc, _ = sh(["ruby", "-e", "require 'xcodeproj'"])
         if rc != 0:
-            return self._sse("fatal", "ruby 'xcodeproj' gem missing.  run:  bash ios_setup.sh  "
+            return self._sse("fatal", "ruby 'xcodeproj' gem missing.  run:  bash setup_ios.sh  "
                               "(or: gem install --user-install xcodeproj)")
 
         # --- preflight: is this team backed by an Apple Account signed into Xcode? ---
@@ -992,12 +992,12 @@ def main():
     print(f"WDA setup   ->  http://localhost:{PORT}")
     print(f"project     ->  {PROJECT}   exists={PROJECT.exists()}")
     if not PROJECT.exists():
-        # WebDriverAgent is not vendored in this repo — ios_setup.sh clones it
+        # WebDriverAgent is not vendored in this repo — setup_ios.sh clones it
         # from the Appium project at a pinned tag. See THIRD_PARTY_NOTICES.md.
         # A pip install has no shell script to run, so the first /detect or
         # build below fetches it instead.
         print(f"  (no WebDriverAgent clone at {WDA_DIR} — fetching it on first use)")
-        print("   or run:  bash ios_setup.sh   # fetches it and checks the toolchain")
+        print("   or run:  bash setup_ios.sh   # fetches it and checks the toolchain")
     srv = Server(("127.0.0.1", PORT), Handler)
     # When the desktop app embeds this UI in an iframe (AutoCua_EMBED=1) we don't
     # want a stray browser tab — the app loads http://localhost:PORT itself.

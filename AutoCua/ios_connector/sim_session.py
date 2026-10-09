@@ -61,7 +61,7 @@ _DEST_EMPTY_TTL = 30.0
 # A run installs a runtime ONLY when the caller named an iOS version this Mac
 # does not have — asking for 26.5 by name is consent to fetch 26.5. Nothing else
 # downloads mid-run: with no version named, "newest" means newest of what is
-# already here, and an empty set is an error pointing at ios_setup.sh, which is
+# already here, and an empty set is an error pointing at setup_ios.sh, which is
 # where the one-time platform install belongs. AutoCua_IOS_AUTO_DOWNLOAD=0 blocks
 # even the named case.
 _AUTO_DOWNLOAD = os.environ.get("AutoCua_IOS_AUTO_DOWNLOAD", "1").strip().lower() \
@@ -399,7 +399,7 @@ def _pick(want, exclude, device=None):
                       "error": "Xcode cannot build to any installed simulator ({})".format(what),
                       "hint": "simctl lists {} and can boot them — that store is system-wide — but "
                               "the selected Xcode has no iOS platform support, so xcodebuild refuses "
-                              "every one. Run  bash ios_setup.sh  — it installs the missing platform (or do "
+                              "every one. Run  bash setup_ios.sh  — it installs the missing platform (or do "
                               "it by hand: xcodebuild -downloadPlatform iOS), and check "
                               "`xcode-select -p` points at the Xcode you expect.".format(", ".join(installed) or "no runtimes")}
     if runtime_devices:
@@ -446,7 +446,7 @@ def resolve_simulator(ios_version=None, exclude=(), allow_download=None, log=pri
     # A run downloads exactly one thing: a runtime the caller NAMED and this Mac
     # does not have. Not "named but unbuildable" — that runtime is already on
     # disk and refetching it changes nothing. Not the missing platform either:
-    # that is a one-time ~8 GB install and belongs to ios_setup.sh, never to a
+    # that is a one-time ~8 GB install and belongs to setup_ios.sh, never to a
     # surprise mid-run.
     if sim or not want or not allow_download or err.get("code") != "no_runtime":
         return sim, err
@@ -457,7 +457,7 @@ def resolve_simulator(ios_version=None, exclude=(), allow_download=None, log=pri
     if targetable is not None and not targetable:
         return None, {**err, "hint": (err.get("hint", "") + "  Note: Xcode cannot build to ANY "
                       "simulator on this Mac, so installing a runtime alone will not help — run  "
-                      "bash ios_setup.sh  first, it installs the missing iOS platform.").strip()}
+                      "bash setup_ios.sh  first, it installs the missing iOS platform.").strip()}
 
     with _XCODE_LOCK:
         if _pick(want, exclude, device)[0] is None:  # another task may have just done it
@@ -675,14 +675,14 @@ class SimulatorSession:
         already claimed."""
         # EVERY simulator run passes through activate() — one task, N parallel
         # tasks, each parallel child process, the desktop app — so this is the
-        # one place worth fetching WebDriverAgent from. ios_setup.sh clones it
+        # one place worth fetching WebDriverAgent from. setup_ios.sh clones it
         # for a checkout; a pip install runs no shell script, so it is cloned
         # here instead, once, the first time a simulator is asked for.
         if not _WDA_PROJECT.exists():
             from AutoCua.utils.wda import ensure_wda, REPO, VERSION
             ensure_wda()
             if not _WDA_PROJECT.exists():
-                # Don't send a pip user to ios_setup.sh: the wheel holds the
+                # Don't send a pip user to setup_ios.sh: the wheel holds the
                 # AutoCua package and nothing else, so that script is not on
                 # their disk to run. Spell out the one command that is.
                 return {"ok": False, "state": "error",

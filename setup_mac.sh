@@ -3,15 +3,15 @@
 # AutoCua — macOS one-click setup
 # ================================
 # Installs uv (if missing), creates a local .venv/, and installs
-# mac_requirements.txt into it. No manual Python install required — uv will
+# requirements_mac.txt into it. No manual Python install required — uv will
 # fetch a Python for you if this Mac doesn't already have a suitable one.
 # Then installs the Rust toolchain (if missing) and builds the web agent's
 # native extension, so the first "web use" run doesn't stop on a missing cargo.
 #
 # How to run (any of these):
-#   bash MacOS_setup.sh          # simplest, works right after clone
-#   chmod +x MacOS_setup.sh && ./MacOS_setup.sh
-#   Finder → right-click MacOS_setup.sh → Open With → Terminal.app
+#   bash setup_mac.sh          # simplest, works right after clone
+#   chmod +x setup_mac.sh && ./setup_mac.sh
+#   Finder → right-click setup_mac.sh → Open With → Terminal.app
 #
 # After it finishes:
 #   source .venv/bin/activate
@@ -134,14 +134,14 @@ print_info "Python: $("$VENV_PYTHON" -c 'import sys; print("%d.%d.%d" % sys.vers
 # -----------------------------------------------------------------------------
 # Step 3 — install
 # -----------------------------------------------------------------------------
-print_step "STEP 3: Installing mac_requirements.txt"
+print_step "STEP 3: Installing requirements_mac.txt"
 
-if [ ! -f "mac_requirements.txt" ]; then
-    print_error "mac_requirements.txt not found in $(pwd)"
+if [ ! -f "requirements_mac.txt" ]; then
+    print_error "requirements_mac.txt not found in $(pwd)"
     exit 1
 fi
 
-if ! uv pip install --python "$VENV_PYTHON" -r mac_requirements.txt; then
+if ! uv pip install --python "$VENV_PYTHON" -r requirements_mac.txt; then
     print_error "Dependency installation failed."
     gui_alert "Installing dependencies failed.\n\nScroll up in Terminal for the error, then run this script again."
     exit 1
@@ -155,7 +155,7 @@ fi
 # import. No cargo means
 #     python main.py
 # dies with "cargo not found" the moment web use is selected, so the toolchain
-# belongs in setup rather than in a README step. windows_setup.bat has done
+# belongs in setup rather than in a README step. setup_windows.bat has done
 # this since it shipped; this is the macOS half of the same step.
 #
 # Unlike the Windows script, nothing from here on is fatal. By this point the
@@ -290,8 +290,8 @@ printf "    source %s/bin/activate\n" "$VENV_DIR"
 printf "\n"
 # iOS is optional and needs Xcode, so it lives in its own script rather than
 # making every install pay for a WebDriverAgent clone it may never use.
-if [ -f "ios_setup.sh" ]; then
+if [ -f "setup_ios.sh" ]; then
     print_info "Want to drive an iPhone or iPad? That needs Xcode and one extra step:"
-    printf "    bash ios_setup.sh            # fetches WebDriverAgent, checks the toolchain\n"
+    printf "    bash setup_ios.sh            # fetches WebDriverAgent, checks the toolchain\n"
     printf "\n"
 fi

@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 :: ============================================
 ::  AutoCua - Windows Dev Setup
 :: ============================================
-::  Installs uv, creates venv\, installs windows_requirements.txt into it, and -
+::  Installs uv, creates venv\, installs requirements_windows.txt into it, and -
 ::  only if you answer Y - installs the Interception kernel driver, then asks
 ::  before rebooting. Platform-shared files
 ::  (main.py, cli.py, frontend/index.html, frontend/script.js) detect the OS at
@@ -16,7 +16,7 @@ setlocal enabledelayedexpansion
 ::  re-run me" dead end: it uses a Python already on this machine, or downloads
 ::  one itself. It also replaces pip for the install below - same PyPI
 ::  packages, much faster, and it resolves the whole tree at once instead of
-::  one package at a time. MacOS_setup.sh is uv-based for the same reasons;
+::  one package at a time. setup_mac.sh is uv-based for the same reasons;
 ::  this keeps the two platforms on one toolchain.
 
 :: --- 1. Admin self-elevation ---
@@ -45,20 +45,20 @@ echo ============================================
 echo.
 
 :: --- 3. Sanity-check repo layout ---
-:: Required: main.py, windows_requirements.txt.
+:: Required: main.py, requirements_windows.txt.
 :: The Interception driver is NOT vendored in this repo - it is downloaded from
 :: the author's own GitHub release in step 9 (see THIRD_PARTY_NOTICES.md).
 :: Optional (proprietary): AutoCua\windows - skipped if absent.
 set "MISSING="
 if not exist "main.py" set "MISSING=main.py"
-if not exist "windows_requirements.txt" set "MISSING=windows_requirements.txt"
+if not exist "requirements_windows.txt" set "MISSING=requirements_windows.txt"
 
 if defined MISSING (
     echo [ERROR] Required file not found: %MISSING%
     echo.
     echo Are you running this from the repo root? Expected layout:
     echo   ^<repo^>\main.py
-    echo   ^<repo^>\windows_requirements.txt
+    echo   ^<repo^>\requirements_windows.txt
     echo.
     pause
     exit /b 1
@@ -114,7 +114,7 @@ echo   uv yourself and re-run:
 echo       winget install --id=astral-sh.uv -e
 echo.
 echo   If uv IS installed already, close this window, open a NEW terminal
-echo   (so it picks up the updated PATH) and re-run windows_setup.bat
+echo   (so it picks up the updated PATH) and re-run setup_windows.bat
 echo.
 pause
 exit /b 1
@@ -146,8 +146,8 @@ if !errorlevel! equ 0 (
 )
 
 :: --- 5. venv ---
-:: Exclusive upper bound, same reasoning as MacOS_setup.sh: pinned deps ship
-:: native wheels that lag the newest CPython, and windows_requirements.txt has
+:: Exclusive upper bound, same reasoning as setup_mac.sh: pinned deps ship
+:: native wheels that lag the newest CPython, and requirements_windows.txt has
 :: a hard floor too (numpy 2.4 needs >= 3.11). 3.13 is what AutoCua is
 :: developed and shipped on, and it is what uv picks from this range.
 set "PYSPEC=>=3.11,<3.14"
@@ -198,8 +198,8 @@ echo [i] !PYLINE!
 
 :: --- 6. Install dependencies ---
 echo.
-echo [*] Installing requirements from windows_requirements.txt ...
-uv pip install --python "venv\Scripts\python.exe" -r windows_requirements.txt
+echo [*] Installing requirements from requirements_windows.txt ...
+uv pip install --python "venv\Scripts\python.exe" -r requirements_windows.txt
 if !errorlevel! neq 0 (
     echo.
     echo [ERROR] Dependency installation failed. Fix the error above and re-run.
@@ -270,7 +270,7 @@ del /f /q "%RUSTUP_EXE%" >nul 2>&1
 for /f "usebackq delims=" %%p in (`where cargo 2^>nul`) do if not defined CARGO_EXE set "CARGO_EXE=%%p"
 if not defined CARGO_EXE (
     echo [ERROR] Rust installed but cargo is not on PATH in this session.
-    echo         Close this window, open a NEW terminal and re-run windows_setup.bat
+    echo         Close this window, open a NEW terminal and re-run setup_windows.bat
     pause
     exit /b 1
 )

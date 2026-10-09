@@ -1,16 +1,16 @@
 # AutoCua — standalone iOS install
 # =================================
 # Everything needed to run AutoCua for iPhone/iPad on its own (app UI +
-# connector + agent). Does NOT share or depend on mac_requirements.txt —
+# connector + agent). Does NOT share or depend on requirements_mac.txt —
 # install only this file if you want the iOS path.
 #
-#   bash MacOS_setup.sh          # creates .venv/ (desktop deps optional)
-#   bash ios_setup.sh            # installs this file + WebDriverAgent
+#   bash setup_mac.sh          # creates .venv/ (desktop deps optional)
+#   bash setup_ios.sh            # installs this file + WebDriverAgent
 #
 # Or install packages yourself into an existing venv:
 #   source .venv/bin/activate
-#   uv pip install --python .venv/bin/python -r ios_requirements.txt
-#   # or:  pip install -r ios_requirements.txt
+#   uv pip install --python .venv/bin/python -r requirements_ios.txt
+#   # or:  pip install -r requirements_ios.txt
 
 # macOS app shell (pywebview / AppKit titlebar hooks in app.py)
 pyobjc-framework-Cocoa

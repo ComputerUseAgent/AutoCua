@@ -15,9 +15,13 @@
 [![Browser agent](https://img.shields.io/badge/browser%20agent-Rust%20%2B%20a%20Chrome%20extension-b7410e)](https://github.com/AutoCua/AutoCua/blob/main/README.md#the-browser-agent)
 [![Models](https://img.shields.io/badge/models-48%20across%209%20providers-7048e8)](https://github.com/AutoCua/AutoCua/blob/main/README.md#providers-and-models)
 
+<table><tr><td>
+
 ```bash
 pip install AutoCua
 ```
+
+</td></tr></table>
 
 | | Windows | Linux | macOS |
 |:--|:--:|:--:|:--:|
@@ -156,7 +160,7 @@ task that hits an elevation prompt stops there.
 To enable it, pick one:
 
 ```bat
-windows_setup.bat
+setup_windows.bat
 ```
 
 from a checkout — it asks first (answer N and nothing is downloaded or installed), then downloads
@@ -183,7 +187,7 @@ sudo apt install python3-gi python3-cairo python3-gi-cairo python3-venv gir1.2-a
 ```
 
 On KDE, swap `xdg-desktop-portal-gnome` for `xdg-desktop-portal-kde`. Fedora, Arch and openSUSE
-ship the same packages under their own names; `linux_setup.sh` in the repository lists them.
+ship the same packages under their own names; `setup_linux.sh` in the repository lists them.
 
 Ubuntu and Debian refuse `pip install` into the system Python, so create a virtualenv first,
 inside the folder that holds your `main.py` and `.env` so the agent finds that `.env`. Build it on
@@ -218,8 +222,8 @@ The first scan also downloads the PP-OCRv6 models that read text the desktop doe
 git clone https://github.com/AutoCua/AutoCua.git
 cd AutoCua
 
-bash MacOS_setup.sh          # macOS
-windows_setup.bat            # Windows, self-elevates, asks before installing the kernel driver
+bash setup_mac.sh            # macOS
+setup_windows.bat            # Windows, self-elevates, asks before installing the kernel driver
 
 cp .env.example .env         # add your provider key
 python main.py
@@ -584,7 +588,7 @@ AutoCua turns that failure into the detector, then answers from kernel space.
 The driver is also the fallback whenever User Interface Privilege Isolation blocks ordinary
 input, for example when driving Windows Security.
 
-**How it is installed.** `windows_setup.bat` asks first — answer N and nothing is downloaded or
+**How it is installed.** `setup_windows.bat` asks first — answer N and nothing is downloaded or
 installed. On Y it downloads the author's own signed v1.0.1 release, verifies it against a
 **pinned SHA-256** and aborts rather than run an unverified kernel installer. It then binds the
 driver to the **built-in** keyboard and mouse only, at the device
@@ -912,7 +916,7 @@ chosen model, and Perplexity Sonar.
 ### macOS
 
 ```bash
-bash MacOS_setup.sh
+bash setup_mac.sh
 cp .env.example .env
 python main.py
 ```
@@ -939,7 +943,7 @@ you on first launch. A terminal run does not, so grant it yourself.
 ### Windows
 
 ```bat
-windows_setup.bat
+setup_windows.bat
 copy .env.example .env
 python main.py
 ```
@@ -953,7 +957,7 @@ Python 3.11 to 3.13 is what it asks uv for.
 ### Linux
 
 ```bash
-bash linux_setup.sh
+bash setup_linux.sh
 source .venv/bin/activate
 cp .env.example .env
 python main.py
@@ -981,7 +985,7 @@ are not asked again.
 ### iOS, optional
 
 ```bash
-bash ios_setup.sh
+bash setup_ios.sh
 ```
 
 Clones **WebDriverAgent** at pinned tag `v15.1.1` into `AutoCua/ios_connector/`. It is not
@@ -1118,7 +1122,7 @@ RemoteDesktop portal (the only route to a native Wayland window) with AT-SPI act
 fallback. The desktop app (`ui=True`) and the Telegram remote connection run on Linux too.
 Still missing: the domain skills macOS and Windows ship (Google and Microsoft services,
 LibreOffice Calc and others); Linux has the browser skill only. Install with pip (see
-[Linux, from pip](#linux-from-pip)) or set up a checkout with `bash linux_setup.sh` (see
+[Linux, from pip](#linux-from-pip)) or set up a checkout with `bash setup_linux.sh` (see
 [Requirements and setup](#requirements-and-setup)). From a checkout you can also try the scanner
 and controller on their own; these two self-checks are not in the wheel:
 
@@ -1150,8 +1154,8 @@ this repository. They are fetched from their authors at setup time or on first u
 
 | Component | How it reaches you | Licence |
 |---|---|---|
-| **WebDriverAgent**, by Facebook, Inc. and the [Appium](https://github.com/appium/WebDriverAgent) project | [`ios_setup.sh`](https://github.com/AutoCua/AutoCua/blob/main/ios_setup.sh) clones it at pinned tag `v15.1.1` | BSD 3-Clause, some files Apache 2.0 |
-| **Interception**, a Windows kernel input driver by [Francisco Lopes da Silva](https://github.com/oblitum/Interception) | `windows_setup.bat` downloads the author's signed `v1.0.1` release and verifies its SHA-256 | **Dual:** LGPL v3.0 non-commercial. **Commercial use needs a paid licence from the author** |
+| **WebDriverAgent**, by Facebook, Inc. and the [Appium](https://github.com/appium/WebDriverAgent) project | [`setup_ios.sh`](https://github.com/AutoCua/AutoCua/blob/main/setup_ios.sh) clones it at pinned tag `v15.1.1` | BSD 3-Clause, some files Apache 2.0 |
+| **Interception**, a Windows kernel input driver by [Francisco Lopes da Silva](https://github.com/oblitum/Interception) | `setup_windows.bat` downloads the author's signed `v1.0.1` release and verifies its SHA-256 | **Dual:** LGPL v3.0 non-commercial. **Commercial use needs a paid licence from the author** |
 | **PP-OCRv6** text detection and recognition models, by [PaddlePaddle](https://huggingface.co/PaddlePaddle) | `AutoCua/utils/ocr_models.py` downloads the two ONNX models from the author's Hugging Face repositories at pinned commits, SHA-256 verified, the first time a Linux scan needs them | Apache 2.0 |
 
 > If you ship or sell anything built on AutoCua that bundles or installs the Interception

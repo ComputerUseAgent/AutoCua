@@ -38,5 +38,5 @@ nuitka
 ordered-set
 zstandard
 
-# Optional iOS path: use standalone ios_requirements.txt instead
-# (full app stack + pymobiledevice3 — installed by ios_setup.sh).
+# Optional iOS path: use standalone requirements_ios.txt instead
+# (full app stack + pymobiledevice3 — installed by setup_ios.sh).

@@ -338,7 +338,7 @@ def run_agent(mode, provider, model, task, os=None,
 
     build = None
     if (kind, mobile_os) == ("mobile", "ios"):
-        # ios_setup.sh clones WebDriverAgent for a checkout; a pip install runs
+        # setup_ios.sh clones WebDriverAgent for a checkout; a pip install runs
         # no shell script, so fetch it the first time iOS is used. ABOVE the
         # extra_tasks branch below, which returns without ever reaching the
         # single-task path — simulation and hardware, one task or ten, all

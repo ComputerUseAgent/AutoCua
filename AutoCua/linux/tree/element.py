@@ -29,7 +29,7 @@ Standalone usage — the full scan, or one pipeline step at a time:
     python3 element.py walk         step 3: element walk only (prints what was found)
 
 Requires: python3-gi (Atspi 2.0, Gdk 3.0) and Pillow — see
-linux_requirements.txt. There is no OCR pass: AT-SPI already exposes text
+requirements_linux.txt. There is no OCR pass: AT-SPI already exposes text
 that would otherwise have to be recognised from pixels.
 """
 

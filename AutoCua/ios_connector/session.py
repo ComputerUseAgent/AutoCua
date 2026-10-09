@@ -249,7 +249,7 @@ class WDASession:
             return {"ok": False, "state": "error", "code": "no_pmd3",
                     "error": "pymobiledevice3 not found",
                     "hint": (f"running under {sys.executable} — looked beside it, in the "
-                             "checkout's .venv/, and on PATH. Install it with:  bash ios_setup.sh  "
+                             "checkout's .venv/, and on PATH. Install it with:  bash setup_ios.sh  "
                              "or start the app with the venv's Python:  "
                              "source .venv/bin/activate && python app.py")}
         if not udid:

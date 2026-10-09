@@ -16,14 +16,14 @@ only to AutoCua's own code, never to these components.
 |---|---|
 | **Author** | Francisco Lopes da Silva ("oblitum") |
 | **Upstream** | https://github.com/oblitum/Interception |
-| **How it reaches you** | **Not vendored in this repository.** `windows_setup.bat` downloads the author's own GitHub release directly to the user's machine. |
+| **How it reaches you** | **Not vendored in this repository.** `setup_windows.bat` downloads the author's own GitHub release directly to the user's machine. |
 | **Pinned version** | `v1.0.1` — asset `Interception.zip` |
 | **SHA-256** | `ad038963d6413055765128b0b931f6e765147c9916dba79e65d872b261f9af10` — verified before the installer is executed; setup aborts on mismatch |
 | **License** | **Dual-licensed.** Non-commercial use: LGPL v3.0. Commercial use: requires a **separate paid commercial license** obtained from the author. Both texts ship inside the downloaded archive under `licenses/`. |
 
 **This project does not redistribute Interception.** No Interception binary,
 library, header, or installer is committed to this repository, and none is
-included in the published wheel or source distribution. `windows_setup.bat`
+included in the published wheel or source distribution. `setup_windows.bat`
 downloads it to the user's own machine only after the user explicitly answers
 **Y** to an install prompt (answering **N** skips it entirely), and the
 downloaded contents are gitignored. Users obtain the driver from its author, over
@@ -43,7 +43,7 @@ to you.
 **What it does.** Interception is a Windows kernel-mode keyboard/mouse filter
 driver. AutoCua uses it for one purpose only: Windows' user-mode `SendInput`
 API cannot deliver input to the UAC secure desktop, so responding to a UAC
-elevation prompt requires kernel-mode input. `windows_setup.bat` documents the
+elevation prompt requires kernel-mode input. `setup_windows.bat` documents the
 registry changes the driver makes, and `interception_toggle.ps1 -Action unbind`
 removes them.
 
@@ -61,7 +61,7 @@ trusting them.
 |---|---|
 | **Authors** | Facebook, Inc. and the Appium project |
 | **Upstream** | https://github.com/appium/WebDriverAgent |
-| **How it reaches you** | **Not vendored in this repository.** [`ios_setup.sh`](ios_setup.sh) clones it from the Appium project directly onto the user's machine. |
+| **How it reaches you** | **Not vendored in this repository.** [`setup_ios.sh`](setup_ios.sh) clones it from the Appium project directly onto the user's machine. |
 | **Pinned version** | tag `v15.1.1` (`git clone --depth 1 --branch v15.1.1`) |
 | **License** | BSD 3-Clause, with some files under Apache License 2.0 — the `LICENSE` file arrives with the clone |
 
@@ -86,10 +86,10 @@ WebDriverAgent vendors upstream. It reaches users from Appium, not from us.
 
 ## 3. Python dependencies
 
-Runtime dependencies in [`mac_requirements.txt`](mac_requirements.txt),
-[`windows_requirements.txt`](windows_requirements.txt),
-[`linux_requirements.txt`](linux_requirements.txt), and
-[`ios_requirements.txt`](ios_requirements.txt) (optional iOS) are **not** vendored —
+Runtime dependencies in [`requirements_mac.txt`](requirements_mac.txt),
+[`requirements_windows.txt`](requirements_windows.txt),
+[`requirements_linux.txt`](requirements_linux.txt), and
+[`requirements_ios.txt`](requirements_ios.txt) (optional iOS) are **not** vendored —
 they are installed from PyPI at setup time and each remains under its own
 license. Notable among them, `interception-python` is a Python binding that
 requires the Interception driver covered in §1; the same dual-license terms

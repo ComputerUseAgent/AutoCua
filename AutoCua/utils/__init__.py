@@ -1,7 +1,7 @@
 """One-time setup steps the code does for itself.
 
-A checkout gets these from a shell script — MacOS_setup.sh / windows_setup.bat
-build the Rust extension, ios_setup.sh clones WebDriverAgent. A `pip install`
+A checkout gets these from a shell script — setup_mac.sh / setup_windows.bat
+build the Rust extension, setup_ios.sh clones WebDriverAgent. A `pip install`
 runs neither: a wheel is unpacked, never executed. So each step also has to be
 reachable from the first run that needs it, which is what lives here.
 

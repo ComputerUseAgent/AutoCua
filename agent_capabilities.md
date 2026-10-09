@@ -535,7 +535,7 @@ No sampling parameter is sent.
 |---|---|---|
 | Runs on | An iOS Simulator on this Mac | The paired iPhone or iPad (the most recently paired one) |
 | iOS version | `ios_version` picks the runtime (e.g. `"26.5"`) | Whatever the device runs; `ios_version` is ignored |
-| Needs | Full Xcode plus its iOS simulator platform, a separate one-time download of about 8.5 GB (`bash ios_setup.sh` offers it, or `xcodebuild -downloadPlatform iOS`): no signing, no Apple account, no pairing | One-time pairing in Settings → Connect Device (Team ID signing, WDA install) |
+| Needs | Full Xcode plus its iOS simulator platform, a separate one-time download of about 8.5 GB (`bash setup_ios.sh` offers it, or `xcodebuild -downloadPlatform iOS`): no signing, no Apple account, no pairing | One-time pairing in Settings → Connect Device (Team ID signing, WDA install) |
 | First start | Builds WebDriverAgent for the simulator once, a few minutes; later runs boot + attach in under a minute | Seconds (WDA is pre-installed at pairing) |
 | Agent behaviour | Same: identical WDA endpoints, tree, taps, screenshots | Same |
 

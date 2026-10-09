@@ -2,11 +2,11 @@
 #
 # This is the ONLY requirements file a Linux user installs — everything the
 # Linux code path can reach is declared here, grouped by feature, with a note
-# on what breaks when a group is missing. `bash linux_setup.sh` installs the
+# on what breaks when a group is missing. `bash setup_linux.sh` installs the
 # distro packages, uv, this file, the Rust toolchain and the web agent in one
 # go; the groups below are what that script feeds to pip.
 #
-# Versions are FLOOR-bound (>=), not pinned (==) like windows_requirements.txt.
+# Versions are FLOOR-bound (>=), not pinned (==) like requirements_windows.txt.
 # The venv here runs on the distro's Python — 3.14 on Ubuntu 26.04, newer on
 # whatever ships next — and a hard pin is exactly the thing that has no wheel
 # for a brand-new interpreter. Floors let pip take the newest wheel that
@@ -29,7 +29,7 @@
 #                    build-essential curl ca-certificates
 #
 # (KDE: swap xdg-desktop-portal-gnome for xdg-desktop-portal-kde. Fedora, Arch
-# and openSUSE equivalents live in linux_setup.sh, which installs all of this
+# and openSUSE equivalents live in setup_linux.sh, which installs all of this
 # for you — the line above is for installing by hand.)
 #
 # There is no pip-only route, and installing PyGObject with pip does not
@@ -49,7 +49,7 @@
 #
 # It DOES need python3-venv if you build the venv by hand. Measured on Ubuntu
 # 26.04: a stock python3 has no ensurepip, so `python3 -m venv .venv` dies
-# with "the virtual environment was not created successfully". linux_setup.sh
+# with "the virtual environment was not created successfully". setup_linux.sh
 # sidesteps this by using uv, which carries its own bootstrap. (An earlier
 # revision of this file claimed a plain `python3 -m venv` just works. It does
 # not, on the very distro this port targets.)
@@ -91,7 +91,7 @@ onnxruntime>=1.20
 # ======================================================================
 # AutoCua/linux/agent, AutoCua/linux/tool_registry and AutoCua/linux/sandbox
 # (ported from the macOS package), plus the shared AutoCua/llm_provider.
-# mac_requirements.txt declares the same set unpinned; the floors below are
+# requirements_mac.txt declares the same set unpinned; the floors below are
 # this file's own choice (see the header).
 #
 # All nine providers are reachable on Linux: openai and google-genai use
@@ -123,7 +123,7 @@ google-genai>=1.64
 #
 # pywebview uses its GTK backend here, which needs the WebKit typelib and
 # pycairo from the distro — `sudo apt install gir1.2-webkit2-4.1
-# python3-cairo` (linux_setup.sh does this). WebKit2 4.1 is the GTK3 build,
+# python3-cairo` (setup_linux.sh does this). WebKit2 4.1 is the GTK3 build,
 # the generation element.py pins. gi itself is a system package the venv
 # cannot see; service.py imports the Linux scanner before webview so that
 # element._add_system_gi_to_path has put it on sys.path first.
@@ -144,7 +144,7 @@ python-telegram-bot>=21.6
 # PyPI, not vendored). The screen video reads the portal's PipeWire stream
 # through GStreamer and the app video is a WebKit snapshot, both from the
 # distro: gir1.2-gstreamer-1.0 gstreamer1.0-pipewire gstreamer1.0-plugins-base
-# python3-gi-cairo (linux_setup.sh installs them; stock Ubuntu ships them).
+# python3-gi-cairo (setup_linux.sh installs them; stock Ubuntu ships them).
 # Without them the recording just leaves that video out.
 imageio-ffmpeg>=0.5
 
@@ -152,7 +152,7 @@ imageio-ffmpeg>=0.5
 # ======================================================================
 # 4. Deliberately NOT here
 # ======================================================================
-# Every one of these is in mac_requirements.txt or windows_requirements.txt.
+# Every one of these is in requirements_mac.txt or requirements_windows.txt.
 # Each is omitted on purpose; do not "fix" the file by adding them back.
 #
 # pyautogui, pynput
@@ -204,6 +204,6 @@ imageio-ffmpeg>=0.5
 # source. It needs the Rust toolchain (https://rustup.rs) and a C compiler
 # (`sudo apt install build-essential`) — ring compiles C, and
 # without `cc` the build dies with an unreadable linker error.
-# `bash linux_setup.sh` installs the apt packages, uv, this file, the
+# `bash setup_linux.sh` installs the apt packages, uv, this file, the
 # toolchain, and pre-builds the extension, so the first "web use" run does
 # not stop on "cargo not found".

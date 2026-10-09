@@ -5,14 +5,14 @@
 # Installs the distro packages AutoCua needs (the AT-SPI bindings the scanner
 # and controller read the desktop through, a C compiler and curl for the web
 # agent), installs uv (if missing), creates a local .venv/ on the distro's
-# Python, and installs linux_requirements.txt into it. Then installs the Rust
+# Python, and installs requirements_linux.txt into it. Then installs the Rust
 # toolchain (if missing) and builds the web agent's native extension, so the
 # first "web use" run doesn't stop on a missing cargo. The Linux twin of
-# MacOS_setup.sh, step for step.
+# setup_mac.sh, step for step.
 #
 # How to run (either):
-#   bash linux_setup.sh          # simplest, works right after clone
-#   chmod +x linux_setup.sh && ./linux_setup.sh
+#   bash setup_linux.sh          # simplest, works right after clone
+#   chmod +x setup_linux.sh && ./setup_linux.sh
 #
 # After it finishes:
 #   source .venv/bin/activate
@@ -81,7 +81,7 @@ as_root() {
 #       AT-SPI and Gdk bindings. The scanner (AutoCua/linux/tree) and the
 #       controller read and drive the desktop through them. pip cannot install
 #       these — the typelibs are GObject introspection data, not Python
-#       packages (linux_requirements.txt explains) — so they come from apt.
+#       packages (requirements_linux.txt explains) — so they come from apt.
 #   at-spi2-core
 #       The accessibility bus itself (org.a11y.Bus) and its registry daemon.
 #       Without it the bindings above import fine and every tree comes back
@@ -256,14 +256,14 @@ print_info "Python: $("$VENV_PYTHON" -c 'import sys; print("%d.%d.%d" % sys.vers
 # -----------------------------------------------------------------------------
 # Step 3 — install
 # -----------------------------------------------------------------------------
-print_step "STEP 3: Installing linux_requirements.txt"
+print_step "STEP 3: Installing requirements_linux.txt"
 
-if [ ! -f "linux_requirements.txt" ]; then
-    print_error "linux_requirements.txt not found in $(pwd)"
+if [ ! -f "requirements_linux.txt" ]; then
+    print_error "requirements_linux.txt not found in $(pwd)"
     exit 1
 fi
 
-if ! uv pip install --python "$VENV_PYTHON" -r linux_requirements.txt; then
+if ! uv pip install --python "$VENV_PYTHON" -r requirements_linux.txt; then
     print_error "Dependency installation failed."
     print_info  "Scroll up for the error, then run this script again."
     exit 1

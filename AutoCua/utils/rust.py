@@ -51,11 +51,11 @@ _MANIFEST = _WEB_DIR / "Cargo.toml"
 # then pre-build the extension, so the next run starts with everything in
 # place.
 if sys.platform == "win32":
-    _SETUP_HINT = "run:  windows_setup.bat"
+    _SETUP_HINT = "run:  setup_windows.bat"
 elif sys.platform == "darwin":
-    _SETUP_HINT = "run:  bash MacOS_setup.sh"
+    _SETUP_HINT = "run:  bash setup_mac.sh"
 elif sys.platform.startswith("linux"):
-    _SETUP_HINT = "run:  bash linux_setup.sh"
+    _SETUP_HINT = "run:  bash setup_linux.sh"
 else:
     _SETUP_HINT = "install Rust from https://rustup.rs and a C compiler"
 

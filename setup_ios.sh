@@ -10,22 +10,22 @@
 # clones it from the Appium project at a pinned tag, so you get it from its
 # authors rather than from us. See THIRD_PARTY_NOTICES.md.
 #
-# iOS support is OPTIONAL. Run MacOS_setup.sh first (it creates .venv/ and
+# iOS support is OPTIONAL. Run setup_mac.sh first (it creates .venv/ and
 # installs the desktop Python dependencies); only run this one if you want
 # AutoCua to drive an iPhone or iPad.
 #
-# Python packages for iOS are standalone in ios_requirements.txt (full app stack
-# + device libs — not shared with mac_requirements.txt). This script installs
+# Python packages for iOS are standalone in requirements_ios.txt (full app stack
+# + device libs — not shared with requirements_mac.txt). This script installs
 # them into .venv/. To install them yourself instead:
 #   source .venv/bin/activate
-#   uv pip install --python .venv/bin/python -r ios_requirements.txt
-#   # or:  pip install -r ios_requirements.txt
+#   uv pip install --python .venv/bin/python -r requirements_ios.txt
+#   # or:  pip install -r requirements_ios.txt
 #
 # How to run (any of these):
-#   bash ios_setup.sh            # simplest
-#   bash ios_setup.sh --force    # discard the existing clone and re-fetch
-#   bash ios_setup.sh --yes      # don't ask before installing Xcode's iOS platform
-#   chmod +x ios_setup.sh && ./ios_setup.sh
+#   bash setup_ios.sh            # simplest
+#   bash setup_ios.sh --force    # discard the existing clone and re-fetch
+#   bash setup_ios.sh --yes      # don't ask before installing Xcode's iOS platform
+#   chmod +x setup_ios.sh && ./setup_ios.sh
 #
 # After it finishes, the iOS connector UI does the signing — either from the
 # desktop app (Settings > Connect Device > iPhone) or standalone:
@@ -46,7 +46,7 @@ WDA_VERSION="v15.1.1"
 WDA_REPO="https://github.com/appium/WebDriverAgent.git"
 WDA_DIR="AutoCua/ios_connector/WebDriverAgent"
 VENV_DIR=".venv"
-IOS_REQUIREMENTS="ios_requirements.txt"
+IOS_REQUIREMENTS="requirements_ios.txt"
 
 FORCE=0
 ASSUME_YES=0
@@ -141,14 +141,14 @@ if [ -d "$WDA_DIR/WebDriverAgent.xcodeproj" ]; then
         print_ok "Already present at $WDA_DIR (version: $WDA_ACTUAL) — reusing"
         if [ "$WDA_ACTUAL" != "$WDA_VERSION" ]; then
             print_warn "That is not the pinned $WDA_VERSION."
-            print_info  "Re-fetch the tested version with:  bash ios_setup.sh --force"
+            print_info  "Re-fetch the tested version with:  bash setup_ios.sh --force"
         fi
     else
         # A hand-placed copy. Report it as unverified rather than claiming the
         # pinned version — we have no way to know what it actually is.
         WDA_ACTUAL="unverified (existing copy, not a git clone)"
         print_ok "Already present at $WDA_DIR (not a git clone) — reusing"
-        print_info "Replace it with the pinned clone using:  bash ios_setup.sh --force"
+        print_info "Replace it with the pinned clone using:  bash setup_ios.sh --force"
     fi
     print_info "Note: re-fetching resets project.pbxproj, so signing must be redone."
 else
@@ -209,7 +209,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Step 4 — device tooling (Python packages from ios_requirements.txt)
+# Step 4 — device tooling (Python packages from requirements_ios.txt)
 # -----------------------------------------------------------------------------
 print_step "STEP 4: Checking device tooling"
 
@@ -245,8 +245,8 @@ elif [ -x "$VENV_DIR/bin/python" ]; then
         fi
     fi
 else
-    print_warn "$VENV_DIR/ not found — run MacOS_setup.sh first."
-    print_info  "  bash MacOS_setup.sh"
+    print_warn "$VENV_DIR/ not found — run setup_mac.sh first."
+    print_info  "  bash setup_mac.sh"
     print_info  "Then either re-run this script, or install iOS packages alone with:"
     print_info  "  uv pip install --python $VENV_DIR/bin/python -r $IOS_REQUIREMENTS"
     MISSING_TOOLING=1
@@ -320,7 +320,7 @@ else
         fi
     else
         print_info "Skipped. Install it later with either of:"
-        printf "    bash ios_setup.sh --yes               # re-run and install without asking\n"
+        printf "    bash setup_ios.sh --yes               # re-run and install without asking\n"
         printf "    xcodebuild -downloadPlatform iOS      # or Xcode > Settings > Components\n"
         printf "    xcode-select -p                       # confirm the right Xcode is selected\n"
         printf "\n"

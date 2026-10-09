@@ -62,7 +62,7 @@ dependencies = [
     "imageio-ffmpeg>=0.5; sys_platform == 'linux' or sys_platform == 'win32'",
     # Linux computer use — OCR fusion (PP-OCRv6 via onnxruntime, see
     # AutoCua/linux/tree/ocr.py); AT-SPI itself comes from the distro's
-    # python3-gi, which pip cannot supply (linux_requirements.txt explains).
+    # python3-gi, which pip cannot supply (requirements_linux.txt explains).
     "onnxruntime>=1.20; sys_platform == 'linux'",
     # Windows computer use
     "pywinauto>=0.6.9; sys_platform == 'win32'",

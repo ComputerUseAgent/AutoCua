@@ -30,7 +30,7 @@ MAPVK_VK_TO_VSC = 0
 # reconnecting keyboard enumerated fine but delivered no input until reboot. That
 # repeatedly killed a user's keyboard (see INTERCEPTION_DRIVER.md).
 #
-# windows_setup.bat now binds the driver to the BUILT-IN keyboard alone, via a
+# setup_windows.bat now binds the driver to the BUILT-IN keyboard alone, via a
 # device-level UpperFilters on that one device. It is non-removable, so it takes
 # exactly one slot at boot and never another - and no other keyboard is ever
 # filtered, so no keyboard can be starved. Injection rides on that binding.
