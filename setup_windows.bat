@@ -7,7 +7,7 @@ setlocal enabledelayedexpansion
 ::  Installs uv, creates venv\, installs requirements_windows.txt into it, and -
 ::  only if you answer Y - installs the Interception kernel driver, then asks
 ::  before rebooting. Platform-shared files
-::  (main.py, cli.py, frontend/index.html, frontend/script.js) detect the OS at
+::  (main.py, cli.py, ui/index.html, ui/script.js) detect the OS at
 ::  runtime, so no file patching is needed - one checkout runs on both macOS
 ::  and Windows as-is.
 ::

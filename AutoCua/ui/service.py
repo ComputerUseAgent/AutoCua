@@ -4,7 +4,7 @@ the end of this file) the order-sensitive process bootstrap plus the pywebview
 window and main(). It used to be split across app.py and this file; app.py is
 gone and main.py is the only entry point:
 
-    UI = True   in main.py  ->  AutoCua.frontend.service.main()   (this file)
+    UI = True   in main.py  ->  AutoCua.ui.service.main()   (this file)
     UI = False  in main.py  ->  run_agent(...) in the terminal
 
 This module is imported ONLY for UI mode, so its import-time bootstrap
@@ -51,7 +51,7 @@ from AutoCua.memory_compression.memory_tracker import MemoryTracker
 
 # Markdown -> HTML for everything the agent writes to the user (scratchpad
 # notes, done/exit summaries). The single place that formatting happens.
-from AutoCua.frontend.markdown import render as md_render, render_notes as md_render_notes
+from AutoCua.ui.markdown import render as md_render, render_notes as md_render_notes
 # The desktop look while a run is live: lavender cursor + breathing edge glow on
 # Windows, the glow alone on macOS. Paired to the start/finally of every agent
 # run below; a no-op on Linux.
@@ -61,9 +61,9 @@ from AutoCua.utils import agent_glow
 # every machine run_recorder.supported() says can.
 from AutoCua.utils import run_recorder
 
-# This file lives at <repo>/AutoCua/frontend/service.py. Anchor everything
+# This file lives at <repo>/AutoCua/ui/service.py. Anchor everything
 # off these.
-_THIS_DIR = Path(__file__).resolve().parent     # <repo>/AutoCua/frontend
+_THIS_DIR = Path(__file__).resolve().parent     # <repo>/AutoCua/ui
 _REPO_ROOT = _THIS_DIR.parent.parent             # <repo>
 
 # =============================================================================
@@ -218,16 +218,16 @@ def setup_embedded_resources():
 # =============================================================================
 # Flask app initialization
 # =============================================================================
-def get_frontend_path():
-    """Get correct frontend path for dev mode (returns None in compiled mode).
-    This file lives IN frontend/, so the static folder is its own directory."""
+def get_ui_path():
+    """Get correct UI path for dev mode (returns None in compiled mode).
+    This file lives IN ui/, so the static folder is its own directory."""
     if IS_COMPILED:
         return None
     return str(_THIS_DIR)
 
-frontend_path = get_frontend_path()
-if frontend_path:
-    app = Flask(__name__, static_folder=frontend_path, static_url_path='')
+ui_path = get_ui_path()
+if ui_path:
+    app = Flask(__name__, static_folder=ui_path, static_url_path='')
 else:
     app = Flask(__name__)
 
@@ -237,7 +237,7 @@ logging.getLogger('werkzeug').setLevel(logging.ERROR)
 
 @app.before_request
 def _block_source_files():
-    """frontend/ is both the static-served folder AND where this service.py lives.
+    """ui/ is both the static-served folder AND where this service.py lives.
     Flask's static route (static_url_path='') would otherwise serve our own
     source — block any .py/.pyc/__pycache__ path before routing."""
     from flask import request
@@ -765,7 +765,7 @@ def relaunch_app():
             os._exit(0)
         else:
             python = sys.executable
-            os.execv(python, [python, "-m", "AutoCua.frontend.service"])
+            os.execv(python, [python, "-m", "AutoCua.ui.service"])
     except Exception:
         debug_exception("relaunch_app")
 
@@ -1112,7 +1112,7 @@ def serve_embedded_file(resource_path):
 @app.route('/')
 def index():
     if IS_COMPILED:
-        response = serve_embedded_file('frontend/index.html')
+        response = serve_embedded_file('ui/index.html')
         if response:
             return response
         return "index.html not found in embedded resources", 500
@@ -1123,7 +1123,7 @@ def index():
 def serve_static(filename):
     """Serve static files - from embedded resources in compiled mode, filesystem in dev mode"""
     if IS_COMPILED:
-        response = serve_embedded_file('frontend/' + filename)
+        response = serve_embedded_file('ui/' + filename)
         if response:
             return response
         response = serve_embedded_file(filename)
@@ -1174,7 +1174,7 @@ def serve_logo():
 def setup_page():
     """Serve the permission setup wizard (mirrors index())."""
     if IS_COMPILED:
-        response = serve_embedded_file('frontend/setup/setup.html')
+        response = serve_embedded_file('ui/setup/setup.html')
         if response:
             return response
         return "setup.html not found in embedded resources", 500
@@ -1498,7 +1498,7 @@ def send_text_to_frontend(text):
 def send_milestone_to_frontend(text):
     """Push ONE scratchpad line to the live 'tracking progress' stream.
 
-    Rendered through frontend/markdown.py, exactly like the run-end notes, so
+    Rendered through ui/markdown.py, exactly like the run-end notes, so
     the same entry looks the same while it streams and after it lands on the
     notes stage. render_notes() also strips the leading 'N. ' — the stream
     draws its own circle bullet."""
@@ -1574,7 +1574,7 @@ def send_agent_notes(content, session_id=None):
     """Show the agent's scratchpad as 'Agent Notes' on the notes stage (called
     when a run ends — completed or stopped).
 
-    Entries arrive as rendered HTML — frontend/markdown.py turns each note's
+    Entries arrive as rendered HTML — ui/markdown.py turns each note's
     Markdown into real bold/code/links/line breaks and escapes everything else,
     so showAgentNotes can assign it with innerHTML.
 
@@ -2271,7 +2271,7 @@ def run_shell_task(task, provider, model, api_key, run_pkg,
 
     Runs ONE task on the coder and BLOCKS until it finishes; call from a
     background thread. No main agent, no chat session, no conversation memory,
-    no todo/milestone watchers — the CLI stage (frontend/cli/) is the whole UI,
+    no todo/milestone watchers — the CLI stage (ui/cli/) is the whole UI,
     showing the same terminal / tool-chain / tracking-progress card the coder
     shows when the MAIN agent dispatches one, because it is the same event
     stream.
@@ -3356,7 +3356,7 @@ def get_chat(chat_id):
     memory bar's last context size and its fixed 300k budget) for the chat.
 
     Each exchange also carries `task_html`/`done_html` — the Markdown rendered
-    by frontend/markdown.py, same as the live run-end path — so a reopened chat
+    by ui/markdown.py, same as the live run-end path — so a reopened chat
     reads identically to the notes that were on screen when the run finished.
     The raw `task`/`done_message` stay in the payload for any consumer that
     wants plain text."""
@@ -3542,7 +3542,7 @@ if IS_COMPILED:
 # =============================================================================
 
 # Warm cream, used to tint the native title bar on BOTH macOS and Windows.
-# KEEP IN SYNC with the app/splash background in frontend (style.css `body` +
+# KEEP IN SYNC with the app/splash background in ui/ (style.css `body` +
 # `.splash-overlay`, setup.css, and intro_animation.html) so the bar and
 # content read as one unified surface.
 TITLEBAR_COLOR = "#F9F1EC"
@@ -3835,7 +3835,7 @@ def main():
             time.sleep(0.25)
 
     # Create the webview window. 1140 = ~900 content + the 240px left bar (see
-    # --left-bar-w in frontend/css/style.css). Don't pass x/y: pywebview's Edge
+    # --left-bar-w in ui/css/style.css). Don't pass x/y: pywebview's Edge
     # backend double-scales them on HiDPI; omitting position uses CenterScreen.
     win_w, win_h = 1140, 700
     # Gate the main app behind the permission setup wizard: if any required macOS
@@ -3941,7 +3941,7 @@ def main():
         relaunch_app()
 
 
-if __name__ == '__main__':          # python -m AutoCua.frontend.service (used by relaunch_app)
+if __name__ == '__main__':          # python -m AutoCua.ui.service (used by relaunch_app)
     try:
         main()
     except Exception:

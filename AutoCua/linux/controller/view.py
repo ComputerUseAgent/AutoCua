@@ -884,7 +884,7 @@ class ControllerView:
                                 stderr=subprocess.PIPE,
                                 env=cli_env,
                                 # OWN SESSION (setsid). Stop kills the coder by process
-                                # GROUP — frontend/service.py _kill_process_trees does
+                                # GROUP — ui/service.py _kill_process_trees does
                                 # os.killpg(os.getpgid(pid), SIGKILL) — so that the
                                 # minions the coder spawned go down with it. Without
                                 # this the coder inherits OUR group, getpgid() resolves

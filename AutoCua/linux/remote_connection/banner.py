@@ -689,7 +689,7 @@ body.coder #coderPanel { display: flex; flex-direction: column; gap: 8px; }
   })();
 
   // ── embedded coder terminal ──────────────────────────────────────────────
-  // Faithful port of the web frontend's CLI pill (frontend/script.js). Every
+  // Faithful port of the web frontend's CLI pill (ui/script.js). Every
   // incoming line is QUEUED and streamed letter-by-letter with pagination
   // (overflow -> hold -> clear -> continue), so the full real content flows by
   // rather than just the latest fragment. The top line shows the coder's REAL

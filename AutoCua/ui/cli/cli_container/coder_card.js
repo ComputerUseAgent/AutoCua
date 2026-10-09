@@ -16,7 +16,7 @@
     }
 
     // NO-DROP, CONSTANT-SPEED line streamer. A faithful port of the proven CLI pill
-    // (frontend/script.js _pumpCliRunner) and the native remote-connection banner
+    // (ui/script.js _pumpCliRunner) and the native remote-connection banner
     // (remote_connection/banner.py pump): every incoming line is QUEUED and played one at a
     // time, each letter revealed left-to-right at a FIXED cadence — the pace NEVER depends on
     // line length or how much is queued. Long lines PAGINATE (overflow → hold → clear →

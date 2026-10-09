@@ -14,7 +14,7 @@
     var zoneEl = null, flowEl = null, treeEl = null, frontier = -1;
 
     /* ---------------- blazing-fast typewriter (from bottom_left) ----------------
-       Entries arrive as HTML (frontend/markdown.py). Typing markup character by
+       Entries arrive as HTML (ui/markdown.py). Typing markup character by
        character would show raw tags mid-animation, so we type the PLAIN text and
        swap the real markup in on the final tick — the line lands formatted. */
     function typeText(el, text, onTick, markup) {

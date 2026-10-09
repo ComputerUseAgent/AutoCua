@@ -3,7 +3,7 @@
 // container/top_left): window.showAgentNotes renders the numbered scratchpad
 // into the stage and reveals it; window.hideAgentNotes hides + clears it.
 //
-// SHOW on:  • run end — frontend/service.py pushes window.showAgentNotes(...)
+// SHOW on:  • run end — ui/service.py pushes window.showAgentNotes(...)
 //           • stop-button click (the stop orb iframe posts 'pcbtn:clicked' to the
 //             app window — passive listener; chat_input.js keeps handling the stop.
 //             The stage appears immediately, the notes land when the backend pushes)
@@ -46,7 +46,7 @@
                 num.textContent = (i + 1) + '.';
                 var txt = document.createElement('span');
                 txt.className = 'agent-note-text md';
-                // HTML, not text: frontend/markdown.py already rendered the
+                // HTML, not text: ui/markdown.py already rendered the
                 // note's Markdown and escaped everything the model wrote.
                 txt.innerHTML = String(t);
                 row.appendChild(num);

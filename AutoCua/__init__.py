@@ -31,7 +31,7 @@ RULES for the code below:
     in the Windows GUI-subsystem binary. Log to `logger` (stderr) instead.
   * Never use the builtin open() on a path under AutoCua_data: compiled builds
     monkey-patch builtins.open to resolve embedded resources by path suffix
-    (frontend/service.py setup_embedded_resources), and a matching write is
+    (ui/service.py setup_embedded_resources), and a matching write is
     silently swallowed into a StringIO. Use Path.read_bytes / write_bytes /
     os.replace here.
 """
@@ -270,7 +270,7 @@ def vault_file() -> Path:
 # =============================================================================
 # Every consumer must agree on this ONE path, or the Settings panel writes a key
 # the agent can't read. Before this moved there were three different answers in
-# the tree: frontend/service.py and windows/llm_provider walked up to
+# the tree: ui/service.py and windows/llm_provider walked up to
 # AutoCua/api_key/ (right), while mac and ios llm_provider stopped one
 # level short at <pkg>/api_key/ (a folder that never existed, so Vertex config
 # silently read back empty on those platforms). One function, one answer.

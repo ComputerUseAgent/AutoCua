@@ -1515,7 +1515,7 @@ def finalize_all():
     """The app is closing mid-run: the run thread is a daemon and never
     reaches its finally, so finish every live recording here. An mp4 is only
     playable once its writer is released. On macOS also wired to the window's
-    closing event (frontend/service.py), because Cmd+Q ends in NSApplication's
+    closing event (ui/service.py), because Cmd+Q ends in NSApplication's
     terminate:, which calls C exit() and skips atexit. Windows needs no more
     than atexit: closing the window returns from webview.start() and the
     interpreter exits normally, and its closing event runs on the UI thread,

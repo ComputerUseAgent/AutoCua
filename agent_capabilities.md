@@ -734,7 +734,7 @@ terminal run.
 ## Under the hood
 
 `run_agent` checks `ui` before anything else. When it is `True` it imports
-`AutoCua.frontend.service` and calls its `main()`: the order-sensitive process
+`AutoCua.ui.service` and calls its `main()`: the order-sensitive process
 bootstrap runs at that import, Flask starts on port 5000 in a daemon thread
 (`127.0.0.1` on every OS, never the LAN, and it refuses requests from other
 hostnames or websites; any other process already on port 5000 is stopped first), the pywebview window

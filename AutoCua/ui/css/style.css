@@ -67,7 +67,7 @@ body {
 }
 
 /* Screenshot / globe / shell now live in the top-left container
-   (frontend/container/top_left/): the globe + shell JS in globe_shell.js and ALL
+   (ui/container/top_left/): the globe + shell JS in globe_shell.js and ALL
    their CSS in globe_shell.css (they swap in over the screenshot). The shared
    .liquidGlass-* layers below stay — the CLI pills use them. */
 
@@ -416,7 +416,7 @@ body {
    Settings Button - Circular Liquid Glass
    --------------------------------------------------------------
 */
-/* .settings-btn / .settings-icon styles moved to frontend/settings/settings.css
+/* .settings-btn / .settings-icon styles moved to ui/settings/settings.css
    (the settings button is now a component living in the left bar footer). */
 
 /* --------------------------------------------------------------
@@ -1568,7 +1568,7 @@ body.settings-open #chatWrapper {
 }
 
 /* Hide the LLM dropdown chip while pills own the screen. (The settings cog's
-   cli-mode hide now lives in frontend/settings/settings.css.) */
+   cli-mode hide now lives in ui/settings/settings.css.) */
 body.cli-mode .glass-button-wrapper {
     opacity: 0;
     pointer-events: none;

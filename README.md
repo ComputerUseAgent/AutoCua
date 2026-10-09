@@ -1080,7 +1080,7 @@ AutoCua_data/              YOUR data: chats, keys, skills, browser profiles, vau
 
 AutoCua/
   agent_launcher.py        mode to AgentService dispatch, parallel fan-out, the ui flag
-  frontend/                the desktop app: Flask, pywebview, chat, stages, skills, settings
+  ui/                      the desktop app: Flask, pywebview, chat, stages, skills, settings
   default_skills/          the shipped skills, read-only; yours go in AutoCua_data/skills/
   llm_provider/            every LLM endpoint and the model tables, one copy for all platforms
   mac/  windows/           computer use: agent, controller, tree, sandbox, tool_registry
