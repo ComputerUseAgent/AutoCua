@@ -25,8 +25,9 @@ button, input, textarea, select, a, [role="button"],
     width: 100vw;
     height: 100vh;
     z-index: 99999;
-    /* Same cream as the app background so the splash blends seamlessly. */
-    background: #F9F1EC;
+    /* Same off-white as the app background and intro_animation.html, so the
+       splash blends seamlessly. */
+    background: #FDFCFA;
     /* 0.999, NOT 1: an opaque overlay lets Chromium occlusion-cull the app
        beneath, so the first fade frame had to rasterise every backdrop-filter
        glass card at once — a burst that jittered the handoff right as the
@@ -55,10 +56,10 @@ button, input, textarea, select, a, [role="button"],
 body {
     margin: 0;
     padding: 0;
-    /* Clean, professional light background. Kept in sync with the native
-       title-bar tint (TITLEBAR_COLOR in app.py) so the bar and content area
-       read as one unified surface. */
-    background-color: #F9F1EC;
+    /* Just off white, the splash's colour (intro_animation.html). Kept in
+       sync with the title bar (TITLEBAR_COLOR in service.py) so the bar and
+       content area read as one unified surface. */
+    background-color: #FDFCFA;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -437,7 +438,7 @@ body {
     right: 0;
     bottom: 0;
     left: var(--left-bar-w);
-    background: #F9F1EC;
+    background: #FDFCFA;
     z-index: 100;
 
     opacity: 0;

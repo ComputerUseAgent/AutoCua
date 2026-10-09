@@ -23,10 +23,11 @@
     z-index: 30;
     box-sizing: border-box;
 
-    /* Rounded rectangle in the app's exact cream, so the bar reads as one
-       surface with the page/titlebar (see TITLEBAR_COLOR in app.py). The rim
-       shine + drop shadow are what separate it from the background now. */
-    background: #F9F1EC;
+    /* Rounded rectangle in the app's exact background colour, so the bar
+       reads as one surface with the page/titlebar (see TITLEBAR_COLOR in
+       service.py). The rim shine + drop shadow are what separate it from the
+       background now. */
+    background: #FDFCFA;
     border-radius: var(--glass-radius);
     overflow: hidden;
     box-shadow: 0 clamp(4px, 1vw, 8px) clamp(16px, 3vw, 32px) rgba(0, 0, 0, 0.1);
@@ -53,8 +54,8 @@
     box-shadow: 0 clamp(6px, 1.5vw, 12px) clamp(20px, 4vw, 40px) rgba(0, 0, 0, 0.15);
 }
 
-/* The bar is now a FLAT cream panel. The grey glass tint would dull that cream
-   away from the exact #F9F1EC, and the blur + SVG displacement have nothing to
+/* The bar is now a FLAT off-white panel. The grey glass tint would dull it
+   away from the exact #FDFCFA, and the blur + SVG displacement have nothing to
    act on (blurring a flat colour returns the same colour) — they would only cost
    GPU. Drop both here; the shine rim above still draws the card's edge. Same
    reasoning as the setup card in setup/setup.css. */
@@ -89,19 +90,17 @@
     padding-bottom: clamp(8px, 1vw, 12px);
 }
 
-/* AutoCua brand logo (/logo.png, the 480x480 app icon), top-left of the
-   bar. aspect-ratio matches the file's real pixels so the box is reserved at
-   the right width before the image loads — no reflow of the header when it
-   arrives. The shadow lifts the tile off the bar, whose cream is close to the
-   icon's own background. */
+/* AutoCua's mark, top-left of the bar: the splash's logo shape
+   (logo_mark.svg) cut out of a soft silver-grey gradient. A mask, so the
+   colour lives here; its clip-paths keep the edges sharp at any size. */
 .left-bar-logo {
     height: clamp(26px, 3vw, 34px);
-    width: auto;
     aspect-ratio: 1 / 1;
     flex-shrink: 0;
     display: block;
-    object-fit: contain;
-    filter: drop-shadow(0.5px 0.8px 0.8px rgba(79, 54, 63, 0.18));
+    background: linear-gradient(160deg, #BFC3CA 0%, #9499A2 100%);
+    -webkit-mask: url("logo_mark.svg") center / 100% 100% no-repeat;
+    mask: url("logo_mark.svg") center / 100% 100% no-repeat;
     -webkit-user-select: none;
     user-select: none;
 }

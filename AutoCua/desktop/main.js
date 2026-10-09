@@ -22,7 +22,7 @@ if (typeof require('electron') === 'string') {
   process.exit(result.status ?? 1);
 }
 
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BaseWindow, WebContentsView, nativeImage, nativeTheme, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -34,16 +34,19 @@ const readline = require('node:readline');
 // backend runs from ROOT, so `-m AutoCua...` loads this same copy of AutoCua.
 const PACKAGE = path.resolve(__dirname, '..');
 const ROOT = path.dirname(PACKAGE);
-const BACKGROUND = '#F9F1EC';   // TITLEBAR_COLOR in AutoCua/ui/service.py
+const BACKGROUND = '#FDFCFA';   // TITLEBAR_COLOR in AutoCua/ui/service.py
 const LOGO = path.join(PACKAGE, 'logo', 'logo.png');
 const PENDING_MAX = 500;
+const MAC = process.platform === 'darwin';
 
-// AUTOCUA_DESKTOP_SMOKE=<file.png>: a test run with no window on screen. It
+// AUTOCUA_DESKTOP_SMOKE=<file.png>: a test run with nothing visible on screen. It
 // waits out the splash, checks that a pushed script runs, saves a screenshot
 // and a <file>.json report, and quits.
 const SMOKE = process.env.AUTOCUA_DESKTOP_SMOKE || '';
 
 let win = null;
+let page = null;       // the app, in a view of the window
+let titleBar = null;   // macOS: the strip above it, in the app's colour
 let backend = null;
 let quitting = false;
 let relaunching = false;
@@ -170,6 +173,7 @@ function handle(event) {
       win.show();
       app.focus({ steal: true });
       win.focus();
+      page.webContents.focus();
       break;
     case 'close':
       win.close();
@@ -183,7 +187,7 @@ function handle(event) {
 // Fire and forget, like the backend's evaluate_js: nothing waits on it.
 function run(code) {
   if (!win) return;
-  win.webContents.executeJavaScript(code).catch((err) => {
+  page.webContents.executeJavaScript(code).catch((err) => {
     console.error('[desktop] pushed script failed:', err && err.message);
   });
 }
@@ -209,22 +213,53 @@ async function relaunch() {
 }
 
 function load(url) {
-  win.loadURL(url).catch((err) => {
+  page.webContents.loadURL(url).catch((err) => {
     // ERR_ABORTED when the page navigates on its own while loading (the setup
     // wizard does); anything else is worth seeing.
     if (err.code !== 'ERR_ABORTED') console.error('[desktop] load failed:', err.message);
   });
 }
 
+// The height of the system title bar on this Mac (it differs between macOS
+// versions): what a window with the standard bar loses to it.
+function systemTitleBarHeight() {
+  const probe = new BaseWindow({ show: false, width: 400, height: 300 });
+  const height = probe.getSize()[1] - probe.getContentSize()[1];
+  probe.destroy();
+  return height > 0 ? height : 28;
+}
+
+// The logo fills its whole square, but a macOS icon keeps a clear margin round
+// its shape (Apple's grid: an 824 px shape on a 1024 px canvas). Unpadded, it
+// showed bigger than every other icon in the Dock.
+function dockIcon() {
+  const logo = nativeImage.createFromPath(LOGO);
+  if (logo.isEmpty()) return null;
+  const CANVAS = 1024;
+  const SHAPE = 824;
+  const at = (CANVAS - SHAPE) / 2;
+  const shape = logo.resize({ width: SHAPE, height: SHAPE, quality: 'best' }).toBitmap();
+  const out = Buffer.alloc(CANVAS * CANVAS * 4);   // transparent
+  for (let y = 0; y < SHAPE; y++) {
+    shape.copy(out, ((at + y) * CANVAS + at) * 4, y * SHAPE * 4, (y + 1) * SHAPE * 4);
+  }
+  return nativeImage.createFromBitmap(out, { width: CANVAS, height: CANVAS });
+}
+
 async function createWindow() {
   const url = await startBackend();
-  win = new BrowserWindow({
+  win = new BaseWindow({
     width: 1140,
     height: 700,
     title: 'AutoCua',
     backgroundColor: BACKGROUND,
     show: false,
     acceptFirstMouse: true,   // macOS: the click that focuses the window lands too
+    // macOS: no system bar (it can't take the app's colour); titleBar below
+    // stands in for it, and the traffic lights stay where they were.
+    ...(MAC ? { titleBarStyle: 'hidden' } : {}),
+  });
+  page = new WebContentsView({
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -233,24 +268,66 @@ async function createWindow() {
       backgroundThrottling: false,
     },
   });
-  if (!SMOKE) win.once('ready-to-show', () => win.show());
-  win.webContents.setWindowOpenHandler(({ url: target }) => {
+  page.setBackgroundColor(BACKGROUND);
+  // The page gets the size it had under the system bar; the strip above it
+  // is the app's colour and drags the window, so bar and page read as one
+  // surface, like the pywebview window's tinted bar.
+  let bar = 0;
+  if (MAC) {
+    bar = systemTitleBarHeight();
+    titleBar = new WebContentsView({
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    titleBar.setBackgroundColor(BACKGROUND);
+    titleBar.webContents.loadURL('data:text/html,' + encodeURIComponent(
+      `<style>html,body{margin:0;height:100%;background:${BACKGROUND};-webkit-app-region:drag}</style>`));
+    win.contentView.addChildView(titleBar);
+  }
+  win.contentView.addChildView(page);
+  const layout = () => {
+    const [width, height] = win.getContentSize();
+    const top = win.isFullScreen() ? 0 : bar;   // full screen has no bar
+    if (titleBar) titleBar.setBounds({ x: 0, y: 0, width, height: top });
+    page.setBounds({ x: 0, y: top, width, height: Math.max(0, height - top) });
+  };
+  layout();
+  win.on('resize', layout);
+  win.on('enter-full-screen', layout);
+  win.on('leave-full-screen', layout);
+
+  page.webContents.setWindowOpenHandler(({ url: target }) => {
     shell.openExternal(target);
     return { action: 'deny' };
   });
-  win.webContents.on('did-navigate', () => {
+  page.webContents.on('did-navigate', () => {
     pageReady = false;
   });
-  win.webContents.on('dom-ready', () => {
+  page.webContents.on('dom-ready', () => {
     pageReady = true;
     pending.splice(0).forEach(run);
     if (SMOKE) smokeCheck();
   });
   win.on('closed', () => {
+    // A window's views keep their pages until they are closed themselves.
+    for (const view of [page, titleBar]) {
+      if (view && !view.webContents.isDestroyed()) view.webContents.close();
+    }
     win = null;
   });
   subscribe(new URL(url).origin);
   load(url);
+  if (SMOKE) {
+    // Nothing to see: the window is invisible and takes no focus or clicks,
+    // but it is drawn, which the page capture needs.
+    win.setOpacity(0);
+    win.setIgnoreMouseEvents(true);
+    win.showInactive();
+  } else {
+    // Everything on screen is the app's colour until the splash paints, so
+    // the window can show at once.
+    win.show();
+    page.webContents.focus();
+  }
 }
 
 function smokeCheck() {
@@ -260,16 +337,21 @@ function smokeCheck() {
   setTimeout(() => {
     handle({ type: 'js', code: "document.title = 'AutoCua (pushed script ran)'" });
     setTimeout(async () => {
+      const report = {
+        url: page.webContents.getURL(),
+        title: page.webContents.getTitle(),
+        eventsConnected,
+        electron: process.versions.electron,
+        chrome: process.versions.chrome,
+      };
       try {
-        const image = await win.webContents.capturePage();
+        const image = await page.webContents.capturePage();
         fs.writeFileSync(SMOKE, image.toPNG());
-        fs.writeFileSync(SMOKE + '.json', JSON.stringify({
-          url: win.webContents.getURL(),
-          title: win.webContents.getTitle(),
-          eventsConnected,
-          electron: process.versions.electron,
-          chrome: process.versions.chrome,
-        }, null, 2));
+      } catch (err) {
+        report.captureError = err.message;
+      }
+      try {
+        fs.writeFileSync(SMOKE + '.json', JSON.stringify(report, null, 2));
       } catch (err) {
         console.error('[desktop] smoke check failed:', err.message);
       }
@@ -288,9 +370,16 @@ if (!app.requestSingleInstanceLock()) {
     win.focus();
   });
   app.whenReady().then(() => {
-    if (process.platform === 'darwin' && app.dock) {
-      if (SMOKE) app.dock.hide();
-      else if (fs.existsSync(LOGO)) app.dock.setIcon(LOGO);
+    // The app is light only: keep the traffic lights and menus light on its
+    // off-white bar in Dark Mode too, as the pywebview window pins Aqua.
+    if (MAC) nativeTheme.themeSource = 'light';
+    if (MAC && app.dock) {
+      if (SMOKE) {
+        app.dock.hide();
+      } else {
+        const icon = dockIcon();
+        if (icon) app.dock.setIcon(icon);
+      }
     }
     return createWindow();
   }).catch((err) => {

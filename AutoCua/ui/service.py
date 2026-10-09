@@ -3668,11 +3668,13 @@ if IS_COMPILED:
 # Native window styling + centering (the "critical bit")
 # =============================================================================
 
-# Warm cream, used to tint the native title bar on BOTH macOS and Windows.
-# KEEP IN SYNC with the app/splash background in ui/ (style.css `body` +
-# `.splash-overlay`, setup.css, and intro_animation.html) so the bar and
-# content read as one unified surface.
-TITLEBAR_COLOR = "#F9F1EC"
+# Just off white, used to tint the native title bar (pywebview) on macOS,
+# Windows and Linux; the Chromium shell draws its own bar in it
+# (AutoCua/desktop/main.js BACKGROUND). KEEP IN SYNC with the app/splash
+# background in ui/ (style.css `body` + `.splash-overlay`, left_bar.css,
+# skills.css, setup.css and intro_animation.html) so the bar and content read
+# as one unified surface.
+TITLEBAR_COLOR = "#FDFCFA"
 
 
 def _style_macos_titlebar():

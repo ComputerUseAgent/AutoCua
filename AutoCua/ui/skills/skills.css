@@ -75,8 +75,8 @@
     display: flex;
     /* OPAQUE. The host zone is transparent, so without this the four zones
        behind it (and the shell terminal) show straight through the skills
-       list. Same cream as <body> so the stage reads as the app surface. */
-    background: #F9F1EC;
+       list. Same colour as <body> so the stage reads as the app surface. */
+    background: #FDFCFA;
 }
 
 /* ── Skills owns the screen while it's open ───────────────────────────────

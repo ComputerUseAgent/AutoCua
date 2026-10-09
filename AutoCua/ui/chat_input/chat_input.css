@@ -93,9 +93,9 @@
     padding-bottom: calc(var(--pad-y) + var(--orb) + var(--tools-gap));
     /* Opaque fill (no backdrop-filter: it flickers in WebView2/Chromium while
        the top-left globe/shell animations run — same reasoning as the old .chat-input).
-       A much lighter cream than the page: the base #F9F1EC (see TITLEBAR_COLOR in
-       app.py) lifted ~65% toward white, keeping its warm R>G>B ordering so the box
-       reads as the same cream family, just airier. */
+       A light warm cream: the old page cream #F9F1EC lifted ~65% toward white,
+       keeping its warm R>G>B ordering. Left as it was when the page moved to
+       the splash's off-white #FDFCFA. */
     background: rgba(253, 250, 248, 0.96);
     border-radius: clamp(16px, 1.8vw, 22px);
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);

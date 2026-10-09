@@ -10,11 +10,9 @@
     <div class="liquidGlass-content left-bar-content">
         <!-- Header: AutoCua logo (top-left) + GitHub star pill (top-right). -->
         <div class="left-bar-header" id="leftBarHeader">
-            <!-- Brand mark: the rounded app icon, served by Flask from
-                 AutoCua/logo/logo.png (route /logo.png) so
-                 the artwork has ONE source of truth instead of a hand-copied
-                 SVG that has to be re-synced whenever the icon changes. -->
-            <img class="left-bar-logo" src="/logo.png" alt="AutoCua" draggable="false">
+            <!-- Brand mark: the splash's logo shape in grey (left_bar.css
+                 draws it from left_bar/logo_mark.svg). -->
+            <span class="left-bar-logo" role="img" aria-label="AutoCua"></span>
             <!-- Live stargazer count; clicking opens the repo in the system
                  browser via /api/open-github. Wired by left_bar.js. -->
             <button class="gh-star-pill" id="ghStarPill" type="button" aria-label="AutoCua on GitHub" title="AutoCua on GitHub">

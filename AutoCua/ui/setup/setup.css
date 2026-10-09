@@ -1,13 +1,13 @@
 /* =============================================================================
    AutoCua — permission setup wizard
    Standalone page. Loads /css/style.css first (glass layers, :root vars, fonts,
-   .app-toast), then this. Cream #F9F1EC surface so it reads as one with the
-   splash + main app + native titlebar.
+   .app-toast), then this. Off-white #FDFCFA surface so it reads as one with
+   the splash + main app + titlebar.
    ============================================================================= */
 
 .setup-body {
     margin: 0;
-    background: #F9F1EC;
+    background: #FDFCFA;
     overflow: hidden;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: rgba(80, 80, 80, 0.92);
@@ -19,7 +19,7 @@
 .setup-overlay {
     position: fixed;
     inset: 0;
-    background: #F9F1EC;
+    background: #FDFCFA;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -60,7 +60,7 @@
 .setup-prep[hidden],
 .setup-main[hidden] { display: none !important; }
 
-/* The card sits on a FLAT #F9F1EC field, so the backdrop blur + SVG displacement
+/* The card sits on a FLAT #FDFCFA field, so the backdrop blur + SVG displacement
    filter produce NO visible effect — they only cost GPU and make clicks laggy in
    WKWebView (have-to-click-twice). Drop them; keep a solid panel + the shine edge. */
 .setup-card { background: rgba(244, 243, 239, 0.96); }
