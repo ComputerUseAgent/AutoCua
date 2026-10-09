@@ -306,9 +306,9 @@ def run_agent(mode, provider, model, task, os=None,
     ui: True opens the desktop app (AutoCua/ui) instead of running
     `task` in the terminal. Every other argument is ignored — the app has its
     own mode/model/task controls — and the call returns once its window closes.
-    It opens in the Chromium shell (desktop/, `npm install` there once) when
-    that is installed, else in the pywebview window; AUTOCUA_UI=webview forces
-    the pywebview one.
+    It opens in the Chromium shell (AutoCua/desktop, `npm install` there once)
+    when that is installed, else in the pywebview window; AUTOCUA_UI=webview
+    forces the pywebview one.
 
     device ("mobile use, ios" only): "simulation" (the default) runs on an iOS
     Simulator — ios_version picks the runtime (e.g. "26.5"; omitted = newest
@@ -333,10 +333,8 @@ def run_agent(mode, provider, model, task, os=None,
     closed when the agent terminates (success, error, or Ctrl+C).
     """
     if ui:
-        from AutoCua.ui.desktop import launch_desktop
-        if not launch_desktop():
-            from AutoCua.ui.service import main as launch_ui
-            launch_ui()
+        from AutoCua.ui.service import main as launch_ui
+        launch_ui()
         return {"status": "success", "message": "desktop app closed"}
 
     kind, mobile_os = _parse_mode(mode, os)

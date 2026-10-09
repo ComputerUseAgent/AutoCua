@@ -29,9 +29,13 @@ const http = require('node:http');
 const path = require('node:path');
 const readline = require('node:readline');
 
-const REPO = path.resolve(__dirname, '..');
+// This folder ships inside the AutoCua package (AutoCua/desktop). ROOT holds
+// that package: the checkout, or site-packages after a pip install. The
+// backend runs from ROOT, so `-m AutoCua...` loads this same copy of AutoCua.
+const PACKAGE = path.resolve(__dirname, '..');
+const ROOT = path.dirname(PACKAGE);
 const BACKGROUND = '#F9F1EC';   // TITLEBAR_COLOR in AutoCua/ui/service.py
-const LOGO = path.join(REPO, 'AutoCua', 'logo', 'logo.png');
+const LOGO = path.join(PACKAGE, 'logo', 'logo.png');
 const PENDING_MAX = 500;
 
 // AUTOCUA_DESKTOP_SMOKE=<file.png>: a test run with no window on screen. It
@@ -51,8 +55,8 @@ const pending = [];   // scripts that arrived while no page was ready for them
 function pythonExecutable() {
   if (process.env.AUTOCUA_PYTHON) return process.env.AUTOCUA_PYTHON;
   const venv = process.platform === 'win32'
-    ? path.join(REPO, '.venv', 'Scripts', 'python.exe')
-    : path.join(REPO, '.venv', 'bin', 'python');
+    ? path.join(ROOT, '.venv', 'Scripts', 'python.exe')
+    : path.join(ROOT, '.venv', 'bin', 'python');
   if (fs.existsSync(venv)) return venv;
   return process.platform === 'win32' ? 'python' : 'python3';
 }
@@ -61,7 +65,7 @@ function pythonExecutable() {
 function startBackend() {
   return new Promise((resolve, reject) => {
     const child = spawn(pythonExecutable(), ['-m', 'AutoCua.ui.service', '--desktop'], {
-      cwd: REPO,
+      cwd: ROOT,
       env: { ...process.env, PYTHONUNBUFFERED: '1' },
       stdio: ['pipe', 'pipe', 'inherit'],
     });

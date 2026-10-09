@@ -737,10 +737,12 @@ Parallel mode is for `run_agent`. The desktop app runs one agent at a time.
 
 ## The desktop app
 
-`ui=True` opens a native window: a Flask server rendered inside
-[pywebview](https://pywebview.flowrl.com/), 1140 by 700, with the OS title bar tinted to match
-the page so the whole surface reads as one. It even evicts a stale instance squatting on the
-port so a second launch never fails silently.
+`ui=True` opens a native window, 1140 by 700, on a Flask server at AutoCua's own port
+(27321, or a free one for that run when another program holds it). After a one-time
+`npm install` in `AutoCua/desktop` (Node.js 22.12 or newer) the window is Chromium, through
+Electron, the same on every OS. Without it the app opens in
+[pywebview](https://pywebview.flowrl.com/), with the OS title bar tinted to match the page so
+the whole surface reads as one.
 
 ```
 +--------------+----------------------------------------------+--+
@@ -1081,6 +1083,7 @@ AutoCua_data/              YOUR data: chats, keys, skills, browser profiles, vau
 AutoCua/
   agent_launcher.py        mode to AgentService dispatch, parallel fan-out, the ui flag
   ui/                      the desktop app: Flask, pywebview, chat, stages, skills, settings
+  desktop/                 the app's Chromium window (Electron), used once `npm install` has run in it
   default_skills/          the shipped skills, read-only; yours go in AutoCua_data/skills/
   llm_provider/            every LLM endpoint and the model tables, one copy for all platforms
   mac/  windows/           computer use: agent, controller, tree, sandbox, tool_registry

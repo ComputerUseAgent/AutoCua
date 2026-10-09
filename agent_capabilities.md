@@ -734,13 +734,18 @@ terminal run.
 ## Under the hood
 
 `run_agent` checks `ui` before anything else. When it is `True` it imports
-`AutoCua.ui.service` and calls its `main()`: the order-sensitive process
-bootstrap runs at that import, Flask starts on port 5000 in a daemon thread
-(`127.0.0.1` on every OS, never the LAN, and it refuses requests from other
-hostnames or websites; any other process already on port 5000 is stopped first), the pywebview window
-opens on the main thread, and the call returns
-once the window is closed. The import only happens in UI mode, so a terminal
-run never loads Flask or pywebview.
+`AutoCua.ui.service` and calls its `main()`; the order-sensitive process
+bootstrap runs at that import. If the Chromium window is installed (a one-time
+`npm install` in `AutoCua/desktop`, which needs Node.js 22.12 or newer),
+`main()` starts it and waits for it to quit: the shell runs the backend as a
+process of its own (`python -m AutoCua.ui.service --desktop`). Otherwise, or
+with `AUTOCUA_UI=webview`, Flask starts in a daemon thread and the pywebview
+window opens on the main thread. Either way Flask serves on AutoCua's own port,
+27321 (`127.0.0.1` on every OS, never the LAN, and it refuses requests from
+other hostnames or websites); when another program holds that port, the app
+takes a free one for that run and stops nothing. The call returns once the
+window is closed. The import only happens in UI mode, so a terminal run never
+loads Flask or pywebview.
 
 ---
 

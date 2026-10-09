@@ -1,8 +1,9 @@
 """The desktop app — the Flask server, every HTTP route, the agent run, the
 window.* push callbacks, the provider/api-key/settings/path helpers, and (at
-the end of this file) the order-sensitive process bootstrap plus the pywebview
-window and main(). It used to be split across app.py and this file; app.py is
-gone and main.py is the only entry point:
+the end of this file) the order-sensitive process bootstrap plus the window
+(the Chromium desktop shell in AutoCua/desktop when it is installed, else
+pywebview's) and main(). It used to be split across app.py and this file;
+app.py is gone and main.py is the only entry point:
 
     UI = True   in main.py  ->  AutoCua.ui.service.main()   (this file)
     UI = False  in main.py  ->  run_agent(...) in the terminal
@@ -97,8 +98,9 @@ IS_SECONDARY_PROCESS = (
     or "--banner-mode" in sys.argv
     or "--minion-mode" in sys.argv
 )
-# Started by the Chromium desktop shell (desktop/main.js): this process is the
-# backend only, and the window belongs to the shell (see DesktopWindow).
+# Started by the Chromium desktop shell (AutoCua/desktop/main.js): this
+# process is the backend only, and the window belongs to the shell (see
+# DesktopWindow).
 IS_DESKTOP_SHELL = "--desktop" in sys.argv
 
 # Unique id for this build (gates the once-per-build macOS TCC repair). Absent in dev.
@@ -1027,7 +1029,7 @@ def get_window():
 
 
 # =============================================================================
-# The Chromium desktop shell's window (desktop/main.js)
+# The Chromium desktop shell's window (AutoCua/desktop/main.js)
 # =============================================================================
 class _WindowEvent:
     """One of pywebview's window.events: handlers are added with +=."""
@@ -1056,9 +1058,9 @@ class _WindowEvents:
 
 class DesktopWindow:
     """The window as this backend sees it when the Chromium desktop shell
-    (desktop/main.js) owns the real one: the parts of pywebview's window that
-    the code here and the telegram services use, turned into events the shell
-    reads from /api/desktop/events.
+    (AutoCua/desktop/main.js) owns the real one: the parts of pywebview's
+    window that the code here and the telegram services use, turned into
+    events the shell reads from /api/desktop/events.
 
     evaluate_js never waits. pywebview's runs the script on the window's main
     thread and blocks the caller until it has; here the script is queued and
@@ -3859,12 +3861,61 @@ def minimize_main_window():
         debug_exception("minimize_main_window")
 
 
+# =============================================================================
+# The Chromium desktop shell (AutoCua/desktop, an Electron app)
+# =============================================================================
+# main() opens the app in it when it is installed (`npm install` in that
+# folder, once), else in the pywebview window. The shell starts this module
+# again as its own process, the backend (`python -m AutoCua.ui.service
+# --desktop`, which ends in _serve_desktop_shell), so the window never shares
+# a process, a thread or a lock with the agent. The process that launched the
+# shell only waits for it to quit.
+DESKTOP_SHELL_DIR = _THIS_DIR.parent / "desktop"     # <package>/desktop
+
+
+def _electron_binary():
+    """The Electron executable that `npm install` put in the shell's
+    node_modules (the electron package records where in path.txt), or None."""
+    package = DESKTOP_SHELL_DIR / "node_modules" / "electron"
+    try:
+        relative = (package / "path.txt").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    exe = package / "dist" / relative
+    return exe if exe.is_file() else None
+
+
+def _launch_desktop_shell():
+    """Run the shell and block until it quits. Returns False, with nothing
+    started, when it is not installed (and in the compiled app, which does
+    not ship it), or when AUTOCUA_UI=webview asks for the pywebview window."""
+    if IS_COMPILED or os.environ.get("AUTOCUA_UI", "").strip().lower() == "webview":
+        return False
+    exe = _electron_binary()
+    if exe is None:
+        print(f"[ui] The Chromium window is not installed (cd {DESKTOP_SHELL_DIR} "
+              "&& npm install); opening the pywebview one.", flush=True)
+        return False
+    # The backend starts in the folder that holds the package (so `-m` loads
+    # this copy) and then moves to AUTOCUA_CWD, this process's folder, where
+    # the agent keeps its run folders, as it does in the pywebview window.
+    # The data folder is pinned now, before the backend could resolve it from
+    # the wrong folder (data_root() exports it for every child process).
+    data_root()
+    env = dict(os.environ, AUTOCUA_PYTHON=sys.executable, AUTOCUA_CWD=os.getcwd())
+    # Set for everything VS Code (an Electron app) spawns; inherited, it makes
+    # Electron start as plain Node, with no window and no `app`.
+    env.pop("ELECTRON_RUN_AS_NODE", None)
+    subprocess.run([str(exe), str(DESKTOP_SHELL_DIR)], env=env, check=False)
+    return True
+
+
 def _serve_desktop_shell(win, start_path):
     """--desktop's main loop, in place of webview.start(). Tells the shell
-    (desktop/main.js) where the app is, then lives until the shell closes this
-    process's stdin, which it does when it quits, relaunches the backend or
-    dies: the window's closing hooks run (recordings, banners, browser agents)
-    and the process exits.
+    (AutoCua/desktop/main.js) where the app is, then lives until the shell
+    closes this process's stdin, which it does when it quits, relaunches the
+    backend or dies: the window's closing hooks run (recordings, banners,
+    browser agents) and the process exits.
 
     On macOS the main thread runs AppKit for the windows this process still
     draws itself (the agent glow, the remote-connection banners), as an
@@ -3907,6 +3958,20 @@ def main():
         except Exception:
             debug_exception("Banner mode")
         return
+
+    # The Chromium desktop shell when it is installed: it starts this module
+    # again as its backend (--desktop), which runs everything below. Before
+    # the Telegram bot, so there is never a second one polling from here.
+    if not IS_SECONDARY_PROCESS and not IS_DESKTOP_SHELL and _launch_desktop_shell():
+        return
+    if IS_DESKTOP_SHELL:
+        # Work from where the app was launched (_launch_desktop_shell): the
+        # agent clears and writes its run folders (conversation/, debug/, ...)
+        # relative to it, and after a pip install the folder the shell starts
+        # this process in is site-packages.
+        launched_from = os.environ.get("AUTOCUA_CWD", "")
+        if launched_from and os.path.isdir(launched_from):
+            os.chdir(launched_from)
 
     # Wire the Telegram remote-control bot. Windows mounts a Flask blueprint plus a
     # polling bot; macOS and Linux register the blueprint and start the polling
