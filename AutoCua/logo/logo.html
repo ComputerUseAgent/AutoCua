@@ -16,13 +16,23 @@
 
 <svg viewBox="0 0 1000 1000" role="img" aria-label="Logo">
   <defs>
-    <!-- a faint band travelling straight across, left to right -->
+    <!-- a faint band travelling straight across, left to right; its stops
+         sample a Gaussian (sigma 0.10 of the vector, 60 units) so the band
+         is wide and soft-edged, like a blurred light, not a sharp line -->
     <linearGradient id="sheen" gradientUnits="userSpaceOnUse"
                     x1="-700" y1="0" x2="-100" y2="0">
       <stop offset="0"    stop-color="#D4D8DD"/>
-      <stop offset="0.38" stop-color="#D4D8DD"/>
+      <stop offset="0.24" stop-color="#D4D8DD"/>
+      <stop offset="0.30" stop-color="#D7DBE0"/>
+      <stop offset="0.35" stop-color="#DCDFE4"/>
+      <stop offset="0.40" stop-color="#E3E6EA"/>
+      <stop offset="0.45" stop-color="#EAECF0"/>
       <stop offset="0.50" stop-color="#EDEFF2"/>
-      <stop offset="0.62" stop-color="#D4D8DD"/>
+      <stop offset="0.55" stop-color="#EAECF0"/>
+      <stop offset="0.60" stop-color="#E3E6EA"/>
+      <stop offset="0.65" stop-color="#DCDFE4"/>
+      <stop offset="0.70" stop-color="#D7DBE0"/>
+      <stop offset="0.76" stop-color="#D4D8DD"/>
       <stop offset="1"    stop-color="#D4D8DD"/>
       <animate attributeName="x1" values="-700;1700" dur="1.8s" repeatCount="indefinite"/>
       <animate attributeName="x2" values="-100;2300" dur="1.8s" repeatCount="indefinite"/>
