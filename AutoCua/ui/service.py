@@ -26,6 +26,7 @@ import signal
 import platform
 import importlib
 import threading
+import queue
 import time
 import shutil
 import subprocess
@@ -44,6 +45,7 @@ import webview
 
 # Where the user's data lives (AutoCua_data/, outside the install folder).
 from AutoCua import api_key_file, skills_dir, skills_platform, data_root, default_skills
+from AutoCua import APP_PORT, ENV_APP_PORT
 
 # Resumable chat memory + per-chat token tracker. Platform-agnostic, pure-stdlib.
 from AutoCua.agent_conversation.service import conversation
@@ -95,6 +97,9 @@ IS_SECONDARY_PROCESS = (
     or "--banner-mode" in sys.argv
     or "--minion-mode" in sys.argv
 )
+# Started by the Chromium desktop shell (desktop/main.js): this process is the
+# backend only, and the window belongs to the shell (see DesktopWindow).
+IS_DESKTOP_SHELL = "--desktop" in sys.argv
 
 # Unique id for this build (gates the once-per-build macOS TCC repair). Absent in dev.
 try:
@@ -246,15 +251,28 @@ def _block_source_files():
         return "Not found", 404
 
 
-_LOCAL_HOSTS = ('127.0.0.1:5000', 'localhost:5000')
-_LOCAL_ORIGINS = ('http://127.0.0.1:5000', 'http://localhost:5000')
+# The port this run serves on: AutoCua's own (APP_PORT), unless another
+# program holds it (start_server). The allow-list below follows it.
+_app_port = APP_PORT
+_LOCAL_HOSTS = (f'127.0.0.1:{APP_PORT}', f'localhost:{APP_PORT}')
+_LOCAL_ORIGINS = (f'http://127.0.0.1:{APP_PORT}', f'http://localhost:{APP_PORT}')
+
+
+def _use_port(port):
+    """Serve this run on `port`: the host/origin allow-list follows it, and
+    every process started from here on (the banners) inherits it."""
+    global _app_port, _LOCAL_HOSTS, _LOCAL_ORIGINS
+    _app_port = port
+    _LOCAL_HOSTS = (f'127.0.0.1:{port}', f'localhost:{port}')
+    _LOCAL_ORIGINS = (f'http://127.0.0.1:{port}', f'http://localhost:{port}')
+    os.environ[ENV_APP_PORT] = str(port)
 
 
 @app.before_request
 def _block_foreign_requests():
     """The server is only for this machine's own app window. Refuse any other
     Host (a DNS-rebinding page) and any /api/ call made from another web
-    origin (some other site's page POSTing to 127.0.0.1:5000). Requests with
+    origin (some other site's page POSTing to the app's port). Requests with
     no Origin header (the app's own GETs, the startup probe) pass."""
     from flask import request
     if request.host.lower() not in _LOCAL_HOSTS:
@@ -744,9 +762,13 @@ def request_relaunch():
     webview.start() returns on the main thread. The actual relaunch_app() runs
     from main() below right after webview.start()."""
     global _relaunch_requested
+    w = get_window()
+    if isinstance(w, DesktopWindow):
+        # The desktop shell restarts this backend and reloads the page.
+        w.relaunch()
+        return
     _relaunch_requested = True
     try:
-        w = get_window()
         if w:
             w.destroy()
     except Exception:
@@ -755,7 +777,7 @@ def request_relaunch():
 
 def relaunch_app():
     """Relaunch AutoCua cleanly so cached TCC preflights are re-evaluated. MUST
-    be called after webview.start() returns (main thread; port 5000 released).
+    be called after webview.start() returns (main thread; the app's port released).
     Compiled: re-open the .app bundle via LaunchServices (rebinds TCC identity to
     the bundle id) then hard-exit. Dev: replace the process image."""
     try:
@@ -1004,6 +1026,135 @@ def get_window():
     return webview_window
 
 
+# =============================================================================
+# The Chromium desktop shell's window (desktop/main.js)
+# =============================================================================
+class _WindowEvent:
+    """One of pywebview's window.events: handlers are added with +=."""
+
+    def __init__(self):
+        self._handlers = []
+
+    def __iadd__(self, handler):
+        self._handlers.append(handler)
+        return self
+
+    def fire(self):
+        for handler in list(self._handlers):
+            try:
+                handler()
+            except Exception:
+                debug_exception("desktop window event handler")
+
+
+class _WindowEvents:
+    def __init__(self):
+        self.closing = _WindowEvent()
+        self.shown = _WindowEvent()
+        self.loaded = _WindowEvent()
+
+
+class DesktopWindow:
+    """The window as this backend sees it when the Chromium desktop shell
+    (desktop/main.js) owns the real one: the parts of pywebview's window that
+    the code here and the telegram services use, turned into events the shell
+    reads from /api/desktop/events.
+
+    evaluate_js never waits. pywebview's runs the script on the window's main
+    thread and blocks the caller until it has; here the script is queued and
+    the shell runs it in the page, so the agent and the window never wait on
+    each other. Nothing reads evaluate_js's result."""
+
+    native = None       # no NSWindow / HWND in this process
+    _BACKLOG_MAX = 200  # events kept while the shell is not connected
+
+    def __init__(self):
+        self.events = _WindowEvents()
+        self._lock = threading.Lock()
+        self._streams = []
+        self._backlog = []
+
+    def _post(self, event):
+        with self._lock:
+            if self._streams:
+                for stream in self._streams:
+                    stream.put(event)
+            else:
+                # Before the shell connects, so its first page still gets these
+                # in order. Oldest dropped first: they are pushes for nobody.
+                self._backlog.append(event)
+                del self._backlog[:-self._BACKLOG_MAX]
+
+    def subscribe(self):
+        stream = queue.Queue()
+        with self._lock:
+            for event in self._backlog:
+                stream.put(event)
+            self._backlog.clear()
+            self._streams.append(stream)
+        return stream
+
+    def unsubscribe(self, stream):
+        with self._lock:
+            if stream in self._streams:
+                self._streams.remove(stream)
+
+    def evaluate_js(self, script, *args, **kwargs):
+        self._post({"type": "js", "code": script})
+
+    run_js = evaluate_js
+
+    def minimize(self):
+        self._post({"type": "window", "action": "minimize"})
+
+    def raise_window(self):
+        self._post({"type": "window", "action": "raise"})
+
+    def relaunch(self):
+        self._post({"type": "window", "action": "relaunch"})
+
+    def destroy(self):
+        self._post({"type": "window", "action": "close"})
+
+    @property
+    def on_top(self):
+        return False
+
+    @on_top.setter
+    def on_top(self, value):
+        # pywebview's raise is on_top = True then False: raise once, on True.
+        if value:
+            self.raise_window()
+
+
+@app.route('/api/desktop/events')
+def desktop_events():
+    """The desktop shell's event stream, as server-sent events with one JSON
+    object each: {"type": "js", "code"} to run in the page and {"type":
+    "window", "action"} for the window, in the order they were posted."""
+    from flask import Response
+    win = get_window()
+    if not isinstance(win, DesktopWindow):
+        return "Not found", 404
+    stream = win.subscribe()
+
+    def events():
+        try:
+            yield ": connected\n\n"
+            while True:
+                try:
+                    event = stream.get(timeout=15)
+                except queue.Empty:
+                    yield ": ping\n\n"      # also how a closed connection is noticed
+                    continue
+                yield "data: " + json.dumps(event) + "\n\n"
+        finally:
+            win.unsubscribe(stream)
+
+    return Response(events(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache'})
+
+
 def raise_app_window():
     """Bring the desktop app back in front of whatever just took the screen.
 
@@ -1021,6 +1172,10 @@ def raise_app_window():
     Never raises: this is a nicety, and it must not be able to fail a run.
     """
     try:
+        if isinstance(webview_window, DesktopWindow):
+            # The window is the desktop shell's, in another process.
+            webview_window.raise_window()
+            return
         if sys.platform == "darwin":
             # AppKit is main-thread only and the run lives on a worker, so it
             # goes through the same hand-off agent_glow uses.
@@ -1139,7 +1294,7 @@ def serve_static(filename):
 @app.route('/telegram/telergam_animation.html')
 def serve_telegram_orb():
     """Serve the Telegram banner orb so the floating banner's webview can iframe it
-    from http://127.0.0.1:5000/ — single source of truth across dev/compiled."""
+    from the app's own server — single source of truth across dev/compiled."""
     rel = f"AutoCua/{PLATFORM_PKG}/remote_connection/telegram/telergam_animation.html"
     if IS_COMPILED:
         response = serve_embedded_file(rel)
@@ -3408,72 +3563,42 @@ def download_chat(chat_id):
         return jsonify({'error': 'Failed to export'}), 500
 
 
-def _evict_port_squatter(host, port):
-    """Best-effort: if the port is genuinely unbindable (stale AutoCua instance,
-    macOS AirPlay Receiver holding it), kill the squatter so AutoCua can take it.
-    Does nothing when the port is free or co-bindable, and never kills ourselves."""
-    import socket
-    import signal
-    import subprocess
-
-    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        probe.bind((host, port))
-        return  # port is usable as-is — nothing to evict
-    except OSError:
-        pass
-    finally:
-        probe.close()
-
-    try:
-        me = os.getpid()
-        if IS_WINDOWS:
-            out = subprocess.run(["netstat", "-ano", "-p", "tcp"],
-                                 capture_output=True, text=True, timeout=8).stdout
-            pids = set()
-            for line in out.splitlines():
-                parts = line.split()
-                if len(parts) >= 5 and parts[3] == "LISTENING" and parts[1].endswith(f":{port}"):
-                    pids.add(int(parts[4]))
-            pids.discard(me)
-            for pid in pids:
-                subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                               capture_output=True, timeout=8)
-        else:
-            out = subprocess.run(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
-                                 capture_output=True, text=True, timeout=8).stdout
-            pids = {int(p) for p in out.split() if p.strip()}
-            pids.discard(me)
-
-            def alive(pid):
-                try:
-                    os.kill(pid, 0)
-                    return True
-                except OSError:
-                    return False
-
-            for pid in pids:
-                os.kill(pid, signal.SIGTERM)
-            deadline = time.time() + 2.0
-            remaining = set(pids)
-            while remaining and time.time() < deadline:
-                time.sleep(0.1)
-                remaining = {p for p in remaining if alive(p)}
-            for pid in remaining:
-                os.kill(pid, signal.SIGKILL)
-        if pids:
-            print(f"[port] evicted process(es) {sorted(pids)} holding :{port} so AutoCua can start")
-    except Exception:
-        debug_exception("evict_port_squatter")
+# Set once the server is listening; _app_port is then the port it got.
+_server_up = threading.Event()
 
 
 def start_server():
-    # Loopback only, on every OS: the Telegram bot long-polls Telegram
-    # outbound, and nothing on another device needs to reach this port.
+    """Serve the app on AutoCua's own port (APP_PORT), loopback only on every
+    OS: the Telegram bot long-polls Telegram outbound, and nothing on another
+    device needs to reach it. If another program holds the port, this run is
+    served on a free one instead and nothing is killed: _use_port tells the
+    window where, and the banners inherit it."""
+    import socket
+    from werkzeug.serving import make_server
     host = '127.0.0.1'
-    _evict_port_squatter(host, 5000)
-    app.run(host=host, port=5000, debug=False, use_reloader=False)
+    # Bound here and handed to werkzeug, which would exit the whole process
+    # on a taken port instead of raising.
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if IS_WINDOWS:
+        # Held exclusively: Windows otherwise lets another program's
+        # SO_REUSEADDR socket bind the same port while we are serving on it.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        # Rebind at once after a restart. Nothing else can bind this address
+        # while we listen on it.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, APP_PORT))
+    except OSError:
+        sock.bind((host, 0))
+        print(f"[port] {APP_PORT} is held by another program; AutoCua is on "
+              f"{sock.getsockname()[1]} this run", flush=True)
+    sock.listen(128)
+    port = sock.getsockname()[1]
+    server = make_server(host, port, app, threaded=True, fd=sock.fileno())
+    _use_port(port)
+    _server_up.set()
+    server.serve_forever()
 
 
 # =============================================================================
@@ -3734,6 +3859,38 @@ def minimize_main_window():
         debug_exception("minimize_main_window")
 
 
+def _serve_desktop_shell(win, start_path):
+    """--desktop's main loop, in place of webview.start(). Tells the shell
+    (desktop/main.js) where the app is, then lives until the shell closes this
+    process's stdin, which it does when it quits, relaunches the backend or
+    dies: the window's closing hooks run (recordings, banners, browser agents)
+    and the process exits.
+
+    On macOS the main thread runs AppKit for the windows this process still
+    draws itself (the agent glow, the remote-connection banners), as an
+    accessory app: no Dock icon, never the active app."""
+    def until_stdin_closes():
+        try:
+            while sys.stdin.buffer.read(1):
+                pass
+        except Exception:
+            debug_exception("desktop shell stdin")
+        win.events.closing.fire()
+        os._exit(0)
+
+    if sys.stdin is not None:
+        threading.Thread(target=until_stdin_closes, daemon=True).start()
+    print(f"AUTOCUA_DESKTOP_READY http://127.0.0.1:{_app_port}{start_path}", flush=True)
+
+    if IS_MAC:
+        from AppKit import NSApplication
+        ns_app = NSApplication.sharedApplication()
+        ns_app.setActivationPolicy_(1)      # NSApplicationActivationPolicyAccessory
+        ns_app.run()
+    else:
+        threading.Event().wait()
+
+
 # =============================================================================
 # main()
 # =============================================================================
@@ -3827,9 +3984,10 @@ def main():
     t.start()
 
     import urllib.request
+    _server_up.wait(10)
     for _ in range(40):  # up to ~10 seconds
         try:
-            urllib.request.urlopen('http://127.0.0.1:5000', timeout=0.5)
+            urllib.request.urlopen(f'http://127.0.0.1:{_app_port}', timeout=0.5)
             break
         except Exception:
             time.sleep(0.25)
@@ -3842,16 +4000,22 @@ def main():
     # permission is missing, open /setup instead of / (the wizard navigates to /
     # once everything is granted). No-op on Windows / when all are granted.
     start_path = '/setup' if (IS_MAC and not all_permissions_granted()) else '/'
-    win = webview.create_window(
-        'AutoCua',
-        f'http://127.0.0.1:5000{start_path}',
-        width=win_w,
-        height=win_h,
-        # What the webview paints BEFORE the page loads. pywebview defaults this
-        # to '#FFFFFF', which flashed stark white for a beat at every launch
-        # before the cream splash painted over it. Pin it to the app colour.
-        background_color=TITLEBAR_COLOR,
-    )
+    if IS_DESKTOP_SHELL:
+        # The window is the desktop shell's; this stands in for it here. The
+        # telegram services reach the window as webview.windows[0].
+        win = DesktopWindow()
+        webview.windows.append(win)
+    else:
+        win = webview.create_window(
+            'AutoCua',
+            f'http://127.0.0.1:{_app_port}{start_path}',
+            width=win_w,
+            height=win_h,
+            # What the webview paints BEFORE the page loads. pywebview defaults this
+            # to '#FFFFFF', which flashed stark white for a beat at every launch
+            # before the cream splash painted over it. Pin it to the app colour.
+            background_color=TITLEBAR_COLOR,
+        )
     set_window(win)
 
     # Dismiss any floating helper banner the INSTANT the user closes the app.
@@ -3932,16 +4096,20 @@ def main():
         except Exception:
             pass
 
+    if IS_DESKTOP_SHELL:
+        _serve_desktop_shell(win, start_path)
+        return
+
     webview.start()
 
     # If the setup wizard (Restart-to-finish) or the "Reset everything" action
     # asked for a relaunch, do it now that the GUI loop has fully exited — main
-    # thread, with port 5000 released — so cached TCC preflights re-evaluate.
+    # thread, with the app's port released — so cached TCC preflights re-evaluate.
     if _relaunch_requested:
         relaunch_app()
 
 
-if __name__ == '__main__':          # python -m AutoCua.ui.service (used by relaunch_app)
+if __name__ == '__main__':          # python -m AutoCua.ui.service [--desktop] (relaunch_app; the desktop shell)
     try:
         main()
     except Exception:

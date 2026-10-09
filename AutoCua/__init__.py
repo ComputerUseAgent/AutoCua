@@ -321,3 +321,23 @@ def _migrate_legacy_api_key(dest: Path) -> None:
             # Set even on failure so we don't re-scan on every call; the next
             # app start retries from scratch.
             _api_key_migrated = True
+
+
+# =============================================================================
+# The desktop app's port
+# =============================================================================
+# AutoCua's own port on 127.0.0.1. Everything between the window and the
+# backend goes through it: the UI's files, its /api/ calls, the desktop
+# shell's event stream, and the pages the remote-connection banners embed.
+# Below 32768, so outside the range macOS, Windows and Linux hand out to
+# outgoing connections: the OS never gives it to anything on its own. If
+# another program holds it anyway, ui/service.py serves that run on a free
+# port instead and exports the one it got as AUTOCUA_APP_PORT, which every
+# process it starts inherits.
+APP_PORT = 27321
+ENV_APP_PORT = "AUTOCUA_APP_PORT"
+
+
+def app_origin() -> str:
+    """http://127.0.0.1:<port> of the running desktop app's server."""
+    return f"http://127.0.0.1:{os.environ.get(ENV_APP_PORT) or APP_PORT}"

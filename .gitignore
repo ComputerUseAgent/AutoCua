@@ -158,3 +158,6 @@ AutoCua/ios_connector/paired_devices.json
 # Third-party vendored download (installer, library, samples), not our source;
 # it lands here per-machine and has no business in the repo.
 /Interception/
+
+# The Chromium desktop shell's npm install (desktop/package-lock.json is kept)
+/desktop/node_modules/
