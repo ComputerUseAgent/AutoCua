@@ -128,8 +128,11 @@ screen_record.py
 # (the installer's [UninstallDelete] wipes all of {app}). `python main.py` puts
 # it at the repo root; the packaged build uses <home>/AutoCua_data. The default
 # skills are tracked inside the package (AutoCua/default_skills/), so nothing
-# under here is ever tracked.
-/AutoCua_data/
+# under here is tracked except vault/README.md (the credentials.json format).
+/AutoCua_data/*
+!/AutoCua_data/vault/
+/AutoCua_data/vault/*
+!/AutoCua_data/vault/README.md
 
 # LEGACY chat location (pre-AutoCua_data) — kept ignored until every checkout has
 # migrated, so a contributor who pulls this change before launching the app can't
