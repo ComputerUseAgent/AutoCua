@@ -85,7 +85,14 @@ coverage.xml
 *.log
 
 .env
-/note/
+# Local notes stay private, except note/fixes: write-ups of fixed and open issues,
+# and the test the bridge-scan write-up keeps beside it (its run output is not kept).
+/note/*
+!/note/fixes/
+/note/fixes/*/staged/
+/note/fixes/*/udd/
+/note/fixes/*/logs/
+/note/fixes/*/site.jsonl
 /cli_conversation
 /cli_minion_conversation
 /milestone
