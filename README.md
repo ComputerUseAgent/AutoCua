@@ -15,13 +15,7 @@
 [![Browser agent](https://img.shields.io/badge/browser%20agent-Rust%20%2B%20a%20Chrome%20extension-b7410e)](https://github.com/AutoCua/AutoCua/blob/main/README.md#the-browser-agent)
 [![Models](https://img.shields.io/badge/models-48%20across%209%20providers-7048e8)](https://github.com/AutoCua/AutoCua/blob/main/README.md#providers-and-models)
 
-<table><tr><td>
-
-```bash
-pip install AutoCua
-```
-
-</td></tr></table>
+`pip install AutoCua`
 
 | | Windows | Linux | macOS |
 |:--|:--:|:--:|:--:|
