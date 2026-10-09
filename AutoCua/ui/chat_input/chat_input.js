@@ -201,6 +201,22 @@
         }
         window.resetChatUi = resetChatUi;
 
+        // The orb's click target. The orb frames take no clicks (they are 72px for
+        // the glow and overhung the text box and the model picker), so this button
+        // over the visible orb presses whichever orb is showing. The orb then pops
+        // and posts sendbtn:clicked / pcbtn:clicked exactly as a direct click did,
+        // and is skipped while its page has made it unclickable (hidden, vanishing).
+        const orbHit = (root || document).querySelector('#orbHit');
+        if (orbHit) {
+            orbHit.addEventListener('click', () => {
+                const frame = chatInput.classList.contains('agent-active') ? getStopFrame() : getSendFrame();
+                const doc = frame && frame.contentDocument;
+                const orb = doc && doc.getElementById('stopAgentBtn');
+                if (!orb || doc.defaultView.getComputedStyle(orb).pointerEvents === 'none') return;
+                orb.click();
+            });
+        }
+
         // Fast / Quality flip toggle — read by startAgent() as the run's speed mode.
         // Click spring-slides the thumb; state lives in the .quality class. The
         // floating label shows briefly after each flip (and on hover via CSS).

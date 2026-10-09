@@ -91,6 +91,9 @@
                 <!-- Stop Agent Orb Button: embeds pc_button.html (glowing, agent running). -->
                 <iframe id="stopBtnFrame" class="stop-agent-frame" src="chat_input/pc_button.html"
                         title="Stop Agent" scrolling="no" frameborder="0"></iframe>
+                <!-- The frames are bigger than the orb and take no clicks; this is
+                     the orb's click target (chat_input.js presses the showing orb). -->
+                <button id="orbHit" class="orb-hit" type="button" tabindex="-1" aria-label="Send / stop agent"></button>
             </div>
         </div>
     </div>

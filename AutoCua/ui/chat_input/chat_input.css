@@ -591,12 +591,28 @@
    over the upper lines and stole the clicks there — you could click/edit the bottom
    couple of lines but the ones above were keyboard-only. So also lift while the
    textarea is focused (i.e. while editing the draft): the box's upper lines then
-   sit above the grid and every visible line is clickable. The grid's four base
-   zones are pure display (no controls), so covering them while editing costs
-   nothing; focus-out reverts, keeping the grid interactive the rest of the time. */
+   sit above the grid and every visible line is clickable. Focus-out reverts.
+
+   The lift is only safe because of the rule after it: the wrapper is transparent
+   and nearly as tall as the window, so lifted it covered the whole grid, the
+   stages mounted in it included (Agent Notes, skills). A click there landed on
+   the wrapper, only took the focus out of the text box, and never reached what
+   was under it — the "first click does nothing" bug. */
 .chat-container-wrapper:has(.chat-model-dropdown.open),
 .chat-container-wrapper:has(.chat-input:focus) {
     z-index: 40;
+}
+
+/* The wrapper and its content column are layout only and never take a click,
+   lifted or not; what is drawn in them takes its own. The agent strip and the
+   welcome overlay set theirs above, and .output-stream-area is hidden. */
+.chat-container-wrapper,
+.chat-container-content {
+    pointer-events: none;
+}
+.input-area-wrapper,
+.cli-stream-area {
+    pointer-events: auto;
 }
 
 /* Menu rows — same colors AND type as the Agent-mode menu (system sans, same
@@ -742,6 +758,9 @@
     overflow: visible;
 }
 
+/* The frames take no clicks: at 72px they overhang the slot by ~17px on every
+   side, over the text box's corner and the model picker, and swallowed the
+   clicks meant for those. .orb-hit below takes the orb's clicks instead. */
 .send-agent-frame,
 .stop-agent-frame {
     position: absolute;
@@ -753,21 +772,40 @@
     background: transparent;
     border: none;
     z-index: 20;
+    pointer-events: none;
     transition: opacity 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
-/* IDLE: grey send orb shown + clickable; glowing stop orb hidden + click-through. */
-.send-agent-frame { opacity: 1; pointer-events: auto; }
-.stop-agent-frame { opacity: 0; pointer-events: none; }
+/* IDLE: grey send orb shown, glowing stop orb hidden. */
+.send-agent-frame { opacity: 1; }
+.stop-agent-frame { opacity: 0; }
 
 /* RUNNING: flip them — the crossfade is the morph. */
 .input-area-wrapper:has(.chat-input.agent-active) .send-agent-frame {
     opacity: 0;
-    pointer-events: none;
 }
 .input-area-wrapper:has(.chat-input.agent-active) .stop-agent-frame {
     opacity: 1;
-    pointer-events: auto;
+}
+
+/* The orbs' click target: exactly the visible orb, the 42px circle both orb
+   pages draw at the frames' centre. chat_input.js presses whichever orb is
+   showing, which then pops and posts its message as a direct click did. */
+.orb-hit {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 42px;
+    height: 42px;
+    transform: translate(-50%, -50%);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    outline: none;      /* out of the tab order (tabindex -1): never drawn */
+    cursor: pointer;
+    z-index: 21;
 }
 
 /* =====================================================================
