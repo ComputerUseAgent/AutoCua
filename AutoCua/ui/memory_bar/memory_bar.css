@@ -1,116 +1,122 @@
 /* =====================================================================
-   Memory bar — far-right vertical token gauge, drawn in the BACKGROUND.
-   Same placement idea as the "Made to do..." hero: fixed, pointer-transparent,
-   low z-index so the grid zones render over it and it shows through the empty
-   far-right edge. Fill height is JS-driven (window.updateMemoryBar). Adapted
-   from the standalone memory_bar.html design (demo loop animation removed).
-   ===================================================================== */
-.memory-bar {
-    --mem-grey: rgba(120, 124, 130, 0.55);   /* soft background grey */
-    --mem-red: rgba(207, 91, 91, 0.85);      /* soft red when full */
+   Memory ring — the composer's context gauge. A clean circle in the bottom
+   row, just RIGHT of the Skills icon (left group: Computer use picker ·
+   Skills · ring). The arc and the centre count are JS-driven
+   (window.updateMemoryBar). Hidden until the first send (or until a chat
+   with history opens); only a new chat hides it again.
 
-    position: fixed;
-    right: clamp(8px, 1vw, 16px);
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 11;                 /* background — below grid (13) and hero (12) */
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: clamp(9px, 1.1vw, 16px);
-    pointer-events: none;
+   While a run is active the picker and Skills fade out (agent_mode.css) and
+   the composer collapses to one slim line, so the ring moves to the start
+   of that line and the task text makes room for it — it stays on screen for
+   the whole run, which is when the number actually moves.
+   ===================================================================== */
+.input-area-wrapper {
+    --mem-size: clamp(20px, 2.1vw, 23px);   /* ring diameter = the Skills icon's box (.skills-mark) */
+    --mem-gap: clamp(6px, 0.7vw, 9px);      /* after Skills idle / before the text running */
+}
+
+.memory-ring {
+    position: absolute;
+    /* Same row as the picker (.agent-mode-wrap: left pad-x, bottom pad-y, orb
+       high). --mem-am-w is that group's live width, measured by memory_bar.js,
+       so the ring follows the mode label and the Skills icon whatever they
+       measure. */
+    left: calc(var(--pad-x) + var(--mem-am-w, 0px) + var(--mem-gap));
+    bottom: var(--pad-y);
+    width: var(--mem-size);
+    height: var(--orb);
+    display: grid;
+    place-items: center;
+    z-index: 6;                  /* row level, under the picker (7) so its menu stays on top */
+    cursor: default;
+    -webkit-user-select: none;
     user-select: none;
 
-    /* Hidden by default; only shown while the agent is running (window.show/
-       hideMemoryBar add/remove .visible). */
+    /* Hidden by default (window.show/hideMemoryBar toggle .visible). */
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.35s ease, visibility 0.35s ease;
 }
-
-.memory-bar.visible {
+.memory-ring.visible {
     opacity: 1;
     visibility: visible;
+    animation: memRingInIdle 0.55s ease;
 }
 
-.memory-bar-logo {
-    width: clamp(30px, 3vw, 40px);
-    height: auto;
-    color: var(--mem-grey);
+/* RUNNING: the picker and Skills have faded, so the ring takes their place at
+   the start of the slim line... */
+.input-area-wrapper:has(.chat-input.agent-active) .memory-ring {
+    left: var(--pad-x);
+}
+/* Sliding between the two spots would drag the ring across the picker while
+   that fades, so it hops while invisible instead: each layout has its own
+   (identical) fade-in, and swapping the animation name restarts it — the ring
+   leaves the old spot at once and fades in at the new one as the picker
+   clears (its fade is 0.3s). */
+.input-area-wrapper:has(.chat-input.agent-active) .memory-ring.visible {
+    animation-name: memRingInRun;
+}
+@keyframes memRingInIdle { 0%, 45% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes memRingInRun  { 0%, 45% { opacity: 0; } 100% { opacity: 1; } }
+
+/* ...and the one-line task text starts after it (.chat-input's own padding
+   transition makes the room while the ring is still hidden). */
+.input-area-wrapper:has(.memory-ring.visible):has(.chat-input.agent-active) .chat-input {
+    padding-left: calc(var(--mem-size) + var(--mem-gap));
+}
+
+/* SVG and count share the one grid cell, both centred. */
+.memory-ring > * { grid-area: 1 / 1; }
+
+/* The ring: a round-capped arc on r=112.5 in a 240 box, turned so it starts at
+   12 o'clock. Stroke 15/240 is the Skills icon's own line weight (1.5/24), so the
+   two read as one icon set. pathLength=100 makes the dashoffset a percentage. */
+.memory-ring-svg {
+    width: 100%;
+    aspect-ratio: 1;
+    transform: rotate(-90deg);
+    overflow: visible;
+}
+.memory-ring-track,
+.memory-ring-arc {
+    fill: none;
+    stroke-width: 15;
+}
+/* Faint full circle under the arc, so a short arc still reads as a gauge
+   around the count. */
+.memory-ring-track {
+    stroke: rgba(120, 124, 130, 0.16);
+}
+.memory-ring-arc {
+    stroke: #b8a1f7;             /* JS sets the live colour */
+    stroke-linecap: round;
+    stroke-dasharray: 100;
+    stroke-dashoffset: 100;      /* empty until JS draws it */
+}
+
+.memory-ring-value {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    font-size: calc(var(--mem-size) * 0.3);    /* scales with the ring; 888k still fits */
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;   /* digits keep their width while counting */
+    letter-spacing: -0.05em;
+    line-height: 1;
+    white-space: nowrap;
+    color: rgba(90, 90, 90, 0.8);         /* the Skills icon's grey */
     transition: color 0.3s ease;
 }
+/* At or over the budget the count takes the arc's full colour. */
+.memory-ring.full .memory-ring-value { color: rgba(242, 85, 44, 0.95); }
 
-/* The slim vertical track: transparent, rounded ends, clips the fill. */
-.memory-bar-track {
-    position: relative;
-    width: clamp(12px, 1.3vw, 18px);
-    height: clamp(240px, 42vh, 480px);
-    background: transparent;
-    border-radius: 999px;
-    overflow: hidden;
+/* Memory compression in progress (window.memoryCompressionStart/End): the arc
+   breathes until the background handoff compression finishes; the count then
+   glides down to the compressed size on the next update. */
+.memory-ring.compressing .memory-ring-arc {
+    animation: memRingBreathe 1.1s ease-in-out infinite;
 }
-
-/* Thin outer outline, solid at the bottom and faded out toward the top. */
-.memory-bar-track::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    box-sizing: border-box;
-    border: 1.5px solid var(--mem-grey);
-    border-radius: inherit;
-    pointer-events: none;
-    -webkit-mask: linear-gradient(to top, #000 0%, #000 45%, transparent 100%);
-            mask: linear-gradient(to top, #000 0%, #000 45%, transparent 100%);
-}
-
-/* The fill — rises from the bottom; height set by window.updateMemoryBar. */
-.memory-bar-fill {
-    position: absolute;
-    left: 0;
-    bottom: 0;
-    width: 100%;
-    height: 0%;
-    background: var(--mem-grey);
-    transition: height 0.45s ease, background 0.3s ease;
-}
-
-/* Full (>= cap): fill + logo turn soft red. */
-.memory-bar.full .memory-bar-fill { background: var(--mem-red); }
-.memory-bar.full .memory-bar-logo { color: var(--mem-red); }
-
-@media (prefers-reduced-motion: reduce) {
-    .memory-bar-fill { transition: none; }
-}
-
-/* Memory compression in progress — the logo chip blinks red until the
-   background handoff compression finishes (window.memoryCompressionStart/End). */
-.memory-bar.compressing .memory-bar-logo {
-    animation: memCompressBlink 0.9s ease-in-out infinite;
-}
-@keyframes memCompressBlink {
-    50% { color: var(--mem-red); opacity: 0.65; }
+@keyframes memRingBreathe {
+    50% { opacity: 0.35; }
 }
 @media (prefers-reduced-motion: reduce) {
-    .memory-bar.compressing .memory-bar-logo { animation: none; color: var(--mem-red); }
-}
-
-/* While compressing, the grey FILL becomes the color_test.html lit-bar
-   colour: #9292d8 base cycling through the same blended hues (color_test's
-   own pre-blended values: base + overlay colours at 20%), with the bar's
-   white rim + outer glow. Nothing else — the colour, exactly. */
-.memory-bar.compressing .memory-bar-fill {
-    background: #9292d8;
-    animation: memFillColor 4s linear infinite;
-    box-shadow:
-        0 0 2px 2px rgba(255, 255, 255, 0.9),          /* bar-core outer glow */
-        inset 0 0 2px 1px rgba(255, 255, 255, 0.6);    /* stop-rim inner white */
-}
-/* color_test stop-labelColor: "#9292d8 base with the same overlay colors
-   blended in at the same 20%" — copied verbatim. */
-@keyframes memFillColor {
-    0%, 100% { background-color: #9292d8; }
-    20% { background-color: #a875ad; }   /* red   */
-    40% { background-color: #88a8c6; }   /* green */
-    60% { background-color: #7e99e0; }   /* blue  */
-    80% { background-color: #a789e0; }   /* pink  */
+    .memory-ring.compressing .memory-ring-arc { animation: none; opacity: 0.5; }
 }

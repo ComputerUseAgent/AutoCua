@@ -91,7 +91,7 @@ numbered boxes are painted into the screenshot, not into your DOM.
 
 **No context wall.** A separate compression agent watches the transcript and splices a handoff
 summary into it mid-run, so a long task finishes instead of dying at the context limit. In the
-app you watch the memory bar fall.
+app you watch the memory ring's count fall.
 
 **No telemetry.** AutoCua sends nothing anywhere except to the model provider you chose, and
 to Telegram if you connect it yourself.
@@ -747,17 +747,17 @@ Electron, the same on every OS. Without it the app opens in
 the whole surface reads as one.
 
 ```
-+--------------+----------------------------------------------+--+
-|  AutoCua    |  live agent screenshot  |  tracking progress |  |
-|              |  (what the agent sees)  |  (scratchpad notes)| m|
-|  + New chat  +-------------------------+--------------------+ e|
-|              |  tool-response chain    |  live TODO list    | m|
-|  chat 1      |  "N tools used"         |  (agent's plan)    | o|
-|  chat 2      +-------------------------+--------------------+ r|
-|  chat 3      |   Agent Notes  or  Skills   (big centre)     | y|
-|              +----------------------------------------------+  |
-|  settings    |   composer  [fast] [mode] [model] [skills]   |  |
-+--------------+----------------------------------------------+--+
++--------------+----------------------------------------------+
+|  AutoCua     |  live agent screenshot  |  tracking progress |
+|              |  (what the agent sees)  |  (scratchpad notes)|
+|  + New chat  +-------------------------+--------------------+
+|              |  tool-response chain    |  live TODO list    |
+|  chat 1      |  "N tools used"         |  (agent's plan)    |
+|  chat 2      +-------------------------+--------------------+
+|  chat 3      |   Agent Notes  or  Skills   (big centre)     |
+|              +----------------------------------------------+
+|  settings    |   composer  [fast] [mode] [model] [skills]   |
++--------------+----------------------------------------------+
 ```
 
 | Element | What it does |
@@ -768,12 +768,12 @@ the whole surface reads as one.
 | **Live TODO** | The agent's own plan, tailed from its file as it edits it, frozen with crosses if you stop it |
 | **Agent Notes** | The final write-up, shown when a run ends, completed or stopped |
 | **Skills** | Browse, preview, add, edit and delete domain knowledge files, live, for desktop and iOS |
-| **Memory bar** | Context gauge down the right edge. It blinks red while compression runs and *falls* when the handoff lands |
+| **Memory ring** | Context gauge beside the Skills icon, with the live token count inside. It breathes while compression runs and its count *falls* when the handoff lands |
 | **Fast / Quality** | Leaner prompt and fewer tokens per step, or full reasoning, which is the default |
 | **Mode picker** | Computer use, Mobile use, Shell use |
 | **Stop** | Retires the run id instantly, so a still-running model call can never repaint your next chat |
 
-Chats are saved and resumable. Reopening one restores its history and puts the memory bar back
+Chats are saved and resumable. Reopening one restores its history and puts the memory ring back
 where it was, and you can download the exact payload the model received. On macOS the first
 launch opens a **setup wizard** that walks the four permissions AutoCua needs, Accessibility,
 Full Disk Access, Screen Recording and Automation, one at a time, auto-advancing as each is
@@ -810,8 +810,8 @@ background thread asks a second model to write a handoff document, and the contr
 it into the transcript **in place**, on the main thread, guarded by a generation counter so a
 stale result can never land and a re-arm delay so it cannot thrash. Every agent uses it: the
 macOS and Windows desktop agents, iOS, the coder, and the Rust browser agent, which calls the
-same Python controller across the language boundary. It is why the memory bar in the app
-*falls* mid-run instead of only climbing.
+same Python controller across the language boundary. It is why the memory ring's count in the
+app *falls* mid-run instead of only climbing.
 
 **The vault fills credentials without showing them to the model.** The agent says "fill element
 12 with the password". The runtime resolves the app from the element tree, looks up the

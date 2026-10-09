@@ -71,7 +71,7 @@
 
             // The moment a task is sent, drop the empty-state hero.
             if (window.hideWelcomeHero) window.hideWelcomeHero();
-            // ...and reveal the memory bar (only shown while the agent runs).
+            // ...and reveal the memory ring (stays shown until a new chat).
             if (window.showMemoryBar) window.showMemoryBar();
 
             const agentStrip = document.getElementById('agentResponseStrip');
@@ -175,6 +175,10 @@
 
             const welcomeEl = document.getElementById('welcomeOverlay');
             if (welcomeEl) welcomeEl.classList.remove('eyes-hidden');
+
+            // No run, no compression: a Stop retires the run before its compression
+            // 'end' can reach the page, so the ring would otherwise keep breathing.
+            if (window.memoryCompressionEnd) window.memoryCompressionEnd();
 
             adjustHeight();   // restore the ~2-line idle height
         }

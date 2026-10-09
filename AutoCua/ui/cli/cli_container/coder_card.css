@@ -549,11 +549,6 @@ body.cli-typing .coder-card.has-head .cc-out-view::-webkit-scrollbar { display: 
    grid does the whole rearrangement — the DOM order (chain, terminal, track)
    is untouched, grid-area just places them. body.cli-shell is toggled by
    cli/cli_stage.js; every other mode keeps the left | center | right columns. */
-/* Hold the terminal's right edge clear of the memory bar, which is position:fixed
-   over the far right of the window (right: ≤16px, logo up to 40px wide) — without
-   this the card's faded outline runs underneath the memory logo. */
-body.cli-shell #cliContainer { padding-right: clamp(34px, 3.4vw, 50px); }
-
 body.cli-shell #cliContainer .cc-agent {
     /* FIT the panel, never push past it: the panel doesn't scroll, so the unit must
        shrink to it (same fix the cli-typing block below already applies). */
@@ -664,10 +659,10 @@ body.cli-shell #cliContainer .cc-notes .agent-notes-list {
 }
 
 /* The faintest grey wash + a thin outline that's solid along the bottom and fades
-   out toward the top — same ::after + mask technique as .memory-bar-track, so the
-   two read as the same family. Just enough for the terminal to be its own surface
-   without becoming a boxed-in card. Applied to EVERY coder card: the compact ones
-   dispatched in Computer/Mobile use get the same treatment at their smaller size. */
+   out toward the top (an ::after border under a vertical mask). Just enough for
+   the terminal to be its own surface without becoming a boxed-in card. Applied to
+   EVERY coder card: the compact ones dispatched in Computer/Mobile use get the
+   same treatment at their smaller size. */
 #cliContainer .coder-card {
     position: relative;
     background: rgba(0, 0, 0, 0.025);
@@ -694,11 +689,17 @@ body.cli-shell #cliContainer .cc-notes .agent-notes-list {
 #cliContainer .cc-idle .cc-fill { animation: none; opacity: 0; }
 
 /* Shell use: the tracking-progress bullets take the TODO tick's colour instead of
-   grey — memFillColor (memory_bar.css) is the same #9292d8 palette on the same 4s
-   loop as the tick's tw-tickColor, but animating background-color, which is what a
-   filled dot needs; tw-tickGlow (bottom_right.css) adds the tick's soft pulse. Both
-   stylesheets are global, so the hues stay defined in exactly one place. */
+   grey — cc-dotColor is the same #9292d8 palette on the same 4s loop as the tick's
+   tw-tickColor (bottom_right.css), but animating background-color, which is what a
+   filled dot needs; tw-tickGlow (bottom_right.css) adds the tick's soft pulse. */
 body.cli-shell #cliContainer .cc-track-dot::after {
     background: #9292d8;
-    animation: memFillColor 4s linear infinite, tw-tickGlow 3s ease-in-out infinite;
+    animation: cc-dotColor 4s linear infinite, tw-tickGlow 3s ease-in-out infinite;
+}
+@keyframes cc-dotColor {
+    0%, 100% { background-color: #9292d8; }
+    20% { background-color: #a875ad; }   /* red   */
+    40% { background-color: #88a8c6; }   /* green */
+    60% { background-color: #7e99e0; }   /* blue  */
+    80% { background-color: #a789e0; }   /* pink  */
 }

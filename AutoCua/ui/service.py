@@ -2248,8 +2248,8 @@ def _make_token_sender(token_tracker):
             return
         try:
             # Memory-compression indicator events ride the same pipe as the
-            # token usage: {"memory_compression": "start"|"end"} blinks the
-            # Memory logo red while the background handoff compression runs.
+            # token usage: {"memory_compression": "start"|"end"} makes the
+            # memory ring's arc breathe while the background handoff compression runs.
             mc = (usage or {}).get("memory_compression")
             if mc:
                 fn = "memoryCompressionStart" if mc == "start" else "memoryCompressionEnd"
