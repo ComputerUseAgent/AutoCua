@@ -39,9 +39,11 @@ pip install AutoCua
 
 ---
 
-## See it work
+## Web agent: fast mode
 
-Demo videos are being re-recorded and will be added here soon.
+6.1 seconds for a flight search. Agent mode: web.
+
+https://github.com/user-attachments/assets/8cc797d5-5556-40a9-bbfc-5d6aa8880fb8
 
 ---
 
