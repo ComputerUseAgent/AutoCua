@@ -1,0 +1,34 @@
+<!-- Top-left container — the live agent screenshot. Injected into #mainGrid
+     (column 1, row 1) by top_left.js. Keeps id="imageStreamContainer" and the
+     .stream-image <img> so the existing window.updateAgentImage() hook in
+     script.js keeps working unchanged. -->
+<div class="container-zone screenshot-zone" id="zoneTopLeft" aria-label="Screenshot">
+    <div class="screenshot-frame" id="imageStreamContainer">
+        <img class="stream-image" src="" alt="Agent screen" style="display: none;">
+    </div>
+
+    <!-- Shell terminal — swaps in over the screenshot while a shell command runs
+         (globe_shell.js fades the screenshot out, this in). Ids preserved so the
+         backend hooks drive it unchanged. A web-search globe used to sit here too;
+         it was removed — a web search now leaves the screenshot up. -->
+    <div class="work-overlay" id="shellPanel" aria-hidden="true">
+        <!-- Coder-card style: a transparent `>` command line (streams + shimmers
+             with a dot loader while it runs), then an L-connector down to the
+             output line that comes back. Driven by globe_shell.js shell*(). -->
+        <div class="shell-term" id="shellTerminalContainer">
+            <div class="sh-cmd-line" id="shellCmdLine">
+                <span class="sh-p">&gt;</span>
+                <span class="sh-cmd-text" id="shellCmdText"></span>
+            </div>
+            <div class="sh-progress" id="shellProgress" aria-hidden="true">
+                <span class="sh-fill"></span>
+            </div>
+            <div class="sh-out-line" id="shellOutLine">
+                <span class="sh-out-text" id="shellOutText"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- The Agent Notes used to live here; they moved to notes_stage/ inside
+         container/big_center_container/ — window.show/hideAgentNotes are owned there. -->
+</div>

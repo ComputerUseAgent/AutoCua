@@ -1,0 +1,14 @@
+<!-- Agent Notes content — mounted into #zoneBigCenter (container/big_center_container/)
+     by notes_stage.js. Pen + "Agent Notes" centred at the top, numbered notes below.
+     Shown on run end (service.py pushes window.showAgentNotes), stop-button click
+     and saved-chat reopen; hidden on a new task / New chat. -->
+<div class="agent-notes" id="agentNotes" aria-label="Agent notes">
+    <div class="agent-notes-header">
+        <svg class="agent-notes-pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 20h9"></path>
+            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
+        </svg>
+        <span class="agent-notes-title">Agent Notes</span>
+    </div>
+    <div class="agent-notes-list" id="agentNotesList"></div>
+</div>

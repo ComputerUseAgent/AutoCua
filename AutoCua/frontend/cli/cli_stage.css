@@ -1,0 +1,54 @@
+/* =====================================================================
+   CLI container (step 1) — a single full-width panel that slides UP from the bottom
+   when the agent enters cli_await. It takes the bottom-row slot (spanning bottom-left
+   + bottom-right, full width, same height as the bottom row) and pushes the grid up so
+   the top two zones scroll out of view. EMPTY for now — its content will live in
+   cli/cli_container/ later. Toggled by body.cli-stage (cli/cli_stage.js).
+   ===================================================================== */
+
+/* Clip the grid so the zones scrolling up + the panel sliding in stay inside its box. */
+#mainGrid { overflow: hidden; transition: top 0.5s cubic-bezier(0.25, 0.8, 0.25, 1); }
+
+/* Smooth the zones' push-up / restore. */
+#zoneTopLeft, #zoneTopRight, #zoneBottomLeft, #zoneBottomRight {
+    transition: transform 0.55s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.4s ease;
+}
+
+/* The panel: a full-width container CENTERED vertically (straddling the lower half of
+   the top row + upper half of the bottom row). Transparent like the other zones — just
+   the border. Spans both grid rows so align-self can center it; parked below until
+   cli_await, then it slides up into the center. */
+#cliContainer {
+    grid-column: 1 / -1;        /* full width, both columns */
+    grid-row: 1 / 3;            /* span both rows */
+    align-self: stretch;        /* FILL the grid area — a definite height so stacked agents can
+                                   flex-fill it and spread down the whole panel (a percentage
+                                   height here didn't resolve, collapsing the panel to content). */
+    z-index: 6;
+    box-sizing: border-box;
+    border: none;                                   /* borderless — only the thin per-agent dividers show */
+    background: transparent;                        /* transparent like the other zones */
+    transform: translateY(110%);                   /* parked below (clipped) */
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.55s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.4s ease;
+}
+
+/* cli_await ON: panel slides up into the bottom row; ALL four zones push up & fade out
+   (so the panel has the cleared space to itself).
+   translateY(0), NOT 2%: the old shift pushed the panel's bottom 2% under #mainGrid's
+   clip, cutting off the tool-response row. The top gap the 2% gave is padding now, so
+   it stays INSIDE the box. And the panel NEVER scrolls — the agent unit sizes itself
+   to fit the panel (coder_card.css), so content adapts instead of overflowing. */
+body.cli-stage #cliContainer {
+    transform: translateY(0); opacity: 1; pointer-events: auto;
+    padding-top: clamp(16px, 2.4vh, 30px);
+    overflow: hidden;
+}
+body.cli-stage #zoneTopLeft,
+body.cli-stage #zoneTopRight,
+body.cli-stage #zoneBottomLeft,
+body.cli-stage #zoneBottomRight { transform: translateY(-130%); opacity: 0; }
+/* the four zones are hidden during cli_await, so raise the whole grid (and thus the panel)
+   up into the freed header space — the terminal sits much higher. */
+body.cli-stage #mainGrid { top: clamp(10px, 1.4vw, 22px); }

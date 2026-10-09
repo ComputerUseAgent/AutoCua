@@ -1,0 +1,157 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# Conversation files
+conversation/
+
+# Todo folder
+todo/
+
+# Debug folder
+debug/
+
+# OCR models (PP-OCRv6 ONNX, tens of MB) — fetched from Hugging Face on first
+# use by AutoCua/utils/ocr_models.py, like WebDriverAgent and Interception
+# are fetched at setup time. Never committed: they would sit in the history
+# for good and fill the project's storage.
+AutoCua/linux/tree/models/
+
+# Parallel folder
+parallel/
+
+# Browser automation data
+agent_data/
+conversations/
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment variables
+.env.local
+
+# Distribution / packaging
+.Python
+build/
+build-sim/
+build-sim-*/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Logs
+*.log
+
+.env
+/note/
+/cli_conversation
+/cli_minion_conversation
+/milestone
+sandbox_log.txt
+/cli_milestone
+/cli_todo
+/sandbox_workspace
+_embedded_resources.py
+_build_stamp.py
+/raw_reasoning
+# Demo recordings stay local until they are re-recorded with the renamed app.
+*.mp4
+!/AutoCua/logo/simulation_background.mp4
+/AutoCua/api_key
+/AutoCua/agent_conversation/settings.json
+*.exe
+*.ico
+
+# Certificates
+cert/
+certs/
+*.pem
+*.crt
+*.key
+*.cer
+*.pfx
+*.p12
+*.dmg
+
+# Binary build scripts
+windows_binary_build.py
+mac_binary_build.py
+# Private packaging (uninstaller, signing helpers) — never pushed
+packaging/
+*.icns
+screen_record.py
+/cli_minion_result
+
+# User data — lives OUTSIDE the install folder so an uninstall can't destroy it
+# (the installer's [UninstallDelete] wipes all of {app}). `python main.py` puts
+# it at the repo root; the packaged build uses <home>/AutoCua_data. The default
+# skills are tracked inside the package (AutoCua/default_skills/), so nothing
+# under here is ever tracked.
+/AutoCua_data/
+
+# LEGACY chat location (pre-AutoCua_data) — kept ignored until every checkout has
+# migrated, so a contributor who pulls this change before launching the app can't
+# commit real chat transcripts still sitting in the package folder.
+/AutoCua/agent_conversation/index.json
+/AutoCua/agent_conversation/chat_*/
+automation_grant.json
+AutoCua/ios_connector/paired_devices.json
+/AutoCua/web/target
+/AutoCua/mac/scratchpad
+/AutoCua/linux/scratchpad
+/AutoCua/windows/scratchpad
+/AutoCua/web/scratchpad
+/AutoCua/ios/scratchpad
+/AutoCua/ios_connector/WebDriverAgent
+# Staging tree for the runtime clone (utils/wda.py); only outlives a crash.
+/AutoCua/ios_connector/.WebDriverAgent.incoming.*
+
+# Local-only tooling (never pushed)
+/sync.py
+
+# Interception SDK — the kernel-level input driver used for UAC interaction.
+# Third-party vendored download (installer, library, samples), not our source;
+# it lands here per-machine and has no business in the repo.
+/Interception/

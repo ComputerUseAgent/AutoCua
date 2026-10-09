@@ -1,0 +1,255 @@
+# AutoCua/mac/controller/tool/open_app.py
+# macOS version — open or bring-to-front any .app bundle
+
+import os
+import subprocess
+import logging
+import time
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize(s: str) -> str:
+    s = s.lower().strip()
+    for ch in (".", "_", "-", "(", ")", "[", "]", "{", "}", "®", "™", "&", "'", '"'):
+        s = s.replace(ch, " ")
+    return " ".join(s.split())
+
+
+def _index_applications():
+    """Scan the standard app folders for .app bundles.
+
+    /System/Applications holds Apple's bundled apps (TextEdit, Calculator,
+    Notes, …); its Utilities subfolder (Terminal, Activity Monitor, …) is
+    picked up by the one-level-deep scan below.
+    """
+    entries = []
+    app_dirs = [
+        "/Applications",
+        os.path.expanduser("~/Applications"),
+        "/System/Applications",
+    ]
+
+    seen = set()
+    for root in app_dirs:
+        if not os.path.isdir(root):
+            continue
+        for name in os.listdir(root):
+            if not name.endswith(".app"):
+                continue
+            display = name[:-4]  # strip .app
+            nn = _normalize(display)
+            if nn in seen:
+                continue
+            seen.add(nn)
+            entries.append((display, os.path.join(root, name), nn))
+
+        # One level deep for grouped apps (e.g. /Applications/Utilities/*.app)
+        for subdir in os.listdir(root):
+            subpath = os.path.join(root, subdir)
+            if not os.path.isdir(subpath) or subdir.endswith(".app"):
+                continue
+            for name in os.listdir(subpath):
+                if not name.endswith(".app"):
+                    continue
+                display = name[:-4]
+                nn = _normalize(display)
+                if nn in seen:
+                    continue
+                seen.add(nn)
+                entries.append((display, os.path.join(subpath, name), nn))
+
+    return entries
+
+
+def _best_match(query, candidates):
+    """Find best matching app from candidates list."""
+    qn = _normalize(query)
+
+    # Exact match
+    for display, path, nn in candidates:
+        if nn == qn:
+            return display, path
+
+    # Contains as whole words (either direction): "chrome" -> Google Chrome,
+    # but never "code" -> Xcode or "word" -> Passwords. An app that is not
+    # installed gets no stand-in.
+    cont = [(display, path) for display, path, nn in candidates
+            if f" {qn} " in f" {nn} " or f" {nn} " in f" {qn} "]
+    if cont:
+        cont.sort(key=lambda x: len(x[0]))
+        return cont[0]
+
+    return None, None
+
+
+def _move_to_main_screen():
+    """Move the frontmost app's window onto the main display (above the Dock)."""
+    try:
+        from Cocoa import NSScreen
+        full = NSScreen.mainScreen().frame()
+        screen_h = int(full.size.height)
+        screen_w = int(full.size.width)
+        screen_x = int(full.origin.x)
+
+        # Get Dock position to avoid overlapping it
+        dock_y = screen_h  # default: no dock
+        try:
+            result = subprocess.run(
+                ["osascript", "-e",
+                 'tell application "System Events" to tell process "Dock" to get the position of list 1'],
+                capture_output=True, text=True, timeout=3
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                parts = result.stdout.strip().split(",")
+                if len(parts) == 2:
+                    dock_y = int(parts[1].strip())
+        except Exception:
+            pass
+
+        # Derive menu bar height dynamically: full height - visibleFrame height - visibleFrame origin.y
+        visible = NSScreen.mainScreen().visibleFrame()
+        menu_bar_h = int(screen_h - visible.origin.y - visible.size.height)
+        y_top = menu_bar_h
+        w = screen_w
+        h = dock_y - menu_bar_h
+
+        script = f'''
+            tell application "System Events"
+                tell (first process whose frontmost is true)
+                    if exists window 1 then
+                        set position of window 1 to {{{screen_x}, {y_top}}}
+                        set size of window 1 to {{{w}, {h}}}
+                    end if
+                end tell
+            end tell
+        '''
+        subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
+        logger.info(f"Moved frontmost window to visible area ({screen_x}, {y_top}, {w}x{h})")
+    except Exception as e:
+        logger.warning(f"Could not move window to main screen: {e}")
+
+
+def _escape_for_applescript(s: str) -> str:
+    """Escape backslashes and double quotes for safe interpolation into an AppleScript string."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _resolve_via_launch_services(app_name: str):
+    """Resolve an app by name through macOS Launch Services.
+
+    `path to application "X"` finds any *registered* app wherever it lives —
+    including Apple's bundled apps under /System/Applications that a plain
+    /Applications scan misses. Returns (display_name, path) or (None, None).
+    """
+    safe = _escape_for_applescript(app_name)
+    script = f'POSIX path of (path to application "{safe}")'
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            path = result.stdout.strip().rstrip("/")
+            if path.endswith(".app") and os.path.isdir(path):
+                return os.path.basename(path)[:-4], path
+    except Exception:
+        pass
+    return None, None
+
+
+def _is_app_running(app_name: str) -> bool:
+    """Check if an application is currently running via System Events."""
+    safe = _escape_for_applescript(app_name)
+    script = f'''
+        tell application "System Events"
+            return (name of processes) contains "{safe}"
+        end tell
+    '''
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True, text=True, timeout=5
+        )
+        return result.returncode == 0 and result.stdout.strip() == "true"
+    except Exception:
+        return False
+
+
+def _bring_to_front(app_name: str):
+    """Bring an already-running app to the front using System Events (no new windows)."""
+    safe = _escape_for_applescript(app_name)
+    script = f'''
+        tell application "System Events"
+            set frontmost of process "{safe}" to true
+        end tell
+    '''
+    try:
+        subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
+        logger.info(f"Brought {app_name} to front via System Events")
+    except Exception as e:
+        logger.warning(f"Could not bring {app_name} to front: {e}")
+
+
+def open_app(app_name: str) -> bool:
+    """
+    Open an application on macOS (or bring to front if already running).
+    Always moves the window to the main display so the agent can detect it.
+
+    Args:
+        app_name: Application name (e.g., "Google Chrome", "safari", "vscode")
+
+    Returns:
+        True if launched successfully, False otherwise.
+    """
+    # Special case: Finder is always running, not in /Applications
+    if _normalize(app_name) == "finder":
+        try:
+            script = '''
+                tell application "Finder"
+                    activate
+                    if (count of Finder windows) = 0 then
+                        make new Finder window
+                    end if
+                end tell
+            '''
+            subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
+            logger.info("Opened Finder via AppleScript")
+            time.sleep(1.0)
+            _move_to_main_screen()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to open Finder: {e}")
+            return False
+
+    # Index the standard app folders (now including /System/Applications, so
+    # Apple's bundled apps like TextEdit/Calculator/Notes resolve) and match
+    # by name. This is in-process and instant.
+    candidates = _index_applications()
+    display, path = _best_match(app_name, candidates)
+
+    # Fallback: ask Launch Services for an app registered in a non-standard
+    # location the scan doesn't cover (e.g. Safari under /System/Volumes). This
+    # is only the fallback because the `path to application` query can be slow
+    # or time out, so we never put it on the hot path.
+    if not path:
+        display, path = _resolve_via_launch_services(app_name)
+
+    if not path:
+        logger.error(f"App not installed: {app_name}")
+        return False
+
+    try:
+        subprocess.run(["open", "-a", path], check=True, capture_output=True)
+        logger.info(f"Opened app: {display} ({path})")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to open {display}: {e}")
+        return False
+
+    # Give the app time to launch and become frontmost
+    time.sleep(1.0)
+
+    # Move its window onto the main display
+    _move_to_main_screen()
+
+    return True

@@ -1,0 +1,14 @@
+<!-- Top-right container — LIVE "tracking progress" stream. While the agent runs,
+     each scratchpad entry streams in as a circle-bullet line on a connecting line
+     (same conveyor as the tool-response chain); the content fades out when the run
+     ends (the final scratchpad then shows on the full-grid notes stage). The taller
+     top row gives the stream room to grow. Injected into #mainGrid (column 2, row 1)
+     by top_right.js; fed by window.trackingProgress (← window.streamMilestone). -->
+<div class="container-zone top-right-zone" id="zoneTopRight" aria-label="Tracking progress">
+    <div class="scratchpad-label">tracking progress</div>
+
+    <div class="br-flow" aria-hidden="true">
+        <!-- top_right.js appends one .br-item per scratchpad entry into here -->
+        <div class="br-tree" id="brTree"></div>
+    </div>
+</div>

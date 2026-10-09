@@ -1,0 +1,28 @@
+/* =====================================================================
+   Big center container — full-grid overlay (grid-column / grid-row 1 / -1 =
+   the combined size of all four zones + their gaps). Empty shell; notes_stage/
+   mounts Agent Notes into it. Hidden by default; consumers add .active to
+   show (run end, stop-button, saved-chat reopen). Fully transparent —
+   only the injected content shows (the judging-phase grey border is retired).
+   ===================================================================== */
+.big-center-zone {
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    z-index: 5;                 /* above the four zones it covers (mount order varies) */
+    box-sizing: border-box;
+    border: 1.5px solid transparent;   /* judging border retired; keeps the geometry */
+    border-radius: var(--glass-radius);
+    background: transparent;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+.big-center-zone.active {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;       /* content scrolls; the zones behind are stale here */
+}

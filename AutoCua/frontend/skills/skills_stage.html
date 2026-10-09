@@ -1,0 +1,100 @@
+<!-- Skills stage — mounted INTO #zoneBigCenter (the full-grid container that
+     shows one thing at a time). skills.js reveals it when the composer's Skills
+     icon is clicked and hides the Agent Notes so the two never overlap.
+     ONE panel serves both tabs: COMPUTER USE lists the host platform's
+     AutoCua_data/skills/<mac|windows>/*.md, MOBILE USE lists
+     AutoCua_data/skills/ios/*.md (/api/skills?platform=ios). Each row previews
+     on click (Edit / Save in the preview), the bin deletes, and + opens the add
+     form - Computer asks for a link or application, Mobile for the app's name
+     and bundle id - whose Save writes the .md (named after the app / domain) AND registers
+     it in skills.json. -->
+<div class="skills-stage" id="skillsStage" aria-label="Skills">
+
+    <div class="skills-stage-inner">
+
+        <!-- Tabs row: Computer use / Mobile use (segmented control) with
+             "+ Add skills" just to its right and Close on the far right. -->
+        <div class="skills-tabs-row">
+            <div class="skills-tabs" role="tablist" aria-label="Skill target">
+                <button class="skills-tab active" data-tab="computer" role="tab" aria-selected="true" type="button">
+                    <svg class="skills-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1"/><path d="M7 20h10"/><path d="M9 16v4"/><path d="M15 16v4"/></svg>
+                    <span>Computer use</span>
+                </button>
+                <button class="skills-tab" data-tab="mobile" role="tab" aria-selected="false" type="button">
+                    <svg class="skills-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="2" width="13" height="20" rx="2.5"/><path d="M10.5 18h3"/></svg>
+                    <span>Mobile use</span>
+                </button>
+            </div>
+            <button class="skills-add" type="button" aria-label="Add skills">
+                <span class="skills-add-circle" aria-hidden="true">
+                    <svg class="skills-add-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                </span>
+                <span class="skills-add-label">Add skills</span>
+            </button>
+            <!-- Close — puts the screen back exactly the way it was before
+                 Skills opened (Agent Notes, the shell terminal, or the plain
+                 4-zone grid). Same handler as clicking the composer icon again. -->
+            <button class="skills-close" id="skillsCloseBtn" type="button" aria-label="Close skills" title="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+            </button>
+        </div>
+
+        <!-- The panel: three sub-views swapped by skills.js - LIST (default),
+             PREVIEW (one file, read-only until Edit), ADD (via +). -->
+        <div class="skills-form active" data-form="skills" role="tabpanel">
+
+            <!-- LIST: one row per file; click the name to preview, bin deletes -->
+            <div class="skills-view active" data-view="list">
+                <div class="skills-list" id="skillsList" aria-label="Saved skills"></div>
+            </div>
+
+            <!-- PREVIEW: header = back button + file name + Edit / Save. -->
+            <div class="skills-view" data-view="preview">
+                <div class="skills-preview-head">
+                    <button class="skills-back" type="button" aria-label="Back to skills list" title="Back">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+                    </button>
+                    <span class="skills-preview-name" id="skillsPreviewName"></span>
+                    <div class="skills-preview-actions">
+                        <button class="skills-edit-btn" id="skillsEditBtn" type="button">Edit</button>
+                        <button class="skills-save-btn" id="skillsSaveBtn" type="button" hidden>Save</button>
+                    </div>
+                </div>
+                <pre class="skills-preview-body" id="skillsPreviewBody"></pre>
+                <textarea class="skills-preview-body skills-preview-editbox" id="skillsPreviewEdit" hidden spellcheck="false"></textarea>
+            </div>
+
+            <!-- ADD: the field row differs per tab; the skill text and the
+                 buttons are shared. Save = POST /api/skills[?platform=ios]. -->
+            <div class="skills-view" data-view="add">
+                <div class="skills-row skills-add-fields" data-for="computer">
+                    <div class="skills-field">
+                        <label class="skills-field-label" for="skillsAddTarget">Link / Application</label>
+                        <input type="text" class="skills-input" id="skillsAddTarget" placeholder="https://…  or  application name (the file is named after it)" autocomplete="off" />
+                    </div>
+                </div>
+                <div class="skills-row skills-add-fields" data-for="mobile" hidden>
+                    <div class="skills-field">
+                        <label class="skills-field-label" for="skillsAddApp">Application</label>
+                        <input type="text" class="skills-input" id="skillsAddApp" placeholder="name on the home screen, e.g. Instagram" autocomplete="off" />
+                    </div>
+                    <div class="skills-field">
+                        <label class="skills-field-label" for="skillsAddBundle">Bundle id</label>
+                        <input type="text" class="skills-input" id="skillsAddBundle" placeholder="optional, e.g. com.burbn.instagram" autocomplete="off" />
+                    </div>
+                </div>
+                <div class="skills-field skills-field-grow">
+                    <label class="skills-field-label" for="skillsAddText">Skill</label>
+                    <textarea class="skills-textarea" id="skillsAddText" placeholder="Write the skill here…"></textarea>
+                </div>
+                <div class="skills-actions">
+                    <span class="skills-add-error" id="skillsAddError" role="alert"></span>
+                    <button class="skills-cancel" type="button">Cancel</button>
+                    <button class="skills-save" id="skillsAddSave" type="button">Save</button>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+</div>

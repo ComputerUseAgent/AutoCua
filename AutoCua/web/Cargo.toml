@@ -1,0 +1,53 @@
+# The web agent as a Python extension module (PyO3 cdylib). Same flat layout
+# as ../tree: sources sit beside the manifest, no src/. Built lazily by the
+# package's __init__.py (`cargo build --release`), then the dylib is copied
+# next to it as agent_native.so — no maturin, no pyproject.toml, matching how
+# the element scanner used to be built as a separate binary.
+
+[package]
+name = "agent_native"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone crate — one package for the whole web side.
+[workspace]
+
+[lib]
+name = "agent_native"
+crate-type = ["cdylib"]
+path = "lib.rs"
+
+[build-dependencies]
+# Emits the macOS -undefined dynamic_lookup link args (see build.rs) that
+# maturin would otherwise supply.
+pyo3-build-config = "0.26"
+
+[dependencies]
+# abi3-py310: one .so works on every CPython >= 3.10, so the user's Python
+# can move without a relink — there is no pip/maturin step to redo one.
+pyo3 = { version = "0.26", features = ["extension-module", "abi3-py310"] }
+# serde_json::Value <-> Python objects at the LLM/controller boundary.
+pythonize = "0.26"
+# preserve_order: Python dicts are insertion-ordered; persisted transcript
+# JSON must not reshuffle keys relative to the Python implementation.
+serde = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+regex = "1"
+# Addresses read the way the browser reads them (browser.rs web_store_url).
+url = "2"
+chrono = "0.4"
+base64 = "0.22"
+# ws:// to 127.0.0.1 only — same dependency line as ../tree/Cargo.toml.
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+# tree/element.rs: jpeg decode + encode of the annotated screenshot (marks are
+# drawn with a hand-rolled bitmap font, so no font crates).
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+# browser/stage_bridge.rs: SHA-256 for AutoCuaBridge's file fingerprint and
+# Chrome's unpacked extension id.
+ring = { version = "0.17", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

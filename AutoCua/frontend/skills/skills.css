@@ -1,0 +1,518 @@
+/* =====================================================================
+   Skills — composer icon that sits just to the RIGHT of the Computer/Mobile use
+   picker (it's appended inside .agent-mode-wrap, at the composer's bottom-left).
+   Transparent icon button; the scroll's writing scrolls upward on hover (the
+   name comes from the native title tooltip). Fades with the picker on run start
+   (inherited from .agent-mode-wrap's own hide-on-active rule).
+   ===================================================================== */
+.skills-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: clamp(4px, 0.6vw, 8px);   /* gap from the picker's chevron */
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: rgba(90, 90, 90, 0.8);   /* exact grey of the picker's mode icon; never shifts */
+    cursor: pointer;
+    flex-shrink: 0;
+    border-radius: 8px;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: opacity 0.3s ease;
+}
+.skills-btn:focus-visible {
+    outline: 2px solid #9aa0ab;
+    outline-offset: 3px;
+}
+
+.skills-mark {
+    width: clamp(20px, 2.1vw, 23px);
+    height: clamp(20px, 2.1vw, 23px);
+    display: block;
+}
+
+/* The sheet's lines travel upward through the clip while hovered. The -8.7 is in
+   SVG user units (one line's spacing), so it's independent of rendered size. */
+.skills-lines { animation-play-state: paused; }
+.skills-btn:hover .skills-lines,
+.skills-btn:focus-visible .skills-lines {
+    animation: skills-scroll-up 3s linear infinite;
+}
+@keyframes skills-scroll-up {
+    from { transform: translateY(0); }
+    to   { transform: translateY(-8.7px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skills-btn:hover .skills-lines,
+    .skills-btn:focus-visible .skills-lines { animation: none; }
+}
+
+
+/* =====================================================================
+   Skills STAGE — mounted inside #zoneBigCenter (the full-grid container that
+   shows one thing at a time). Fills the zone like Agent Notes does; skills.js
+   reveals it (and hides the notes) on the Skills icon click. Default hidden;
+   .active shows it. Light cream + grey text to match the app; Save uses the
+   app's blue "Save" tone.
+   ===================================================================== */
+.skills-stage {
+    position: absolute;
+    inset: 0;
+    box-sizing: border-box;
+    /* Tight top/bottom so the fields sit near the top and the buttons hug the
+       bottom border — the freed height flows into the flex:1 write area.
+       (top / sides / bottom — bottom is smallest to push content down inside
+       the container without resizing the container itself.) */
+    padding: clamp(8px, 1vw, 14px) clamp(16px, 2.4vw, 30px) clamp(3px, 0.6vw, 7px);
+    display: none;                     /* .active reveals it (zone owns the fade) */
+    flex-direction: column;            /* single centred column, fills the height */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+}
+.skills-stage.active {
+    display: flex;
+    /* OPAQUE. The host zone is transparent, so without this the four zones
+       behind it (and the shell terminal) show straight through the skills
+       list. Same cream as <body> so the stage reads as the app surface. */
+    background: #F9F1EC;
+}
+
+/* ── Skills owns the screen while it's open ───────────────────────────────
+   The host (.big-center-zone) sits at z-index 5 and the pinned shell panel
+   (#cliContainer) at 6, so in Shell use the terminal — its "AutoCua Code"
+   header, its Agent Notes — rendered straight OVER the skills list. While
+   `skills-open` is on the body, Skills wins the stack and everything else in
+   the grid stands down. Driven by one body class rather than per-surface JS,
+   so any stage added later is covered by adding a selector here, and the
+   restore is automatic the moment the class comes off. */
+body.skills-open .big-center-zone { z-index: 7; }
+/* Compound `.skills-open.cli-stage` on purpose: cli_stage.css is linked AFTER
+   this file, so an equal-specificity `body.skills-open #cliContainer` would
+   lose to `body.cli-stage #cliContainer` on source order. Two classes beats
+   one, whatever the link order becomes later. */
+body.skills-open #cliContainer,
+body.skills-open.cli-stage #cliContainer {
+    transform: translateY(110%);       /* park it back below, as before cli_await */
+    opacity: 0;
+    pointer-events: none;
+}
+
+.skills-close {
+    margin-left: auto;                 /* pushes it to the row's right edge */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: clamp(26px, 2.6vw, 30px);
+    height: clamp(26px, 2.6vw, 30px);
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.05);
+    color: rgba(110, 110, 110, 0.9);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.25s ease, color 0.25s ease;
+}
+.skills-close svg { width: 62%; height: 62%; display: block; }
+.skills-close:hover {
+    background: rgba(0, 0, 0, 0.09);
+    color: rgba(60, 60, 60, 0.95);
+}
+.skills-close:focus-visible {
+    outline: 2px solid #9aa0ab;
+    outline-offset: 2px;
+}
+
+/* The form lives in a centred, capped-width column that fills the stage height,
+   so the write area flex-grows and the buttons stay pinned at the bottom. */
+.skills-stage-inner {
+    width: min(100%, 1100px);
+    margin: 0 auto;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(12px, 1.4vw, 16px);     /* tighter tabs → fields gap */
+}
+
+/* ── Tabs row: segmented control with "+ Add skills" right beside it ── */
+.skills-tabs-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: clamp(10px, 1.2vw, 14px);
+}
+
+/* Tabs (segmented control) — soft ROUNDED-RECTANGLE shape (was a full pill);
+   the inner tab radius tracks the track's radius minus its 4px padding so the
+   corners stay concentric. */
+.skills-tabs {
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: clamp(11px, 1.2vw, 14px);
+    background: rgba(0, 0, 0, 0.05);
+}
+.skills-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: clamp(7px, 0.8vw, 9px) clamp(14px, 1.4vw, 18px);
+    border: none;
+    border-radius: clamp(8px, 0.9vw, 10px);
+    background: transparent;
+    color: rgba(110, 110, 110, 0.9);
+    font-family: inherit;
+    font-size: clamp(12px, 1.2vw, 14px);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+}
+.skills-tab-icon { width: clamp(15px, 1.5vw, 17px); height: clamp(15px, 1.5vw, 17px); }
+.skills-tab:hover { color: rgba(70, 70, 70, 0.95); }
+.skills-tab.active {
+    background: #eceae3;               /* soft off-white — not a stark pure white */
+    color: rgba(55, 55, 55, 0.98);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* "+ Add skills" — white rounded-square plus badge with a label, sitting
+   just to the RIGHT of the tabs toggle. Design-only for now (no handler);
+   label shares the tabs' grey family. */
+.skills-add {
+    display: inline-flex;
+    align-items: center;
+    gap: clamp(7px, 0.8vw, 9px);
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: rgba(110, 110, 110, 0.9);
+    font-family: inherit;
+    font-size: clamp(12px, 1.2vw, 14px);
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+    -webkit-user-select: none;
+    user-select: none;
+}
+.skills-add:focus-visible {
+    outline: 2px solid #9aa0ab;
+    outline-offset: 3px;
+    border-radius: 8px;
+}
+.skills-add-circle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: clamp(26px, 2.6vw, 30px);
+    height: clamp(26px, 2.6vw, 30px);
+    box-sizing: border-box;
+    border-radius: clamp(8px, 0.9vw, 10px);   /* rounded square, matches the tabs */
+    background: rgba(255, 255, 255, 0.9);     /* white badge */
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.skills-add-plus { width: clamp(13px, 1.3vw, 15px); height: clamp(13px, 1.3vw, 15px); }
+/* hidden attr must beat our own display:inline-flex (UA [hidden] loses to it) —
+   skills.js hides the + on the Mobile tab. */
+.skills-add[hidden] { display: none; }
+
+/* ── Computer tab sub-views: list (default) / preview / add ───────── */
+/* Each fills the panel column; skills.js toggles which one is .active. */
+.skills-view {
+    display: none;
+    flex-direction: column;
+    gap: clamp(14px, 1.6vw, 18px);
+    flex: 1;
+    min-height: 0;
+}
+.skills-view.active { display: flex; }
+
+/* File list — one white rounded row per skill .md. Rows are deliberately COMPACT
+   (a row is just a file name + bin, so it doesn't need card-sized padding): tight
+   vertical padding and a small gap so many more fit before scrolling. Scrollbar
+   hidden like every other scroller in the app (agent-notes-list, todo-list, …). */
+.skills-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(4px, 0.5vw, 6px);
+    scrollbar-width: none;             /* Firefox */
+}
+.skills-list::-webkit-scrollbar { display: none; }
+.skills-item {
+    display: flex;
+    align-items: center;
+    gap: clamp(6px, 0.7vw, 8px);
+    flex-shrink: 0;                    /* rows keep height inside the scroller */
+    padding: clamp(4px, 0.5vw, 6px) clamp(9px, 1vw, 12px);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: clamp(7px, 0.75vw, 9px);
+    background: rgba(255, 255, 255, 0.7);
+}
+.skills-item-name {
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    text-align: left;
+    font-family: inherit;
+    font-size: clamp(11px, 1.1vw, 12.5px);
+    font-weight: 600;
+    line-height: 1.45;
+    color: rgba(55, 55, 55, 0.95);
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.skills-item-del {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: clamp(19px, 1.9vw, 22px);
+    height: clamp(19px, 1.9vw, 22px);
+    flex-shrink: 0;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: rgba(120, 120, 120, 0.85);
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+.skills-item-del:hover { color: rgba(205, 65, 65, 0.95); }   /* destructive cue */
+.skills-item-del svg { width: clamp(12px, 1.2vw, 13.5px); height: clamp(12px, 1.2vw, 13.5px); }
+
+/* Empty state — centred in the list area */
+.skills-empty {
+    margin: auto;
+    font-size: clamp(12px, 1.2vw, 14px);
+    font-weight: 500;
+    color: rgba(90, 90, 90, 0.6);
+}
+
+/* Preview — back badge + file name header, then the raw markdown */
+.skills-preview-head {
+    display: flex;
+    align-items: center;
+    gap: clamp(8px, 1vw, 12px);
+}
+.skills-back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: clamp(26px, 2.6vw, 30px);
+    height: clamp(26px, 2.6vw, 30px);
+    box-sizing: border-box;
+    flex-shrink: 0;
+    padding: 0;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: clamp(8px, 0.9vw, 10px);   /* same badge recipe as the + */
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    color: rgba(90, 90, 90, 0.9);
+    cursor: pointer;
+}
+.skills-back svg { width: clamp(14px, 1.4vw, 16px); height: clamp(14px, 1.4vw, 16px); }
+.skills-preview-name {
+    flex: 1;                           /* fill the middle; actions pin right */
+    min-width: 0;
+    font-size: clamp(13px, 1.3vw, 15px);
+    font-weight: 700;
+    color: rgba(55, 55, 55, 0.98);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Edit / Save — small pills on the header's right (top row only, no bottom
+   bar: the body keeps the full remaining height). */
+.skills-preview-actions {
+    display: flex;
+    align-items: center;
+    gap: clamp(8px, 1vw, 10px);
+    flex-shrink: 0;
+}
+.skills-edit-btn,
+.skills-save-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: clamp(26px, 2.6vw, 30px);
+    padding: 0 clamp(14px, 1.6vw, 18px);
+    border-radius: clamp(8px, 0.9vw, 10px);
+    font-family: inherit;
+    font-size: clamp(12px, 1.2vw, 13px);
+    font-weight: 600;
+    cursor: pointer;
+}
+.skills-edit-btn {
+    border: 1px solid rgba(0, 0, 0, 0.08);   /* white badge, like ← and + */
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    color: rgba(70, 70, 70, 0.95);
+}
+.skills-save-btn {
+    border: none;
+    background: rgba(80, 165, 230, 0.92);    /* app's Save blue */
+    color: #fff;
+}
+/* our display:inline-flex would beat the UA [hidden] rule */
+.skills-edit-btn[hidden],
+.skills-save-btn[hidden] { display: none; }
+.skills-preview-body[hidden] { display: none; }
+
+/* The editable twin — same skin as the read-only body via the shared class */
+.skills-preview-editbox {
+    resize: none;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+.skills-preview-editbox:focus {
+    border-color: rgba(80, 165, 230, 0.7);
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 0 0 3px rgba(80, 165, 230, 0.18);
+}
+.skills-preview-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    margin: 0;
+    padding: clamp(11px, 1.2vw, 14px);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: clamp(9px, 1vw, 12px);
+    background: rgba(255, 255, 255, 0.7);
+    font-family: inherit;                 /* markdown as plain text, app font */
+    font-size: clamp(12px, 1.2vw, 14px);
+    line-height: 1.55;
+    color: rgba(55, 55, 55, 0.95);
+    white-space: pre-wrap;
+    word-break: break-word;
+    scrollbar-width: none;             /* hidden like the list */
+}
+.skills-preview-body::-webkit-scrollbar { display: none; }
+
+/* ── Forms ────────────────────────────────────────────────────────── */
+.skills-form {
+    display: none;
+    flex-direction: column;
+    gap: clamp(14px, 1.6vw, 18px);
+    flex: 1;
+    min-height: 0;                     /* let the textarea flex/scroll inside */
+}
+.skills-form.active { display: flex; }
+
+/* Two small inputs side by side */
+.skills-row {
+    display: flex;
+    gap: clamp(12px, 1.4vw, 16px);
+}
+.skills-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+}
+.skills-field-grow { flex: 1; min-height: 0; }
+
+.skills-field-label {
+    font-size: clamp(11px, 1.1vw, 13px);
+    font-weight: 600;
+    color: rgba(90, 90, 90, 0.9);
+}
+
+.skills-input {
+    height: clamp(38px, 3.4vw, 42px);
+    padding: 0 clamp(11px, 1.2vw, 14px);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: clamp(9px, 1vw, 12px);
+    background: rgba(255, 255, 255, 0.7);
+    font-family: inherit;
+    font-size: clamp(12px, 1.2vw, 14px);
+    color: rgba(55, 55, 55, 0.95);
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+.skills-textarea {
+    flex: 1;                                 /* fills the space between the inputs and the buttons */
+    min-height: clamp(140px, 20vh, 300px);   /* floor only; stays ABOVE the buttons, never under them */
+    padding: clamp(11px, 1.2vw, 14px);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: clamp(9px, 1vw, 12px);
+    background: rgba(255, 255, 255, 0.7);
+    font-family: inherit;
+    font-size: clamp(12px, 1.2vw, 14px);
+    line-height: 1.55;
+    color: rgba(55, 55, 55, 0.95);
+    outline: none;
+    resize: none;                            /* auto-fills the height; no dragging over the buttons */
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    scrollbar-width: none;                   /* hidden like the app's other scrollers */
+}
+.skills-textarea::-webkit-scrollbar { display: none; }
+.skills-input:focus,
+.skills-textarea:focus {
+    border-color: rgba(80, 165, 230, 0.7);
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 0 0 3px rgba(80, 165, 230, 0.18);
+}
+.skills-input::placeholder,
+.skills-textarea::placeholder { color: rgba(90, 90, 90, 0.45); }
+
+/* ── Cancel / Save (centred, pinned at the bottom) ────────────────── */
+.skills-actions {
+    display: flex;
+    flex: 0 0 auto;                    /* never shrinks; always below the write area */
+    justify-content: center;
+    gap: clamp(10px, 1.2vw, 14px);
+    margin-top: clamp(2px, 0.5vw, 6px);
+}
+.skills-cancel,
+.skills-save {
+    height: clamp(38px, 3.4vw, 42px);
+    padding: 0 clamp(22px, 2.4vw, 30px);
+    border: none;
+    border-radius: clamp(9px, 1vw, 12px);
+    font-family: inherit;
+    font-size: clamp(13px, 1.3vw, 15px);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.15s ease;
+}
+.skills-cancel { background: rgba(0, 0, 0, 0.06); color: rgba(70, 70, 70, 0.95); }
+.skills-cancel:hover { background: rgba(0, 0, 0, 0.1); }
+.skills-save { background: rgba(80, 165, 230, 0.92); color: #fff; }
+.skills-save:hover { background: rgba(80, 165, 230, 1); }
+.skills-cancel:active,
+.skills-save:active { transform: scale(0.97); }
+
+/* Add form: only the active tab's field row shows; the error sits left of
+   the buttons and reads as a quiet inline note. */
+.skills-add-fields[hidden] { display: none; }
+.skills-add-error:empty { display: none; }     /* buttons stay centred until there is an error */
+.skills-add-error {
+    flex: 1;
+    align-self: center;
+    font-size: clamp(11px, 1.1vw, 13px);
+    color: #c0392b;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.skills-save:disabled { opacity: 0.6; cursor: default; }
+
+/* Defaults shipped with the app: listed after the user's own skills, preview only. */
+.skills-item-tag {
+    margin-left: auto;
+    font-size: 11px;
+    opacity: 0.55;
+    padding: 0 4px;
+}

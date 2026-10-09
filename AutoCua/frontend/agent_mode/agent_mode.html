@@ -1,0 +1,105 @@
+<!-- Agent mode — the composer's bottom-left control. A TRANSPARENT trigger
+     (mirrors the model picker across the row): the selection's logo + mode name
+     + sub-option and a chevron. The floating menu above carries Computer use /
+     Mobile use, each with a > flyout: Computer use → This PC / Daisy chain
+     (This PC default), Mobile use → iOS / Android (iOS default), then the two
+     flat rows with no flyout: Shell use and Web use. Injected into
+     .input-area-wrapper by agent_mode.js. Design-only: the iOS connect logic is
+     parked in agent_mode/ios_session.js until the design is final. -->
+<div class="agent-mode-wrap" id="agentModeWrap" data-mode="computer" data-sub="thispc">
+
+    <div class="agent-menu" id="agentMenu">
+        <div class="agent-menu-inner" role="menu">
+
+            <div class="agent-opt-wrap" data-mode="computer">
+                <button class="agent-opt selected" data-mode="computer" role="menuitemradio" aria-checked="true" type="button">
+                    <svg class="am-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1"/><path d="M7 20h10"/><path d="M9 16v4"/><path d="M15 16v4"/></svg>
+                    <span>Computer use</span>
+                    <svg class="am-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
+                    <svg class="am-subchev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+                </button>
+                <div class="agent-sub">
+                    <div class="agent-sub-inner" role="menu">
+                        <button class="agent-subopt selected" data-sub="thispc" role="menuitemradio" aria-checked="true" type="button">
+                            <svg class="am-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1"/><path d="M7 20h10"/><path d="M9 16v4"/><path d="M15 16v4"/></svg>
+                            <span>This PC</span>
+                            <svg class="am-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
+                        </button>
+                        <button class="agent-subopt" data-sub="daisy" role="menuitemradio" aria-checked="false" type="button">
+                            <svg class="am-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                            <span>Daisy chain</span>
+                            <svg class="am-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="agent-opt-wrap" data-mode="mobile">
+                <button class="agent-opt" data-mode="mobile" role="menuitemradio" aria-checked="false" type="button">
+                    <svg class="am-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="2" width="13" height="20" rx="2.5"/><path d="M10.5 18h3"/></svg>
+                    <span>Mobile use</span>
+                    <svg class="am-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
+                    <svg class="am-subchev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+                </button>
+                <div class="agent-sub">
+                    <div class="agent-sub-inner" role="menu">
+                        <button class="agent-subopt" data-sub="ios" role="menuitemradio" aria-checked="false" type="button">
+                            <svg class="am-icon am-icon-fill" viewBox="0 0 24 24" fill="currentColor"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>
+                            <span>iOS</span>
+                            <svg class="am-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
+                        </button>
+                        <button class="agent-subopt" data-sub="android" role="menuitemradio" aria-checked="false" type="button">
+                            <svg class="am-icon am-icon-fill" viewBox="0 0 24 24" fill="currentColor"><path d="M6,18C6,18.55 6.45,19 7,19H8V22.5C8,23.33 8.67,24 9.5,24C10.33,24 11,23.33 11,22.5V19H13V22.5C13,23.33 13.67,24 14.5,24C15.33,24 16,23.33 16,22.5V19H17C17.55,19 18,18.55 18,18V8H6V18M3.5,8C2.67,8 2,8.67 2,9.5V16.5C2,17.33 2.67,18 3.5,18C4.33,18 5,17.33 5,16.5V9.5C5,8.67 4.33,8 3.5,8M20.5,8C19.67,8 19,8.67 19,9.5V16.5C19,17.33 19.67,18 20.5,18C21.33,18 22,17.33 22,16.5V9.5C22,8.67 21.33,8 20.5,8M15.53,2.16L16.84,0.85C17.03,0.66 17.03,0.34 16.84,0.14C16.64,-0.05 16.32,-0.05 16.13,0.14L14.65,1.62C13.85,1.23 12.95,1 12,1C11.04,1 10.14,1.23 9.34,1.63L7.85,0.14C7.66,-0.05 7.34,-0.05 7.15,0.14C6.95,0.34 6.95,0.66 7.15,0.85L8.46,2.16C6.97,3.26 6,5.01 6,7H18C18,5.01 17.03,3.25 15.53,2.16M10,5H9V4H10V5M15,5H14V4H15V5Z"/></svg>
+                            <span>Android</span>
+                            <svg class="am-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Shell use — no sub-options, so no .agent-sub and no > hint.
+                 Terminal mark redrawn from tool_icon.html's vecShell painter
+                 ("executing shell"): window + title bar + > prompt + output
+                 line, simplified for legibility at 18px. Visual only for now —
+                 nothing is wired behind it. -->
+            <div class="agent-opt-wrap" data-mode="shell">
+                <button class="agent-opt" data-mode="shell" role="menuitemradio" aria-checked="false" type="button">
+                    <svg class="am-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 8h18"/><path d="M7 12l2.5 2.5L7 17"/><path d="M13 17h4"/></svg>
+                    <span>Shell use</span>
+                    <svg class="am-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
+                </button>
+            </div>
+
+            <!-- Web use — the browser agent. Like Shell use it has no sub-options,
+                 so no .agent-sub and no > hint. Globe mark reduced from the
+                 dotted lat/long sphere tool_icons.js paints for "searching the
+                 web": outline sphere + equator + meridian, which is all that
+                 stays legible at 18px. PLACEHOLDER: the row selects and paints,
+                 and chat_input.js blocks the send — nothing runs behind it yet. -->
+            <div class="agent-opt-wrap" data-mode="web">
+                <button class="agent-opt" data-mode="web" role="menuitemradio" aria-checked="false" type="button">
+                    <svg class="am-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><ellipse cx="12" cy="12" rx="4" ry="9"/></svg>
+                    <span>Web use</span>
+                    <svg class="am-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <button class="agent-btn" id="agentBtn" aria-expanded="false" aria-haspopup="true" type="button">
+        <!-- mode logo (monitor / phone / terminal / globe), driven by data-mode -->
+        <svg class="am-mode-icon am-mode-computer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1"/><path d="M7 20h10"/><path d="M9 16v4"/><path d="M15 16v4"/></svg>
+        <svg class="am-mode-icon am-mode-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="2" width="13" height="20" rx="2.5"/><path d="M10.5 18h3"/></svg>
+        <svg class="am-mode-icon am-mode-shell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 8h18"/><path d="M7 12l2.5 2.5L7 17"/><path d="M13 17h4"/></svg>
+        <svg class="am-mode-icon am-mode-web" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><ellipse cx="12" cy="12" rx="4" ry="9"/></svg>
+        <span class="am-cur-label" id="agentCurLabel">Computer use</span>
+        <!-- sub-option logo ONLY (no text): chain for Daisy chain, Apple/robot
+             for iOS/Android. This PC (and no-sub) shows nothing. -->
+        <svg class="am-sub-icon am-sub-daisy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        <svg class="am-sub-icon am-sub-ios" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>
+        <svg class="am-sub-icon am-sub-android" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6,18C6,18.55 6.45,19 7,19H8V22.5C8,23.33 8.67,24 9.5,24C10.33,24 11,23.33 11,22.5V19H13V22.5C13,23.33 13.67,24 14.5,24C15.33,24 16,23.33 16,22.5V19H17C17.55,19 18,18.55 18,18V8H6V18M3.5,8C2.67,8 2,8.67 2,9.5V16.5C2,17.33 2.67,18 3.5,18C4.33,18 5,17.33 5,16.5V9.5C5,8.67 4.33,8 3.5,8M20.5,8C19.67,8 19,8.67 19,9.5V16.5C19,17.33 19.67,18 20.5,18C21.33,18 22,17.33 22,16.5V9.5C22,8.67 21.33,8 20.5,8M15.53,2.16L16.84,0.85C17.03,0.66 17.03,0.34 16.84,0.14C16.64,-0.05 16.32,-0.05 16.13,0.14L14.65,1.62C13.85,1.23 12.95,1 12,1C11.04,1 10.14,1.23 9.34,1.63L7.85,0.14C7.66,-0.05 7.34,-0.05 7.15,0.14C6.95,0.34 6.95,0.66 7.15,0.85L8.46,2.16C6.97,3.26 6,5.01 6,7H18C18,5.01 17.03,3.25 15.53,2.16M10,5H9V4H10V5M15,5H14V4H15V5Z"/></svg>
+        <svg class="am-chev" id="agentChev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+    </button>
+
+</div>

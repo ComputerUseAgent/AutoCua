@@ -1,0 +1,496 @@
+/* The "agent is driving" overlay: a breathing purple glow along the viewport
+   edges and the agent's own cursor, which travels to whatever it is about to
+   click or type into.
+
+   browser.py arms every tab with glow.js as a document-start script, so this
+   sheet and its layer exist from the first paint of every document — no
+   catch-up beat after a navigation. Open glow.html in a browser to see and
+   tweak the whole thing on its own.
+
+   Everything is scoped to .AutoCua-* classes inside one fixed container, so
+   nothing here touches the page's own elements — no html/body rules, no
+   pseudo-element hijacking, no background or font changes. !important is on
+   the load-bearing properties only, to survive pages with aggressive resets
+   (`* { animation: none !important }` and friends). pointer-events stays none
+   throughout: every click, human or agent, passes straight through. */
+
+.AutoCua-layer {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    pointer-events: none !important;
+    z-index: 2147483647 !important;
+    overflow: hidden !important;
+    contain: strict;
+}
+
+/* Every descendant by name too, not only by inheritance: a page rule that
+   names the element itself beats an inherited none, whatever the !important
+   above. Booking.com has `svg { pointer-events: auto }`, and the cursor's
+   arrow is an svg that has just glided to the target: every click there
+   landed on our own arrow, and the page never saw it. */
+.AutoCua-layer * {
+    pointer-events: none !important;
+}
+
+/* --- soft edges --------------------------------------------------------- */
+
+.AutoCua-edge {
+    position: absolute !important;
+    pointer-events: none !important;
+    /* Enough blur to read as light, little enough that it does not vanish
+       against a white page. */
+    filter: blur(20px) !important;
+}
+
+/* Top and bottom stretch past the corners so the gradient's start and end
+   points stay offscreen. */
+.AutoCua-edge-top,
+.AutoCua-edge-bottom {
+    left: -20% !important;
+    right: -20% !important;
+    height: 40px !important;
+    background: linear-gradient(90deg, transparent 0%, rgba(139, 92, 246, 0.85) 50%, transparent 100%) !important;
+    background-size: 200% 100% !important;
+}
+
+.AutoCua-edge-top {
+    top: -20px !important;
+    animation: AutoCua-wave-x 7s ease-in-out infinite alternate,
+               AutoCua-breathe 4.5s ease-in-out infinite alternate !important;
+}
+
+.AutoCua-edge-bottom {
+    bottom: -20px !important;
+    animation: AutoCua-wave-x 8.5s ease-in-out infinite alternate -2s,
+               AutoCua-breathe 5.2s ease-in-out infinite alternate -1s !important;
+}
+
+.AutoCua-edge-left,
+.AutoCua-edge-right {
+    top: -20% !important;
+    bottom: -20% !important;
+    width: 40px !important;
+    background: linear-gradient(180deg, transparent 0%, rgba(139, 92, 246, 0.85) 50%, transparent 100%) !important;
+    background-size: 100% 200% !important;
+}
+
+.AutoCua-edge-left {
+    left: -20px !important;
+    animation: AutoCua-wave-y 6s ease-in-out infinite alternate -3s,
+               AutoCua-breathe 4s ease-in-out infinite alternate -2s !important;
+}
+
+.AutoCua-edge-right {
+    right: -20px !important;
+    animation: AutoCua-wave-y 7.5s ease-in-out infinite alternate -1s,
+               AutoCua-breathe 5.8s ease-in-out infinite alternate -4s !important;
+}
+
+/* The light spot travelling along an edge... */
+@keyframes AutoCua-wave-x {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 100% 50%; }
+}
+
+@keyframes AutoCua-wave-y {
+    0% { background-position: 50% 0%; }
+    100% { background-position: 50% 100%; }
+}
+
+/* ...and the whole edge breathing in and out. */
+@keyframes AutoCua-breathe {
+    0% { opacity: 0.3; }
+    100% { opacity: 1.0; }
+}
+
+/* --- the agent's cursor -------------------------------------------------- */
+
+/* A hollow lavender arrow that stays on the page for as long as the agent
+   holds the browser, and glides to whatever it is about to touch.
+
+   It replaces the old click bloom, and the reason is the timing rather than
+   the look: a mark that appears AFTER the fact can only say "something
+   happened here", while a pointer that travels first says "this is what I am
+   about to do" — which is the thing a human watching over the agent's
+   shoulder actually wants to know, early enough to stop it.
+
+   Two nested transforms on purpose. The wrapper carries the TRAVEL
+   (translate3d, so the glide runs on the compositor and never touches
+   layout), and the svg inside carries the PRESS (scale). A single element
+   cannot animate both, because they are one property. */
+.AutoCua-cursor {
+    position: fixed !important;
+    /* The layer is contain:strict, which makes it the containing block for
+       its fixed children — and the layer itself is pinned to 0,0 — so these
+       coordinates are viewport coordinates, exactly like the rects the
+       controller hands over. No dpr conversion exists to get wrong. */
+    left: 0 !important;
+    top: 0 !important;
+    width: 23px !important;
+    height: 23px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    pointer-events: none !important;
+    /* Hidden until something says WHERE it is. glow.js runs again at the birth
+       of every document, so a cursor that defaulted to visible would appear at
+       one place and then jump to its real position the moment the controller
+       synced it — the jump is the artefact, not the wait. .AutoCua-cursor-live
+       is added once it has been placed. */
+    opacity: 0;
+    /* Travel time. controller/service.rs waits CURSOR_MOVE_SECONDS before it
+       fires the press, and that constant is this duration — change one and
+       the press lands while the arrow is still in flight. */
+    transition: transform 650ms cubic-bezier(0.22, 0.61, 0.36, 1),
+                opacity 320ms ease !important;
+    will-change: transform, opacity;
+}
+
+/* Placed, and therefore worth showing. Dropped again by the done tool, which
+   is the run ending: the browser stops being driven, so the pointer that says
+   it is being driven should stop being there. */
+.AutoCua-cursor-live {
+    opacity: 1 !important;
+}
+
+/* The arrow itself. Separated from .AutoCua-cursor so the press can scale it
+   WITHOUT scaling the speech bubble pinned to the same box — one transform per
+   element, and the bubble is not part of the thing being pressed. */
+.AutoCua-cursor-art {
+    width: 100% !important;
+    height: 100% !important;
+    /* top left, not centre: the tip lives in that corner, so scaling from
+       there keeps the point where the controller put it. Scaling from the
+       centre would drag the tip inward every time it pressed. */
+    transform-origin: top left !important;
+    transition: transform 150ms cubic-bezier(0.2, 0, 0.2, 1) !important;
+}
+
+.AutoCua-cursor svg {
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    /* Lifts the outline off whatever it is standing on. The stroke is a pale
+       lavender and so are plenty of pages; without a shadow it vanishes into
+       them exactly when it matters. */
+    filter: drop-shadow(1px 3px 4px rgba(0, 0, 0, 0.25)) !important;
+}
+
+/* Held for the whole of CURSOR_PRESS_SECONDS, so the arrow is visibly pressed
+   at the moment the real click is dispatched rather than just after it. */
+.AutoCua-cursor-down .AutoCua-cursor-art {
+    transform: scale(0.75) !important;
+}
+
+/* --- the speech bubble --------------------------------------------------- */
+
+/* What the agent is thinking, built up a few words at a time, pinned to its
+   cursor.
+   Rides along with the arrow because it is the arrow's own transform that
+   moves it: no second position to keep in sync, and no chance of the words
+   arriving somewhere the pointer is not. */
+.AutoCua-bubble {
+    position: absolute !important;
+    /* Up and to the right of the tip — clear of the arrow's body, close
+       enough to read as belonging to it. */
+    top: -19px !important;
+    left: 11px !important;
+    background: #ffffff !important;
+    /* No right padding of its own: the window inside (AutoCua-bubble-clip)
+       ends in a 10px soft edge (EDGE in glow.js) that serves as it. */
+    padding: 3px 0 3px 9px !important;
+    border-radius: 14px !important;
+    font-size: 11.5px !important;
+    /* No webfont: the overlay is injected into pages whose CSP may block one,
+       and a bubble that silently falls back to Times is worse than one that
+       was always going to be a system face. */
+    font-family: system-ui, -apple-system, "Segoe UI", Nunito, Arial, sans-serif !important;
+    font-weight: 700 !important;
+    line-height: 1.25 !important;
+    /* The bubble grows left to right as words land in it, so it must stay on
+       one line: wrapping would move the whole thing and drag the reader's eye
+       off the cursor it belongs to. The word cap is what keeps that line from
+       running off the page. */
+    white-space: nowrap !important;
+    box-shadow: 0 3px 10px rgba(123, 98, 194, 0.2) !important;
+    pointer-events: none !important;
+    opacity: 0;
+    transform: translate(-5px, 5px) scale(0.5);
+    transform-origin: bottom left !important;
+    /* Overshoot on the way in: it should pop, the way a spoken word arrives. */
+    transition: opacity 300ms cubic-bezier(0.34, 1.56, 0.64, 1),
+                transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+.AutoCua-bubble-on {
+    opacity: 1 !important;
+    transform: translate(0, 0) scale(1) !important;
+}
+
+/* The window over the line. glow.js opens it word by word, gliding its
+   width, and the bubble widens with it; the words sit whole behind it, so
+   the letters come in as one smooth sweep left to right. Its right edge
+   fades, so they arrive soft rather than cut; at rest that fade falls on
+   the bubble's right padding, where there is no text. */
+.AutoCua-bubble-clip {
+    display: block !important;
+    overflow: hidden !important;
+    width: 0;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 10px), transparent 100%) !important;
+    mask-image: linear-gradient(to right, #000 calc(100% - 10px), transparent 100%) !important;
+}
+
+/* The lavender sweep runs across the letters themselves. Painted as a clipped
+   gradient rather than a colour, which is why the text has to be transparent
+   and inline-block: a clip needs a box to clip to. The gradient is a fixed
+   240px tile, not a share of the text's width: sized by the width, the sweep
+   stretched and jumped every time the text grew. */
+.AutoCua-bubble-word {
+    display: inline-block !important;
+    white-space: nowrap !important;
+    vertical-align: top !important;
+    background: linear-gradient(90deg, #8c73cd 0%, #ebdfff 50%, #8c73cd 100%) !important;
+    background-size: 240px 100% !important;
+    background-repeat: repeat-x !important;
+    color: transparent !important;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    transition: opacity 180ms ease !important;
+    animation: AutoCua-shimmer 1.2s linear infinite !important;
+}
+
+@keyframes AutoCua-shimmer {
+    from { background-position: 0 0; }
+    to { background-position: 240px 0; }
+}
+
+/* Someone who asked the OS for less motion gets the glow as steady light
+   rather than no signal at all. */
+@media (prefers-reduced-motion: reduce) {
+    .AutoCua-edge {
+        animation: none !important;
+        opacity: 0.75 !important;
+    }
+    /* The cursor keeps travelling and keeps pressing — where the agent is
+       about to act is information, not decoration. It just arrives at once
+       instead of gliding there. */
+    .AutoCua-cursor,
+    .AutoCua-cursor-art,
+    .AutoCua-bubble {
+        transition: none !important;
+    }
+    /* The words still come — they are the message. Only the sweep across them
+       is decoration, and that is what stops. */
+    .AutoCua-bubble-word {
+        animation: none !important;
+        color: #8c73cd !important;
+        background: none !important;
+    }
+}
+
+/* --- scraping mode ------------------------------------------------------- */
+
+/* The look of scraping mode, in place of the edges above: from the moment
+   `scrape` starts reading a page until exit_scrape_mode, on the tab being
+   read. A dark tint over the page, blurred a little, a pink and purple wave
+   travelling round the four edges, and "Scraping" with its orb at the top
+   left, with the data of each read streaming in below them as it comes.
+
+   It may cover the page because no step of scraping mode takes a screenshot:
+   the model reads the chunk, not the page. It comes off at once, with no
+   fade, when the mode ends, and a scan takes it off before it photographs
+   anything, so it is never in a picture the model is given (browser.rs
+   scrape_glow_off).
+
+   glow.js builds it the first time a page is scraped and switches it with
+   the AutoCua-scraping class on the layer. The orb and the streamed data
+   are drawn on canvases and the label is CSS text, so the
+   page the scrape reads gains no text and no DOM churn from it (and the
+   scrape skips [data-AutoCua="overlay"] outright). A property an animation
+   drives is never !important here: an important declaration outranks the
+   animation, and the motion would stop. */
+
+@property --AutoCua-scrape-a {
+    syntax: "<angle>";
+    inherits: false;
+    initial-value: 0deg;
+}
+
+.AutoCua-scrape {
+    --AutoCua-scrape-veil: rgb(10 10 14 / .7);            /* dark tint over the page       */
+    --AutoCua-scrape-blur: 6px;                           /* the page blurred a little under it */
+    --AutoCua-scrape-purple: #9b7dff;                     /* light purple: the edge        */
+    --AutoCua-scrape-pink: #ff8cc6;                       /* soft pink: the bloom          */
+    --AutoCua-scrape-blue: #79a7ff;                       /* light blue: rim on the edge   */
+    --AutoCua-scrape-size: clamp(24px, 6vmin, 80px);      /* how far the glow reaches in   */
+    --AutoCua-scrape-wave: 10s;                           /* one lap of the wave           */
+    --AutoCua-scrape-ink: #dcdce4;                        /* label, orb and data (light grey, glow.js reads it) */
+    --AutoCua-scrape-sheen: #ffffff;                      /* glint running through the label */
+    --AutoCua-scrape-orb: 26px;                           /* orb size next to the label    */
+    --AutoCua-scrape-panel-h: 460px;                      /* height the data streams in (glow.js reads it) */
+    display: none !important;
+    position: absolute !important;
+    inset: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    overflow: hidden !important;
+    /* The page's own direction would lay the status out backwards on a
+       right-to-left site: "Scraping" first, then its orb. */
+    direction: ltr !important;
+    /* a dark tint, with the page blurred a little under it */
+    background: var(--AutoCua-scrape-veil) !important;
+    -webkit-backdrop-filter: blur(var(--AutoCua-scrape-blur)) !important;
+    backdrop-filter: blur(var(--AutoCua-scrape-blur)) !important;
+}
+
+.AutoCua-scraping .AutoCua-scrape {
+    display: block !important;
+}
+
+/* The plain edges give way to the wave below for as long as the mode lasts. */
+.AutoCua-scraping .AutoCua-edge {
+    display: none !important;
+}
+
+.AutoCua-scrape-glow {
+    position: absolute !important;
+    inset: 0 !important;
+}
+
+.AutoCua-scrape-glow::before,
+.AutoCua-scrape-glow::after {
+    content: "" !important;
+    position: absolute !important;
+    inset: 0 !important;
+}
+
+/* pink bloom: two slow swells travelling round */
+.AutoCua-scrape-glow::before {
+    box-shadow: inset 0 0 calc(var(--AutoCua-scrape-size) * 1.6) calc(var(--AutoCua-scrape-size) * .35) var(--AutoCua-scrape-pink) !important;
+    opacity: .6 !important;
+    mask: repeating-conic-gradient(from var(--AutoCua-scrape-a),
+        #000, rgb(0 0 0 / .78) 30deg, rgb(0 0 0 / .33) 60deg, rgb(0 0 0 / .1) 90deg,
+        rgb(0 0 0 / .33) 120deg, rgb(0 0 0 / .78) 150deg, #000 180deg) !important;
+    animation: AutoCua-scrape-lap calc(var(--AutoCua-scrape-wave) * 1.6) linear infinite !important;
+}
+
+/* light-purple edge with a blue rim: three quicker ripples */
+.AutoCua-scrape-glow::after {
+    box-shadow:
+        inset 0 0 calc(var(--AutoCua-scrape-size) * .1) calc(var(--AutoCua-scrape-size) * .04) var(--AutoCua-scrape-blue),
+        inset 0 0 calc(var(--AutoCua-scrape-size) * .7) calc(var(--AutoCua-scrape-size) * .14) var(--AutoCua-scrape-purple) !important;
+    opacity: .9 !important;
+    mask: repeating-conic-gradient(from var(--AutoCua-scrape-a),
+        #000, rgb(0 0 0 / .84) 20deg, rgb(0 0 0 / .51) 40deg, rgb(0 0 0 / .35) 60deg,
+        rgb(0 0 0 / .51) 80deg, rgb(0 0 0 / .84) 100deg, #000 120deg) !important;
+    animation: AutoCua-scrape-lap var(--AutoCua-scrape-wave) linear infinite !important;
+}
+
+/* the wave travels clockwise round all four edges */
+@keyframes AutoCua-scrape-lap {
+    to { --AutoCua-scrape-a: 1turn; }
+}
+
+/* status: the orb and the label at the top left, moved up and left by the
+   head's padding so they stay where they would be without it, and the read's
+   data streaming in below them once it comes (glow.js sets the size). No box
+   of its own: it sits straight on the tint. */
+.AutoCua-scrape-status {
+    position: absolute !important;
+    top: calc(var(--AutoCua-scrape-size) * .85 - 3px) !important;
+    left: calc(var(--AutoCua-scrape-size) * 1.05 - 6px) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    background: none !important;
+}
+
+.AutoCua-scrape-head {
+    display: flex !important;
+    flex: none !important;
+    align-items: center !important;
+    gap: 6px !important;
+    margin: 0 !important;
+    padding: 3px 10px 3px 6px !important;
+    white-space: nowrap !important;
+}
+
+/* the read's data, streamed in one letter at a time on a canvas (glow.js);
+   old lines fade out at the top */
+.AutoCua-scrape-feed {
+    position: relative !important;
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    mask-image: linear-gradient(transparent, #000 10px) !important;
+}
+
+/* sized by glow.js to the open card */
+.AutoCua-scrape-json {
+    display: block !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    max-width: none !important;
+    max-height: none !important;
+}
+
+.AutoCua-scrape-orb {
+    display: block !important;
+    width: var(--AutoCua-scrape-orb) !important;
+    height: var(--AutoCua-scrape-orb) !important;
+}
+
+/* label: solid grey, with a light sheen running left to right */
+.AutoCua-scrape-label::after {
+    content: "Scraping" !important;
+    display: block !important;
+    margin: 0 !important;
+    font: 500 16px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+    letter-spacing: .01em !important;
+    white-space: nowrap !important;
+    /* inherited from the page otherwise: an all-caps or shadowed site would
+       restyle the label */
+    text-transform: none !important;
+    text-shadow: none !important;
+    background-image: linear-gradient(90deg, var(--AutoCua-scrape-ink) 40%, var(--AutoCua-scrape-sheen) 50%, var(--AutoCua-scrape-ink) 60%) !important;
+    background-size: 300% 100% !important;
+    background-position: 100% 0;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    color: transparent !important;
+    animation: AutoCua-scrape-sheen 1.6s linear infinite !important;
+}
+
+@keyframes AutoCua-scrape-sheen {
+    to { background-position: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .AutoCua-scrape-label::after {
+        animation: none !important;
+    }
+    .AutoCua-scrape-glow::before {
+        animation: none !important;
+        mask: none !important;
+        opacity: .4 !important;
+    }
+    .AutoCua-scrape-glow::after {
+        animation: none !important;
+        mask: none !important;
+        opacity: .7 !important;
+    }
+}

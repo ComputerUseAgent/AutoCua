@@ -1,0 +1,59 @@
+<!doctype html>
+<!-- The front tab of a parallel web run (agent_launcher.run_parallel_web_agents):
+     the agents work in background tabs of their own and never take the front, so
+     the browser shows this instead of a blank page: the looping background the iOS
+     simulator window plays, and the words. Opened over file:// from this folder, so
+     the video beside it loads with no server, and as the extension's own page when
+     stage_bridge.rs has copied it there with the video and agents.js (the script is
+     a file of its own: an extension page's content security policy runs no inline
+     script). ?n=3 names the number of agents. -->
+<html>
+<head>
+<meta charset="utf-8">
+<title>AutoCua</title>
+<link rel="icon" type="image/png" href="logo.png">
+<style>
+  :root { --ink: #ffffff; --soft: rgba(255, 255, 255, 0.82); --shade: rgba(52, 38, 140, 0.42); }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    color: var(--ink); font: 13px -apple-system, system-ui, sans-serif; -webkit-user-select: none;
+    /* The video's own colours, under it until its first frame is in. */
+    background: linear-gradient(125deg, #6fb4f6 0%, #c3b8f6 45%, #9c8cf0 75%, #8fd6f2 100%);
+  }
+  #bg { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.9s ease; }
+  #bg.on { opacity: 1; }
+  .veil { position: fixed; inset: 0; pointer-events: none;
+          background: radial-gradient(ellipse at center, transparent 55%, rgba(40, 28, 120, 0.18) 100%); }
+  .words { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; }
+  /* White, with a light sweeping across it, as the simulator window's title. */
+  h1 {
+    font-size: clamp(26px, 3.6vw, 44px); font-weight: 600; letter-spacing: 0.01em;
+    background: linear-gradient(100deg,
+      rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.62) 38%,
+      #ffffff 46%, #ffffff 54%,
+      rgba(255, 255, 255, 0.62) 62%, rgba(255, 255, 255, 0.62) 100%);
+    background-size: 300% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 2px 14px rgba(52, 38, 140, 0.5)) drop-shadow(0 0 1px rgba(52, 38, 140, 0.35));
+    animation: shimmer 2.8s ease-in-out infinite;
+  }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0% 0; } }
+  p { margin-top: 14px; font-size: 15px; color: var(--soft); text-shadow: 0 1px 10px var(--shade); }
+  @media (prefers-reduced-motion: reduce) {
+    h1 { animation: none; background: none; color: #fff; }
+  }
+</style>
+</head>
+<body>
+<video id="bg" src="simulation_background.mp4" autoplay muted loop playsinline preload="auto"></video>
+<div class="veil"></div>
+<div class="words">
+  <div>
+    <h1>Multiple agents running</h1>
+    <p id="count"></p>
+  </div>
+</div>
+<script src="agents.js"></script>
+</body>
+</html>

@@ -1,0 +1,132 @@
+AutoCua - Supported Providers & Models
+========================================
+
+In main.py, pass them straight to run_agent:
+
+    run_agent(
+        mode="computer use",
+        provider="<provider-name>",
+        model="<model-name>",
+        task="...",
+    )
+
+Copy the names exactly as written below (case-sensitive).
+A name that is not on this list is NOT validated - it is sent to the
+provider verbatim and comes back as a 404 model_not_found.
+
+
+--------------------------------------------------------------
+provider="openrouter"
+--------------------------------------------------------------
+model name                thinking  vision
+--------------------------------------------------------------
+gemini-3.1-pro            low       yes
+gemini-3.6-flash          minimal   yes
+gemini-3.8-flash          low       yes
+gpt-6-astra               medium    yes
+gpt-6-luna                low       yes
+gpt-6-sol                 low       yes
+claude-opus-5             medium    yes
+claude-sonnet-5           low       yes
+claude-sonnet-5.5         low       yes
+claude-opus-5.5           medium    yes
+grok-4.7                  low       yes
+mimo-v2.6-pro-ultraspeed  low       yes
+deepseek-v4.1-flash       low       yes
+muse-spark-1.3            low       yes
+kimi-k3                   low       yes
+claude-opus-5-fast        low       yes
+mistral-medium-3.5        none      yes
+qwen3.8-max-0902          low       yes
+qwen3.8-flash             low       yes
+
+
+--------------------------------------------------------------
+provider="groq"
+--------------------------------------------------------------
+model name                thinking  vision
+--------------------------------------------------------------
+qwen3.8-27b               -         yes
+
+
+--------------------------------------------------------------
+provider="openai"
+--------------------------------------------------------------
+model name                thinking  vision
+--------------------------------------------------------------
+gpt-6-astra               medium    yes
+
+
+--------------------------------------------------------------
+provider="anthropic"
+--------------------------------------------------------------
+model name                thinking  vision
+--------------------------------------------------------------
+claude-haiku-4.5          sampling  yes
+claude-opus-5             low       yes
+claude-sonnet-5           low       yes
+claude-sonnet-5.5         low       yes
+claude-opus-5.5           low       yes
+
+
+--------------------------------------------------------------
+provider="google"
+--------------------------------------------------------------
+model name                thinking  vision
+--------------------------------------------------------------
+gemini-3.1-pro            low       yes
+gemini-3.6-flash          low       yes
+gemini-3.8-flash          low       yes
+gemini-3.1-pro-vertex     low       yes
+gemini-3.6-flash-vertex   low       yes
+gemini-3.8-flash-vertex   low       yes
+
+
+--------------------------------------------------------------
+provider="perplexity"
+--------------------------------------------------------------
+model name                thinking  vision
+--------------------------------------------------------------
+gemini-3.1-pro            low       yes
+gemini-3.6-flash          low       yes
+gemini-3.8-flash          low       yes
+grok-4.5                  low       yes
+grok-4.3                  low       yes
+kimi-k3                   low       yes
+glm-5.3-flash             low       yes
+
+
+
+--------------------------------------------------------------
+provider="together"
+--------------------------------------------------------------
+model name                thinking  vision
+--------------------------------------------------------------
+minimax-m3                default   yes
+inkling                   default   yes
+muse-glimmer-30b          default   yes
+
+
+--------------------------------------------------------------
+provider="cerebras"
+--------------------------------------------------------------
+model name                thinking  vision
+--------------------------------------------------------------
+qwen-3.8-27b              low/high  yes
+
+
+--------------------------------------------------------------
+provider="aws"
+--------------------------------------------------------------
+model name                thinking  vision
+--------------------------------------------------------------
+kimi-k3                   low       yes
+grok-4.7                  low       yes
+claude-opus-4.7           low       yes
+claude-opus-4.6           low       yes
+claude-sonnet-4.6         low       yes
+
+
+--------------------------------------------------------------
+48 models across 9 providers.
+--------------------------------------------------------------

@@ -1,0 +1,11 @@
+{
+  "browser": {},
+  "os": {
+    "chrome": "browser.md",
+    "firefox": "browser.md",
+    "edge": "browser.md",
+    "opera": "browser.md",
+    "brave": "browser.md",
+    "LibreOffice Calc": "libreoffice_calc.md"
+  }
+}

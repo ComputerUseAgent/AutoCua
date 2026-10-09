@@ -1,0 +1,130 @@
+/* =====================================================================
+   Top-left SCREEN OVERLAY — the shell terminal swaps in over the live
+   screenshot while a shell command runs (paired with globe_shell.js). Kept in
+   the top-left folder with its JS for clean separation.
+
+   The screenshot (.screenshot-frame) cross-fades out when the overlay is active;
+   the terminal fades in over the same cell, then swaps back on finish.
+   ===================================================================== */
+
+/* cross-fade the live screenshot when an overlay shows */
+.screenshot-frame { transition: opacity 0.4s ease; }
+.screenshot-zone.overlay-active .screenshot-frame { opacity: 0; }
+
+/* the overlay stacks over the cell; hidden until its tool runs */
+.work-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+}
+.work-overlay.is-active { opacity: 1; }
+
+/* The shell terminal reads as a real terminal, so anchor it to the TOP-LEFT of
+   the cell (not centred) — the `>` lines align from the top-left. */
+#shellPanel {
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 12px 16px;
+}
+
+/* =====================================================================
+   Shell terminal — coder-card style. A TRANSPARENT `>` command line that
+   streams + shimmers with a dot loader while it runs, then an L-connector
+   down to the output line that comes back. Mirrors the cc-* visuals in
+   cli/cli_container/coder_card.css (shimmer, orbiting loader), scoped sh-*.
+   ===================================================================== */
+.shell-term {
+    width: min(360px, 86%);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: rgba(0, 0, 0, 0.82);
+}
+
+/* the `>` command line — the HEAD: prompt + streamed command + dot loader.
+   flex-start keeps the `>` pinned to the TOP (first line) when the command
+   wraps to several lines, exactly like the coder card's top-anchored `>`. */
+.sh-cmd-line { display: flex; align-items: flex-start; gap: 7px; }
+.sh-p { flex: 0 0 auto; color: rgba(0, 0, 0, 0.4); }
+.sh-cmd-text { min-width: 0; overflow-wrap: anywhere; }
+
+/* coder-style loading bar — a slim shimmering line shown WHILE the command runs
+   (ported from coder_card.css .cc-progress/.cc-fill: a gradient that flows L→R).
+   Sits right under the command; hidden again on result. */
+.sh-progress {
+    margin-top: 8px;
+    height: 4px;
+    border-radius: 999px;
+    position: relative;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.06);
+    border: 1px solid rgba(0, 0, 0, 0.04);
+    display: none;
+}
+.sh-progress.show { display: block; }
+.sh-fill {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(120, 124, 132, 0), rgba(120, 124, 132, 0.55), rgba(150, 154, 162, 0.7), rgba(120, 124, 132, 0));
+    transform: translateX(-70%);
+    animation: sh-flow 1.05s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+@keyframes sh-flow {
+    0%   { transform: translateX(-75%); opacity: 0.8; }
+    50%  { opacity: 1; }
+    100% { transform: translateX(75%); opacity: 0.8; }
+}
+
+/* output line — hidden until the result lands; an L drops from the `>` to it.
+   display (not opacity) so it takes NO vertical space while hidden — keeps the
+   loading bar tight under the command instead of leaving an empty gap. */
+.sh-out-line {
+    position: relative;
+    margin-top: 3px;
+    padding-left: 20px;
+    display: none;
+}
+.sh-out-line.show { display: block; }
+.sh-out-line::before {
+    content: "";
+    position: absolute;
+    left: 5px; top: -8px;
+    width: 12px; height: 16px;
+    border-left: 1px solid rgba(0, 0, 0, 0.22);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+    border-bottom-left-radius: 3px;
+}
+.sh-out-text { overflow-wrap: anywhere; }
+.sh-out-line.fail .sh-out-text { color: rgba(70, 70, 70, 0.95); }
+
+/* shimmer — text shines (loading) exactly like the coder `>` line. Applied to
+   the command WHILE it runs (awaiting the result). */
+.sh-shimmer {
+    background: linear-gradient(100deg, rgba(35,38,44,0.92) 0%, rgba(35,38,44,0.92) 40%, rgba(155,159,167,1) 50%, rgba(35,38,44,0.92) 60%, rgba(35,38,44,0.92) 100%);
+    background-size: 220% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    animation: sh-shimmer 1.4s linear infinite;
+}
+@keyframes sh-shimmer { from { background-position: 125% 0; } to { background-position: -25% 0; } }
+
+/* blinking cursor dot right after the `>` — the "running" indicator (port of
+   coder_card .cc-p::after). Hidden when idle; blinks only while the command runs
+   (.sh-cmd-line.running, toggled by globe_shell.js). */
+.sh-p::after {
+    content: "";
+    display: inline-block;
+    width: 4px; height: 4px;
+    margin-left: 5px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    vertical-align: middle;
+    opacity: 0;
+}
+.sh-cmd-line.running .sh-p::after { animation: sh-blink 1.2s ease-in-out infinite; }
+@keyframes sh-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.12; } }

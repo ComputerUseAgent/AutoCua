@@ -1,0 +1,191 @@
+/* =====================================================================
+   Top-right container — LIVE "tracking progress" stream. The cell is transparent;
+   its CONTENT (label + bullet stream) fades in while the agent runs and out when it
+   finishes (top_right.js toggles .br-active). The bullet chain reuses the tool-
+   response mechanics (connecting line + conveyor scroll + top fade), with a small
+   filled dot instead of a logo. Injected into #mainGrid (column 2, row 1).
+   ===================================================================== */
+.top-right-zone {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    border: 1px solid transparent;           /* no visible box — blends in (only the content shows) */
+    border-radius: var(--glass-radius);
+    box-sizing: border-box;
+    overflow: hidden;
+    padding: clamp(8px, 1vw, 12px) clamp(12px, 1.4vw, 16px);
+    display: flex;
+    flex-direction: column;
+}
+
+/* content fades with the run; idle = empty cell. Only shows when something written. */
+.scratchpad-label,
+.br-flow { opacity: 0; transition: opacity 0.45s ease; }
+.top-right-zone.br-active .scratchpad-label,
+.top-right-zone.br-active .br-flow { opacity: 1; }
+
+/* caption, mirroring the tool-response label */
+.scratchpad-label {
+    flex: 0 0 auto;
+    font-family: Georgia, 'Times New Roman', 'Iowan Old Style', serif;
+    font-style: italic;
+    font-size: clamp(9.5px, 0.95vw, 11.5px);
+    font-weight: 400;
+    letter-spacing: 0.01em;
+    color: rgba(60, 60, 60, 0.8);
+    user-select: none;
+}
+
+/* flow area — conveyor with a top fade mask (rising entries dissolve at the top) */
+.br-flow {
+    flex: 1 1 auto;
+    position: relative;
+    min-height: 0;
+    --tf-line: rgba(0, 0, 0, 0.22);
+    --tf-fade: clamp(14px, 2.6vh, 20px);
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--tf-fade));
+            mask-image: linear-gradient(to bottom, transparent 0, #000 var(--tf-fade));
+}
+
+/* the column of entries; slides up (translateY) as new ones arrive */
+.br-tree {
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    --tf-gap: clamp(10px, 1.9vh, 13px);
+    display: flex;
+    flex-direction: column;
+    padding-top: var(--tf-gap);
+    gap: var(--tf-gap);
+    will-change: transform;
+    transition: transform 0.45s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.br-item {
+    position: relative;
+    display: flex;
+    align-items: flex-start;   /* dot stays on the FIRST line when the text wraps */
+    gap: 8px;                  /* bullet -> text */
+}
+
+/* vertical connector line, drawn in TWO segments (both at x=7.5, same as the
+   bullet) with a clean GAP around the dot — the line stops just ABOVE the circle
+   and resumes just BELOW it, instead of running through it. The dot sits in a
+   16px slot at the item top, so its 8px circle spans +4..+12 (centre +8); the
+   gap is +2..+14 (a ~2px margin each side).
+     ::before = ABOVE segment — from the gap above the entry down to just above
+                the dot. Tiles with the previous entry's BELOW segment.
+     ::after  = BELOW segment — from just below the dot down to the entry's
+                bottom (alongside wrapped text), meeting the next entry's ABOVE
+                segment. So segments connect dot→dot but never cross a dot.
+   Both draw when top_right.js adds .line-in (scaleY = line "coming down"). */
+.br-item::before,
+.br-item::after {
+    content: "";
+    position: absolute;
+    /* The dot sits in a 16px slot at the item's left, so its centre is at x=8px.
+       Anchor the 1px line at x=8 and pull it back half its width with translateX
+       so it's centred EXACTLY on the dot — left:7.5px would pixel-snap a hair off. */
+    left: 8px;
+    width: 1px;
+    background: var(--tf-line);
+    transform: translateX(-50%) scaleY(0);
+    transform-origin: top;
+    transition: transform 0.45s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.br-item::before {                                   /* above the dot */
+    top: calc(-1 * var(--tf-gap));
+    height: calc(var(--tf-gap) + 2px);
+}
+.br-item::after {                                    /* below the dot */
+    top: 14px;
+    height: calc(100% - 14px);
+}
+.br-item.line-in::before,
+.br-item.line-in::after { transform: translateX(-50%) scaleY(1); }
+/* the newest (last) entry has no NEXT dot yet — keep its BELOW segment collapsed
+   so no line dangles under the last dot. Equal specificity to the .line-in rule
+   but placed AFTER it, so it wins; when a newer entry appends this stops matching
+   and the segment animates in (the transition is preserved). */
+.br-item:last-child::after { transform: translateX(-50%) scaleY(0); }
+
+/* small FILLED dot, centred on the line (16px slot so its centre sits at x=8).
+   Revealed when the segment reaches it (.icon-in). Solid accent fill drifting
+   through the same hues as the todo tick / agent-notes accents (color_test.html
+   stop-labelColor), with the same barShine glint sweeping INSIDE the circle. */
+.br-circle {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;         /* anchors the ::before glint over the dot */
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+.br-circle::after {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #9292d8;
+    animation: tr-dotColor 4s linear infinite;
+}
+/* The glint: an 8px circle over the dot whose own border-radius clips a white
+   streak (background-image) sweeping through as animated background-position —
+   a transform-based streak can't be clipped inside a pseudo-element, so the
+   sweep is driven in px (streak = 40% of 8px = 3.2px; -140%/320% of that). */
+.br-circle::before {
+    content: "";
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    pointer-events: none;
+    background-image: linear-gradient(90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.85) 50%,
+        rgba(255, 255, 255, 0) 100%);
+    background-size: 3.2px 8px;
+    background-repeat: no-repeat;
+    background-position: -4.5px 0;
+    opacity: 0;
+    animation: tr-dotShine 4s ease-in-out infinite;
+}
+.br-item.icon-in .br-circle { opacity: 1; }
+/* #9292d8 base drifting through the same hues as the mode-toggle label
+   (color_test.html stop-labelColor) — same colors, same 4s linear loop. */
+@keyframes tr-dotColor {
+    0%, 100% { background-color: #9292d8; }
+    20% { background-color: #a875ad; }   /* red   */
+    40% { background-color: #88a8c6; }   /* green */
+    60% { background-color: #7e99e0; }   /* blue  */
+    80% { background-color: #a789e0; }   /* pink  */
+}
+/* barShine's timeline (0/55 hidden → peak at 65 → gone at 100), position-driven.
+   Peak kept subtle (0.2). */
+@keyframes tr-dotShine {
+    0%, 55%  { background-position: -4.5px 0; opacity: 0; }
+    65%      { opacity: 0.2; }
+    100%     { background-position: 10.5px 0; opacity: 0; }
+}
+
+/* entry text — typed char-by-char; WRAPS to as many lines as it needs (never
+   chopped). line-height matches the 16px dot slot so the dot sits on line 1. */
+.br-word {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+    font-size: clamp(11px, 1.1vw, 12.5px);
+    line-height: 16px;
+    color: rgba(60, 60, 60, 0.85);
+    white-space: normal;       /* wrap to the next line instead of chopping */
+    overflow-wrap: anywhere;   /* also break a single very long token if needed */
+}

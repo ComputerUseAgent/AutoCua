@@ -1,0 +1,223 @@
+<!doctype html>
+<!-- The iOS Simulator window (sim_view.py): "Preparing simulation" over the
+     looping background, then every simulator of the run, side by side. -->
+<html>
+<head>
+<meta charset="utf-8">
+<title>iOS Simulator</title>
+<style>
+  :root {
+    --ink: #ffffff;
+    --soft: rgba(255, 255, 255, 0.82);
+    --shade: rgba(52, 38, 140, 0.42);
+    --live: #34d77a;
+    --wait: #ffb340;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    color: var(--ink); font: 13px -apple-system, system-ui, sans-serif; -webkit-user-select: none;
+    /* The video's own colours, under it until its first frame is in. */
+    background: linear-gradient(125deg, #6fb4f6 0%, #c3b8f6 45%, #9c8cf0 75%, #8fd6f2 100%);
+  }
+
+  /* The looping background, and a soft vignette for depth. */
+  #bg {
+    position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    opacity: 0; transition: opacity 0.9s ease;
+  }
+  #bg.on { opacity: 1; }
+  .veil {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(40, 28, 120, 0.18) 100%);
+  }
+  /* Where the title bar was: the page runs under it now, so dragging here
+     has to move the window (pywebview's drag region does). */
+  .titlebar { position: fixed; top: 0; left: 0; right: 0; height: 30px; z-index: 10; }
+
+  /* "Preparing simulation": white, with a light sweeping across it. */
+  .preparing {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    transition: opacity 0.7s ease, filter 0.7s ease, transform 0.7s ease;
+  }
+  .preparing h1 {
+    font-size: clamp(26px, 3.6vw, 44px); font-weight: 600; letter-spacing: 0.01em;
+    background: linear-gradient(100deg,
+      rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.62) 38%,
+      #ffffff 46%, #ffffff 54%,
+      rgba(255, 255, 255, 0.62) 62%, rgba(255, 255, 255, 0.62) 100%);
+    background-size: 300% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 2px 14px rgba(52, 38, 140, 0.5)) drop-shadow(0 0 1px rgba(52, 38, 140, 0.35));
+    animation: shimmer 2.8s ease-in-out infinite;
+  }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0% 0; } }
+  body.ready .preparing { opacity: 0; filter: blur(8px); transform: scale(1.04); pointer-events: none; }
+
+  .wall {
+    /* 28px more at the top: the page runs up under the see-through title bar. */
+    position: relative; height: 100%; margin: 0 auto; padding: 50px 48px 14px;
+    display: flex; flex-wrap: wrap; align-content: center; justify-content: center;
+    align-content: safe center; /* overflow scrolls down instead of cutting off the top */
+    gap: 18px 36px;
+  }
+  .cell {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    animation: rise 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(22px) scale(0.96); } }
+
+  /* The device: width and height come from layout(); --w drives the curves. */
+  .device {
+    position: relative; padding: calc(var(--w) * 0.028); border-radius: calc(var(--w) * 0.165);
+    background: linear-gradient(145deg, #5d6370 0%, #2d3139 38%, #17191e 100%);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+                0 28px 64px rgba(35, 24, 110, 0.38);
+  }
+  .device.ipad { padding: calc(var(--w) * 0.03); border-radius: calc(var(--w) * 0.055); }
+  .screen {
+    position: relative; width: 100%; height: 100%; overflow: hidden; background: #0c0d12;
+    border-radius: calc(var(--w) * 0.14); display: grid; place-items: center;
+  }
+  .ipad .screen { border-radius: calc(var(--w) * 0.028); }
+  .screen img {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    animation: appear 0.4s ease-out both;
+  }
+  @keyframes appear { from { opacity: 0; } }
+  .wait { color: rgba(255, 255, 255, 0.45); font-size: 12px; }
+
+  /* Never wider than its device: a long name is cut short, not a wider cell. */
+  .label {
+    display: flex; align-items: center; gap: 7px; white-space: nowrap; max-width: 100%;
+    color: var(--soft); text-shadow: 0 1px 10px var(--shade);
+  }
+  .label b { color: var(--ink); font-weight: 600; flex: none; }
+  .label span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--wait); flex: none;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+  }
+  .dot.live { background: var(--live); box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35), 0 0 8px var(--live); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .preparing h1 { animation: none; background: none; color: #fff; }
+    .cell, .screen img { animation: none; }
+  }
+</style>
+</head>
+<body>
+<video id="bg" src="/background.mp4" autoplay muted loop playsinline preload="auto"></video>
+<div class="veil"></div>
+<div class="titlebar pywebview-drag-region"></div>
+<div class="preparing"><h1>Preparing simulation</h1></div>
+<div class="wall" id="wall"></div>
+<script>
+  const bg = document.getElementById('bg');
+  bg.addEventListener('playing', () => bg.classList.add('on'));
+  // sim_view.py calls this once the page is up: WKWebView only lets the
+  // video start from there. With "Reduce motion" on, the still gradient
+  // under it stays instead.
+  function startBackground() {
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) bg.play().catch(() => {});
+  }
+
+  const wall = document.getElementById('wall');
+  const GAP_X = 36, GAP_Y = 18, PAD_X = 96, PAD_Y = 64, LABEL = 30;
+  let cells = [];
+
+  // sim_view.py calls this once the simulators are ready.
+  function showPhones(phones) {
+    cells = phones.map((p, i) => {
+      const ipad = /ipad/i.test(p.name);
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.style.animationDelay = (0.25 + i * 0.09) + 's';
+      cell.innerHTML =
+        `<div class="device${ipad ? ' ipad' : ''}"><div class="screen">` +
+        `<span class="wait">Starting...</span></div></div>` +
+        `<div class="label"><i class="dot"></i>` +
+        (p.task ? `<b>Task ${p.task}</b>&middot;` : '') + `<span></span></div>`;
+      cell.querySelector('.label span').textContent = p.name;
+      wall.appendChild(cell);
+
+      // ar: the screen's width / height, portrait until the first frame gives
+      // the real one. k: the bezel, as a share of the device's width (the
+      // .device padding in the CSS above).
+      const c = { cell, device: cell.querySelector('.device'), ar: ipad ? 0.75 : 0.46,
+                  k: ipad ? 0.03 : 0.028 };
+      const screen = cell.querySelector('.screen'), dot = cell.querySelector('.dot');
+      let shown = null;
+      // A fresh <img> per stream, put on screen once its first frame is in:
+      // WebKit fires load but paints nothing when an <img> whose stream ended
+      // is pointed at a new one.
+      c.up = () => {
+        const img = new Image();
+        img.alt = '';
+        img.onload = () => {
+          img.onload = null;
+          if (shown) shown.remove();
+          screen.appendChild(img);
+          shown = img;
+          dot.classList.add('live');
+          if (img.naturalWidth && img.naturalHeight) {
+            const ar = img.naturalWidth / img.naturalHeight;
+            if (Math.abs(ar - c.ar) > 0.01) { c.ar = ar; layout(); }
+          }
+        };
+        img.src = `http://127.0.0.1:${p.port}/?t=${Date.now()}`;
+      };
+      c.down = () => {
+        if (shown) shown.remove();
+        shown = null;
+        dot.classList.remove('live');
+      };
+      return c;
+    });
+    layout();
+    document.body.classList.add('ready');
+  }
+
+  // sim_view.py calls these too. The page never opens a stream on its own:
+  // an <img> gets no event when a live stream stops, and WebKit can't hang
+  // up on one either, so Python (where a dropped connection shows) says when
+  // a simulator's stream is up and when it's gone. A new stream only ever
+  // replaces a dead one.
+  function streamUp(i) { if (cells[i]) cells[i].up(); }
+  function streamDown(i) { if (cells[i]) cells[i].down(); }
+
+  // The device's width / height that leaves its screen (inside the bezel)
+  // exactly the stream's shape, so none of the picture is cropped:
+  // (w - 2kw) / (h - 2kw) = ar  gives  w / h = ar / (1 - 2k + 2k·ar).
+  const shape = (c) => c.ar / (1 - 2 * c.k + 2 * c.k * c.ar);
+
+  // One row while the devices stay big enough, more rows when that makes
+  // them bigger. Every device gets the same height; widths follow its shape.
+  function layout() {
+    const n = cells.length;
+    if (!n) return;
+    const maxShape = Math.max(...cells.map(shape));
+    let best = { h: 0, perRow: n };
+    for (let rows = 1; rows <= n; rows++) {
+      const perRow = Math.ceil(n / rows);
+      const byHeight = (innerHeight - PAD_Y - (rows - 1) * GAP_Y) / rows - LABEL;
+      const byWidth = (innerWidth - PAD_X - (perRow - 1) * GAP_X) / (perRow * maxShape);
+      const h = Math.min(byHeight, byWidth);
+      if (h > best.h + 1) best = { h, perRow };
+    }
+    // A little air above and below a single row, like a phone on a desk.
+    const h = Math.max(best.h * (n <= 3 ? 0.86 : 1), 80);
+    for (const c of cells) {
+      const w = h * shape(c);
+      c.cell.style.width = w + 'px';
+      c.device.style.width = w + 'px';
+      c.device.style.height = h + 'px';
+      c.device.style.setProperty('--w', w + 'px');
+    }
+    // Just wide enough for perRow devices, so the rest wrap onto the next row.
+    wall.style.maxWidth = (best.perRow * h * maxShape + (best.perRow - 1) * GAP_X + PAD_X + 1) + 'px';
+  }
+  addEventListener('resize', layout);
+</script>
+</body>
+</html>

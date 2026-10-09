@@ -1,0 +1,129 @@
+# `pip install AutoCua` — one wheel per OS/arch holding the AutoCua package
+# and the web agent's Rust extension (AutoCua/web) prebuilt, so no Rust is
+# needed on the user's machine. Built with maturin:
+#
+#   pip install maturin
+#   maturin build --release -o dist  # -> dist/autocua-*.whl
+#
+# A checkout keeps working exactly as before (python main.py, the setup
+# scripts, cargo building the web agent on first import).
+
+[build-system]
+requires = ["maturin>=1.15,<2"]
+build-backend = "maturin"
+
+[project]
+name = "AutoCua"
+version = "0.1.0"
+description = "AutoCua: an AI agent that operates your computer, shell, browser and iPhone"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+authors = [{ name = "Ashish Yadav" }]
+keywords = ["agent", "automation", "computer-use", "browser-agent", "llm", "ios"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+]
+
+# Everything main.py needs on either platform, terminal and UI alike. The
+# markers pick the OS; the floors are the versions the Windows list pinned.
+dependencies = [
+    "requests>=2.32.5",
+    "python-dotenv>=1.2.1",
+    "Pillow>=12.1.0",
+    "openai>=2.17.0",
+    "anthropic>=0.83.0",
+    "groq>=1.0.0",
+    "google-genai>=1.64.0",
+    "flask>=3.1.2",
+    "pywebview>=6.1",
+    "python-telegram-bot>=21.6",
+    "pyautogui>=0.9.54; sys_platform == 'darwin' or sys_platform == 'win32'",
+    # macOS computer use
+    "pyobjc-core>=11; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=11; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz>=11; sys_platform == 'darwin'",
+    "pyobjc-framework-ApplicationServices>=11; sys_platform == 'darwin'",
+    "pyobjc-framework-Vision>=11; sys_platform == 'darwin'",
+    "pyobjc-framework-WebKit>=11; sys_platform == 'darwin'",
+    "pynput>=1.7; sys_platform == 'darwin'",
+    # Settings -> Recording encodes its videos with OpenCV on macOS and with
+    # imageio-ffmpeg on Linux and Windows: OpenCV's Linux wheels cannot write
+    # H.264, and its Windows wheels only at a fixed ~900 MB a minute
+    # (utils/run_recorder.py)
+    "opencv-python>=4.9; sys_platform == 'darwin'",
+    "imageio-ffmpeg>=0.5; sys_platform == 'linux' or sys_platform == 'win32'",
+    # Linux computer use — OCR fusion (PP-OCRv6 via onnxruntime, see
+    # AutoCua/linux/tree/ocr.py); AT-SPI itself comes from the distro's
+    # python3-gi, which pip cannot supply (linux_requirements.txt explains).
+    "onnxruntime>=1.20; sys_platform == 'linux'",
+    # Windows computer use
+    "pywinauto>=0.6.9; sys_platform == 'win32'",
+    "pywin32>=311; sys_platform == 'win32'",
+    "comtypes>=1.4; sys_platform == 'win32'",
+    "interception-python>=1.13; sys_platform == 'win32'",
+    "keyboard>=0.13.5; sys_platform == 'win32'",
+    "psutil>=5.9; sys_platform == 'win32'",
+    "pyperclip>=1.8; sys_platform == 'win32'",
+    "numpy>=1.26; sys_platform == 'win32' or sys_platform == 'linux'",
+    "PySide6>=6.6; sys_platform == 'win32'",
+    "winrt-runtime>=3.2; sys_platform == 'win32'",
+    "winrt-Windows.Foundation>=3.2; sys_platform == 'win32'",
+    "winrt-Windows.Foundation.Collections>=3.2; sys_platform == 'win32'",
+    "winrt-Windows.Media.Ocr>=3.2; sys_platform == 'win32'",
+    "winrt-Windows.Globalization>=3.2; sys_platform == 'win32'",
+    "winrt-Windows.Graphics.Imaging>=3.2; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams>=3.2; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+# Paired iPhone/iPad (the simulator path needs only Xcode).
+ios = ["pymobiledevice3>=10; sys_platform == 'darwin'"]
+
+[project.urls]
+Homepage = "https://github.com/AutoCua/AutoCua"
+Source = "https://github.com/AutoCua/AutoCua"
+
+[tool.maturin]
+# The crate lives inside the package (AutoCua/web) and is imported as
+# AutoCua.web.agent_native; python-source = "." makes ./AutoCua the package.
+manifest-path = "AutoCua/web/Cargo.toml"
+module-name = "AutoCua.web.agent_native"
+python-source = "."
+exclude = [
+    # wheel-only: the crate sources stay in the sdist so it can build, but a
+    # wheel ships the compiled extension — no Cargo.toml beside it means the
+    # loader never tries cargo.
+    { path = "AutoCua/web/**/*.rs", format = "wheel" },
+    { path = "AutoCua/web/*.rs", format = "wheel" },
+    { path = "AutoCua/web/Cargo.toml", format = "wheel" },
+    { path = "AutoCua/web/Cargo.lock", format = "wheel" },
+    { path = "AutoCua/web/build.rs", format = "wheel" },
+    # never shipped
+    "AutoCua/web/target/**",
+    "AutoCua/web/scratchpad/**",
+    "AutoCua/mac/scratchpad/**",
+    "AutoCua/windows/scratchpad/**",
+    "AutoCua/ios/scratchpad/**",
+    "AutoCua/linux/scratchpad/**",
+    # the PP-OCRv6 models ocr_models.py downloads on the first Linux scan
+    "AutoCua/linux/tree/models/**",
+    # legacy in-package secret locations (keys now live in AutoCua_data/)
+    "AutoCua/api_key/**",
+    "AutoCua/agent_conversation/*.json",
+    "AutoCua/agent_conversation/chat_*/**",
+    "AutoCua/web/HANDOFF.md",
+    "AutoCua/Structure.md",
+    "AutoCua/**/test.py",
+    "AutoCua/**/old_element.py",
+    "AutoCua/**/__pycache__/**",
+    "AutoCua/ios_connector/WebDriverAgent/**",
+    "AutoCua/ios_connector/paired_devices.json",
+]

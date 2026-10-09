@@ -1,0 +1,97 @@
+<!-- Chat input component — the bottom text box (the agent-start input). Holds the
+     output / cli / agent-activated strip areas plus the input bar (the textarea and
+     the stop-agent orb). Injected into #chatWrapper by chat_input.js; the agent-
+     lifecycle wiring (Enter-to-send, stop button, streaming) stays in script.js and
+     attaches on the 'chatinput:ready' event. Future bottom-row tools go in the empty
+     space left of the .input-toolbar group. -->
+<div class="chat-container-content">
+    <!-- New Output Stream Area -->
+    <div class="output-stream-area">
+        <div class="welcome-overlay" id="welcomeOverlay">
+            <div class="welcome-eye"></div>
+            <div class="welcome-eye"></div>
+            <div class="welcome-glow"></div>
+        </div>
+        <div class="milestone-stream" id="milestoneStream"></div>
+    </div>
+
+    <!-- CLI streaming area: takes over the chat box during cli_await -->
+    <div class="cli-stream-area" id="cliStreamArea">
+        <div class="cli-stream-list" id="cliStreamList"></div>
+    </div>
+
+    <!-- Agent Response Strip (Hidden by default) -->
+    <div class="agent-response-strip" id="agentResponseStrip">
+        <div class="agent-cursor-icon"></div>
+        <span class="agent-label">Agent activated:</span>
+        <span class="agent-text" id="agentText"></span>
+    </div>
+
+    <!-- Composer that collapses on send. IDLE: a ONE-line textarea on top (grows upward
+         as you type) with a tools row below it — the model picker + send/stop orb grouped
+         at the RIGHT (the empty left of that row is room for future tools). ON SEND: the
+         text shrinks to one line and the tools row is pushed UP to sit beside it, so the
+         whole thing becomes a single slim row; the grey send orb morphs into the glowing
+         stop orb (same slot, crossfade). -->
+    <div class="input-area-wrapper">
+        <textarea class="chat-input" placeholder="Select a model in Settings to start..." rows="1" disabled></textarea>
+
+        <div class="input-toolbar">
+            <!-- Recording dot: exists only while a run is being recorded (turned on
+                 in Settings → Recording). The backend shows it once the recorder
+                 starts and fades it out once the videos are stored
+                 (window.recordingIndicator in chat_input.js). -->
+            <span class="rec-indicator" id="recIndicator" role="status" aria-label="Recording">
+                <span class="rec-dot"></span>
+            </span>
+
+            <!-- Fast / Quality flip — UI-ONLY toggle (future feature slot, nothing
+                 wired behind it yet). Amber bolt = Fast, purple sparkles = Quality;
+                 the white thumb spring-bounces across and a small label floats up
+                 above the pill on flip/hover. Sits just left of the model picker. -->
+            <!-- Defaults to Quality (class="quality" + aria-checked below). -->
+            <button class="fast-quality-toggle quality" id="fastQualityToggle" type="button" role="switch" aria-checked="true" aria-label="Fast / Quality mode">
+                <span class="fq-label fq-label-fast" aria-hidden="true">Fast</span>
+                <span class="fq-label fq-label-quality" aria-hidden="true">Quality</span>
+                <span class="fq-thumb"></span>
+                <span class="fq-icon fq-zap">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                </span>
+                <span class="fq-icon fq-sparkles">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path class="fq-spark-main" d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>
+                        <path d="M20 3v4"/><path d="M22 5h-4"/>
+                        <path d="M4 17v2"/><path d="M5 18H3"/>
+                    </svg>
+                </span>
+            </button>
+
+            <!-- Model picker (drop-up) — sits at the right, just left of the send orb.
+                 Label shows the active provider until a model is picked, then the model
+                 name. Wired by script.js (wireChatDropdown) which reuses makeDropdown.
+                 Kept a descendant of .input-area-wrapper so the :has(.chat-model-dropdown.open)
+                 z-index lift still resolves. -->
+            <div class="model-dropdown chat-model-dropdown" id="chatModelDropdown">
+                <button class="model-dropdown-trigger" type="button" aria-label="Select model">
+                    <span class="model-dropdown-value placeholder">select model</span>
+                    <!-- Same mark as the Computer/Mobile use picker's .am-chev
+                         (agent_mode.html): a single caret that flips 180° on
+                         open, so the two drop-ups across the row behave alike. -->
+                    <svg class="chat-dropdown-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+                </button>
+                <div class="model-dropdown-menu"></div>
+            </div>
+
+            <!-- Orb slot: the send orb (idle) and stop orb (running) are overlaid here and
+                 crossfade into one another so the same-shape circles read as one morph. -->
+            <div class="input-orb-slot">
+                <!-- Send orb: embeds send_button.html (grey, idle). Clicking it sends. -->
+                <iframe id="sendBtnFrame" class="send-agent-frame" src="chat_input/send_button.html"
+                        title="Send" scrolling="no" frameborder="0"></iframe>
+                <!-- Stop Agent Orb Button: embeds pc_button.html (glowing, agent running). -->
+                <iframe id="stopBtnFrame" class="stop-agent-frame" src="chat_input/pc_button.html"
+                        title="Stop Agent" scrolling="no" frameborder="0"></iframe>
+            </div>
+        </div>
+    </div>
+</div>

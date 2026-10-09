@@ -1,0 +1,14 @@
+<!-- Bottom-right container — the coder TODO list (look adapted from coder_animation.html).
+     Transparent: no card, no background — just the task rows (check / spinner + text)
+     rendered straight onto the cell, blank until window.updateTodoList populates it.
+     Injected into #mainGrid (column 2, row 2) by bottom_right.js; fed by app.py's
+     todo.md watcher via window.updateTodoList. -->
+<div class="container-zone bottom-right-zone" id="zoneBottomRight" aria-label="Agent tasks">
+
+    <!-- The main agent's live TODO list — transparent, BLANK until populated.
+         Only the task rows (check / spinner + text) render here. -->
+    <div class="work-state todo-state is-active" id="todoState">
+        <div class="todo-list" id="todoList" role="list" aria-label="Agent tasks"></div>
+    </div>
+
+</div>

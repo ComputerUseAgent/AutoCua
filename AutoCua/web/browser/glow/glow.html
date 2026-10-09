@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoCua — overlay preview</title>
+
+    <!-- The SAME two files browser.py injects into every page. Nothing here is
+         a copy, so what this page shows is exactly what the agent draws; edit
+         glow.css / glow.js and reload to see the change. -->
+    <link rel="stylesheet" href="glow.css">
+
+    <style>
+        /* Preview chrome only — none of this reaches a real page. */
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #ffffff;
+            color: #1b1b1f;
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 28px;
+        }
+        h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+        p  { margin: 0; max-width: 44ch; text-align: center; color: #5c5c66; line-height: 1.5; }
+        .row { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+        .target {
+            padding: 14px 22px;
+            font: inherit;
+            font-size: 15px;
+            color: #1b1b1f;
+            background: #f2f2f5;
+            border: 1px solid #d9d9e0;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        input.target { min-width: 220px; cursor: text; }
+        @media (prefers-color-scheme: dark) {
+            body { background: #16161a; color: #ececf1; }
+            p { color: #a0a0ab; }
+            .target { background: #232329; color: #ececf1; border-color: #35353d; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>AutoCua overlay</h1>
+    <p>
+        The edges and the cursor are always on while the
+        agent holds the browser. Click anything below to play the exact
+        sequence the controller runs: the cursor walks to the target, presses,
+        and only then does the real event go out.
+    </p>
+
+    <div class="row">
+        <button class="target">Click me</button>
+        <button class="target">And me</button>
+        <input class="target" placeholder="or type in here">
+    </div>
+
+    <button id="think" class="target">say a step's thinking</button>
+    <button id="scrape" class="target">scraping mode on / off</button>
+    <button id="feed" class="target">a read's data for the card</button>
+    <button id="finish" class="target">finish the run (done)</button>
+
+    <script src="glow.js"></script>
+    <script>
+        // Stand-in for controller/service.rs's with_cursor: walk, press, hold,
+        // release. The two waits are CURSOR_MOVE_SECONDS and
+        // CURSOR_PRESS_SECONDS — keep them in step with the Rust constants, or
+        // this preview stops showing what actually ships.
+        var MOVE_MS = 650, PRESS_MS = 350;
+
+        // The cursor is hidden until something places it — in a real run the
+        // controller does that on every scan, replaying the position across
+        // tabs and navigations. Nothing is driving this page, so stand in for
+        // it once: null coordinates mean "no position recorded yet", which
+        // opens the arrow at the centre of the viewport.
+        window.__AutoCuaCursorPlace(null, null);
+
+        function walkTo(el) {
+            var r = el.getBoundingClientRect();
+            window.__AutoCuaCursor(r.left + r.width / 2, r.top + r.height / 2);
+            setTimeout(function () {
+                window.__AutoCuaCursorDown();
+                setTimeout(window.__AutoCuaCursorUp, PRESS_MS);
+            }, MOVE_MS);
+        }
+        document.querySelectorAll('.target').forEach(function (el) {
+            el.addEventListener('click', function () { walkTo(el); });
+        });
+        // What the done tool does at the end of a run.
+        document.getElementById('finish')
+            .addEventListener('click', window.__AutoCuaCursorHide);
+
+        // What browser.rs does as `scrape` starts reading a page, and again
+        // when exit_scrape_mode ends scraping mode.
+        var scraping = false;
+        document.getElementById('scrape').addEventListener('click', function () {
+            scraping = !scraping;
+            window.__AutoCuaScrapeGlow(scraping);
+        });
+
+        // What browser.rs scrape_feed does after each read that stored a
+        // chunk: the chunk, as the scrape folder holds it. A second press is
+        // a `more`: the card fades the first out and streams this one.
+        var reads = 0;
+        document.getElementById('feed').addEventListener('click', function () {
+            reads++;
+            var records = [];
+            for (var i = 1; i <= 6; i++) {
+                var n = (reads - 1) * 6 + i;
+                records.push({ n: n, title: 'Story number ' + n + ': a headline about something happening today',
+                               author: 'author' + n, upvotes: n * 7, comments: n * 3, age: (n % 5 + 1) + ' days ago',
+                               url: 'https://example.com/item/' + n });
+            }
+            window.__AutoCuaScrapeFeed(JSON.stringify({
+                index: reads, scraped_at: '2026-10-06 14:32:08', asked: 'stories',
+                page: { site: 'example.com', title: 'Example feed', url: 'https://example.com/' },
+                read: { screens: 3, from_y: 0, to_y: 2279, page_height: 6912, more_below: true },
+                records: records
+            }, null, 2));
+        });
+
+        // What the agent driver does once per step: hand the bubble the
+        // step's reasoning. Real text, straight from the prompt's own example.
+        document.getElementById('think').addEventListener('click', function () {
+            window.__AutoCuaSay(
+                "OBSERVE: the results page lists iPhone products. " +
+                "VERIFY: S6 ok, the search landed. " +
+                "PLAN: open the 128GB result and read its price."
+            );
+        });
+    </script>
+
+</body>
+</html>

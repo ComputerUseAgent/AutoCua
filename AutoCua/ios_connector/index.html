@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebDriverAgent — sign &amp; run</title>
+<style>
+  :root{
+    --ink:#12151c; --ink2:#181d27; --panel:#1b212d; --line:#2a3140;
+    --text:#e7ebf3; --muted:#8a93a6; --faint:#5b6377;
+    --amber:#f2a649; --amber-dim:#c9863a;
+    --teal:#3fd6c4; --red:#ff6f6f;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--ink); color:var(--text); font-family:var(--sans);
+    font-size:14px; line-height:1.5; padding:28px 20px 60px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:820px;margin:0 auto}
+
+  /* header */
+  .top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  h1{font-size:19px;font-weight:650;margin:0;letter-spacing:-.01em}
+  h1 .dot{color:var(--amber)}
+  .path{font-family:var(--mono);font-size:12px;color:var(--muted);margin:6px 0 0;word-break:break-all}
+  .pill{font-family:var(--mono);font-size:11px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted);white-space:nowrap}
+  .pill.run{color:var(--amber);border-color:var(--amber-dim)}
+  .pill.ok{color:var(--teal);border-color:#2f6f68}
+  .pill.err{color:var(--red);border-color:#7a3838}
+
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 0}
+  .chip{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:5px 9px;display:flex;gap:7px;align-items:center}
+  .chip .s{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+  .chip.good .s{background:var(--teal)}
+  .chip.bad .s{background:var(--red)}
+  .chip.bad{color:var(--red);border-color:#5a2f2f}
+
+  /* card */
+  .card{background:var(--ink2);border:1px solid var(--line);border-radius:12px;padding:20px;margin-top:18px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px}
+  @media(max-width:620px){.grid{grid-template-columns:1fr}}
+  .field{display:flex;flex-direction:column;gap:6px}
+  .field.full{grid-column:1/-1}
+  label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+  select,input[type=text]{
+    background:var(--panel);border:1px solid var(--line);color:var(--text);
+    border-radius:8px;padding:10px 11px;font-family:var(--mono);font-size:13px;width:100%;
+    appearance:none;
+  }
+  select:focus,input[type=text]:focus{outline:none;border-color:var(--amber-dim);box-shadow:0 0 0 3px rgba(242,166,73,.12)}
+  .sub{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .row-check{display:flex;flex-direction:row;align-items:center;gap:9px}
+  .row-check input{width:16px;height:16px;accent-color:var(--amber)}
+  .row-check label{text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);font-weight:400}
+
+  /* always-on signing fact (not a toggle -- the backend enforces it every run) */
+  .signrow{grid-column:1/-1;display:flex;gap:9px;align-items:baseline;
+    font-family:var(--mono);font-size:11px;color:var(--muted);
+    border:1px solid var(--line);border-radius:8px;padding:9px 12px;background:rgba(63,214,196,.04)}
+  .signrow .tick{color:var(--teal);font-weight:700}
+  .signrow b{color:var(--text);font-weight:600}
+
+  /* advanced disclosure */
+  details.adv{grid-column:1/-1;border:1px dashed var(--line);border-radius:8px}
+  details.adv summary{cursor:pointer;list-style:none;padding:11px 14px;
+    font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;user-select:none}
+  details.adv summary::-webkit-details-marker{display:none}
+  details.adv summary::before{content:"▸";display:inline-block;margin-right:8px;color:var(--faint);transition:transform .2s}
+  details.adv[open] summary::before{transform:rotate(90deg)}
+  details.adv .grid{padding:4px 14px 14px}
+
+  /* add-account guide panel (amber while waiting, teal once the team lands) */
+  .addPanel{margin-top:14px;border:1px solid var(--amber-dim);border-radius:12px;
+    padding:14px 16px;background:rgba(242,166,73,.07)}
+  .addPanel.ok{border-color:#2f6f68;background:rgba(63,214,196,.07)}
+  .addPanel .watch{display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:10px}
+  .addPanel .watch .lamp{width:9px;height:9px;border-radius:50%;background:var(--amber);animation:blink 1s steps(2) infinite}
+  .addPanel.ok .watch .lamp{background:var(--teal);animation:none}
+  select.flash-ok{border-color:#2f6f68;box-shadow:0 0 0 3px rgba(63,214,196,.15)}
+
+  /* mapping preview */
+  .map{grid-column:1/-1;border:1px dashed var(--line);border-radius:8px;padding:12px 14px;font-family:var(--mono);font-size:12px}
+  .map .hd{color:var(--faint);text-transform:uppercase;letter-spacing:.08em;font-size:10px;margin-bottom:8px}
+  .map .r{display:flex;gap:10px;align-items:center;padding:2px 0;color:var(--muted)}
+  .map .k{color:var(--text)}
+  .map .arrow{color:var(--amber)}
+  .map .v{color:var(--teal)}
+
+  /* actions */
+  .actions{display:flex;gap:10px;align-items:center;margin-top:18px;flex-wrap:wrap}
+  button{font-family:var(--sans);font-size:14px;font-weight:600;border-radius:9px;padding:11px 20px;cursor:pointer;border:1px solid transparent}
+  .primary{background:var(--amber);color:#1a1206;border-color:var(--amber)}
+  .primary:hover{background:#f6b264}
+  .ghost{background:transparent;color:var(--muted);border-color:var(--line)}
+  .ghost:hover{color:var(--text);border-color:var(--faint)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .link{margin-left:auto;background:none;border:none;color:var(--faint);font-weight:500;font-size:12px;padding:6px;text-decoration:underline;text-underline-offset:3px}
+  .link:hover{color:var(--muted)}
+
+  /* pipeline rail — the signature */
+  .rail{display:flex;align-items:center;margin:24px 2px 0}
+  .stage{display:flex;flex-direction:column;align-items:center;gap:8px;flex:0 0 auto;width:96px}
+  .node{width:34px;height:34px;border-radius:50%;border:1.5px solid var(--line);background:var(--panel);
+    display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px;color:var(--faint);
+    transition:all .25s ease}
+  .stage .nm{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);transition:color .25s}
+  .track{flex:1 1 auto;height:1.5px;background:var(--line);position:relative;top:-13px;overflow:hidden}
+  .track::after{content:"";position:absolute;inset:0;width:0;background:var(--teal);transition:width .4s ease}
+  .track.fill::after{width:100%}
+  .stage.active .node{border-color:var(--amber);color:var(--amber);box-shadow:0 0 0 4px rgba(242,166,73,.12)}
+  .stage.active .nm{color:var(--amber)}
+  .stage.done .node{border-color:#2f6f68;background:#16332f;color:var(--teal)}
+  .stage.done .nm{color:var(--teal)}
+  .stage.skip .node{color:var(--faint)}
+  .stage.skip .nm{color:var(--faint)}
+
+  /* console */
+  .console{margin-top:14px;background:#0d1016;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .console .bar{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .console .bar .lamp{width:9px;height:9px;border-radius:50%;background:var(--faint)}
+  .console .bar .lamp.run{background:var(--amber);animation:blink 1s steps(2) infinite}
+  .console .bar .lamp.ok{background:var(--teal)}
+  .console .bar .lamp.err{background:var(--red)}
+  @keyframes blink{50%{opacity:.3}}
+  pre.log{margin:0;padding:14px 16px;font-family:var(--mono);font-size:12px;line-height:1.55;
+    color:#c3ccdb;white-space:pre-wrap;word-break:break-word;max-height:48vh;overflow:auto}
+  pre.log .hi{color:var(--teal)}
+  pre.log .warn{color:var(--amber)}
+  pre.log .bad{color:var(--red)}
+  pre.log:empty::before{content:"idle — pick a team and device, then Install WDA & run.";color:var(--faint)}
+
+  @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <div>
+      <h1>WebDriverAgent <span class="dot">·</span> sign &amp; run</h1>
+      <p class="path" id="projpath">resolving project…</p>
+    </div>
+    <span class="pill" id="status">idle</span>
+  </div>
+
+  <div class="chips" id="chips"></div>
+
+  <div class="card">
+    <div class="grid">
+      <div class="field">
+        <label for="team">Development team</label>
+        <select id="team"></select>
+        <span class="sub" id="teamHint" style="display:none;color:var(--amber)"></span>
+      </div>
+      <div class="field">
+        <label for="device">Device</label>
+        <select id="device"></select>
+      </div>
+
+      <div class="signrow">
+        <span class="tick">✓</span>
+        <span><b>Automatic signing: always on</b> — profiles, app IDs and certificates are managed for you</span>
+      </div>
+
+      <details class="adv" id="advanced">
+        <summary>Advanced</summary>
+        <div class="grid">
+          <div class="field">
+            <label for="prefix">Bundle prefix</label>
+            <input type="text" id="prefix" value="com.AutoCua" spellcheck="false">
+            <span class="sub">applied to every target below</span>
+          </div>
+          <div class="field">
+            <label for="mode">Action</label>
+            <select id="mode">
+              <option value="test">test — build, install, run the WDA server</option>
+              <option value="build-for-testing">build only — sign &amp; build, then exit</option>
+            </select>
+            <span class="sub">test stays running when the server is up (that's success)</span>
+          </div>
+          <div class="field">
+            <label for="teamManual">Team ID override</label>
+            <input type="text" id="teamManual" placeholder="type team id (10 chars)" spellcheck="false" autocapitalize="characters">
+          </div>
+          <div class="field">
+            <label for="deviceManual">Device UDID override</label>
+            <input type="text" id="deviceManual" placeholder="paste UDID" spellcheck="false">
+          </div>
+
+          <div class="map" id="mapWrap">
+            <div class="hd">targets rewritten</div>
+            <div id="map"></div>
+          </div>
+
+          <div class="field full row-check">
+            <input type="checkbox" id="mount" checked>
+            <label for="mount">Mount developer disk image first (pymobiledevice3)</label>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="connect" style="flex:1;font-size:15px">Install WDA &amp; run</button>
+      <button class="ghost" id="stop" disabled>Stop</button>
+      <button class="link" id="rescan">re-scan</button>
+    </div>
+  </div>
+
+  <!-- adding an Apple Account to Xcode: no API exists, so guide + auto-detect -->
+  <div id="addPanel" class="addPanel" style="display:none">
+    <div style="font-weight:600;color:var(--amber);margin-bottom:6px" id="addTitle">Sign in with your Apple Account in Xcode</div>
+    <div class="sub" style="margin-bottom:10px" id="addIntro">Xcode is opening. Apple only allows adding an account inside Xcode itself (it may ask for a 2-factor code) — one time only.</div>
+    <ol style="margin:0 0 4px 18px;padding:0;line-height:1.75">
+      <li>In <b>Xcode</b>: menu <b>Xcode → Settings…</b> (or press <b>⌘ ,</b>)</li>
+      <li>Open the <b>Accounts</b> tab, click <b>+</b> (bottom-left), choose <b>Apple Account</b></li>
+      <li>Sign in with your Apple ID — then come back here</li>
+    </ol>
+    <div class="watch" id="addWatch"><span class="lamp"></span><span id="addStatus">watching for the new account — this page updates by itself</span></div>
+    <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="primary" id="addOpen" style="display:none">Open Xcode to sign in</button>
+      <button class="ghost" id="addForce" style="display:none">Run anyway</button>
+      <button class="ghost" id="addRetry" style="display:none">Check again</button>
+      <button class="link" id="addCancel" style="margin-left:0">cancel</button>
+    </div>
+  </div>
+
+  <!-- signature: the pipeline, lit stage by stage -->
+  <div class="rail" id="rail">
+    <div class="stage" data-k="sign"><div class="node">1</div><div class="nm">Sign</div></div>
+    <div class="track" data-t="sign"></div>
+    <div class="stage" data-k="mount"><div class="node">2</div><div class="nm">Mount</div></div>
+    <div class="track" data-t="mount"></div>
+    <div class="stage" data-k="build"><div class="node">3</div><div class="nm">Build</div></div>
+  </div>
+
+  <div class="console">
+    <div class="bar"><span class="lamp" id="lamp"></span><span id="barlabel">console</span></div>
+    <pre class="log" id="log"></pre>
+  </div>
+
+  <!-- shown only when iOS needs the developer trusted on the phone (first install) -->
+  <div id="trustPanel" style="display:none;margin-top:14px;border:1px solid var(--amber-dim);border-radius:12px;padding:14px 16px;background:rgba(242,166,73,0.07)">
+    <div style="font-weight:600;color:var(--amber);margin-bottom:6px">One-time: trust the developer on <span id="trustDevice">your iPhone</span></div>
+    <div class="sub" style="margin-bottom:10px">The app is already installed. iOS needs you to trust the developer once — Apple only allows this by hand on the phone, it can't be automated. After the first time it's remembered, so future runs skip this.</div>
+    <ol style="margin:0 0 12px 18px;padding:0;line-height:1.75">
+      <li>On <b id="trustDevice2">the iPhone</b>: <b>Settings → General → VPN &amp; Device Management</b></li>
+      <li>Under <b>Developer App</b>, tap <b id="trustDeveloper">your Apple Development certificate</b></li>
+      <li>Tap <b>Trust</b>, then confirm</li>
+    </ol>
+    <button class="primary" id="trustDone">I've trusted it — install &amp; run</button>
+  </div>
+
+</div>
+
+<script>
+  const $ = s => document.querySelector(s);
+  let es = null;
+
+  const stageEl = k => document.querySelector(`.stage[data-k="${k}"]`);
+  const trackEl = k => document.querySelector(`.track[data-t="${k}"]`);
+  function stage(k, state){                 // state: active | done | skip | reset
+    const el = stageEl(k); if(!el) return;
+    el.classList.remove("active","done","skip");
+    if(state && state!=="reset") el.classList.add(state);
+    const t = trackEl(k);
+    if(t) t.classList.toggle("fill", state==="done" || state==="skip");
+  }
+  function resetRail(){ ["sign","mount","build"].forEach(k=>stage(k,"reset")); }
+
+  function setStatus(text, kind){
+    const p = $("#status");
+    p.textContent = text;
+    p.className = "pill" + (kind ? " "+kind : "");
+    const lamp = $("#lamp");
+    lamp.className = "lamp" + (kind==="run" ? " run" : kind==="ok" ? " ok" : kind==="err" ? " err" : "");
+    $("#barlabel").textContent = kind==="run" ? "running" : kind==="ok" ? "ok" : kind==="err" ? "error" : "console";
+  }
+
+  function appendLog(line){
+    const pre = $("#log");
+    const div = document.createElement("span");
+    let cls = "";
+    if(/✅|SERVER UP|wrote project|signed /.test(line)) cls="hi";
+    else if(/^\s*(warn|note:|skipping|test mode)/i.test(line) || /error:|fatal|✖|failed/i.test(line))
+      cls = /error:|fatal|✖|failed/i.test(line) ? "bad" : "warn";
+    div.textContent = line + "\n";
+    if(cls) div.className = cls;
+    pre.appendChild(div);
+    pre.scrollTop = pre.scrollHeight;
+
+    // light the rail from the backend's own stage markers
+    if(/editing project\.pbxproj/.test(line))            { stage("sign","active"); }
+    if(/wrote project\.pbxproj/.test(line))              { stage("sign","done"); }
+    if(/mounting developer disk image/.test(line))       { stage("mount","active"); }
+    if(/skipping DDI mount/.test(line))                  { stage("mount","skip"); }
+    if(/^xcodebuild (test|build-for-testing)/.test(line)){ stage("mount","done"); stage("build","active"); }
+  }
+  function clearLog(){ $("#log").textContent=""; }
+
+  function updateMap(){
+    const p = ($("#prefix").value.trim() || "com.AutoCua");
+    const names = window.__targets || ["WebDriverAgentLib","WebDriverAgentRunner","IntegrationApp"];
+    $("#map").innerHTML = names.map(n =>
+      `<div class="r"><span class="k">${n}</span><span class="arrow">→</span><span class="v">${p}.${n}</span></div>`
+    ).join("");
+  }
+
+  function chip(name, ok, badLabel){
+    const cls = ok ? "good" : (badLabel ? "bad" : "");
+    const label = ok ? name : (badLabel || name);
+    return `<span class="chip ${cls}"><span class="s"></span>${label}</span>`;
+  }
+
+  // ---- team select ----
+  // signed_in: true  = team of an Apple Account currently signed into Xcode (usable)
+  //            false = leftover keychain cert, account removed (free renewals will fail)
+  //            null  = unknown (Xcode prefs unreadable — don't claim either way)
+  let knownTeamIds = new Set();   // signed-in team ids as of the last render (poll diff base)
+  let lastTeamValue = "";         // last real selection, so "__add__" can revert
+
+  function renderTeams(teams){
+    const sel = $("#team"), hint = $("#teamHint");
+    const prev = lastTeamValue || sel.value;
+    sel.innerHTML = "";
+    const usable    = teams.filter(t => t.signed_in !== false);
+    const signedOut = teams.filter(t => t.signed_in === false);
+
+    teams.forEach(t=>{
+      const o = document.createElement("option");
+      o.value = t.team_id;
+      o.textContent = `${t.label} — ${t.team_id}` + (t.signed_in === false ? "  · signed out" : "");
+      if(t.signed_in === false) o.disabled = true;
+      sel.appendChild(o);
+    });
+
+    if(!usable.length){
+      const ph = document.createElement("option");
+      ph.value = ""; ph.disabled = true; ph.selected = true;
+      ph.textContent = 'No team yet — use "Add Apple Account…" below';
+      sel.insertBefore(ph, sel.firstChild);
+    }
+
+    const sep = document.createElement("option");
+    sep.disabled = true; sep.textContent = "──────────";
+    sel.appendChild(sep);
+    const add = document.createElement("option");
+    add.value = "__add__"; add.textContent = "＋ Add Apple Account…";
+    sel.appendChild(add);
+
+    if(prev && usable.some(t => t.team_id === prev)) sel.value = prev;
+    else if(usable.length) sel.value = usable[0].team_id;
+    lastTeamValue = (sel.value === "__add__") ? "" : sel.value;
+
+    if(!teams.length){
+      hint.textContent = 'No Apple Account is signed into Xcode yet. Pick "＋ Add Apple Account…" in the menu above — the rest happens automatically.';
+      hint.style.display = "block";
+    } else if(!usable.length && signedOut.length){
+      hint.textContent = "This certificate's Apple Account was removed from Xcode, so signing will fail — pick ＋ Add Apple Account… to sign back in.";
+      hint.style.display = "block";
+    } else {
+      hint.style.display = "none";
+    }
+
+    knownTeamIds = new Set(teams.filter(t => t.signed_in === true).map(t => t.team_id));
+  }
+
+  // ---- add-account flow: guide panel + poll /detect until the new team lands ----
+  const ADD = {active:false, baseline:null, timer:null, t0:0, INTERVAL:3000, TIMEOUT:300000};
+
+  function showAddPanel(mode){    // mode: "add" (from the dropdown) | "needaccount" (run refused)
+    const p = $("#addPanel");
+    p.classList.remove("ok");
+    $("#addTitle").textContent = mode === "needaccount"
+      ? "That team isn't signed into Xcode"
+      : "Sign in with your Apple Account in Xcode";
+    $("#addIntro").textContent = mode === "needaccount"
+      ? "Free provisioning needs this team's Apple Account signed into Xcode. Sign in (button below) — or Run anyway if the current profile is still valid."
+      : "Xcode is opening. Apple only allows adding an account inside Xcode itself (it may ask for a 2-factor code) — one time only.";
+    $("#addStatus").textContent = "watching for the new account — this page updates by itself";
+    $("#addWatch").style.display = "flex";
+    $("#addOpen").style.display  = mode === "needaccount" ? "" : "none";
+    $("#addForce").style.display = mode === "needaccount" ? "" : "none";
+    $("#addRetry").style.display = "none";
+    p.style.display = "block";
+    p.scrollIntoView({behavior:"smooth", block:"nearest"});
+  }
+
+  function startWatching(){
+    // poll /detect until a new signed-in team appears (works even if the user
+    // opens Xcode and signs in without clicking any of our buttons)
+    ADD.active = true;
+    ADD.baseline = new Set(knownTeamIds);
+    ADD.t0 = Date.now();
+    if(ADD.timer) clearInterval(ADD.timer);
+    ADD.timer = setInterval(pollTeamsOnce, ADD.INTERVAL);
+    pollTeamsOnce();
+  }
+
+  async function startAddAccount(fromNeedAccount){
+    if(!fromNeedAccount){
+      if(ADD.active){ $("#addPanel").scrollIntoView({behavior:"smooth", block:"nearest"}); return; }
+      showAddPanel("add");
+    } else {
+      $("#addOpen").style.display = "none";   // panel already visible in needaccount mode
+    }
+    setStatus("waiting for Apple Account sign-in in Xcode…","run");
+    startWatching();
+    try{
+      const r = await (await fetch("/add-account")).json();
+      if(r.automated){
+        $("#addIntro").textContent = 'Xcode\'s Accounts page just opened for you — sign in with your Apple ID there (choose "Apple Account" if it asks for the type). The steps below only matter if nothing opened.';
+      } else if(r.launched){
+        $("#addIntro").textContent = "Xcode is opening. Apple only allows adding an account inside Xcode itself (it may ask for a 2-factor code) — one time only."
+          + (r.hint ? " " + r.hint : "");
+      } else {
+        $("#addIntro").textContent = "Couldn't open Xcode automatically — open it yourself, the steps below still apply.";
+      }
+    }catch{
+      $("#addIntro").textContent = "Couldn't reach the local server — open Xcode yourself, the steps below still apply.";
+    }
+  }
+
+  async function pollTeamsOnce(){
+    if(!ADD.active) return;
+    if(Date.now() - ADD.t0 > ADD.TIMEOUT){
+      clearInterval(ADD.timer); ADD.timer = null;
+      $("#addStatus").textContent = 'still waiting — finish signing in in Xcode, then press "Check again"';
+      $("#addRetry").style.display = "";
+      return;
+    }
+    let d;
+    try{ d = await (await fetch("/detect")).json(); }catch{ return; }   // transient: retry next tick
+    const teams = d.teams || [];
+    renderTeams(teams);
+    const fresh = teams.find(t => t.signed_in === true && !ADD.baseline.has(t.team_id));
+    if(!fresh) return;
+    clearInterval(ADD.timer); ADD.timer = null; ADD.active = false;
+    $("#team").value = fresh.team_id; lastTeamValue = fresh.team_id;
+    $("#team").classList.add("flash-ok");
+    setTimeout(()=>$("#team").classList.remove("flash-ok"), 2500);
+    const p = $("#addPanel");
+    p.classList.add("ok");
+    $("#addTitle").textContent = "Account added";
+    $("#addForce").style.display = "none";
+    $("#addStatus").textContent = `✓ signed in — team "${fresh.label}" selected`;
+    setStatus("ready","");
+    setTimeout(()=>{ if(!ADD.active) p.style.display = "none"; }, 2500);
+  }
+
+  function stopAddAccount(){
+    if(ADD.timer){ clearInterval(ADD.timer); ADD.timer = null; }
+    ADD.active = false;
+    $("#addPanel").style.display = "none";
+  }
+
+  async function detect(){
+    setStatus("scanning…","");
+    try{
+      const d = await (await fetch("/detect")).json();
+      window.__targets = d.targets;
+      $("#projpath").textContent = d.project + (d.project_ok ? "" : "   (not found — clone WDA there)");
+
+      const chips = [
+        chip(d.xcode || "Xcode not found", !!d.xcode, "Xcode not found"),
+        chip("xcodeproj gem", d.ruby_gem_ok, "xcodeproj gem missing"),
+        chip("project", d.project_ok, "project missing"),
+        chip("pymobiledevice3", d.pymobiledevice3, "pymobiledevice3 (optional)"),
+      ];
+      $("#chips").innerHTML = chips.join("");
+
+      renderTeams(d.teams || []);
+
+      const devSel = $("#device"); devSel.innerHTML = "";
+      if(d.devices && d.devices.length){
+        let firstConnected = "";
+        d.devices.forEach(v=>{
+          const o=document.createElement("option");
+          o.value=v.udid;
+          const connected = (v.connected !== false);   // undefined => treat as connected
+          o.textContent = `${v.name} · iOS ${v.version} — ${v.udid}` + (connected ? "" : "  · not connected");
+          if(!connected){ o.disabled = true; }
+          else if(!firstConnected){ firstConnected = v.udid; }
+          devSel.appendChild(o);
+        });
+        if(firstConnected){
+          devSel.value = firstConnected;             // auto-pick the live device
+        } else {
+          const ph=document.createElement("option");
+          ph.value=""; ph.selected=true;
+          ph.textContent="no device connected — plug one in (or paste UDID below)";
+          devSel.insertBefore(ph, devSel.firstChild);
+        }
+      } else {
+        devSel.innerHTML = `<option value="">no device found — paste UDID below</option>`;
+      }
+
+      if(d.default_prefix) $("#prefix").value = d.default_prefix;
+      if(d.default_mode)   $("#mode").value  = d.default_mode;
+      updateMap();
+      setStatus("ready","");
+    }catch(e){
+      setStatus("scan failed — is setup.py running?","err");
+    }
+  }
+
+  function cleanup(){
+    if(es){ es.close(); es=null; }
+    $("#connect").disabled=false;
+    $("#stop").disabled=true;
+  }
+
+  function connect(force){
+    force = force === true;            // guard: called as a click handler too (arg = Event)
+    stopAddAccount();                  // a run supersedes the add-account flow
+
+    const team   = ($("#teamManual").value.trim()   || $("#team").value.trim());
+    const udid   = ($("#deviceManual").value.trim() || $("#device").value.trim());
+    const prefix = $("#prefix").value.trim() || "com.AutoCua";
+    const mode   = $("#mode").value;
+    const mount  = $("#mount").checked ? "1" : "0";
+
+    if(!team || team === "__add__"){ setStatus('choose a team — or pick "＋ Add Apple Account…" to sign in',"err"); return; }
+    if(!udid){ setStatus("pick or paste a device UDID","err"); return; }
+
+    clearLog(); resetRail();
+    $("#trustPanel").style.display="none";
+    setStatus("running…","run");
+    $("#connect").disabled=true; $("#stop").disabled=false;
+
+    const params = {team, udid, prefix, mode, mount};
+    if(force) params.force = "1";
+    const qs = new URLSearchParams(params).toString();
+    es = new EventSource("/run?"+qs);
+
+    es.addEventListener("log", e => appendLog(e.data));
+
+    es.addEventListener("serverup", e=>{
+      let url=""; try{ url=JSON.parse(e.data).url; }catch{}
+      stage("build","done");
+      setStatus("server up — running · " + url, "ok");
+      appendLog("✅ SERVER UP: " + url + "   (still running — hit Stop to end)");
+    });
+
+    es.addEventListener("done", e=>{
+      let code=-1, mode="";
+      try{ const j=JSON.parse(e.data); code=j.code; mode=j.mode; }catch{}
+      if(code===0){
+        stage("build","done");
+        setStatus(mode==="test" ? "test finished (exit 0)" : "build done (exit 0)","ok");
+        appendLog("✅ done — exit 0");
+      } else {
+        setStatus("finished with errors — exit "+code,"err");
+        appendLog("✖ exit "+code);
+      }
+      cleanup();
+    });
+
+    es.addEventListener("needaccount", e=>{
+      let team="";
+      try{ team = JSON.parse(e.data).team || ""; }catch{}
+      cleanup();
+      setStatus("team "+team+" isn't signed into Xcode","err");
+      appendLog("note: team "+team+" has no Apple Account signed into Xcode — free provisioning can't be created or renewed. Sign the account in (button below), or Run anyway if the current profile is still valid.");
+      showAddPanel("needaccount");
+      startWatching();     // auto-detect the sign-in even if the user opens Xcode themselves
+    });
+
+    es.addEventListener("needtrust", e=>{
+      let dev="your Apple Development certificate", device="your iPhone";
+      try{ const j=JSON.parse(e.data); dev=j.developer||dev; device=j.device||device; }catch{}
+      $("#trustDevice").textContent  = device;
+      $("#trustDevice2").textContent = device;
+      $("#trustDeveloper").textContent = dev;
+      $("#trustPanel").style.display = "block";
+      $("#trustPanel").scrollIntoView({behavior:"smooth", block:"nearest"});
+      setStatus("waiting — trust the developer on "+device,"run");
+      appendLog("note: trust required — on "+device+" open Settings → General → VPN & Device Management, tap \""+dev+"\", then Trust. Then click \"I've trusted it\".");
+      cleanup();
+    });
+
+    es.addEventListener("fatal", e=>{
+      setStatus("✖ "+e.data,"err");
+      appendLog("FATAL: "+e.data);
+      cleanup();
+    });
+
+    es.onerror = ()=>{
+      if(!es) return;               // normal close after done/fatal already handled
+      appendLog("… stream closed");
+      cleanup();
+    };
+  }
+
+  async function stop(){
+    setStatus("stopping…","");
+    try{ await fetch("/stop"); }catch{}
+  }
+
+  $("#connect").addEventListener("click", connect);
+  $("#stop").addEventListener("click", stop);
+  $("#rescan").addEventListener("click", detect);
+  $("#trustDone").addEventListener("click", ()=>{ $("#trustPanel").style.display="none"; connect(); });
+  $("#prefix").addEventListener("input", updateMap);
+  $("#teamManual").addEventListener("input", e=>{ e.target.value = e.target.value.toUpperCase(); });
+
+  $("#team").addEventListener("change", e=>{
+    if(e.target.value === "__add__"){
+      e.target.value = lastTeamValue;      // never rest on the "+" entry (Xcode-style)
+      startAddAccount(false);
+    } else {
+      lastTeamValue = e.target.value;
+    }
+  });
+  $("#addOpen").addEventListener("click", ()=> startAddAccount(true));
+  $("#addForce").addEventListener("click", ()=>{ connect(true); });
+  $("#addRetry").addEventListener("click", ()=>{
+    ADD.t0 = Date.now();
+    $("#addRetry").style.display = "none";
+    $("#addStatus").textContent = "watching for the new account — this page updates by itself";
+    if(ADD.timer) clearInterval(ADD.timer);
+    ADD.timer = setInterval(pollTeamsOnce, ADD.INTERVAL);
+    pollTeamsOnce();
+  });
+  $("#addCancel").addEventListener("click", ()=>{ stopAddAccount(); setStatus("ready",""); });
+
+  updateMap();
+  detect();
+</script>
+</body>
+</html>

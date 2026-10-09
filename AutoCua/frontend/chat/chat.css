@@ -1,0 +1,173 @@
+/* =====================================================================
+   New Chat button — lives at the top of the left bar body. Grey, with a
+   compose icon. UI only for now (no behavior wired yet). Loaded via
+   chat/chat.js + linked from index.html.
+   ===================================================================== */
+
+.new-chat-btn {
+    display: flex;
+    align-items: center;
+    gap: clamp(5px, 0.7vw, 7px);
+    width: 100%;
+    box-sizing: border-box;
+
+    padding: clamp(5px, 0.7vw, 7px) clamp(8px, 1vw, 10px);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: clamp(8px, 1vw, 10px);
+    background: rgba(255, 255, 255, 0.28);
+
+    /* Consistent grey (matches the settings text). */
+    color: rgba(80, 80, 80, 0.9);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(11px, 1.1vw, 13px);
+    font-weight: 600;
+    text-align: left;
+
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.new-chat-btn:hover {
+    background: rgba(255, 255, 255, 0.45);
+    border-color: rgba(0, 0, 0, 0.12);
+}
+
+.new-chat-icon {
+    width: clamp(13px, 1.4vw, 15px);
+    height: clamp(13px, 1.4vw, 15px);
+    flex-shrink: 0;
+    stroke: currentColor;
+}
+
+.new-chat-label {
+    color: inherit;
+}
+
+/* =====================================================================
+   Chat history list — saved sessions under the New-chat button. Click a
+   row to reopen/continue that chat; hover to reveal its delete (×).
+   Rendered by chat/chat.js from GET /api/chats.
+   ===================================================================== */
+
+.chat-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(2px, 0.3vw, 4px);
+    margin-top: clamp(6px, 0.8vw, 9px);
+    overflow-y: auto;
+    /* The left-bar body already scrolls; cap height so a long list doesn't push
+       the settings footer off-screen. */
+    max-height: 60vh;
+    padding-right: 2px;
+}
+
+.chat-history-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: clamp(5px, 0.6vw, 7px) clamp(7px, 0.9vw, 9px);
+    border-radius: clamp(7px, 0.9vw, 9px);
+    cursor: pointer;
+    color: rgba(80, 80, 80, 0.9);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(11px, 1.05vw, 12.5px);
+    font-weight: 500;
+    transition: background 0.18s ease;
+}
+
+.chat-history-item:hover {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+.chat-history-item.active {
+    background: rgba(255, 255, 255, 0.6);
+    font-weight: 600;
+}
+
+/* Per-mode logo on each row — the same marks as the composer's mode picker
+   (computer monitor / phone / shell terminal), so a glance tells you which
+   agent owns the chat. Quiet by default, a touch stronger on the open chat. */
+.chat-mode-icon {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    opacity: 0.55;
+}
+.chat-history-item.active .chat-mode-icon {
+    opacity: 0.85;
+}
+
+.chat-history-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* "⋯" kebab — reveals a small Download / Delete menu (chat/chat.js). */
+.chat-history-more {
+    flex: 0 0 auto;
+    border: none;
+    background: transparent;
+    color: rgba(110, 110, 110, 0.8);
+    font-size: clamp(15px, 1.6vw, 18px);
+    line-height: 1;
+    padding: 0 3px;
+    cursor: pointer;
+    opacity: 0.6;   /* always visible (not hover-only); brighter on hover/active */
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.chat-history-item:hover .chat-history-more,
+.chat-history-item.active .chat-history-more {
+    opacity: 1;
+}
+
+.chat-history-more:hover {
+    color: rgba(40, 40, 40, 0.95);
+}
+
+/* Per-chat options popover — appended to <body>, fixed-positioned. */
+.chat-item-menu {
+    position: fixed;
+    z-index: 1000;
+    min-width: 178px;
+    padding: 4px;
+    border-radius: 10px;
+    background: rgba(252, 252, 252, 0.98);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.chat-item-menu-action {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    text-align: left;
+    border: none;
+    background: transparent;
+    border-radius: 7px;
+    padding: 7px 10px;
+    cursor: pointer;
+    color: rgba(60, 60, 60, 0.95);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(11px, 1.05vw, 13px);
+    font-weight: 500;
+}
+
+.chat-item-menu-action:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+.chat-item-menu-action.danger {
+    color: rgba(200, 60, 60, 0.95);
+}
+
+.chat-item-menu-action.danger:hover {
+    background: rgba(200, 60, 60, 0.1);
+}

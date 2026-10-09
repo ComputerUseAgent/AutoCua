@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Send</title>
+    <script>
+        // The Linux app is WebKitGTK: flag it before first paint for the
+        // html.linux rules below (macOS and Windows keep the original look).
+        if (navigator.userAgent.includes('Linux')) document.documentElement.classList.add('linux');
+    </script>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+        }
+        /* wrapper to give the absolutely-positioned button a frame */
+        .button-host {
+            position: relative;
+            width: 42px;
+            height: 42px;
+        }
+        /* Standalone preview only (file opened directly, not embedded in an iframe):
+           zoom the orb up so it's big. Inside the banner it renders at native 42px. */
+        body.preview .button-host {
+            transform: scale(6);
+            transform-origin: center;
+        }
+
+        .stop-agent-button {
+            position: absolute;
+            left: 0;
+            top: 50%;
+
+            width: 42px;
+            height: 42px;
+            flex-shrink: 0;
+
+            background: transparent;
+            border-radius: 50%;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(-50%) scale(1);
+
+            overflow: visible; /* Allow glow to show */
+            z-index: 20;
+        }
+
+        .stop-orb {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+
+        .stop-circle-1 {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            position: absolute;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1;
+        }
+
+        .stop-circle-2 {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            position: absolute;
+            inset: 0;
+            margin: auto;
+            background-color: #9ca3af;
+            z-index: 9;
+        }
+
+        .stop-bg {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            box-shadow: inset 0 0 5px 2px rgba(255,255,255,0.8), 0 0 2px 2px rgba(255,255,255,0.9);
+            background-color: #9ca3af;
+        }
+
+        /* ---- icon stage: holds the two faces that flip into each other ---- */
+        .icon-stage {
+            position: absolute;
+            inset: 0;
+            margin: auto;
+            width: 32px;
+            height: 32px;
+            z-index: 10;
+            perspective: 130px;
+        }
+        .icon-flip {
+            position: absolute;
+            inset: 0;
+            transform-style: preserve-3d;
+            animation: iconFlip 10s ease-in-out infinite;
+        }
+        /* While the agent runs the parent fades this whole iframe out (crossfade to the
+           stop orb). .is-hidden also drops pointer-events and PAUSES the flip so it
+           doesn't keep spinning offscreen and reappear mid-cycle when shown again. */
+        .stop-agent-button.is-hidden { pointer-events: none; }
+        .stop-agent-button.is-hidden .icon-flip { animation-play-state: paused; }
+        .face {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+        }
+        .face-pc { transform: rotateY(0deg); }
+        .face-send { transform: rotateY(180deg); }
+
+        /* ---- Send icon (up arrow) ---- */
+        .send-arrow {
+            width: 18px;
+            height: 18px;
+        }
+        .send-arrow path {
+            fill: none;
+            stroke: #fff;
+            stroke-width: 2.4;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* ---- PC logo (monitor with blinking eyes + base) ---- */
+        .stop-pc {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%) scale(0.5);
+            width: 64px;
+            height: 64px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            gap: 2px;
+        }
+        .stop-monitor {
+            width: 24px;
+            height: 20px;
+            background: transparent;
+            border-radius: 2px;
+            padding: 0;
+            border: 2px solid white;
+            box-sizing: border-box;
+            box-shadow: none;
+        }
+        .stop-screen {
+            width: 100%;
+            height: 100%;
+            background-color: transparent;
+            border-radius: 1px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            /* Scaled up internals ensure layout uses whole numbers (no sub-pixel rounding),
+               keeping the eyes perfectly symmetric at any zoom level. */
+            gap: 4px;
+            box-shadow: none;
+        }
+        .stop-eye {
+            width: 3px;
+            height: 6px;
+            border-radius: 2px;
+            background: white;
+            position: relative;
+            top: -2px;
+            animation: stop-blink 4s infinite;
+        }
+        .stop-base {
+            width: 32px;
+            height: 2px;
+            background: white;
+            border-radius: 1px;
+        }
+
+        /* ---- Linux (WebKitGTK, html.linux set in the head script) ---- */
+        /* A flat flip. WebKitGTK ignores backface-visibility here — measured:
+           once the card has turned, the PC and the arrow are drawn on top of
+           each other. Each face instead squashes to a line and back on its own
+           timeline, on the 10 s schedule of iconFlip, so exactly one face is
+           ever visible (the Linux Telegram banner flips the same way). */
+        html.linux .icon-flip { animation: none; transform-style: flat; }
+        html.linux .face-pc { transform: none; animation: facePc 10s ease-in-out infinite; }
+        html.linux .face-send { transform: none; animation: faceSend 10s ease-in-out infinite; }
+        html.linux .stop-agent-button.is-hidden .face { animation-play-state: paused; }
+        /* Same eyes fix as pc_button.html: at 100% scale a 3-px eye is 1.5
+           screen pixels and each blinking eye is snapped on its own (left
+           2 px, right 1 px); 4 px wide and 1 px higher lands both on whole
+           pixels, 2x3 each. */
+        html.linux .stop-eye { width: 4px; top: -3px; }
+
+        @keyframes facePc {
+            0%, 45%        { transform: scale(1, 1);    opacity: 1; }
+            48%            { transform: scale(0, 0.74); opacity: 1; }
+            48.01%, 97.99% { transform: scale(0, 0.74); opacity: 0; }
+            98%            { transform: scale(0, 0.74); opacity: 1; }
+            100%           { transform: scale(1, 1);    opacity: 1; }
+        }
+        @keyframes faceSend {
+            0%, 47.99%     { transform: scale(0, 0.74); opacity: 0; }
+            48%            { transform: scale(0, 0.74); opacity: 1; }
+            50%, 95%       { transform: scale(1, 1);    opacity: 1; }
+            98%            { transform: scale(0, 0.74); opacity: 1; }
+            98.01%, 100%   { transform: scale(0, 0.74); opacity: 0; }
+        }
+
+        @keyframes iconFlip {
+            0%   { transform: rotateY(0deg)   scale(1); }
+            45%  { transform: rotateY(0deg)   scale(1); }
+            48%  { transform: rotateY(90deg)  scale(0.74); }
+            50%  { transform: rotateY(180deg) scale(1); }
+            95%  { transform: rotateY(180deg) scale(1); }
+            98%  { transform: rotateY(270deg) scale(0.74); }
+            100% { transform: rotateY(360deg) scale(1); }
+        }
+
+        @keyframes stop-blink {
+            0%, 85%, 100% { transform: scaleY(1); }
+            92% { transform: scaleY(0.1); }
+        }
+    </style>
+</head>
+<body>
+    <div class="button-host">
+        <!-- Send orb (idle composer button) -->
+        <div class="stop-agent-button" id="stopAgentBtn" title="Send">
+            <div class="stop-orb">
+                <div class="stop-circle-1"></div>
+                <div class="stop-circle-2"><div class="stop-bg"></div></div>
+
+                <div class="icon-stage">
+                    <div class="icon-flip">
+                        <!-- Front face: PC -->
+                        <div class="face face-pc">
+                            <div class="stop-pc">
+                                <div class="stop-monitor">
+                                    <div class="stop-screen">
+                                        <div class="stop-eye"></div>
+                                        <div class="stop-eye"></div>
+                                    </div>
+                                </div>
+                                <div class="stop-base"></div>
+                            </div>
+                        </div>
+
+                        <!-- Back face: Send (up arrow) -->
+                        <div class="face face-send">
+                            <svg class="send-arrow" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M12 20 V5 M5.5 11.5 L12 5 L18.5 11.5"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // window.parent === window means the file was opened directly (preview), not
+        // embedded in the composer iframe.
+        const standalone = window.parent === window;
+        // Big zoom only for preview; renders at native 42px when embedded.
+        if (standalone) document.body.classList.add('preview');
+
+        const sendBtn = document.getElementById('stopAgentBtn');
+
+        // Click the grey orb → tell the parent to start the agent (same path as Enter).
+        sendBtn.addEventListener('click', () => {
+            if (!standalone) parent.postMessage('sendbtn:clicked', '*');
+        });
+
+        // Commands from the parent app: hide while the agent runs, show again on idle.
+        window.addEventListener('message', (e) => {
+            if (e.data === 'sendbtn:hide') sendBtn.classList.add('is-hidden');
+            else if (e.data === 'sendbtn:show') sendBtn.classList.remove('is-hidden');
+        });
+    </script>
+</body>
+</html>

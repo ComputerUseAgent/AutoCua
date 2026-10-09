@@ -1,0 +1,151 @@
+/* =====================================================================
+   Bottom-left container — "Tool response" flow. Caption top-left; below it a
+   vertical line down the left with the branch logos on it. The steps are BUILT
+   FROM CONFIG in bottom_left.js; the animation is STATE-DRIVEN: bottom_left.js
+   adds .line-in (draw the segment) and .icon-in (reveal the logo) per step, types
+   the label, and morphs the loader to a tick on the canvas. No @keyframes timeline.
+   ===================================================================== */
+.bottom-left-zone {
+    grid-column: 1;          /* bottom-LEFT cell now (was full-width); bottom-right is a separate container */
+    grid-row: 2;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    border: 1px solid transparent;           /* no visible box — blends in (the bottom-right cell is borderless too) */
+    border-radius: var(--glass-radius);
+    padding: clamp(8px, 1vw, 12px) clamp(12px, 1.4vw, 16px);
+    box-sizing: border-box;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* While the big-center stage covers the grid (run done / stopped / old chat
+   reopened) this cell hides completely — the stage is transparent, and a long
+   notes list would clash with the tool-response words behind it. Same
+   treatment as the top-left screenshot; returns on the next run. */
+.main-grid:has(.big-center-zone.active) .bottom-left-zone {
+    visibility: hidden;
+}
+
+/* Small slanted label, tucked top-left. Hidden until the first agent run starts
+   (bottom.js adds .flow-started on run_start); after that it stays. */
+.tool-response-label {
+    flex: 0 0 auto;
+    font-family: Georgia, 'Times New Roman', 'Iowan Old Style', serif;
+    font-style: italic;
+    font-size: clamp(9.5px, 0.95vw, 11.5px);
+    font-weight: 400;
+    letter-spacing: 0.01em;
+    color: rgba(60, 60, 60, 0.8);
+    user-select: none;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+}
+.bottom-left-zone.flow-started .tool-response-label { opacity: 1; }
+.tool-used-count {
+    font-weight: 600;
+    color: rgba(40, 40, 40, 0.9);
+}
+
+/* Flow area. Opacity is toggled by the JS test loop for a clean reset.
+   overflow:hidden + a top mask gradient make logos that scroll up past the top
+   edge dissolve smoothly (the "conveyor" hides them as they rise). */
+.tool-flow {
+    flex: 1 1 auto;
+    position: relative;
+    min-height: 0;
+    --tf-line: rgba(0, 0, 0, 0.22);
+    --tf-icon: 24px;                      /* logo size — keep == ICON in bottom_left.js */
+    --tf-fade: clamp(14px, 2.6vh, 20px);  /* top fade band ≈ one logo + connector */
+    opacity: 1;
+    transition: opacity 0.45s ease;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--tf-fade));
+            mask-image: linear-gradient(to bottom, transparent 0, #000 var(--tf-fade));
+}
+
+/* The column of logos; a line segment connects each logo to the one above
+   (and the first to the label). The logos cut the line between segments. */
+.tool-flow-tree {
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    --tf-gap: clamp(10px, 1.9vh, 13px);  /* line-segment length / space between logos (fits 5 on short windows) */
+    display: flex;
+    flex-direction: column;
+    padding-top: var(--tf-gap);         /* room for the first segment (label -> logo 1) */
+    gap: var(--tf-gap);
+    /* bottom.js slides the whole chain up (translateY) as new logos arrive; this
+       matches the ::before line-in curve so the slide and the new link draw together. */
+    will-change: transform;
+    transition: transform 0.45s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.tool-flow-item {
+    position: relative;
+    height: var(--tf-icon);
+    display: flex;
+    align-items: center;
+    gap: 8px;                  /* logo -> text */
+}
+/* vertical line SEGMENT above each logo (centred on the icon: half its width, minus
+   half the line's own 1px). Drawn when bottom.js adds .line-in (smooth scaleY
+   transition = the line "coming down"). */
+.tool-flow-item::before {
+    content: "";
+    position: absolute;
+    left: calc(var(--tf-icon) / 2 - 0.5px);
+    top: calc(-1 * var(--tf-gap));
+    height: var(--tf-gap);
+    width: 1px;
+    background: var(--tf-line);
+    transform: scaleY(0);
+    transform-origin: top;
+    transition: transform 0.45s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.tool-flow-item.line-in::before { transform: scaleY(1); }
+
+/* logo (canvas) — size matches the JS engine (ICON). Revealed when its segment
+   has reached it (.icon-in). */
+.tf-icon {
+    flex: 0 0 auto;
+    width: var(--tf-icon);
+    height: var(--tf-icon);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+.tool-flow-item.icon-in .tf-icon { opacity: 1; }
+
+/* label — typed char-by-char by bottom.js (blazing). */
+.tool-flow-word {
+    flex: 0 0 auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+    font-size: clamp(11px, 1.1vw, 12.5px);
+    color: rgba(60, 60, 60, 0.85);
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+/* The CURRENT (last) step's label gets a looping "shine" sweep — a loading
+   shimmer (bottom.js puts .shimmer on the newest word; clears it on run end). */
+.tool-flow-word.shimmer {
+    background: linear-gradient(100deg,
+        rgba(62, 64, 72, 0.9) 0%, rgba(62, 64, 72, 0.9) 40%,
+        rgba(170, 174, 184, 0.98) 50%,
+        rgba(62, 64, 72, 0.9) 60%, rgba(62, 64, 72, 0.9) 100%);
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+            background-clip: text;
+    -webkit-text-fill-color: transparent;
+            color: transparent;
+    animation: tf-shimmer 1.4s linear infinite;
+}
+@keyframes tf-shimmer {
+    from { background-position: 125% 0; }
+    to   { background-position: -25% 0; }
+}
+
+/* The web globe + shell terminal moved to the top-left container
+   (container/top_left/globe_shell.{js,css}) — they swap with the screenshot now. */

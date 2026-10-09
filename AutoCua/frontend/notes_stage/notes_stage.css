@@ -1,0 +1,209 @@
+/* =====================================================================
+   Agent Notes — the scratchpad (13px to match the todo list). Lives inside
+   #zoneBigCenter (container/big_center_container/). Header centred at the
+   top of the stage, numbered notes below in a centred column. Same accent
+   treatment as the todo tick / tracking dots: #9292d8 drifting through the
+   color_test.html hues. Zone show/hide (.active) is owned by big_center_container.css;
+   notes_stage.js toggles it.
+   ===================================================================== */
+.agent-notes {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    padding: clamp(14px, 2vw, 24px) clamp(16px, 2.4vw, 30px);
+    box-sizing: border-box;
+}
+
+.agent-notes-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;    /* centred at the top of the stage */
+    gap: 8px;
+    flex: 0 0 auto;
+    margin-bottom: clamp(10px, 1.4vw, 16px);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: rgba(55, 55, 55, 0.95);
+}
+.agent-notes-pen {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 auto;
+    color: #9292d8;
+    animation: an-accentColor 4s linear infinite;
+}
+/* #9292d8 base drifting through the same hues as the mode-toggle label
+   (color_test.html stop-labelColor) — same colors, same 4s linear loop.
+   The pen SVG strokes with currentColor, so animating color covers it. */
+@keyframes an-accentColor {
+    0%, 100% { color: #9292d8; }
+    20% { color: #a875ad; }   /* red   */
+    40% { color: #88a8c6; }   /* green */
+    60% { color: #7e99e0; }   /* blue  */
+    80% { color: #a789e0; }   /* pink  */
+}
+
+.agent-notes-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    /* Centred reading column — the stage is the full grid, so cap the line
+       length instead of running notes edge to edge. Nudged a little left of
+       true centre so the numbers don't sit dead-centre. */
+    width: min(100%, 700px);
+    align-self: center;
+    position: relative;
+    left: -40px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(4px, 0.6vw, 7px);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.45;
+    color: rgba(0, 0, 0, 0.62);
+}
+.agent-notes-list::-webkit-scrollbar { display: none; }
+
+.agent-note {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+}
+.agent-note-num {
+    flex: 0 0 auto;
+    min-width: 1.4em;
+    text-align: right;
+    color: #9292d8;
+    font-weight: 700;
+    animation: an-accentColor 4s linear infinite;
+}
+.agent-note-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: normal;            /* notes wrap (full content), unlike todo rows */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+/* Reopen view: how that run ended, sitting under its request and pushed a
+   little right of it (past the number column + a step), slightly dimmed. */
+.agent-note-reply {
+    margin-left: calc(1.4em + 22px);   /* number column (1.4em) + gap + a step right */
+    margin-bottom: clamp(6px, 0.9vw, 10px);   /* breathing room before the next "N." */
+    color: rgba(0, 0, 0, 0.48);
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+/* Shown when the run ends with an empty scratchpad. */
+.agent-note-empty {
+    color: rgba(0, 0, 0, 0.35);
+    font-style: italic;
+    text-align: center;
+}
+
+/* =====================================================================
+   Rendered Markdown (.md) — the HTML frontend/markdown.py produces for
+   scratchpad notes, done/exit summaries AND the live "tracking progress"
+   stream (container/top_right). Everything is scoped to .md so plain-text
+   rows are untouched, and every colour is `inherit` so one rule set works
+   on all three surfaces, each of which sets its own grey. Kept tight:
+   notes sit in a dense numbered column, so block elements collapse their
+   outer margins and inherit the column's size rather than setting a scale.
+   ===================================================================== */
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+
+.md p { margin: 0 0 0.5em; }
+/* Emphasis carries WEIGHT, never a darker ink. `color: inherit` keeps bold text
+   and headings on the exact grey of the surrounding row (notes 0.62, replies
+   0.48, tracking stream its own grey), so a note reads as one calm column
+   instead of black words punched through a soft one. */
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+    margin: 0.7em 0 0.35em;
+    font-weight: 700;
+    line-height: 1.3;
+    color: inherit;
+}
+.md h1 { font-size: 1.25em; }
+.md h2 { font-size: 1.15em; }
+.md h3 { font-size: 1.06em; }
+.md h4, .md h5, .md h6 { font-size: 1em; }
+
+.md strong { font-weight: 700; color: inherit; }
+.md em { font-style: italic; }
+.md del { opacity: 0.6; }
+
+.md a {
+    color: #7e99e0;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    word-break: break-word;
+}
+.md a:hover { color: #a789e0; }
+
+.md code {
+    font-family: inherit;              /* the column is already monospace */
+    font-size: 0.94em;
+    padding: 0.1em 0.34em;
+    border-radius: 4px;
+    background: rgba(146, 146, 216, 0.13);
+    color: inherit;                    /* the tint sets it apart, not darker ink */
+    word-break: break-word;
+}
+.md pre {
+    margin: 0.5em 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.045);
+    overflow-x: auto;                  /* long lines scroll, never widen the stage */
+    scrollbar-width: none;
+}
+.md pre::-webkit-scrollbar { display: none; }
+.md pre code {
+    padding: 0;
+    background: none;
+    white-space: pre;
+    word-break: normal;
+}
+
+.md ul, .md ol { margin: 0.3em 0 0.5em; padding-left: 1.5em; }
+.md li { margin: 0.12em 0; }
+.md ul ul, .md ul ol, .md ol ul, .md ol ol { margin: 0.12em 0 0.12em; }
+
+.md blockquote {
+    margin: 0.45em 0;
+    padding: 0.1em 0 0.1em 0.7em;
+    border-left: 2px solid rgba(146, 146, 216, 0.5);
+    color: inherit;
+    opacity: 0.78;                     /* dims relative to the host grey, not to black */
+}
+
+.md hr {
+    margin: 0.7em 0;
+    border: 0;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.md table {
+    margin: 0.5em 0;
+    border-collapse: collapse;
+    font-size: 0.95em;
+    display: block;
+    overflow-x: auto;                  /* wide tables scroll on their own */
+    scrollbar-width: none;
+}
+.md table::-webkit-scrollbar { display: none; }
+.md th, .md td {
+    padding: 3px 8px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    text-align: left;
+    vertical-align: top;
+}
+.md th { font-weight: 700; background: rgba(146, 146, 216, 0.09); }

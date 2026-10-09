@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AutoCua</title>
+<style>
+  :root { color-scheme: light; }
+  [hidden] { display: none !important; }
+  body { width: 340px; margin: 0; padding: 14px; font: 13px/1.45 -apple-system, "Segoe UI", Helvetica, sans-serif; color: #1f2937; background: #fff; }
+  header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  header img { width: 22px; height: 22px; border-radius: 6px; }
+  header strong { font-size: 14px; }
+  header span { margin-left: auto; font-size: 11px; color: #9ca3af; }
+  button { font: inherit; font-size: 14px; font-weight: 600; border: 0; border-radius: 9px; cursor: pointer; }
+  button:disabled { cursor: default; }
+  /* home: the two doors, side by side */
+  #home { display: flex; gap: 10px; }
+  #home button { flex: 1; height: 44px; background: #7c3aed; color: #fff; }
+  #home button:hover { background: #6d28d9; }
+  #note { margin-top: 10px; font-size: 12px; color: #b91c1c; }
+  #note:empty { display: none; }
+  /* a view: its own bar with the way back, then its content */
+  .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .bar .back { width: auto; height: 28px; padding: 0 10px; font-size: 12px; font-weight: 500; background: #f3f4f6; color: #374151; }
+  .bar .back:hover { background: #e5e7eb; }
+  .bar h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  #test { width: 100%; height: 38px; background: #7c3aed; color: #fff; }
+  #test:hover { background: #6d28d9; }
+  #test:disabled { background: #c4b5fd; }
+  #status { margin-top: 8px; font-size: 12px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #result { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb; }
+  #result.on { display: block; }
+  #time { font-size: 34px; font-weight: 700; line-height: 1.1; color: #111827; letter-spacing: -0.5px; }
+  #time small { font-size: 14px; font-weight: 500; color: #6b7280; margin-left: 4px; }
+  #split { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  #split span { padding: 2px 9px; border-radius: 999px; background: #f3f4f6; font-size: 11px; color: #374151; }
+  #summary { margin-top: 10px; font-size: 12px; color: #4b5563; }
+  #saved { margin-top: 4px; font-size: 12px; color: #047857; word-break: break-all; }
+  #saved.bad { color: #b91c1c; }
+  #shot { display: block; width: 100%; margin-top: 12px; border: 1px solid #e5e7eb; border-radius: 8px; }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; font-size: 12px; color: #4b5563; user-select: none; }
+  #tree { max-height: 220px; overflow: auto; margin: 8px 0 0; padding: 8px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; font: 11px/1.35 ui-monospace, Menlo, monospace; white-space: pre; color: #111827; }
+</style>
+</head>
+<body>
+<header><img src="icon.png" alt=""><strong>AutoCua</strong><span id="version"></span></header>
+
+<section id="home">
+  <button id="open-chat">Chat</button>
+  <button data-open="settings">Settings</button>
+</section>
+<div id="note"></div>
+
+<section id="settings" hidden>
+  <div class="bar"><button class="back" data-back>Back</button><h2>Settings</h2></div>
+  <button id="test">Test this page</button>
+  <div id="status">Scans the page with the extension's own scanner; the result goes to the code's debug folder.</div>
+  <section id="result">
+    <div id="time"></div>
+    <div id="split"></div>
+    <div id="summary"></div>
+    <div id="saved"></div>
+    <img id="shot" hidden alt="">
+    <details>
+      <summary id="treehead">Tree</summary>
+      <pre id="tree"></pre>
+    </details>
+  </section>
+</section>
+
+<script src="test.js"></script>
+</body>
+</html>

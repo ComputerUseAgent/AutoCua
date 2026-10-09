@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PC ⇄ Telegram</title>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+        }
+        /* wrapper to give the absolutely-positioned button a frame */
+        .button-host {
+            position: relative;
+            width: 42px;
+            height: 42px;
+        }
+        /* Standalone preview only (file opened directly, not embedded in an iframe):
+           zoom the orb up so it's big. Inside the banner it renders at native 42px. */
+        body.preview .button-host {
+            transform: scale(6);
+            transform-origin: center;
+        }
+
+        .stop-agent-button {
+            position: absolute;
+            left: 0;
+            top: 50%;
+
+            width: 42px;
+            height: 42px;
+            flex-shrink: 0;
+
+            background: transparent;
+            border-radius: 50%;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(-50%) scale(1);
+
+            overflow: visible; /* Allow glow to show */
+            z-index: 20;
+        }
+
+        .stop-orb {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+
+        .stop-circle-1 {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            position: absolute;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: stop-pulse 4.2s ease-in-out infinite 0.3s;
+            z-index: 1;
+        }
+        .stop-circle-1::before,
+        .stop-circle-1::after {
+            content: "";
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(8px);
+            width: 30%;
+            height: 30%;
+        }
+        .stop-circle-1::before { background: #ff0073; top: 30%; right: 30%; }
+        .stop-circle-1::after { background: #00baff; bottom: 10%; left: 30%; }
+
+        .stop-circle-2 {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            position: absolute;
+            inset: 0;
+            margin: auto;
+            background-color: white;
+            z-index: 9;
+            animation: stop-pulse2 4.2s ease-in-out infinite;
+        }
+        .stop-circle-2::before,
+        .stop-circle-2::after {
+            content: "";
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(6px);
+            z-index: 1;
+        }
+        .stop-circle-2::before { background: #ff0073; width: 30%; height: 30%; top: 20%; right: 20%; }
+        .stop-circle-2::after { background: #00bbff; width: 20%; height: 20%; bottom: 10%; left: 40%; }
+
+        .stop-bg {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            box-shadow: inset 0 0 5px 2px rgba(255,255,255,0.8), 0 0 2px 2px rgba(255,255,255,0.9);
+            background-color: #9292d8;
+            animation: stop-bgRotate 2.5s linear infinite;
+        }
+        .stop-bg::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            animation: stop-bgColor 4s linear infinite;
+            box-shadow: inset 0 0 5px 2px rgba(255,255,255,0.8);
+            opacity: 0.2;
+        }
+
+        /* ---- icon stage: holds the two faces that flip into each other ---- */
+        .icon-stage {
+            position: absolute;
+            inset: 0;
+            margin: auto;
+            width: 32px;
+            height: 32px;
+            z-index: 10;
+            perspective: 130px;
+        }
+        .icon-flip {
+            position: absolute;
+            inset: 0;
+            transform-style: preserve-3d;
+            animation: iconFlip 5.6s ease-in-out infinite;
+        }
+        .face {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+        }
+        .face-pc { transform: rotateY(0deg); }
+        .face-tg { transform: rotateY(180deg); }
+
+        /* ---- PC logo (monitor with blinking eyes + base) ---- */
+        .stop-pc {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%) scale(0.5);
+            width: 64px;
+            height: 64px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            gap: 2px;
+        }
+        .stop-monitor {
+            width: 24px;
+            height: 20px;
+            background: transparent;
+            border-radius: 2px;
+            padding: 0;
+            border: 2px solid white;
+            box-sizing: border-box;
+            box-shadow: none;
+        }
+        .stop-screen {
+            width: 100%;
+            height: 100%;
+            background-color: transparent;
+            border-radius: 1px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            /* Scaled up internals ensure layout uses whole numbers (no sub-pixel rounding),
+               keeping the eyes perfectly symmetric at any zoom level. */
+            gap: 4px;
+            box-shadow: none;
+        }
+        .stop-eye {
+            width: 3px;
+            height: 6px;
+            border-radius: 2px;
+            background: white;
+            position: relative;
+            top: -2px;
+            animation: stop-blink 4s infinite;
+        }
+        .stop-base {
+            width: 32px;
+            height: 2px;
+            background: white;
+            border-radius: 1px;
+        }
+
+        /* ---- Telegram paper plane ---- */
+        .tg-plane {
+            width: 19px;
+            height: 19px;
+            /* nudge left so the plane sits visually centred on the orb */
+            transform: translateX(-1.5px);
+            filter: drop-shadow(0 0 1px rgba(0,0,0,0.25));
+        }
+        .tg-plane path { fill: #fff; }
+
+        @keyframes iconFlip {
+            0%   { transform: rotateY(0deg)   scale(1); }
+            42%  { transform: rotateY(0deg)   scale(1); }
+            46%  { transform: rotateY(90deg)  scale(0.74); }
+            50%  { transform: rotateY(180deg) scale(1); }
+            92%  { transform: rotateY(180deg) scale(1); }
+            96%  { transform: rotateY(270deg) scale(0.74); }
+            100% { transform: rotateY(360deg) scale(1); }
+        }
+
+        @keyframes stop-pulse {
+            0%   { transform: scale(0.97); }
+            15%  { transform: scale(1); }
+            30%  { transform: scale(0.98); }
+            45%  { transform: scale(1); }
+            60%  { transform: scale(0.97); }
+            85%  { transform: scale(1); }
+            100% { transform: scale(0.97); }
+        }
+        @keyframes stop-pulse2 {
+            0%   { transform: scale(1); }
+            15%  { transform: scale(1.03); }
+            30%  { transform: scale(0.98); }
+            45%  { transform: scale(1.04); }
+            60%  { transform: scale(0.97); }
+            85%  { transform: scale(1.03); }
+            100% { transform: scale(1); }
+        }
+        @keyframes stop-bgRotate {
+            0%   { transform: rotate(0deg); }
+            20%  { transform: rotate(90deg); }
+            40%  { transform: rotate(180deg) scale(0.95,1); }
+            60%, 100% { transform: rotate(360deg); }
+        }
+        @keyframes stop-bgColor {
+            20% { background-color: red; }
+            40% { background-color: #5eff7e; }
+            60% { background-color: #2cb5ff; }
+            80% { background-color: #fc63ff; }
+        }
+        @keyframes stop-blink {
+            0%, 85%, 100% { transform: scaleY(1); }
+            92% { transform: scaleY(0.1); }
+        }
+    </style>
+</head>
+<body>
+    <div class="button-host">
+        <!-- Orb that morphs its centre icon: PC <-> Telegram -->
+        <div class="stop-agent-button" id="stopAgentBtn" title="PC / Telegram">
+            <div class="stop-orb">
+                <div class="stop-circle-1"></div>
+                <div class="stop-circle-2"><div class="stop-bg"></div></div>
+
+                <div class="icon-stage">
+                    <div class="icon-flip">
+                        <!-- Front face: PC -->
+                        <div class="face face-pc">
+                            <div class="stop-pc">
+                                <div class="stop-monitor">
+                                    <div class="stop-screen">
+                                        <div class="stop-eye"></div>
+                                        <div class="stop-eye"></div>
+                                    </div>
+                                </div>
+                                <div class="stop-base"></div>
+                            </div>
+                        </div>
+
+                        <!-- Back face: Telegram paper plane -->
+                        <div class="face face-tg">
+                            <svg class="tg-plane" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.27 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Big zoom only when opened directly for preview; renders at native 42px
+        // when embedded in the banner iframe.
+        if (window.parent === window) document.body.classList.add('preview');
+    </script>
+</body>
+</html>

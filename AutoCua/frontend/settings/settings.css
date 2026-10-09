@@ -1,0 +1,87 @@
+/* =====================================================================
+   Settings button component — the gear that opens the settings overlay.
+   Moved out of css/style.css into its own folder for maintainability.
+
+   Previously this was a fixed, JS-positioned button floating next to the LLM
+   button; it now lives in the left bar footer as an in-flow element. The
+   settings OVERLAY/panel itself still lives in index.html + script.js for now.
+   ===================================================================== */
+
+.settings-btn {
+    position: relative;          /* in-flow within the left bar footer */
+    width: clamp(30px, 3vw, 36px);
+    height: clamp(30px, 3vw, 36px);
+    border-radius: 50%;
+    cursor: pointer;
+    overflow: hidden;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    box-shadow: 0 clamp(3px, 0.8vw, 6px) clamp(12px, 2.5vw, 24px) rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.settings-btn:hover {
+    transform: scale(1.08);
+    box-shadow: 0 clamp(4px, 1vw, 8px) clamp(16px, 3vw, 28px) rgba(0, 0, 0, 0.15);
+}
+
+.settings-icon-wrapper {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.settings-icon {
+    width: clamp(16px, 1.8vw, 20px);
+    height: clamp(16px, 1.8vw, 20px);
+    color: rgba(90, 90, 90, 0.85);
+    transition: transform 0.4s ease;
+}
+
+.settings-btn:hover .settings-icon {
+    transform: rotate(45deg);
+}
+
+/* Settings → Recording switch. Same build as the chat box's Fast/Quality pill:
+   a slate track with a white thumb that spring-bounces across. On turns the
+   track red, the colour of the recording dot in the chat box. */
+.settings-switch {
+    position: relative;
+    width: clamp(40px, 4.2vw, 46px);
+    height: clamp(22px, 2.3vw, 25px);
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: rgba(226, 232, 240, 0.9);          /* slate-200, as the pill */
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background-color 0.3s ease;
+}
+.settings-switch:hover { background: #d8dee8; }
+.settings-switch.on { background: #ef4444; }
+.settings-switch.on:hover { background: #e53e3e; }
+.settings-switch-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: calc(50% - 2px);
+    height: calc(100% - 4px);
+    border-radius: 999px;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);   /* the pill's spring */
+}
+.settings-switch.on .settings-switch-thumb { transform: translateX(100%); }
+
+/* Hide the cog while CLI pills own the screen (preserves prior behavior). */
+body.cli-mode .settings-btn {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.35s ease;
+}

@@ -1,0 +1,13 @@
+{
+  "_comment": "browser: registered domain (subdomains match, longest key wins) -> skill .md; os: substring of the scanned application name (case-insensitive) -> skill .md",
+  "browser": {},
+  "os": {
+    "chrome": "browser.md",
+    "chromium": "browser.md",
+    "firefox": "browser.md",
+    "edge": "browser.md",
+    "opera": "browser.md",
+    "brave": "browser.md",
+    "vivaldi": "browser.md"
+  }
+}

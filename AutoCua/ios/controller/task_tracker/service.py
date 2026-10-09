@@ -1,0 +1,115 @@
+import os
+import logging
+
+# Configure logger
+logger = logging.getLogger(__name__)
+
+class TaskTrackerService:
+    def __init__(self):
+        """Initialize the Task Tracker Service"""
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Go up two levels from AutoCua/ios/controller/task_tracker/ to reach ios/
+        ios_dir = os.path.dirname(os.path.dirname(current_dir))
+
+        # Parallel simulator tasks each get their own scratchpad/<session>/
+        # subtree (AutoCua_IOS_SESSION), so their todo lists stay separate.
+        session = os.environ.get("AutoCua_IOS_SESSION") or ""
+        self.todo_dir = os.path.join(ios_dir, "scratchpad", session, "todo") \
+            if session else os.path.join(ios_dir, "scratchpad", "todo")
+        self.todo_file = os.path.join(self.todo_dir, "todo.md")
+
+        # Create todo directory if it doesn't exist
+        self._ensure_todo_directory()
+
+    def _ensure_todo_directory(self):
+        """Create todo directory if it doesn't exist"""
+        try:
+            os.makedirs(self.todo_dir, exist_ok=True)
+        except Exception as e:
+            logger.error(f"Error creating todo directory: {str(e)}")
+            raise
+
+    def save_todo(self, todo_content):
+        """Save todo list content to markdown file with auto-numbering"""
+        try:
+            # Auto-number the tasks
+            numbered_content = self._add_task_numbers(todo_content)
+
+            # Write to file (overwrite mode)
+            with open(self.todo_file, "w", encoding="utf-8") as f:
+                f.write(numbered_content)
+
+            # Silent save - no terminal output
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving todo list: {str(e)}")
+            return False
+
+    def _add_task_numbers(self, todo_content):
+        """Add #1., #2., etc. numbering to each task line"""
+        lines = todo_content.split('\n')
+        numbered_lines = []
+        task_number = 1
+
+        for line in lines:
+            # Check if line is a task (starts with - [ ] or - [x])
+            stripped = line.strip()
+            if stripped.startswith('- [ ]') or stripped.startswith('- [x]'):
+                # Add number prefix
+                numbered_lines.append(f"#{task_number}. {stripped}")
+                task_number += 1
+            else:
+                # Keep non-task lines as-is (like Objective:)
+                numbered_lines.append(line)
+
+        return '\n'.join(numbered_lines)
+
+    def update_task(self, task_number):
+        """Update a task in the todo list by marking task #number as complete"""
+        try:
+            # Read current todo content
+            if not os.path.exists(self.todo_file):
+                logger.warning("Todo file doesn't exist")
+                return False
+
+            with open(self.todo_file, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            # Convert task_number to int if it's a string
+            try:
+                task_num = int(task_number)
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid task number: {task_number}")
+                return False
+
+            # Find and update the line with matching #number
+            lines = content.split('\n')
+            updated = False
+
+            for i, line in enumerate(lines):
+                # Check if line starts with the task number (e.g., "#1. - [ ]")
+                if line.strip().startswith(f"#{task_num}."):
+                    # Check if already marked complete
+                    if "- [x]" in line:
+                        logger.info(f"Task #{task_num} already completed")
+                        return True
+
+                    # Mark as complete: replace [ ] with [x]
+                    lines[i] = line.replace("- [ ]", "- [x]", 1)
+                    updated = True
+                    logger.info(f"Marked task #{task_num} as complete")
+                    break
+
+            if updated:
+                # Write back to file
+                with open(self.todo_file, "w", encoding="utf-8") as f:
+                    f.write('\n'.join(lines))
+                return True
+            else:
+                logger.warning(f"Task #{task_num} not found in todo list")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error updating task: {str(e)}")
+            return False

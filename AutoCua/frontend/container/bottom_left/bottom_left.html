@@ -1,0 +1,12 @@
+<!-- Bottom-left container — the tool-response flow (chain). The flow steps
+     (logos + labels + line) are BUILT FROM CONFIG in bottom_left.js (STEPS /
+     SHAPES), so the backend can map its tool events to steps. Injected into
+     #mainGrid (column 1, row 2) by bottom_left.js. -->
+<div class="container-zone bottom-left-zone" id="zoneBottomLeft" aria-label="Tool response">
+    <div class="tool-response-label">Tool response: <span class="tool-used-count" id="toolUsedCount">0</span> tools used</div>
+
+    <div class="tool-flow" aria-hidden="true">
+        <!-- bottom.js builds one .tool-flow-item per STEP into here -->
+        <div class="tool-flow-tree" id="toolFlowTree"></div>
+    </div>
+</div>

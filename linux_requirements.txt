@@ -1,0 +1,209 @@
+# Requirements for the Linux port of AutoCua.
+#
+# This is the ONLY requirements file a Linux user installs — everything the
+# Linux code path can reach is declared here, grouped by feature, with a note
+# on what breaks when a group is missing. `bash linux_setup.sh` installs the
+# distro packages, uv, this file, the Rust toolchain and the web agent in one
+# go; the groups below are what that script feeds to pip.
+#
+# Versions are FLOOR-bound (>=), not pinned (==) like windows_requirements.txt.
+# The venv here runs on the distro's Python — 3.14 on Ubuntu 26.04, newer on
+# whatever ships next — and a hard pin is exactly the thing that has no wheel
+# for a brand-new interpreter. Floors let pip take the newest wheel that
+# builds, which is what actually keeps a fresh machine working.
+#
+#
+# ======================================================================
+# What pip CANNOT supply on Linux — read this before filing an install bug
+# ======================================================================
+#
+# The scanner (AutoCua/linux/tree/element.py) and the controller
+# (AutoCua/linux/controller) both talk to AT-SPI and GTK through PyGObject.
+# That comes from the DISTRO, not from pip:
+#
+#   sudo apt install python3-gi python3-cairo python3-gi-cairo python3-venv \
+#                    gir1.2-atspi-2.0 gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
+#                    gir1.2-gstreamer-1.0 gstreamer1.0-pipewire gstreamer1.0-plugins-base \
+#                    at-spi2-core xdg-desktop-portal xdg-desktop-portal-gnome \
+#                    libglib2.0-bin libgtk-3-bin xdg-utils \
+#                    build-essential curl ca-certificates
+#
+# (KDE: swap xdg-desktop-portal-gnome for xdg-desktop-portal-kde. Fedora, Arch
+# and openSUSE equivalents live in linux_setup.sh, which installs all of this
+# for you — the line above is for installing by hand.)
+#
+# There is no pip-only route, and installing PyGObject with pip does not
+# create one: Atspi-2.0.typelib and Gdk-3.0.typelib are GObject introspection
+# data under /usr/lib/<triplet>/girepository-1.0/, not Python packages, so
+# `from gi.repository import Atspi` still fails without the two gir1.2-*
+# packages. The pip build also drags in a compiler plus
+# libgirepository-2.0-dev, python3-dev and libcairo2-dev. It costs more and
+# removes nothing.
+#
+# The venv needs no --system-site-packages and no symlinking: element.py
+# locates the system gi itself when the venv cannot see it
+# (_add_system_gi_to_path, element.py:59). It accepts only a build whose
+# compiled _gi extension matches the running interpreter's ABI tag, and
+# APPENDS it to sys.path, so venv packages keep priority and nothing gets
+# shadowed.
+#
+# It DOES need python3-venv if you build the venv by hand. Measured on Ubuntu
+# 26.04: a stock python3 has no ensurepip, so `python3 -m venv .venv` dies
+# with "the virtual environment was not created successfully". linux_setup.sh
+# sidesteps this by using uv, which carries its own bootstrap. (An earlier
+# revision of this file claimed a plain `python3 -m venv` just works. It does
+# not, on the very distro this port targets.)
+#
+# GTK GENERATION: element.py pins Atspi 2.0 and Gdk 3.0 (element.py:101-102),
+# i.e. the GTK3 family. Anything else loaded into the same process must agree
+# — WebKit2 4.1 does (it is the GTK3 build), WebKitGTK 6.0 does not. Mixing
+# them raises "Requiring namespace 'Gdk' version '4.0', but '3.0' is already
+# loaded" at import time.
+#
+# The one case that still needs you: the apt line above never having been run.
+# `python3 -m AutoCua.linux.tree.test` says so if that is the problem.
+#
+#
+# ======================================================================
+# 1. Scanner — AT-SPI tree, screenshot, OCR fusion
+# ======================================================================
+# Pillow draws the annotated screenshot and encodes it; numpy + onnxruntime
+# run PaddlePaddle's PP-OCRv6 (AutoCua/linux/tree/ocr.py). The models ship in
+# AutoCua/linux/tree/models/ and are fetched from Hugging Face if absent
+# (AutoCua/utils/ocr_models.py — stdlib urllib, no extra dependency).
+# Without onnxruntime the scanner still runs: it says "OCR off" once and
+# scans AT-SPI alone, so text-only elements stop being clickable.
+
+# One caveat on onnxruntime: it publishes NO sdist for any version, only
+# wheels. On an interpreter with no matching wheel pip cannot fall back to a
+# source build, and because it sits in this file the WHOLE install aborts —
+# you get zero packages rather than "everything except OCR". If that ever
+# happens, install with `--no-deps` minus this line and run without OCR; the
+# scanner says "OCR off" once and carries on. Floors (not pins) are what keep
+# this rare: pip takes the newest wheel that matches your interpreter.
+Pillow>=10.0
+numpy>=1.26
+onnxruntime>=1.20
+
+
+# ======================================================================
+# 2. Agent, LLM providers, sandbox
+# ======================================================================
+# AutoCua/linux/agent, AutoCua/linux/tool_registry and AutoCua/linux/sandbox
+# (ported from the macOS package), plus the shared AutoCua/llm_provider.
+# mac_requirements.txt declares the same set unpinned; the floors below are
+# this file's own choice (see the header).
+#
+# All nine providers are reachable on Linux: openai and google-genai use
+# their SDKs; anthropic, groq, openrouter, perplexity, together, cerebras and
+# aws go through `requests`. The shared manager imports every provider when it
+# loads, so dropping openai or google-genai breaks every agent, not one
+# provider. The groq and anthropic SDKs serve the `web` tool's search
+# backends (controller/tool/web/groq_search.py and anthropic.py).
+#
+# The controller (AutoCua/linux/controller) adds NOTHING else here — it drives the
+# desktop through the XDG RemoteDesktop portal and AT-SPI, both reached
+# through the same PyGObject the scanner needs. There is no pip input library
+# on this platform, by design; see section 4.
+
+python-dotenv>=1.0
+requests>=2.32
+groq>=1.0
+openai>=2.0
+anthropic>=0.83
+google-genai>=1.64
+
+
+# ======================================================================
+# 3. Desktop GUI app (main.py with UI = True)
+# ======================================================================
+# AutoCua/frontend/service.py is shared across platforms and imports flask
+# and webview at module level, with werkzeug further down. Headless
+# `python main.py` (UI = False) needs none of this group.
+#
+# pywebview uses its GTK backend here, which needs the WebKit typelib and
+# pycairo from the distro — `sudo apt install gir1.2-webkit2-4.1
+# python3-cairo` (linux_setup.sh does this). WebKit2 4.1 is the GTK3 build,
+# the generation element.py pins. gi itself is a system package the venv
+# cannot see; service.py imports the Linux scanner before webview so that
+# element._add_system_gi_to_path has put it on sys.path first.
+
+flask>=3.1
+werkzeug>=3.1
+pywebview>=5.0
+
+# Remote connection (Telegram bot) — AutoCua/linux/remote_connection/telegram,
+# the polling bot the desktop app starts once a BotFather token is saved. The
+# floating banner it drives needs nothing extra: GTK + WebKit2GTK from the
+# GUI group above.
+python-telegram-bot>=21.6
+
+# Settings -> Recording (AutoCua/utils/run_recorder.py): a run recorded as two
+# videos. OpenCV's Linux wheels cannot write H.264, so imageio-ffmpeg's bundled
+# ffmpeg encodes (a separate program fed through a pipe; GPL, installed from
+# PyPI, not vendored). The screen video reads the portal's PipeWire stream
+# through GStreamer and the app video is a WebKit snapshot, both from the
+# distro: gir1.2-gstreamer-1.0 gstreamer1.0-pipewire gstreamer1.0-plugins-base
+# python3-gi-cairo (linux_setup.sh installs them; stock Ubuntu ships them).
+# Without them the recording just leaves that video out.
+imageio-ffmpeg>=0.5
+
+
+# ======================================================================
+# 4. Deliberately NOT here
+# ======================================================================
+# Every one of these is in mac_requirements.txt or windows_requirements.txt.
+# Each is omitted on purpose; do not "fix" the file by adding them back.
+#
+# pyautogui, pynput
+#     ACTIVELY HARMFUL on Wayland. Both inject through XTEST into XWayland.
+#     Measured on this desktop: `xlsclients` lists exactly two X clients,
+#     ibus-x11 and mutter-x11-frames — ZERO application windows. Every real
+#     app (GNOME Shell, Chrome, Electron editors) is a native Wayland client
+#     and never sees an XTEST event. The calls RETURN SUCCESS and do nothing,
+#     so an agent using them clicks into the void and cannot tell. Input on
+#     Linux goes through AutoCua/linux/controller/tool/input_portal.py.
+#
+# pyobjc-framework-*, ocrmac
+#     macOS frameworks. The Linux equivalents are AT-SPI (tree), Gdk
+#     (screenshot) and onnxruntime (OCR), all above.
+#
+# pywinauto, pywin32, comtypes, interception-python, keyboard, pyperclip,
+# winrt-*, PySide6
+#     Windows-only. Linux OCR is PP-OCRv6, not Windows.Media.Ocr; there is no
+#     Qt surface in the Linux code path.
+#
+# opencv-python, scipy
+#     macOS/Windows image processing. AutoCua/linux/tree/ocr.py and
+#     element.py import neither — Pillow and numpy cover the Linux path.
+#
+# mss
+#     Screen capture for macOS/Windows. element.py captures through Gdk.
+#
+# psutil
+#     Used only by AutoCua/windows/controller/tool/open_app.py. The Linux
+#     open_app enumerates desktop entries through Gio instead.
+#
+# nuitka, ordered-set, zstandard
+#     The compiled-binary build. There is no Linux binary build target
+#     yet, so these would pin tooling for something that does not exist.
+#     Uncomment all three when a Linux binary is on the release matrix:
+# nuitka
+# ordered-set
+# zstandard
+#
+# huggingface_hub
+#     Not needed. AutoCua/utils/ocr_models.py fetches the OCR models with
+#     stdlib urllib.request and verifies them by SHA-256.
+#
+#
+# ======================================================================
+# 5. Not pip-installable, needed only for "web use"
+# ======================================================================
+# The browser agent (AutoCua/web) is a Rust extension built once from
+# source. It needs the Rust toolchain (https://rustup.rs) and a C compiler
+# (`sudo apt install build-essential`) — ring compiles C, and
+# without `cc` the build dies with an unreadable linker error.
+# `bash linux_setup.sh` installs the apt packages, uv, this file, the
+# toolchain, and pre-builds the extension, so the first "web use" run does
+# not stop on "cargo not found".

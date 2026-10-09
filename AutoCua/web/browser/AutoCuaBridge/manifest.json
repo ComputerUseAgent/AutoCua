@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "AutoCua",
+  "version": "0.4.0",
+  "description": "AutoCua browser bridge.",
+  "icons": {
+    "128": "icon.png"
+  },
+  "action": {
+    "default_title": "AutoCua",
+    "default_popup": "test.html",
+    "default_icon": {
+      "128": "icon.png"
+    }
+  },
+  "permissions": [
+    "scripting",
+    "tabs",
+    "webRequest",
+    "debugger",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
