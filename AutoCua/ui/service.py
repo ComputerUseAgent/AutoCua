@@ -1828,9 +1828,14 @@ def send_cli_event_to_frontend(event_type, *args):
         elif event_type == "task_end":
             task_id = _js_escape(args[0])
             status = _js_escape(args[1] if len(args) > 1 else "complete")
-            summary = _js_escape(args[2] if len(args) > 2 else "")
+            raw_summary = args[2] if len(args) > 2 else ""
+            summary = _js_escape(raw_summary)
+            # The summary IS the coder's done message. Shell use shows it under
+            # the terminal the moment the run ends, rendered by the same
+            # markdown.py pass a reopened chat's done_html gets.
+            summary_html = _js_escape(md_render(raw_summary or ""))
             webview_window.evaluate_js(
-                f"window.cliTaskEnd && window.cliTaskEnd('{task_id}', '{status}', '{summary}')"
+                f"window.cliTaskEnd && window.cliTaskEnd('{task_id}', '{status}', '{summary}', '{summary_html}')"
             )
         elif event_type == "todo_update":
             task_id = _js_escape(args[0] if len(args) > 0 else "")
@@ -2702,6 +2707,30 @@ def start_shell():
                             )
                     except Exception:
                         debug_exception("signaling shell run completion")
+
+                # The Agent Notes under the terminal show the chat's transcript —
+                # every run's request + how it ended, this one last — the same
+                # view reopening the chat gives, so a finished run never needs a
+                # chat switch to appear. Sent after the completion signal, so the
+                # composer never waits on the render, and for a retired (stopped)
+                # run too: the frontend only takes it for the chat on screen,
+                # between runs. Only a list that ENDS with this run is sent —
+                # save_run swallows a failed append, and the earlier runs alone
+                # would replace the notes + done message the frontend is holding
+                # (left unsent, that hold falls back to showing them).
+                if webview_window:
+                    try:
+                        exchanges = (conversation.get_session(chat_session_id) or {}).get('exchanges') or []
+                        last = exchanges[-1] if exchanges else None
+                        if (isinstance(last, dict) and len(exchanges) >= (request_no or 1)
+                                and str(last.get('task', '')) == str(task or '')):
+                            rows = _render_exchange_html(exchanges)
+                            webview_window.evaluate_js(
+                                "window.cliShellTranscript && window.cliShellTranscript("
+                                f"'{_js_escape(json.dumps(rows))}', '{_js_escape(chat_session_id)}')"
+                            )
+                    except Exception:
+                        debug_exception("push shell transcript")
 
         thread = threading.Thread(target=run_shell)
         thread.daemon = True

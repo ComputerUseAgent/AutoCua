@@ -657,6 +657,13 @@ body.cli-shell #cliContainer .cc-notes .agent-notes-list {
     left: 0;
     font-size: 11px;
 }
+/* A done message with no notes above it (cli_stage.js .solo): no number column
+   to indent under, and it is the whole message, so it takes the notes' colour
+   instead of the dimmed reply grey. */
+body.cli-shell #cliContainer .cc-notes .agent-note-reply.solo {
+    margin-left: 0;
+    color: inherit;
+}
 
 /* The faintest grey wash + a thin outline that's solid along the bottom and fades
    out toward the top (an ::after border under a vertical mask). Just enough for

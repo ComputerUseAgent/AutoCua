@@ -101,6 +101,7 @@
         if (!c || !window.CliCoderCard || cards.has(taskId)) return;
         shellNotes = null;                // a new run starts — the last run's notes are done
         shellHistory = null;              // ...and so is a reopened chat's history view
+        dropTranscriptHold();             // ...and the last run's wait for its transcript
         clearTimeout(clearTimer); clearTimer = null;   // and the last run's deferred wipe is moot
 
         // Shell use: PROMOTE the waiting terminal rather than swapping it out. It is already
@@ -164,13 +165,28 @@
     // the coder's scratchpad notes (snapshotted from the card at task end, before
     // dispose), rendered with the SAME global .agent-note* classes (notes_stage.css)
     // in the free row under the idle terminal — and cleared the moment the next task
-    // is sent, exactly like the main stage hides on a send. The done message is
-    // captured alongside but not rendered for now. Clicking into the terminal
+    // is sent, exactly like the main stage hides on a send. The run's done message
+    // (or its stop / error reason) always closes the list, notes or not, so a run
+    // ends showing what reopening the chat would show. Clicking into the terminal
     // (cli-typing) collapses the notes — the prompt needs the room (coder_card.css).
-    var shellNotes = null;        // { entries: [..], status, summary } of the last finished run
+    var shellNotes = null;        // { entries: [..], status, summary, summaryHtml } of the last finished run
     var shellHistory = null;      // [{task, done_message}] of a REOPENED shell chat (cliShellHistory)
 
-    function captureNotes(card, status, summary) {
+    // A run's task_end lands a beat BEFORE the backend has saved it. The saved
+    // transcript (cliShellTranscript: every run of the chat, this one last) is
+    // the view to show, so the live notes are held for it; only if it never
+    // arrives (save failed, push dropped) do the captured notes show after all.
+    var transcriptWait = null;    // fallback timer while that hold is on
+    function holdForTranscript() {
+        clearTimeout(transcriptWait);
+        transcriptWait = setTimeout(function () {
+            transcriptWait = null;
+            if (idleCard && idleCard._unit) renderNotes(idleCard._unit);
+        }, 1500);
+    }
+    function dropTranscriptHold() { clearTimeout(transcriptWait); transcriptWait = null; }
+
+    function captureNotes(card, status, summary, summaryHtml) {
         if (!shellPinned || !card) return;
         // A reopened chat owns the panel: if the user navigated to a saved
         // chat while this run was still finishing, its transcript view wins —
@@ -182,7 +198,8 @@
         shellNotes = {
             entries: (card.getNotes ? card.getNotes() : []),
             status: String(status || 'complete'),
-            summary: String(summary || '')
+            summary: String(summary || ''),
+            summaryHtml: String(summaryHtml || '')   // markdown.py's rendering of summary
         };
     }
 
@@ -191,11 +208,12 @@
         // the last run's live notes (they're mutually nulled at the write sites).
         var hasHistory = !!(shellHistory && shellHistory.length);
         if ((!hasHistory && !shellNotes) || !unit || unit.querySelector('.cc-notes')) return;
+        if (!hasHistory && transcriptWait) return;   // the saved transcript is on its way
         var n = shellNotes;
-        // Nothing to say — keep the row clean. An interrupted run is never
-        // "nothing to say": it must show even when it was stopped before it
-        // wrote a single note.
-        if (!hasHistory && !n.entries.length && n.status !== 'stopped') return;
+        // Nothing to say — keep the row clean. A run with a done message is
+        // never "nothing to say", and neither is an interrupted one: it must
+        // show even when it was stopped before it wrote a single note.
+        if (!hasHistory && !n.entries.length && !n.summary && n.status !== 'stopped') return;
 
         var box = document.createElement('div');
         box.className = 'cc-notes';
@@ -239,20 +257,31 @@
                 list.appendChild(reply);
             });
         } else {
-            // Live run end: notes only — status/summary stay captured in shellNotes
-            // (a done-message row can come back later) but aren't rendered for now
+            // Live run end: the scratchpad notes, then ALWAYS how the run ended —
+            // the done message (or the stop / error reason) as the closing reply,
+            // the same row a reopened chat shows under its task. A run stopped
+            // with no reason still says so: the card vanishes on task_end, and
+            // without a marker an interrupted run would read as a finished one.
             n.entries.forEach(function (t, i) { row((i + 1) + '.', t); });
-            // ...except a STOPPED ending. The card vanishes on task_end, so with
-            // no marker an interrupted run is indistinguishable from a finished
-            // one — this is the Shell-use counterpart of the tool-flow chain's
-            // "agent interrupted" cap in Computer use.
-            if (n.status === 'stopped') {
-                var stopped = document.createElement('div');
-                stopped.className = 'agent-note-reply';
-                stopped.textContent = n.summary || 'agent interrupted';
-                list.appendChild(stopped);
+            var ending = n.summary || (n.status === 'stopped' ? 'agent interrupted' : '');
+            if (ending) {
+                var reply = document.createElement('div');
+                // .solo: no numbered note above it, so no indent to sit under
+                reply.className = 'agent-note-reply' + (n.summaryHtml ? ' md' : '') +
+                                  (n.entries.length ? '' : ' solo');
+                if (n.summaryHtml) reply.innerHTML = n.summaryHtml;   // markdown.py output
+                else reply.textContent = ending;
+                list.appendChild(reply);
             }
         }
+
+        // The newest row — this run's done message, or a reopened chat's last
+        // exchange — is the one that matters, so the list follows its end: on
+        // mount, once the box has faded in, and whenever the list changes size
+        // (a window resize moves the 34vh cap and re-wraps the rows). Wheeling
+        // up stops the following; wheeling back down to the end resumes it.
+        var follow = true;
+        function showLast() { if (follow) list.scrollTop = list.scrollHeight; }
 
         // WKWebView refuses to wheel-scroll an overflow area inside a transformed
         // subtree, and #cliContainer carries a transform — the list would look
@@ -263,12 +292,18 @@
             if (list.scrollHeight <= list.clientHeight) return;
             list.scrollTop += (e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY);
             e.preventDefault();
+            follow = list.scrollHeight - list.scrollTop - list.clientHeight <= 2;
         }, { passive: false });
 
         unit.appendChild(box);
+        showLast();
         // fade/slide in like a mounting agent unit (.cc-notes.in in coder_card.css)
-        if (window.requestAnimationFrame) requestAnimationFrame(function () { box.classList.add('in'); });
+        if (window.requestAnimationFrame) requestAnimationFrame(function () { box.classList.add('in'); showLast(); });
         else box.classList.add('in');
+        box.addEventListener('transitionend', function (e) {
+            if (e.target === box && e.propertyName === 'transform') showLast();
+        });
+        if (window.ResizeObserver) new ResizeObserver(showLast).observe(list);
     }
 
     // The waiting terminal: a normal coder card that's simply never fed any
@@ -324,6 +359,7 @@
             unmountIdle();
             shellNotes = null;                              // stale across mode switches
             shellHistory = null;
+            dropTranscriptHold();
             document.body.classList.remove('cli-typing');   // no prompt outside Shell use
             // left Shell use — but never yank the stage out from under a live run
             if (!awaitActive) {
@@ -419,6 +455,7 @@
             minionParent.clear();
             shellNotes = null;                             // fresh chat — no old notes
             shellHistory = null;                           // ...and no reopened transcript
+            dropTranscriptHold();                          // ...nor a wait for the old run's one
             clearTimeout(clearTimer); clearTimer = null;   // no deferred wipe into the new terminal
             document.body.classList.remove('cli-typing');
             unmountIdle();
@@ -453,11 +490,12 @@
             var card = cards.get(taskId);
             if (card && card.setTodo) card.setTodo(payload);
         };
-        window.cliTaskEnd = function (taskId, status, summary) {
+        window.cliTaskEnd = function (taskId, status, summary, summaryHtml) {
             if (cards.has(taskId)) {
                 // Snapshot the run's scratchpad + done message BEFORE the card is disposed —
                 // mountIdle (via unmountAgent) shows them as Agent Notes under the terminal.
-                captureNotes(cards.get(taskId), status, summary);
+                captureNotes(cards.get(taskId), status, summary, summaryHtml);
+                if (shellPinned) holdForTranscript();                  // show the saved transcript instead
                 unmountAgent(taskId);                                  // instant vanish + pull next queued
                 return;
             }
@@ -518,6 +556,7 @@
                 };
             }) : [];
             shellNotes = null;             // the reopen view replaces the last run's notes
+            dropTranscriptHold();          // ...and is what a held run end was waiting for
             // Hand-typing collapses .cc-notes (coder_card.css); the user asked to
             // SEE a chat — drop typing mode so the history is visible. The focus
             // handler only re-adds it on a fresh click into the prompt.
@@ -532,6 +571,22 @@
             }
             // not pinned yet: the deferred agentmode:set sync mounts the idle
             // terminal, and mountIdle's renderNotes picks the history up.
+        };
+
+        // A finished run, saved: service.py's run_shell pushes the chat's whole
+        // transcript (this run last) once save_run has appended it, and it is
+        // shown exactly like a reopened chat — old runs above, the new done
+        // message below. Only for the chat on screen, and only between runs: a
+        // run already going brings its own transcript when it ends.
+        window.cliShellTranscript = function (payload, chatId) {
+            if (!shellPinned || cards.size) return;
+            if (!chatId || String(window.currentSessionId || '') !== String(chatId)) return;
+            var rows = payload;
+            if (typeof payload === 'string') {
+                try { rows = JSON.parse(payload); } catch (e) { rows = null; }
+            }
+            if (!Array.isArray(rows) || !rows.length) return;   // the held notes still show
+            window.cliShellHistory(rows);
         };
 
         // Live output from a HAND-TYPED command (service.py's _ManualTerminal). Lines
