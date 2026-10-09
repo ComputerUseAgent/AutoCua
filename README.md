@@ -4,7 +4,7 @@
 
 <h1>AutoCua</h1>
 
-<h3>Redefining computer use.<br/>Mac, PC, real phone, simulator, any browser — CDP or not. A multi-agent harness, no scripts.</h3>
+<h3>Automatic Computer Use Agent.<br/>Mac, Windows, Linux, real phone, simulator, any browser.<br/>A multi-agent harness engine.</h3>
 
 [![PyPI](https://img.shields.io/pypi/v/AutoCua?color=4c6ef5&label=pypi)](https://pypi.org/project/AutoCua/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-4c6ef5)](https://pypi.org/project/AutoCua/)
