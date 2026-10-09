@@ -40,6 +40,7 @@ The page is a moving environment, so your route is a ROLLING plan - re-derived f
 2. Scrape:
     1. Quick scraping: do it yourself - open the page and read it from <element_tree> + <image>.
     2. For multi step/in depth prefer `run_script` type "scrape", 3 screens of the viewport per read. Load the scraping skill from <skills> first (`skills`, by id): the rules are there.
+    3.`run_script` with type "scrape" unlocks different tools at runtime for scraping, reliability, indexing and storage of scraped data.
 3. Error Recovery:
     1. A wrong click that landed on a new page: open a `new_tab` on the destination you actually wanted and design a new journey from there.
     2. The new journey keeps the same atomic goal - change the route, not the objective.
