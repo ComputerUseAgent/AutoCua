@@ -100,6 +100,14 @@
   }
   .dot.live { background: var(--live); box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35), 0 0 8px var(--live); }
 
+  /* One real phone (body.compact): a small window around the device - room
+     at the top for the window buttons, some gradient on each side, the name
+     below. */
+  body.compact .wall { padding: 40px 70px 24px; }
+  body.compact .cell { gap: 6px; }
+  body.compact .label { font-size: 11px; }
+  body.compact .preparing h1 { font-size: 24px; }
+
   @media (prefers-reduced-motion: reduce) {
     .preparing h1 { animation: none; background: none; color: #fff; }
     .cell, .screen img { animation: none; }
@@ -123,12 +131,18 @@
   }
 
   const wall = document.getElementById('wall');
-  const GAP_X = 36, GAP_Y = 18, PAD_X = 96, PAD_Y = 64, LABEL = 30;
+  // Compact (one real phone): the padding of body.compact .wall and its slim label.
+  const COMPACT = document.body.classList.contains('compact');
+  const GAP_X = 36, GAP_Y = 18, PAD_X = COMPACT ? 140 : 96, PAD_Y = 64,
+        LABEL = COMPACT ? 22 : 30;
   let cells = [];
 
   // sim_view.py calls this once the simulators are ready.
   function showPhones(phones) {
     cells = phones.map((p, i) => {
+      // A simulator's name always says iPhone or iPad, and so does a real
+      // phone's unless it was renamed: then its first frame decides (below).
+      const named = /iphone|ipad/i.test(p.name);
       const ipad = /ipad/i.test(p.name);
       const cell = document.createElement('div');
       cell.className = 'cell';
@@ -145,7 +159,7 @@
       // the real one. k: the bezel, as a share of the device's width (the
       // .device padding in the CSS above).
       const c = { cell, device: cell.querySelector('.device'), ar: ipad ? 0.75 : 0.46,
-                  k: ipad ? 0.03 : 0.028 };
+                  k: ipad ? 0.03 : 0.028, ipad };
       const screen = cell.querySelector('.screen'), dot = cell.querySelector('.dot');
       let shown = null;
       // A fresh <img> per stream, put on screen once its first frame is in:
@@ -162,7 +176,17 @@
           dot.classList.add('live');
           if (img.naturalWidth && img.naturalHeight) {
             const ar = img.naturalWidth / img.naturalHeight;
-            if (Math.abs(ar - c.ar) > 0.01) { c.ar = ar; layout(); }
+            let changed = false;
+            // A renamed device: an iPad's screen is close to square (about
+            // 3:4 either way up), an iPhone's is tall (about 9:19.5).
+            const pad = ar > 0.6 && ar < 1.7;
+            if (!named && pad !== c.ipad) {
+              c.ipad = pad; c.k = pad ? 0.03 : 0.028;
+              c.device.classList.toggle('ipad', pad);
+              changed = true;
+            }
+            if (Math.abs(ar - c.ar) > 0.01) { c.ar = ar; changed = true; }
+            if (changed) layout();
           }
         };
         img.src = `http://127.0.0.1:${p.port}/?t=${Date.now()}`;
@@ -206,7 +230,7 @@
       if (h > best.h + 1) best = { h, perRow };
     }
     // A little air above and below a single row, like a phone on a desk.
-    const h = Math.max(best.h * (n <= 3 ? 0.86 : 1), 80);
+    const h = Math.max(best.h * (n <= 3 && !COMPACT ? 0.86 : 1), 80);
     for (const c of cells) {
       const w = h * shape(c);
       c.cell.style.width = w + 'px';

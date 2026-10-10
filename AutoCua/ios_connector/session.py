@@ -38,6 +38,9 @@ from pathlib import Path
 WDA_BUNDLE_ID = "com.AutoCua.WebDriverAgentRunner.xctrunner"
 WDA_PORT = 8100
 WDA_STATUS_URL = f"http://127.0.0.1:{WDA_PORT}/status"
+# WDA's live screen stream (MJPEG) on the phone. The runner always serves it;
+# the Mac reads it through a second cable forward (WDASession.screen_stream).
+MJPEG_PORT = 9100
 
 # Which iOS target the current process is driving — "hardware" (paired iPhone)
 # or "simulation" (sim_session). Whichever session activates last sets it;
@@ -126,6 +129,60 @@ def is_paired(udid) -> bool:
     return any(d.get("udid") == udid for d in _read_registry())
 
 
+def _recv_exact(sock, n):
+    data = b""
+    while len(data) < n:
+        chunk = sock.recv(n - len(data))
+        if not chunk:
+            raise ConnectionError("usbmuxd closed the connection")
+        data += chunk
+    return data
+
+
+def plugged_in_udids():
+    """UDIDs of the iOS devices plugged into this Mac by USB, asked straight
+    from usbmuxd: about a millisecond, no subprocess. A phone seen only over
+    Wi-Fi does not count, the session runs over the cable.
+
+    None when usbmuxd could not be asked (no daemon, an odd reply), so the
+    caller can fall back to simply trying the phone."""
+    import plistlib
+    import socket
+    import struct
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            s.connect("/var/run/usbmuxd")
+            body = plistlib.dumps({"MessageType": "ListDevices",
+                                   "ClientVersionString": "AutoCua", "ProgName": "AutoCua"})
+            # usbmuxd header: total length, version 1 (plist), message 8 (plist), tag
+            s.sendall(struct.pack("<IIII", 16 + len(body), 1, 8, 1) + body)
+            length = struct.unpack("<IIII", _recv_exact(s, 16))[0]
+            reply = plistlib.loads(_recv_exact(s, length - 16))
+        devices = reply.get("DeviceList", [])
+    except Exception:
+        return None
+    udids = set()
+    for d in devices:
+        props = d.get("Properties", {}) if isinstance(d, dict) else {}
+        if props.get("ConnectionType") == "USB" and props.get("SerialNumber"):
+            udids.add(str(props["SerialNumber"]))
+    return udids
+
+
+def _free_local_port(preferred):
+    """`preferred` when nothing listens there, else any free port."""
+    import socket
+    for port in (preferred, 0):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", port))
+                return s.getsockname()[1]
+        except OSError:
+            continue
+    return preferred
+
+
 # ───────────────────────────── pymobiledevice3 ────────────────────────────────
 def _pmd3_candidates():
     """Every place pymobiledevice3 can legitimately live, in priority order."""
@@ -170,6 +227,15 @@ class WDASession:
         self._lock = threading.Lock()
         self._forward = None
         self._xctest = None
+        self._mjpeg_forward = None   # started on demand by screen_stream()
+        self.mjpeg_port = None
+        # Who asked for the live session last (a computer-use run's phone
+        # link), so a run that ended late never stops a session the next one
+        # already took over. None: the app's own toggle, the terminal.
+        self._owner = None
+        # The owner is only sharing the app's own Mobile use session: its
+        # release hands the session back instead of stopping it.
+        self._shared = False
         self._udid = None
         self._log_path = None
 
@@ -240,8 +306,9 @@ class WDASession:
         return {"code": "failed", "error": last}
 
     # -- public --
-    def activate(self, udid=None):
-        """Fresh session for `udid` (default: newest paired device)."""
+    def activate(self, udid=None, owner=None):
+        """Fresh session for `udid` (default: newest paired device). `owner`
+        becomes the session's owner, also when a live one is reused."""
         base = _pmd3_base()
         if not base:
             # Name the interpreter: "not found" is almost always "found, but you
@@ -261,7 +328,24 @@ class WDASession:
             udid = devs[0]["udid"]
         active_target.update({"kind": "hardware", "udid": udid})
         with self._lock:
+            # The app's own Mobile use session (no owner) and a computer-use
+            # request's phone link (an owner). The person pairs the phone in
+            # one chat and expects a computer-use request in another to use
+            # it, so a live session for the same phone is SHARED: the link
+            # uses it and hands it back when its request ends. One still
+            # starting is never killed from under the picker (refused), and
+            # one whose processes died (the registry still names the phone)
+            # is replaced below like any dead session.
+            if owner is not None and self._udid is not None and self._owner is None:
+                if self._udid == udid and self._wda_up():
+                    self._owner = owner
+                    self._shared = True
+                    return {"ok": True, "state": "connected", "udid": udid, "shared": True}
+                if self._alive(self._xctest) and self._alive(self._forward):
+                    return {"ok": False, "state": "error", "code": "in_use",
+                            "error": "the phone is in use by Mobile use in the app"}
             if self._udid == udid and self._wda_up():
+                self._owner = owner
                 return {"ok": True, "state": "connected", "udid": udid}
             self._stop_locked()
             self._free_port()
@@ -273,6 +357,7 @@ class WDASession:
                                  "(a simulator session?)",
                         "hint": "Close it (quit Simulator / kill xcodebuild), then retry."}
             self._udid = udid
+            self._owner = owner
             env = dict(os.environ)
             env["PYMOBILEDEVICE3_UDID"] = udid
             try:
@@ -308,8 +393,88 @@ class WDASession:
             state = "connected" if self._wda_up() else "connecting"
             return {"state": state, "udid": self._udid}
 
-    def deactivate(self):
+    def holds(self, owner):
+        """True while `owner` still has its own session: it owns it, and its
+        runner and cable forward are alive. A run in another process (a
+        terminal "mobile use" run) that takes the phone kills this one's
+        forward first, so this turns False even though WDA still answers on
+        the port, now for that run. Read without the lock (cheap, called
+        every step), so it can be a moment late."""
+        return (owner is not None and owner is self._owner and self._udid is not None
+                and self._alive(self._xctest) and self._alive(self._forward))
+
+    def busy_elsewhere(self):
+        """True when another process holds the WDA port: a terminal run's
+        forward (also while its WDA is still starting and does not answer
+        yet) or a simulator's WDA. activate() would kill that run's forward,
+        so a caller that only wants to borrow the phone checks this first.
+
+        A forward left behind by a process that died (its parent is gone)
+        does not count: activate() clears it. This process's own session is
+        activate()'s call (a link never takes the app's Mobile use session)."""
         with self._lock:
+            if self._udid is not None:
+                return False
+            return self._port_held_by_live_process()
+
+    @staticmethod
+    def _port_held_by_live_process():
+        try:
+            out = subprocess.run(["lsof", "-nP", f"-iTCP:{WDA_PORT}", "-sTCP:LISTEN", "-t"],
+                                 capture_output=True, text=True, timeout=8)
+            pids = [p for p in out.stdout.split() if p.strip().isdigit()]
+        except Exception:
+            return False
+        for pid in pids:
+            try:
+                info = subprocess.run(["ps", "-p", pid, "-o", "ppid=,command="],
+                                      capture_output=True, text=True, timeout=5).stdout.strip()
+            except Exception:
+                return True
+            if not info:
+                continue                  # gone since lsof looked
+            ppid, _, cmd = info.partition(" ")
+            if ppid.strip() == "1" and "pymobiledevice3" in cmd and "forward" in cmd:
+                continue                  # a leftover: its run died
+            return True
+        return False
+
+    def screen_stream(self):
+        """Local port where the live phone screen can be read (WDA's MJPEG
+        stream, phone port 9100), forwarded over the cable on first call.
+        None without a session or when the forward cannot start: the screen
+        is only for watching, it never fails the session."""
+        with self._lock:
+            if self._udid is None:
+                return None
+            if self._alive(self._mjpeg_forward):
+                return self.mjpeg_port
+            base = _pmd3_base()
+            if not base:
+                return None
+            port = _free_local_port(MJPEG_PORT)
+            try:
+                self._mjpeg_forward = subprocess.Popen(
+                    base + ["usbmux", "forward", "--serial", self._udid, str(port), str(MJPEG_PORT)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                self._mjpeg_forward = None
+                return None
+            self.mjpeg_port = port
+            return port
+
+    def deactivate(self, owner=None):
+        """Stop the session. With an `owner`, only if it still owns it: a
+        later caller that took the session over keeps it."""
+        with self._lock:
+            if owner is not None and owner is not self._owner:
+                return {"ok": True, "state": "kept"}
+            if owner is not None and self._shared:
+                # Borrowed from the app's Mobile use picker: hand it back
+                # as it was, the picker still shows the phone connected.
+                self._owner = None
+                self._shared = False
+                return {"ok": True, "state": "kept"}
             # FIRST tell the runner ON THE PHONE to exit (WDA's /wda/shutdown).
             # That's what makes the "Automation Running" overlay vanish right
             # away — killing only the Mac-side processes leaves the phone
@@ -320,7 +485,11 @@ class WDASession:
             # process was exiting anyway; the local kills below are the
             # guarantee. The SIMULATOR path deliberately does NOT do this —
             # there the same crash pops a macOS dialog (see sim_session.py).
-            if self._udid is not None:
+            # An owner (a computer-use request's phone link) whose forward or
+            # runner is gone lost the phone to another run: the port now
+            # reaches THAT run's runner, so it must not be told to shut down.
+            lost = owner is not None and not (self._alive(self._xctest) and self._alive(self._forward))
+            if self._udid is not None and not lost:
                 try:
                     urllib.request.urlopen(
                         f"http://127.0.0.1:{WDA_PORT}/wda/shutdown", timeout=2)
@@ -332,7 +501,7 @@ class WDASession:
     def _stop_locked(self):
         # Kill INSTANTLY: xctest first (it owns the phone-side session), tiny
         # grace for a clean teardown, then SIGKILL. The whole stop stays ~1s.
-        for attr in ("_xctest", "_forward"):
+        for attr in ("_xctest", "_forward", "_mjpeg_forward"):
             p = getattr(self, attr)
             if p is not None:
                 try:
@@ -344,6 +513,7 @@ class WDASession:
                 except Exception:
                     pass
                 setattr(self, attr, None)
+        self.mjpeg_port = None
         if self._log_path:
             try:
                 os.unlink(self._log_path)
@@ -351,6 +521,8 @@ class WDASession:
                 pass
             self._log_path = None
         self._udid = None
+        self._owner = None
+        self._shared = False
 
 
 wda_session = WDASession()

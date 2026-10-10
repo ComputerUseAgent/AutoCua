@@ -31,8 +31,9 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-# Agent types the `sub_agent` tool can start on this platform
-SUB_AGENT_TYPES = ("coder_agent", "browser_agent")
+# Agent types the `sub_agent` tool can start on this platform. ios_agent is
+# listed as online only while the request's phone is connected (phone_state).
+SUB_AGENT_TYPES = ("coder_agent", "browser_agent", "ios_agent")
 
 
 class ControllerView:
@@ -105,6 +106,8 @@ class ControllerView:
         self._sub_agents = []         # [{"id": int, "agent": str, "task": str, "status": str}]
         self.sub_agent_last_id = 0
         self._browser_tasks = []      # Browser agents at work: [{"id": int, "task": str, "run": dict}]
+        self._ios_tasks = []          # ios_agent runs at work: [{"id": int, "task": str, "run": dict}]
+        self.phone = None             # The request's PhoneLink (tool/ios_agent.py), set by the main driver
         self.speed = None             # The main agent's speed, so a browser agent runs the same way
         self.scan_on = True           # The `scan` tool's switch; the main driver reads it each step
 
@@ -383,6 +386,49 @@ class ControllerView:
             self._report_sub_agent(agent_id, "browser_agent", task["task"], summary, status)
             logger.info(f"Browser Agent {agent_id} finished: {status}")
 
+    def _watch_ios_agent(self, agent_id: int, run: dict):
+        """Watcher thread: waits for one ios_agent run, then reports it. A phone
+        that goes away mid-run ends the run at once."""
+        from .tool import ios_agent
+        while True:
+            # Stop reaches the phone at once, not only when the run unwinds
+            # (the main agent may be parked in a model call for a while).
+            if self.stop_event and self.stop_event.is_set() and not run.get("stopped"):
+                ios_agent.stop(run)
+            outcome = ios_agent.outcome(run, phone_online=(self.phone_state() == "online"))
+            if outcome is not None:
+                break
+            time.sleep(1)
+        summary, status = outcome
+        with self._cli_agent_lock:
+            task = next((t for t in self._ios_tasks if t["id"] == agent_id), None)
+            if task is None:
+                return   # the run was stopped and its list cleared: nobody is left to tell
+            self._ios_tasks = [t for t in self._ios_tasks if t["id"] != agent_id]
+            self._report_sub_agent(agent_id, "ios_agent", task["task"], summary, status)
+            logger.info(f"iOS Agent {agent_id} finished: {status}")
+
+    def phone_state(self) -> str:
+        """ios_agent's line in <sub_agents>: online, checking or offline."""
+        try:
+            return self.phone.state() if self.phone is not None else "offline"
+        except Exception:
+            return "offline"
+
+    def release_phone(self):
+        """End of the main agent's request: ios_agent runs stop, the phone
+        window closes and the phone is let go."""
+        with self._cli_agent_lock:
+            ios_runs = [t["run"] for t in self._ios_tasks]
+            self._ios_tasks.clear()
+        phone, self.phone = self.phone, None
+        if ios_runs:
+            from .tool import ios_agent
+            for run in ios_runs:
+                ios_agent.stop(run)
+        if phone is not None:
+            phone.release()
+
     def _register_sub_agent(self, agent: str, task: str) -> int:
         """Add a started sub-agent to the registry and return its id"""
         with self._cli_agent_lock:
@@ -436,12 +482,19 @@ class ControllerView:
             self._cli_completed.clear()
             browser_runs = [t["run"] for t in self._browser_tasks]
             self._browser_tasks.clear()
+            ios_runs = [t["run"] for t in self._ios_tasks]
+            self._ios_tasks.clear()
 
         # Browser agents go down with the run; the browser itself stays up
         if browser_runs:
             from .tool import browser_agent
             for run in browser_runs:
                 browser_agent.stop(run)
+        # So do ios_agent runs; the phone stays connected until the request ends
+        if ios_runs:
+            from .tool import ios_agent
+            for run in ios_runs:
+                ios_agent.stop(run)
 
         # Notify frontend that any pills for these tasks are done (stopped)
         for task_id in terminated_ids:
@@ -810,6 +863,57 @@ class ControllerView:
                             "task": task_description,
                             "message": "Browser Agent started in parallel. Continue with other tasks."
                         })
+
+                elif action_type == "sub_agent" and action_item.get("agent_type") == "ios_agent":
+                    # DISPATCH MODE: start the iOS agent on the connected iPhone/iPad.
+                    # Not online yet (still checking) or no phone: say so and start nothing.
+                    task_description = action_item.get("value", "")
+                    phone_state = self.phone_state()
+                    if phone_state != "online":
+                        if phone_state == "checking":
+                            message = ("ios_agent is still checking the connection to the phone. "
+                                       "Carry on with other work: once the phone is connected it is "
+                                       "listed under online in <sub_agents>.")
+                        else:
+                            reason = getattr(self.phone, "reason", "") or "no iPhone or iPad is connected"
+                            message = f"ios_agent is currently offline: {reason}."
+                        results.append({
+                            "status": "error",
+                            "action": "tool",
+                            "tool": "sub_agent",
+                            "agent_type": "ios_agent",
+                            "message": message
+                        })
+                    else:
+                        logger.info(f"Starting iOS Agent for task: {task_description}")
+                        from .tool import ios_agent
+                        try:
+                            run = ios_agent.start(task_description, self.provider, self.model,
+                                                  api_key=self.api_key, speed=self.speed, phone=self.phone)
+                        except ios_agent.IOSAgentError as e:
+                            results.append({
+                                "status": "error",
+                                "action": "tool",
+                                "tool": "sub_agent",
+                                "agent_type": "ios_agent",
+                                "message": str(e)
+                            })
+                        else:
+                            agent_id = self._register_sub_agent("ios_agent", task_description)
+                            with self._cli_agent_lock:
+                                self._ios_tasks.append({"id": agent_id, "task": task_description, "run": run})
+                            threading.Thread(target=self._watch_ios_agent, args=(agent_id, run),
+                                             daemon=True).start()
+                            results.append({
+                                "status": "success",
+                                "action": "tool",
+                                "tool": "sub_agent",
+                                "agent_type": "ios_agent",
+                                "id": agent_id,
+                                "task": task_description,
+                                "message": (f"iOS Agent started in parallel on {self.phone.name}. "
+                                            f"Continue with other tasks.")
+                            })
 
                 elif action_type == "sub_agent":
                     # DISPATCH MODE: spawn CLI agent
@@ -1183,7 +1287,8 @@ class ControllerView:
                             self.controller_service.release_all_inputs()
                             return {"status": "stopped", "action": "stop", "message": "Stopped by user"}
                         with self._cli_agent_lock:
-                            if len(self._cli_tasks) == 0 and len(self._browser_tasks) == 0:
+                            if len(self._cli_tasks) == 0 and len(self._browser_tasks) == 0 \
+                                    and len(self._ios_tasks) == 0:
                                 break
                         time.sleep(1)
                     
