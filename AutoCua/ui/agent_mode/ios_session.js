@@ -210,14 +210,28 @@
     }
 
     // ---- wiring to the Agent-mode menu ----
+    // iosActive: iOS is the selection and a session was asked for from here
+    // (switching away must kill it). pairing: that activate() is still in
+    // flight, so a second click must not restart it half-way.
     var iosActive = false;
+    var pairing = false;
 
     document.addEventListener('agentmode:changed', function (e) {
         var d = e.detail || {};
         var wantIOS = (d.mode === 'mobile' && d.sub === 'ios');
 
-        if (wantIOS && !iosActive) {
+        if (wantIOS) {
+            // EVERY iOS pick (re)activates, not only the first. The session can
+            // die behind the picker's back: New chat kills it server-side and
+            // resets the picker with a SILENT agentmode:set (chat.js), a
+            // reopened chat clears the tick the same silent way, the cable can
+            // drop. Gating on iosActive here left the flag saying "live" after
+            // all of those, so the next iOS pick paired nothing. Re-activating
+            // a live session is free: the backend answers 'connected' at once
+            // (session.py), so the box just confirms "Device connected".
+            if (pairing) return;
             iosActive = true;
+            pairing = true;
             startPairingAnim();
             activate({
                 onRepair: function () {
@@ -225,10 +239,12 @@
                     startPairingAnim('Signing expired, re-signing AutoCua (about a minute)');
                 },
                 onConnected: function () {
+                    pairing = false;
                     // graceful: the current breath completes, THEN the glow settles
                     endPairingAnim('Device connected', 2200, true);
                 },
                 onFail: function (why) {
+                    pairing = false;
                     iosActive = false;
                     // A placeholder cannot hold a paragraph, but it can hold the
                     // sentence that names the cause — which beats sending people
@@ -244,8 +260,9 @@
                     }));
                 }
             });
-        } else if (!wantIOS && iosActive) {
+        } else if (iosActive) {
             iosActive = false;
+            pairing = false;
             deactivate();                        // switched away -> instant kill
             endPairingAnim(null);                // stop any mid-pairing animation
         }

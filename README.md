@@ -52,6 +52,12 @@ Amazon basket, and a Google Sheet of Meta's five-year financials. Agent mode: we
 
 https://github.com/user-attachments/assets/82bf6163-55c9-4cc4-95e7-9c6466f2a25d
 
+## iOS agent: iPhone use
+
+A paired iPhone, driven over the USB cable. Agent mode: mobile use, iOS.
+
+https://github.com/user-attachments/assets/3c22eb45-d939-4742-9053-22ecc75b416f
+
 ---
 
 ## Pick a surface

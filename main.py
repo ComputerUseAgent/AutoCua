@@ -14,4 +14,5 @@ Open Google Flights.
 no  subagent
 """,
     save_conversation=True,
+    ui=True
 )
