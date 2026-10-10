@@ -277,10 +277,11 @@ both.
 4. **Drop what cannot be clicked.** Every element is re-tested against the real window stack
    with a 20x20 grid of sample points. Anything under 1 percent visible is thrown away, so the
    model is never handed a number that sits behind another window.
-5. **Draw the numbers.** The capture is downscaled first (long edge 2300 px, 3.3 megapixels),
-   then 13 px magenta labels with a 2 px black rim are stamped on from cached tiles, and the
-   frame is encoded as a **4:4:4 JPEG at quality 85**. That chroma choice is deliberate.
-   Default subsampling smears thin magenta digits into mush, and this is a tenth of PNG's bytes.
+5. **Draw the numbers.** The capture is downscaled first to fit inside full HD (1920 x 1080,
+   aspect kept, never upscaled), then 13 px magenta labels with a 2 px black rim are stamped on
+   from cached tiles, and the frame is encoded as a **4:4:4 JPEG at quality 85**. That chroma
+   choice is deliberate. Default subsampling smears thin magenta digits into mush, and this is a
+   tenth of PNG's bytes.
 
 ### Windows
 

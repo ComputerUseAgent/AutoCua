@@ -72,20 +72,38 @@ Rect = namedtuple('Rect', ['left', 'top', 'right', 'bottom'])
 BOX_COLOR = (255, 0, 255)   # Bright magenta for all boxes
 NUMBER_COLOR = (255, 0, 255) # Same magenta for numbers
 
-# Final geometry/encoding of the annotated screenshot — mirrors Windows
-# element.py. The image is encoded ONCE, here; those exact bytes are the LLM
-# payload and what DEBUG writes to disk. Callers must NOT re-encode.
+# Final geometry/encoding of the annotated screenshot. The image is encoded
+# ONCE, here; those exact bytes are the LLM payload and what DEBUG writes to
+# disk. Callers must NOT re-encode.
 #
-# Two independent caps, both orientation-agnostic:
-#   MAX_EDGE   - the long side, whichever it is. Vision models resize anything
-#                larger themselves, which would put the annotations through
-#                THEIR resampler and undo the crisp-label work.
-#   MAX_PIXELS - a total-area budget. Models also cap by token count
-#                (~750px per image token), and that bites first on squarish
-#                aspect ratios.
-# Raising these costs image tokens on every step — they bill by dimensions.
-LLM_IMAGE_MAX_EDGE = 2300
-LLM_IMAGE_MAX_PIXELS = 3_300_000
+# One cap: the delivered image fits inside full HD (1080p). Orientation-
+# agnostic - long side <= 1920, short side <= 1080 - aspect preserved, never
+# upscaled: a capture already inside the box is sent as is.
+#
+# Why 1080p (measured on a 13" Air, whose Retina capture is 2940x1912; the
+# previous caps delivered 2252x1464):
+#   - Tokens: Claude 4.7+ (Opus/Sonnet 5.x) and GPT-6 read an image this size
+#     natively and bill per patch, so the old payload cost ~4300 Claude tokens
+#     (~3900 GPT-6) per step; 1660x1080 costs ~2340 (~2100) - about 45% less.
+#     Gemini 3 bills a flat 1066 whatever the size; older Claude models
+#     downsize to <=1568 either way. Nothing gets cheaper above 1080p.
+#   - Bytes: the payload rides the never-cached live message, so it is
+#     uploaded in full on EVERY step; 1080p cuts an annotated step from
+#     ~1.0 MB to ~0.7 MB of JPEG (~1.4 M -> ~0.95 M base64 chars).
+#   - Legibility: 1080p on this display is ~1.1x logical points, so UI text
+#     stays larger than life size, and the labels are drawn AFTER the resize
+#     at a fixed pixel size, so they are untouched by it.
+LLM_IMAGE_LONG_EDGE = 1920
+LLM_IMAGE_SHORT_EDGE = 1080
+
+
+def llm_image_shrink(width, height):
+    """Scale factor that fits a capture inside LLM_IMAGE_LONG_EDGE x
+    LLM_IMAGE_SHORT_EDGE whichever way it is oriented; 1.0 when it already
+    fits (never upscale)."""
+    return min(1.0,
+               LLM_IMAGE_LONG_EDGE / max(width, height),
+               LLM_IMAGE_SHORT_EDGE / min(width, height))
 
 # JPEG, not PNG. The lossless PNG payload ran multiple MB of base64 per step,
 # and since the screenshot rides the live (never-cached) message, that upload
@@ -1659,6 +1677,7 @@ def _xml_escape(text):
 _ANNOTATE_FONT = None  # cached (font, stroke_width) — TTF parsing is per-scan waste
 _label_heights = {}    # len(label) -> rendered height, so measuring is done once
 _label_tiles = {}      # label -> pre-rendered RGBA tile (see _label_tile)
+_label_inks = {}       # label -> ink bbox inside its tile, for the edge clamp
 
 
 def _label_tile(label, font, stroke_w):
@@ -1688,6 +1707,10 @@ def _label_tile(label, font, stroke_w):
         ImageDraw.Draw(tile).text(
             (0, 0), label, fill=NUMBER_COLOR, font=font,
             stroke_width=stroke_w, stroke_fill=LABEL_STROKE_COLOR)
+        # Where the glyphs actually sit in that generous tile, measured once:
+        # _draw_boxes keeps the ink on canvas, not the transparent margin.
+        # Stored before the tile, so a cached tile always has its ink.
+        _label_inks[label] = tile.getbbox() or (0, 0, 0, 0)
         _label_tiles[label] = tile
     return tile
 
@@ -2273,12 +2296,10 @@ class UIElementScanner:
         try:
             img = self._screenshot
             src_w, src_h = img.size
-            shrink = min(1.0,
-                         LLM_IMAGE_MAX_EDGE / max(src_w, src_h),
-                         (LLM_IMAGE_MAX_PIXELS / (src_w * src_h)) ** 0.5)
+            shrink = llm_image_shrink(src_w, src_h)
             if shrink < 1.0:
-                # Floor, not round: rounding both sides up can push the product
-                # back over MAX_PIXELS, so the cap would not actually hold.
+                # int() floors, so neither side can exceed its cap; float error
+                # can leave the side that hits the cap 1 px short, harmlessly.
                 img = img.resize(
                     (max(1, int(src_w * shrink)), max(1, int(src_h * shrink))),
                     Image.Resampling.LANCZOS)
@@ -2354,9 +2375,7 @@ class UIElementScanner:
 
             self._plain_screenshot = screenshot.copy()
             src_w, src_h = screenshot.size
-            shrink = min(1.0,
-                         LLM_IMAGE_MAX_EDGE / max(src_w, src_h),
-                         (LLM_IMAGE_MAX_PIXELS / (src_w * src_h)) ** 0.5)
+            shrink = llm_image_shrink(src_w, src_h)
             if shrink < 1.0:
                 screenshot = screenshot.resize(
                     (max(1, int(src_w * shrink)), max(1, int(src_h * shrink))),
@@ -2425,6 +2444,14 @@ class UIElementScanner:
                 text_y = box[1] + 3
 
             tile = _label_tile(label, font, stroke_w)
+            # Keep the whole label on the canvas: PIL silently clips a paste
+            # past an edge, so a label near the right or bottom edge (or an
+            # OCR label above a box at the very top) would lose part of its
+            # number. Clamps the ink, not the tile, so a label that already
+            # fits never moves.
+            ink_l, ink_t, ink_r, ink_b = _label_inks[label]
+            text_x = max(-ink_l, min(text_x, screenshot.width - ink_r))
+            text_y = max(-ink_t, min(text_y, screenshot.height - ink_b))
             screenshot.paste(tile, (text_x, text_y), tile)
 
     def _encode_annotation(self):

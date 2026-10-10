@@ -41,17 +41,31 @@ FRONTEND = True    # Set to True when running from app.py to send annotated imag
 # and what DEBUG writes to disk, so the debug dump is always byte-identical to the
 # payload. Callers must NOT re-encode.
 #
-# Two independent caps, both orientation-agnostic:
-#   MAX_EDGE   - the long side, whichever it is. Vision models resize anything
-#                larger on their own side, which would put the annotations through
-#                THEIR resampler and undo the crisp-label work below.
-#   MAX_PIXELS - a total-area budget. Models also cap images by token count
-#                (~750px per image token), and that bites before the edge cap on
-#                squarish aspect ratios. Sized to stay comfortably under it.
-# Raising these costs image tokens on every step - they bill by dimensions, so
-# this is a deliberate readability-vs-cost tradeoff, not a free win.
-LLM_IMAGE_MAX_EDGE = 2300
-LLM_IMAGE_MAX_PIXELS = 3_300_000
+# One cap, matching mac/tree/element.py: the delivered image fits inside full HD
+# (1080p). Orientation-agnostic - long side <= 1920, short side <= 1080 - aspect
+# preserved, never upscaled: a 1080p monitor's capture is sent as is, anything
+# bigger (4K, HiDPI laptops) is scaled down to fit.
+#
+# Why 1080p: Claude 4.7+ and GPT-6 read an image up to ~2500 px natively and bill
+# per patch, so the cost follows the delivered pixel count. A 16:9 1440p or 4K
+# monitor used to send 2300x1293 (~3900 Claude tokens per step) and now sends
+# 1920x1080 (~2690) - about 31% less. 16:10 and 3:2 HiDPI panels save ~45% (the
+# mac tree's 13" Air: ~4300 -> ~2340). A 1080p monitor was already sent as is, so
+# it is unchanged. Gemini 3 bills a flat ~1066 whatever the size; older Claude
+# models downsize to <=1568 either way. The bytes ride the never-cached live
+# message on EVERY step and shrink with the pixel count too. Labels are drawn
+# AFTER the resize at a fixed pixel size, so they are untouched.
+LLM_IMAGE_LONG_EDGE = 1920
+LLM_IMAGE_SHORT_EDGE = 1080
+
+
+def llm_image_shrink(width, height):
+    """Scale factor that fits a capture inside LLM_IMAGE_LONG_EDGE x
+    LLM_IMAGE_SHORT_EDGE whichever way it is oriented; 1.0 when it already
+    fits (never upscale)."""
+    return min(1.0,
+               LLM_IMAGE_LONG_EDGE / max(width, height),
+               LLM_IMAGE_SHORT_EDGE / min(width, height))
 
 # JPEG, not PNG — matching mac/tree/element.py. The lossless PNG payload ran
 # multiple MB of base64 per step, and since the screenshot rides the live
@@ -3509,12 +3523,10 @@ class UIElementScanner:
             # screenshot gets compressed, the annotations don't - and drawing on
             # the smaller canvas is cheaper too.
             src_w, src_h = screenshot.size
-            scale = min(1.0,
-                        LLM_IMAGE_MAX_EDGE / max(src_w, src_h),
-                        (LLM_IMAGE_MAX_PIXELS / (src_w * src_h)) ** 0.5)
+            scale = llm_image_shrink(src_w, src_h)
             if scale < 1.0:
-                # Floor, not round: rounding both sides up can push the product
-                # back over MAX_PIXELS, so the cap would not actually hold.
+                # int() floors, so neither side can exceed its cap; float error
+                # can leave the side that hits the cap 1 px short, harmlessly.
                 screenshot = screenshot.resize(
                     (max(1, int(src_w * scale)), max(1, int(src_h * scale))),
                     Image.Resampling.LANCZOS)
