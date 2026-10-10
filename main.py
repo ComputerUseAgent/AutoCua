@@ -13,6 +13,5 @@ Open Google Flights.
 3. Click “Search.”
 """,
     save_conversation=True,
-    speed="fast",
     ui=True,
 )
