@@ -51,6 +51,13 @@ const RELAUNCH_WAIT: Duration = Duration::from_secs(30);
 /// (`take_chrome`): its worker reads config.json again each time it dials, every
 /// half second while nobody is on the line, so it is here in about a second.
 const ATTACH_WAIT: Duration = Duration::from_secs(2);
+/// How long the worker gets after `wake_extension` opened its wake-up page: a
+/// stopped worker starts on the page's message and dials within half a second;
+/// measured 1.4 to 4 s from cold. Chrome stops an idle extension worker after
+/// half a minute whatever the keepalive asks, so a run minutes after the last one
+/// found nobody on the line within ATTACH_WAIT and quit a Chrome that had the
+/// extension all along.
+const WAKE_WAIT: Duration = Duration::from_secs(8);
 
 /// Chrome's own user data folder, where the person's Default profile lives: a launch
 /// without --user-data-dir uses it. The person's Chrome is extension mode's browser.
@@ -167,6 +174,36 @@ pub fn launch_chrome(
     detach(&mut cmd);
     cmd.spawn().map_err(|e| ScanErr::s(format!("could not launch Chrome: {e}")))?;
     Ok(())
+}
+
+/// Open the extension's wake-up page (wake.html) in the Chrome already running: a
+/// second Chrome started with a URL hands it to the running one and exits, which
+/// opens the page as a tab there. On macOS `open -g` does the same through
+/// LaunchServices without bringing Chrome to the front (the main agent may be
+/// working on the screen). Says whether the request went out, not whether the
+/// worker woke: `take_chrome` waits for its dial.
+fn wake_extension(extension_id: &str) -> bool {
+    let url = format!("chrome-extension://{extension_id}/wake.html");
+    let Ok(chrome) = crate::browser::find_chrome() else { return false };
+    let mut cmd = if cfg!(target_os = "macos") {
+        let bundle = chrome
+            .ancestors()
+            .find(|p| p.extension().is_some_and(|e| e == "app"))
+            .map(PathBuf::from);
+        let mut c = Command::new("open");
+        c.arg("-g");
+        if let Some(bundle) = bundle {
+            c.arg("-a").arg(bundle);
+        }
+        c.arg(&url);
+        c
+    } else {
+        let mut c = Command::new(chrome);
+        c.arg(&url);
+        c
+    };
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.status().is_ok_and(|s| s.success())
 }
 
 /// The browser in a process group of its own: it is the person's browser and outlives
@@ -473,6 +510,13 @@ impl Bridge {
         let mut quit = false;
         if crate::browser::profile_locked_by_live_chrome(&dir) {
             if self.wait_connected(ATTACH_WAIT)? {
+                self.note_launch(user_data_dir, true, Vec::new());
+                return Ok(());
+            }
+            // Nobody dialled: the worker is stopped, or this Chrome has no
+            // extension. Wake it before concluding the latter: its wake-up page,
+            // opened as a tab of this Chrome, starts the worker and closes itself.
+            if wake_extension(&self.extension_id) && self.wait_connected(WAKE_WAIT)? {
                 self.note_launch(user_data_dir, true, Vec::new());
                 return Ok(());
             }

@@ -22,7 +22,7 @@ if (typeof require('electron') === 'string') {
   process.exit(result.status ?? 1);
 }
 
-const { app, BaseWindow, WebContentsView, nativeImage, nativeTheme, shell } = require('electron');
+const { app, BaseWindow, WebContentsView, nativeImage, nativeTheme, powerSaveBlocker, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -370,6 +370,13 @@ if (!app.requestSingleInstanceLock()) {
     win.focus();
   });
   app.whenReady().then(() => {
+    // Never let macOS put this app into App Nap. The agent works in other
+    // apps, so this window is soon covered, and a napping app and EVERY
+    // process it started (the backend, the sub-agents, the phone's helper
+    // processes) drop to background priority: while Chrome relaunches for
+    // browser_agent they then get almost no CPU at all (a 1 s phone step
+    // measured at 25 s, and over two minutes under a full load).
+    powerSaveBlocker.start('prevent-app-suspension');
     // The app is light only: keep the traffic lights and menus light on its
     // off-white bar in Dark Mode too, as the pywebview window pins Aqua.
     if (MAC) nativeTheme.themeSource = 'light';

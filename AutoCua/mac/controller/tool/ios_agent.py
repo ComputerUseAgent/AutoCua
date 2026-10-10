@@ -50,6 +50,13 @@ _CHILD = Path(__file__).resolve().parent / "ios_agent_child.py"
 # A connect takes about 15 s, longer when iOS asks for the passcode to turn
 # on Automation Mode: give it 30, then the phone counts as offline.
 CHECK_SEC = 30
+# A connect still starting after CHECK_SEC is not thrown away: it carries on
+# quietly (ios_agent is not listed) and joins the online line the moment the
+# phone answers, until this many seconds in. A busy Mac starves the helper
+# processes (a Chrome relaunch by browser_agent took a 1 s step to 25 s), and
+# killing a runner that is seconds from answering made the phone fail for the
+# whole request.
+LATE_SEC = int(os.environ.get("AutoCua_IOS_LATE_SEC", "120"))
 # How often a connected phone is looked at again (a pulled cable, New chat).
 WATCH_SEC = 5
 # How long the window's shimmering words stay before the phone replaces them.
@@ -104,6 +111,19 @@ def _reason(d) -> str:
     if not isinstance(d, dict):
         return ""
     return " - ".join(str(p) for p in (d.get("error"), d.get("hint")) if p)
+
+
+def _priority() -> str:
+    """"background" when macOS has this process (and so every helper it
+    starts) at background priority, App Nap's doing when the app's window is
+    covered: a busy Mac then starves the phone's helpers. "normal" otherwise."""
+    if sys.platform != "darwin":
+        return "normal"
+    try:
+        bg = os.getpriority(4, 0) & 0x1000      # PRIO_DARWIN_PROCESS, PRIO_DARWIN_BG
+    except OSError:
+        return "unknown"
+    return "BACKGROUND (App Nap)" if bg else "normal"
 
 
 def _log(msg: str) -> None:
@@ -200,16 +220,19 @@ class PhoneLink:
         link.name = paired[0].get("name") or "iPhone"
         link._state = "checking"
         link._deadline = time.monotonic() + CHECK_SEC
+        link._give_up = time.monotonic() + LATE_SEC
         link._t0 = time.monotonic()
         _links.append(link)
-        _log(f"checking {link.name} ({link.udid}), up to {CHECK_SEC}s")
+        _log(f"checking {link.name} ({link.udid}), up to {CHECK_SEC}s; this process runs at "
+             f"{_priority()} priority")
         threading.Thread(target=link._connect, daemon=True).start()
         return link
 
     def state(self) -> str:
-        """checking, online or offline. A check past its deadline is offline,
-        and so is a phone another AutoCua run took over (the watch loop
-        cleans that up within WATCH_SEC)."""
+        """checking, online or offline. A check past its deadline reads
+        offline while the connect carries on (it turns online if the phone
+        answers before LATE_SEC), and so does a phone another AutoCua run took
+        over (the watch loop cleans that up within WATCH_SEC)."""
         with self._lock:
             if self._state == "checking" and time.monotonic() > self._deadline:
                 return "offline"
@@ -247,7 +270,10 @@ class PhoneLink:
             # A terminal "mobile use" run (a phone or a simulator) may hold the
             # connection from another process; activate() would kill its
             # forward, so never take it.
-            if wda_session.busy_elsewhere():
+            t_busy = time.monotonic()
+            busy = wda_session.busy_elsewhere()
+            _log(f"busy check took {time.monotonic() - t_busy:.1f}s: {'busy' if busy else 'free'}")
+            if busy:
                 self._fail("another AutoCua run is already using the phone connection")
                 return
             with self._lock:
@@ -255,6 +281,9 @@ class PhoneLink:
                     return
                 self._busy = True
             res = {}
+            lock = getattr(wda_session, "_lock", None)
+            if lock is not None and lock.locked():
+                _log("waiting: the phone session is busy with another caller (its lock is held)")
             try:
                 res = wda_session.activate(self.udid, owner=self)
             finally:
@@ -266,12 +295,23 @@ class PhoneLink:
                 self._fail(_reason(res) or "the phone could not be connected")
                 return
             last = None
+            past_check = False
             while True:
                 with self._lock:
-                    gone = self._released or time.monotonic() > self._deadline
-                if gone:
-                    self._fail(f"the phone did not answer within {CHECK_SEC} seconds")
+                    released = self._released
+                    now = time.monotonic()
+                    give_up = now > self._give_up
+                    late = now > self._deadline
+                if released:
+                    self._fail("the request ended")   # lets the phone go if this link owns it
                     return
+                if give_up:
+                    self._fail(f"the phone did not answer within {LATE_SEC} seconds")
+                    return
+                if late and not past_check:
+                    past_check = True
+                    _log(f"past the {CHECK_SEC}s check, still connecting: ios_agent is not "
+                         f"listed until the phone answers (up to {LATE_SEC}s)")
                 st = wda_session.status()
                 if st.get("state") != last:
                     last = st.get("state")
@@ -289,14 +329,15 @@ class PhoneLink:
             if self._model and self._model.lower() not in self.name.lower():
                 self.name = f"{self.name} · {self._model}"
             with self._lock:
-                late = self._released or time.monotonic() > self._deadline
-                if not late:
+                released = self._released
+                if not released:
                     self._state = "online"
-            if late:
-                self._fail(f"the phone did not answer within {CHECK_SEC} seconds")
+            if released:
+                self._fail("the request ended")
                 return
             _log(f"online after {self._elapsed()}: {self.name}"
-                 + (" (sharing the app's Mobile use session)" if res.get("shared") else ""))
+                 + (" (sharing the app's Mobile use session)" if res.get("shared") else "")
+                 + (f" (after the {CHECK_SEC}s check)" if past_check else ""))
             self._watch()
         except Exception as e:
             self._fail(f"the phone check failed: {e}")
@@ -386,6 +427,16 @@ class PhoneLink:
             owns, self._owns = self._owns, False
             win, self._window = self._window, None
         _log(f"offline after {self._elapsed()}: {reason}")
+        if owns:
+            # The session's own log (pymobiledevice3's words) says where the
+            # start stalled; deactivate() deletes it, so read it first.
+            try:
+                from AutoCua.ios_connector.session import wda_session
+                tail = wda_session._log_tail()
+            except Exception:
+                tail = ""
+            if tail:
+                _log("session log tail:\n    " + "\n    ".join(tail.splitlines()[-12:]))
         _close_window(win)
         if owns:
             self._deactivate()

@@ -29,6 +29,7 @@ import json
 import time
 import signal
 import shutil
+import socket
 import tempfile
 import threading
 import subprocess
@@ -183,6 +184,37 @@ def _free_local_port(preferred):
     return preferred
 
 
+def _port_answers(port):
+    """Whether something accepts connections on 127.0.0.1:port."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
+            return True
+    except OSError:
+        return False
+
+
+def _forward_pids():
+    """[(pid, ppid)] of every pymobiledevice3 cable forward for WDA_PORT. One ps
+    over the process list, never lsof: lsof walks every open file of every
+    process and took up to its timeout on a busy Mac, twice per connect, which
+    alone used up most of a computer-use request's connect budget."""
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="],
+                             capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return []
+    found = []
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid, ppid, cmd = parts
+        if ("pymobiledevice3" in cmd and "forward" in cmd
+                and f" {WDA_PORT} " in cmd + " " and pid.isdigit() and ppid.isdigit()):
+            found.append((int(pid), int(ppid)))
+    return found
+
+
 # ───────────────────────────── pymobiledevice3 ────────────────────────────────
 def _pmd3_candidates():
     """Every place pymobiledevice3 can legitimately live, in priority order."""
@@ -254,18 +286,9 @@ class WDASession:
 
     def _free_port(self):
         """Kill only a LEFTOVER pymobiledevice3 forward squatting on the port."""
-        try:
-            out = subprocess.run(["lsof", "-nP", f"-iTCP:{WDA_PORT}", "-sTCP:LISTEN", "-t"],
-                                 capture_output=True, text=True, timeout=8)
-            pids = [p for p in out.stdout.split() if p.strip().isdigit()]
-        except Exception:
-            return
-        for pid in pids:
+        for pid, _ppid in _forward_pids():
             try:
-                cmd = subprocess.run(["ps", "-p", pid, "-o", "command="],
-                                     capture_output=True, text=True, timeout=5).stdout
-                if "pymobiledevice3" in cmd and "forward" in cmd:
-                    os.kill(int(pid), signal.SIGTERM)
+                os.kill(pid, signal.SIGTERM)
             except Exception:
                 pass
 
@@ -347,8 +370,19 @@ class WDASession:
             if self._udid == udid and self._wda_up():
                 self._owner = owner
                 return {"ok": True, "state": "connected", "udid": udid}
+            # How long each step took, for the phone link's log: a connect
+            # that misses its budget must say where the time went.
+            timing, t_prev = {}, time.monotonic()
+
+            def mark(step):
+                nonlocal t_prev
+                now = time.monotonic()
+                timing[step] = round(now - t_prev, 1)
+                t_prev = now
+
             self._stop_locked()
             self._free_port()
+            mark("free_port")
             if self._wda_up():
                 # Something else already serves WDA on the port (a leftover
                 # simulator session) — refuse rather than silently drive it.
@@ -356,6 +390,7 @@ class WDASession:
                         "error": f"Port {WDA_PORT} is already serving another WDA "
                                  "(a simulator session?)",
                         "hint": "Close it (quit Simulator / kill xcodebuild), then retry."}
+            mark("port_check")
             self._udid = udid
             self._owner = owner
             env = dict(os.environ)
@@ -364,23 +399,54 @@ class WDASession:
                 log = tempfile.NamedTemporaryFile(prefix="AutoCua_wda_", suffix=".log", delete=False)
                 self._log_path = log.name
                 # The developer disk image is gone after every reboot or iOS
-                # update, and xcuitest can't start without it. Mount it each
-                # time: ~2s, and a no-op when it is already mounted.
+                # update, and xcuitest can't start without it. Ask the phone
+                # first (one lockdown call, about a second): auto-mount is NOT
+                # a no-op when the image is already there. On iOS 17+ it
+                # compares its cached image's build id with a constant of its
+                # own, and when they differ (they do, the repository moved
+                # on) it downloads 15 MB from GitHub before it even looks at
+                # the phone: 20-30 s on slow Wi-Fi, which ate the whole
+                # connect budget, and GitHub's rate limit after an hour.
+                # Two marks that split a slow mount check: a bare interpreter
+                # start and pymobiledevice3's own start (imports, no phone),
+                # so the log says whether the Mac or the phone was slow.
+                py = Path(base[0]).parent / "python"
+                if len(base) == 1 and py.exists():
+                    try:
+                        subprocess.run([str(py), "-c", "pass"], capture_output=True, timeout=30)
+                    except Exception:
+                        pass
+                    mark("py_start")
+                    try:
+                        subprocess.run(base + ["version"], capture_output=True, timeout=30)
+                    except Exception:
+                        pass
+                    mark("pmd3_start")
                 try:
-                    subprocess.run(base + ["mounter", "auto-mount"], stdout=log, stderr=log,
-                                   env=env, timeout=120)
-                except subprocess.TimeoutExpired:
-                    pass
+                    listed = subprocess.run(base + ["mounter", "list"], capture_output=True,
+                                            text=True, env=env, timeout=30)
+                    mounted = "ImageSignature" in (listed.stdout or "")
+                except Exception:
+                    mounted = False
+                mark("mount_check")
+                if not mounted:
+                    try:
+                        subprocess.run(base + ["mounter", "auto-mount"], stdout=log, stderr=log,
+                                       env=env, timeout=120)
+                    except subprocess.TimeoutExpired:
+                        pass
+                    mark("mount")
                 self._forward = subprocess.Popen(
                     base + ["usbmux", "forward", str(WDA_PORT), str(WDA_PORT)],
                     stdout=subprocess.DEVNULL, stderr=log, env=env)
                 self._xctest = subprocess.Popen(
                     base + ["developer", "dvt", "xcuitest", "--userspace", WDA_BUNDLE_ID],
                     stdout=subprocess.DEVNULL, stderr=log, env=env)
+                mark("spawn")
             except Exception as e:
                 self._stop_locked()
                 return {"ok": False, "state": "error", "error": str(e)}
-        return {"ok": True, "state": "connecting", "udid": udid}
+        return {"ok": True, "state": "connecting", "udid": udid, "timing": timing}
 
     def status(self):
         with self._lock:
@@ -419,25 +485,12 @@ class WDASession:
 
     @staticmethod
     def _port_held_by_live_process():
-        try:
-            out = subprocess.run(["lsof", "-nP", f"-iTCP:{WDA_PORT}", "-sTCP:LISTEN", "-t"],
-                                 capture_output=True, text=True, timeout=8)
-            pids = [p for p in out.stdout.split() if p.strip().isdigit()]
-        except Exception:
-            return False
-        for pid in pids:
-            try:
-                info = subprocess.run(["ps", "-p", pid, "-o", "ppid=,command="],
-                                      capture_output=True, text=True, timeout=5).stdout.strip()
-            except Exception:
-                return True
-            if not info:
-                continue                  # gone since lsof looked
-            ppid, _, cmd = info.partition(" ")
-            if ppid.strip() == "1" and "pymobiledevice3" in cmd and "forward" in cmd:
-                continue                  # a leftover: its run died
-            return True
-        return False
+        forwards = _forward_pids()
+        if any(ppid != 1 for _pid, ppid in forwards):
+            return True                   # a live run's cable forward
+        if forwards:
+            return False                  # leftovers only: activate() clears them
+        return _port_answers(WDA_PORT)    # anything else serving the port (a simulator's WDA)
 
     def screen_stream(self):
         """Local port where the live phone screen can be read (WDA's MJPEG
