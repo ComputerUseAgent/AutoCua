@@ -45,6 +45,13 @@ pip install AutoCua
 
 https://github.com/user-attachments/assets/8cc797d5-5556-40a9-bbfc-5d6aa8880fb8
 
+## Web agent: quality mode
+
+Under a minute for three tasks in one run: an iPhone 18 Pro into the Apple bag, a case into the
+Amazon basket, and a Google Sheet of Meta's five-year financials. Agent mode: web.
+
+https://github.com/user-attachments/assets/82bf6163-55c9-4cc4-95e7-9c6466f2a25d
+
 ---
 
 ## Pick a surface
