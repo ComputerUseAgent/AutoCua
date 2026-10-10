@@ -8,7 +8,7 @@ import subprocess
 import threading
 import time
 
-from .open_app import _move_to_main_screen, _is_app_running, _bring_to_front, open_app
+from .open_app import _is_app_running, _bring_to_front, open_app
 
 logger = logging.getLogger(__name__)
 
@@ -141,14 +141,11 @@ class AppleScriptService:
             time.sleep(0.3)
             script = self._strip_activate(script)
         else:
-            # Not running: launch via the indexed app discovery path. open_app
-            # waits ~1 s and re-positions the window onto the main display.
+            # Not running: launch via the indexed app discovery path (open_app
+            # waits ~1 s for it to come up; the window stays as the app shows it).
             open_app(app_name)
 
         result = self._run_with_dialog_watcher(script)
-
-        if result.get("status") == "success":
-            _move_to_main_screen()
 
         result["app"] = app_name
         result["command"] = action

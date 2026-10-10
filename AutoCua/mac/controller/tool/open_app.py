@@ -83,53 +83,6 @@ def _best_match(query, candidates):
     return None, None
 
 
-def _move_to_main_screen():
-    """Move the frontmost app's window onto the main display (above the Dock)."""
-    try:
-        from Cocoa import NSScreen
-        full = NSScreen.mainScreen().frame()
-        screen_h = int(full.size.height)
-        screen_w = int(full.size.width)
-        screen_x = int(full.origin.x)
-
-        # Get Dock position to avoid overlapping it
-        dock_y = screen_h  # default: no dock
-        try:
-            result = subprocess.run(
-                ["osascript", "-e",
-                 'tell application "System Events" to tell process "Dock" to get the position of list 1'],
-                capture_output=True, text=True, timeout=3
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                parts = result.stdout.strip().split(",")
-                if len(parts) == 2:
-                    dock_y = int(parts[1].strip())
-        except Exception:
-            pass
-
-        # Derive menu bar height dynamically: full height - visibleFrame height - visibleFrame origin.y
-        visible = NSScreen.mainScreen().visibleFrame()
-        menu_bar_h = int(screen_h - visible.origin.y - visible.size.height)
-        y_top = menu_bar_h
-        w = screen_w
-        h = dock_y - menu_bar_h
-
-        script = f'''
-            tell application "System Events"
-                tell (first process whose frontmost is true)
-                    if exists window 1 then
-                        set position of window 1 to {{{screen_x}, {y_top}}}
-                        set size of window 1 to {{{w}, {h}}}
-                    end if
-                end tell
-            end tell
-        '''
-        subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
-        logger.info(f"Moved frontmost window to visible area ({screen_x}, {y_top}, {w}x{h})")
-    except Exception as e:
-        logger.warning(f"Could not move window to main screen: {e}")
-
-
 def _escape_for_applescript(s: str) -> str:
     """Escape backslashes and double quotes for safe interpolation into an AppleScript string."""
     return s.replace("\\", "\\\\").replace('"', '\\"')
@@ -194,7 +147,8 @@ def _bring_to_front(app_name: str):
 def open_app(app_name: str) -> bool:
     """
     Open an application on macOS (or bring to front if already running).
-    Always moves the window to the main display so the agent can detect it.
+    The window is left as the app shows it: the agent decides when to
+    move, resize or maximize it.
 
     Args:
         app_name: Application name (e.g., "Google Chrome", "safari", "vscode")
@@ -216,7 +170,6 @@ def open_app(app_name: str) -> bool:
             subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
             logger.info("Opened Finder via AppleScript")
             time.sleep(1.0)
-            _move_to_main_screen()
             return True
         except Exception as e:
             logger.error(f"Failed to open Finder: {e}")
@@ -248,8 +201,5 @@ def open_app(app_name: str) -> bool:
 
     # Give the app time to launch and become frontmost
     time.sleep(1.0)
-
-    # Move its window onto the main display
-    _move_to_main_screen()
 
     return True
