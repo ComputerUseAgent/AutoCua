@@ -165,16 +165,20 @@ async function handle(msg, line) {
         const watch = toolsWatchScan(tab.id);
         try {
           try {
-            // A tab in the background (the person is looking at another one) is read
-            // where it is and photographed through the debugger, like element.rs does.
-            result = await toolsUnlessDialog(tab.id, elementScan(tab, { ...msg, fallback: toolsScanFallback, watch }), held);
+            // Read once the page has loaded, and again when the tab moves on to a new
+            // page during the read (tools.js toolsScanLoaded). A tab in the background
+            // (the person is looking at another one) is read where it is and
+            // photographed through the debugger, like element.rs does.
+            const read = (now) => elementScan(now, { ...msg, fallback: toolsScanFallback, watch });
+            result = await toolsUnlessDialog(tab.id, toolsScanLoaded(tab.id, read), held);
           } catch (e) {
             // When that picture cannot be taken, the tab is put on show for Chrome's own
             // capture; not after the person took the browser back.
             if (tab.active || toolsStoppedByPerson || !/^screenshot failed/.test(String((e && e.message) || e))) throw e;
             await chrome.tabs.update(tab.id, { active: true });
             await new Promise((r) => setTimeout(r, 300));
-            result = await elementScan({ ...tab, active: true }, { ...msg, fallback: toolsScanFallback, watch });
+            result = await toolsScanLoaded(tab.id, (now) =>
+              elementScan({ ...now, active: true }, { ...msg, fallback: toolsScanFallback, watch }));
           }
         } catch (e) {
           // The tab moved on during the read to a page no extension may read (a redirect

@@ -117,7 +117,7 @@ google-genai>=1.64
 # ======================================================================
 # 3. Desktop GUI app (main.py with UI = True)
 # ======================================================================
-# AutoCua/frontend/service.py is shared across platforms and imports flask
+# AutoCua/ui/service.py is shared across platforms and imports flask
 # and webview at module level, with werkzeug further down. Headless
 # `python main.py` (UI = False) needs none of this group.
 #

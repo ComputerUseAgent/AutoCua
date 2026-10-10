@@ -33,6 +33,8 @@ so the automation still completes without a banner.
 import logging
 import threading
 
+from AutoCua import app_origin
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -156,7 +158,7 @@ body { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
 </style></head>
 <body>
 <div class="orb-wrap">
-  <iframe id="orbFrame" class="orb-frame" src="http://127.0.0.1:5000/chat_input/pc_button.html"
+  <iframe id="orbFrame" class="orb-frame" src="__APP_ORIGIN__/chat_input/pc_button.html"
           scrolling="no" frameborder="0"></iframe>
 </div>
 <span class="msg" id="msg">Starting…</span>
@@ -534,7 +536,7 @@ body.coder #coderPanel { display: flex; flex-direction: column; gap: 8px; }
 <body>
 <div class="toprow">
   <div class="orb-wrap">
-    <iframe class="orb-frame" src="http://127.0.0.1:5000/telegram/telergam_animation.html"
+    <iframe class="orb-frame" src="__APP_ORIGIN__/telegram/telergam_animation.html"
             scrolling="no" frameborder="0"></iframe>
   </div>
   <span class="msg" id="msg"></span>
@@ -655,7 +657,7 @@ body.coder #coderPanel { display: flex; flex-direction: column; gap: 8px; }
   })();
 
   // ── embedded coder terminal ──────────────────────────────────────────────
-  // Faithful port of the web frontend's CLI pill (frontend/script.js). Every
+  // Faithful port of the web frontend's CLI pill (ui/script.js). Every
   // incoming line is QUEUED and streamed letter-by-letter with pagination
   // (overflow -> hold -> clear -> continue), so the full real content flows by
   // rather than just the latest fragment. The top line shows the coder's REAL
@@ -1648,7 +1650,7 @@ class StatusBanner:
                 wv.setAutoresizingMask_(2 | 16)
             except Exception:
                 pass
-            wv.loadHTMLString_baseURL_(html, None)
+            wv.loadHTMLString_baseURL_(html.replace("__APP_ORIGIN__", app_origin()), None)
             content.addSubview_(wv)
 
             w.orderFrontRegardless()

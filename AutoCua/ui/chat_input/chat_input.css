@@ -1,0 +1,1125 @@
+/* =====================================================================
+   Chat input component — the bottom text box: the agent-start input bar
+   (textarea + the embedded stop-agent orb), the welcome/milestone output
+   area, the "Agent activated:" strip, and the CLI streaming pills that take
+   over the box during cli_await. Markup lives in chat_input.html (injected
+   into #chatWrapper by chat_input.js); the agent-lifecycle wiring lives in
+   chat_input.js (wireChatInput, run right after injection).
+
+   These rules are the component's own styling — add styling for NEW
+   input-bar pieces here. A few shared things they lean on stay GLOBAL in
+   css/style.css on purpose (so other components share them):
+     • :root vars — --glass-radius, --left-bar-w, --gap-size, …
+     • the .liquidGlass-* layers and the unified font baseline
+     • cross-component fades — body.settings-open / body.tg-occupied /
+       body.cli-mode that target #chatWrapper or the LLM dropdown
+   ===================================================================== */
+
+/* =====================================================================
+   Core text box
+   ===================================================================== */
+.chat-container-wrapper {
+    position: fixed;
+    /* Gap size - same as image container's left gap */
+    --gap-size: clamp(10px, 2vw, 30px);
+    /* Space between image and chat container - increasing this explicitly */
+    --middle-gap: clamp(20px, 4vw, 60px);
+
+    /* Image container left position (includes the left-bar offset) */
+    --image-left: calc(var(--left-bar-w) + clamp(10px, 2vw, 30px));
+    /* Image container width */
+    --image-width: clamp(300px, 45vw, min(800px, 45vw));
+
+    /* Initial centered state — centered in the space to the RIGHT of the bar */
+    left: calc(50% + var(--left-bar-w) / 2);
+    right: auto;
+    width: clamp(600px, 65vw, 1000px);
+    transform: translateX(-50%);
+
+    bottom: clamp(30px, 4vw, 50px);
+    top: clamp(30px, 4vw, 60px);
+    border-radius: var(--glass-radius);
+    z-index: 12;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: clamp(16px, 2vw, 24px);
+    /* Fully transparent now — no glass card, no shadow. Only the text box (which
+       carries its own background) stays visible over the cream background. */
+    background: transparent;
+    box-shadow: none;
+
+    transition: left 0.5s cubic-bezier(0.25, 0.8, 0.25, 1),
+                right 0.5s cubic-bezier(0.25, 0.8, 0.25, 1),
+                width 0.5s cubic-bezier(0.25, 0.8, 0.25, 1),
+                transform 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.chat-container-wrapper.split-layout {
+    left: calc(var(--image-left) + var(--image-width) + var(--middle-gap));
+    right: var(--gap-size);
+    width: auto;
+    transform: none;
+}
+
+.chat-container-content {
+    position: relative;
+    z-index: 3;
+    width: 100%;
+    height: 100%; /* Fill the wrapper */
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+}
+
+/* The composer box. IDLE it shows two visual rows: the .chat-input textarea on top
+   (grows upward as you type) and the .input-toolbar (model picker + send/stop orb) in a
+   reserved row BELOW it — the box's padding-bottom holds that row open. The toolbar is
+   absolutely anchored to the box's bottom-right; the box bottom is viewport-pinned. ON
+   SEND (:has(.chat-input.agent-active)) the reserved padding-bottom collapses, so the
+   box shrinks to one slim row and the toolbar ends up beside the one-line text — the
+   model + orb "pushed up" into the text's line. overflow:visible lets the orb glow spill. */
+.input-area-wrapper {
+    position: relative;
+    width: 100%;
+    box-sizing: border-box;
+    --pad-y: clamp(7px, 0.8vw, 10px);
+    --pad-x: clamp(12px, 1.3vw, 16px);
+    --orb: clamp(34px, 3.4vw, 40px);
+    --tools-gap: clamp(4px, 0.5vw, 7px);
+    padding: var(--pad-y) var(--pad-x);
+    /* IDLE: reserve a row below the text for the model + orb. */
+    padding-bottom: calc(var(--pad-y) + var(--orb) + var(--tools-gap));
+    /* Opaque fill (no backdrop-filter: it flickers in WebView2/Chromium while
+       the top-left globe/shell animations run — same reasoning as the old .chat-input).
+       A light warm cream: the old page cream #F9F1EC lifted ~65% toward white,
+       keeping its warm R>G>B ordering. Left as it was when the page moved to
+       the splash's off-white #FDFCFA. */
+    background: rgba(253, 250, 248, 0.96);
+    border-radius: clamp(16px, 1.8vw, 22px);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    overflow: visible;
+    transition: padding-bottom 0.34s cubic-bezier(0.25, 0.8, 0.25, 1),
+                border-radius 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
+                box-shadow 0.6s ease;   /* the Agent-mode selection glow morphs smoothly */
+}
+
+/* RUNNING: drop the reserved row → the box collapses to a single slim line and the
+   toolbar sits beside the one-line text. */
+.input-area-wrapper:has(.chat-input.agent-active) {
+    padding-bottom: var(--pad-y);
+}
+
+/* Tools group — absolutely anchored to the box's bottom-right (the model picker + orb).
+   The empty space to its left in the idle row is room for future tools. It needs no
+   vertical transition: it's pinned to the box bottom, so collapsing padding-bottom is
+   what brings the one-line text down beside it. */
+.input-toolbar {
+    position: absolute;
+    right: var(--pad-x);
+    bottom: var(--pad-y);
+    height: var(--orb);
+    display: flex;
+    align-items: center;
+    gap: clamp(6px, 0.8vw, 10px);
+    z-index: 6;
+}
+
+/* New Output Stream Area - Blurry container above input */
+.output-stream-area {
+    /* Hidden for the transparent right-side redesign (removed the eyes + the
+       scratchpad/milestone display). Markup kept so streamMilestone /
+       welcomeOverlay JS keep working (they just write to a hidden node). */
+    display: none;
+    position: relative;
+    flex: 1; /* Take up remaining space */
+    width: 100%;
+    margin-bottom: clamp(12px, 1.5vw, 16px); /* Space above input */
+    margin-top: clamp(40px, 4vw, 50px); /* Reduced Space below LLM button */
+    
+    /* Same blurred style as chat input */
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: clamp(16px, 2vw, 20px);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    
+    /* Scrollable content */
+    overflow-y: auto;
+    overflow-x: hidden;
+    
+    /* Hide scrollbar */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+/* Welcome overlay - eyes + breathing glow */
+.welcome-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 80px;
+    padding-bottom: 25%;
+    z-index: 5;
+    pointer-events: none;
+    transition: opacity 0.5s ease;
+}
+
+.welcome-overlay.eyes-hidden .welcome-eye {
+    opacity: 0;
+    transition: opacity 0.4s ease;
+}
+
+.welcome-overlay.hidden {
+    opacity: 0;
+}
+
+.welcome-eye {
+    width: 24px;
+    height: 58px;
+    border-radius: 20px;
+    background: linear-gradient(180deg, rgba(160, 160, 170, 0.5) 0%, rgba(120, 120, 135, 0.5) 100%);
+    animation: welcomeBlink 4s ease-in-out infinite;
+}
+
+@keyframes welcomeBlink {
+    0%, 85%, 100% { transform: scaleY(1); }
+    92% { transform: scaleY(0.1); }
+}
+
+.welcome-glow {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: inset 0 0 50px rgba(220, 160, 255, 0.45),
+                inset 0 0 100px rgba(240, 200, 255, 0.25);
+    animation: welcomeBreathe 3s ease-in-out infinite;
+}
+
+@keyframes welcomeBreathe {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+.output-stream-area::-webkit-scrollbar {
+    display: none;
+}
+
+/* Milestone Stream Container */
+.milestone-stream {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(8px, 1vw, 12px);
+    padding: clamp(12px, 1.5vw, 18px);
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Individual Milestone Line */
+.milestone-line {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(12px, 1.2vw, 14px);
+    font-weight: 500;
+    color: rgba(70, 70, 70, 0.95);
+    line-height: 1.5;
+    
+    /* Auto-wrap behavior */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
+    
+    /* Subtle left accent */
+    padding-left: clamp(10px, 1.2vw, 14px);
+    border-left: 2px solid rgba(150, 120, 200, 0.4);
+}
+
+/* Error variant — shown when a run ends in failure (e.g. API auth error)
+   instead of silently returning to idle. */
+.milestone-line--error {
+    color: rgba(200, 50, 50, 0.95);
+    border-left-color: rgba(220, 70, 70, 0.7);
+    font-weight: 600;
+}
+
+/* Chat Input Field Styling — the textarea is now transparent (the wrapper is the box),
+   the top row of the composer. It starts at ONE line and auto-grows upward to max-height
+   as you type (driven by adjustHeight in chat_input.js). On run it collapses back (see
+   the :has(.agent-active) rule below). */
+.chat-input {
+    position: relative; /* For z-index context */
+    z-index: 5;
+    width: 100%;
+    box-sizing: border-box;
+    /* Idle ONE-line height; grows up to the 150px cap as you type. */
+    min-height: clamp(30px, 2.9vw, 36px);
+    max-height: 150px;
+
+    border: none;
+    background: transparent;   /* the box look lives on .input-area-wrapper now */
+    outline: none;
+    padding: 4px 4px;          /* idle: full width (toolbar is in the row below) */
+
+    pointer-events: auto;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(13px, 1.3vw, 15px);
+    color: rgba(60, 60, 60, 0.95);
+    font-weight: 500;
+
+    /* Textarea specifics */
+    resize: none;
+    overflow-y: auto;
+    line-height: 1.4;
+    display: block;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+
+    /* Hide scrollbar */
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+
+    /* Smooth collapse on send: max-height shrinks a multi-line draft back to one line,
+       and padding opens up to clear the toolbar as it moves up beside the text. */
+    transition: max-height 0.34s cubic-bezier(0.25, 0.8, 0.25, 1),
+                padding 0.34s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* RUNNING: keep ONE visible line (never collapse to nothing) and reserve room on the
+   right so the model + orb sit beside it. The row is EXACTLY the toolbar's height
+   (var(--orb)) with the text line centred in it — otherwise the bottom-anchored
+   toolbar pokes ~4px above the shorter text row and the whole slim bar reads
+   top-heavy (small gap above, big gap below). */
+.input-area-wrapper:has(.chat-input.agent-active) .chat-input {
+    min-height: var(--orb);
+    max-height: var(--orb);
+    /* centre the single 1.4em line inside the orb-high row */
+    padding-top: calc((var(--orb) - 1.4em) / 2);
+    padding-bottom: calc((var(--orb) - 1.4em) / 2);
+    padding-right: clamp(150px, 20vw, 210px);
+    pointer-events: none;
+}
+
+.chat-input::-webkit-scrollbar {
+    display: none; /* Chrome/Safari/Opera */
+}
+
+/* =====================================================================
+   Chat-box MODEL drop-up — a static flex child at the RIGHT of the row, just left of
+   the send orb (no more floating/sliding). Reuses the .model-dropdown* behavior +
+   markup from style.css; only the trigger pill look + the upward menu are overridden
+   here. Kept a descendant of .input-area-wrapper so the :has(.open) z-index lift resolves.
+   ===================================================================== */
+.chat-model-dropdown {
+    position: relative;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    z-index: 6;                       /* above the textarea (5), below the orb (20) */
+    /* Shrink to fit the label (override base .model-dropdown { width: 100% }). The
+       max-width caps a long model name so it can't crowd out the tools/orb. */
+    width: auto;
+    max-width: clamp(120px, 16vw, 180px);
+    transition: opacity 0.25s ease;
+}
+
+/* RUNNING: the picker stays visible but goes read-only (can't change model mid-run). */
+.input-area-wrapper:has(.chat-input.agent-active) .chat-model-dropdown {
+    opacity: 0.45;
+    pointer-events: none;
+}
+
+/* ---------- Fast / Quality flip toggle (UI only — future feature slot).
+   Slate pill track, white spring-bouncing thumb; amber Zap = Fast (left),
+   purple Sparkles = Quality (right). A tiny FAST/QUALITY label floats above
+   the pill on hover and briefly after each flip (vertical cross-fade). */
+.fast-quality-toggle {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: clamp(20px, 2.1vw, 24px);
+    width: clamp(44px, 4.8vw, 52px);
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: rgba(226, 232, 240, 0.8);          /* slate-200/80 */
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
+    cursor: pointer;
+    flex-shrink: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    /* Pin the pill to its own compositing layer. Without this WKWebView creates
+       a layer for the opacity fade and throws it away afterwards, and that
+       round-trip re-snaps the SVG icons by a subpixel — the little upward jitter
+       as the toggle fades back in. Pinned, both directions render identically. */
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    transition: background-color 0.3s ease, opacity 0.18s ease;
+}
+.fast-quality-toggle:hover { background: #e2e8f0; }
+/* Shell use has no fast/quality split — the coder agent runs one way — so the
+   toggle just fades out (and back in on the way to another mode).
+   data-agent-mode is mirrored onto .input-area-wrapper by agent_mode.js. */
+.input-area-wrapper[data-agent-mode="shell"] .fast-quality-toggle {
+    opacity: 0;
+    pointer-events: none;
+}
+.fq-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: calc(50% - 2px);
+    height: calc(100% - 4px);
+    border-radius: 999px;
+    background: #ffffff;
+    border: 1px solid rgba(226, 232, 240, 0.5);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    box-sizing: border-box;
+    /* spring bounce (overshoot) — the demo's cubic-bezier */
+    transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.fast-quality-toggle.quality .fq-thumb { transform: translateX(100%); }
+.fq-icon {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;                                 /* slate-400 idle */
+    transition: color 0.3s ease;
+}
+.fast-quality-toggle:hover .fq-icon { color: #64748b; }
+.fq-icon svg {
+    width: clamp(11px, 1.15vw, 13px);
+    height: clamp(11px, 1.15vw, 13px);
+}
+/* Active states: amber bolt (soft amber fill) / purple sparkles (soft purple fill) */
+.fast-quality-toggle:not(.quality) .fq-zap { color: #f59e0b; }
+.fast-quality-toggle:not(.quality) .fq-zap svg polygon { fill: #fef3c7; }
+.fast-quality-toggle.quality .fq-sparkles { color: #9333ea; }
+.fast-quality-toggle.quality .fq-sparkles svg .fq-spark-main { fill: #e9d5ff; }
+
+/* Floating FAST/QUALITY label above the pill — vertical cross-fade like the
+   demo. Shown on hover and (via .show-label, set by JS) briefly after a flip. */
+.fq-label {
+    position: absolute;
+    bottom: calc(100% + 5px);
+    left: 50%;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.fq-label-fast    { color: #f59e0b; transform: translate(-50%, 8px); }
+.fq-label-quality { color: #9333ea; transform: translate(-50%, -8px); }
+.fast-quality-toggle:not(.quality):hover .fq-label-fast,
+.fast-quality-toggle:not(.quality).show-label .fq-label-fast,
+.fast-quality-toggle.quality:hover .fq-label-quality,
+.fast-quality-toggle.quality.show-label .fq-label-quality {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+/* RUNNING: same read-only treatment as the model picker beside it. Skipped in
+   Shell use — :has() scores as its most specific argument, so this selector
+   (0,4,0) outweighs the shell hide rule (0,3,0) and would fade the toggle back
+   IN at 45% the moment a shell run started. */
+.input-area-wrapper:not([data-agent-mode="shell"]):has(.chat-input.agent-active) .fast-quality-toggle {
+    opacity: 0.45;
+    pointer-events: none;
+}
+
+/* ---------- Recording dot: left of the Fast/Quality pill, and only while a run
+   is being recorded (Settings -> Recording). Not there at all otherwise, so the
+   box stays clean. The backend adds .on once the recorder starts (the dot fades
+   in and blinks), then .leaving once the videos are stored (it fades away and
+   JS drops it after). See window.recordingIndicator in chat_input.js. */
+.rec-indicator {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: clamp(20px, 2.1vw, 24px);
+    height: clamp(20px, 2.1vw, 24px);
+    flex-shrink: 0;
+}
+.rec-indicator.on,
+.rec-indicator.leaving {
+    display: flex;
+}
+.rec-indicator.on { animation: recIn 0.35s ease both; }
+.rec-indicator.leaving { animation: recOut 0.6s ease both; }
+.rec-dot {
+    width: 42%;
+    height: 42%;
+    border-radius: 999px;
+    background: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.18);
+}
+.rec-indicator.on .rec-dot { animation: recBlink 1.2s ease-in-out infinite; }
+@keyframes recIn    { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
+@keyframes recOut   { from { opacity: 1; transform: scale(1); }   to { opacity: 0; transform: scale(0.6); } }
+@keyframes recBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+/* The slim running row reserves room on the right for the toolbar; the dot
+   needs a little more of it, only while it shows. */
+.input-area-wrapper:has(.rec-indicator.on):has(.chat-input.agent-active) .chat-input {
+    padding-right: clamp(184px, 23.5vw, 244px);
+}
+
+/* Transparent trigger so it BLENDS into the box (one tone, not a 2nd pill). */
+.chat-model-dropdown .model-dropdown-trigger {
+    width: 100%;
+    height: clamp(30px, 3vw, 36px);
+    display: flex;
+    align-items: center;
+    /* flex-start (not the inherited space-between) so the chevron hugs the label
+       instead of being pushed to the far edge — no empty gap after short names. */
+    justify-content: flex-start;
+    gap: 5px;
+    padding: 0 4px 0 6px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: rgba(60, 60, 60, 0.95);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(11.5px, 1.15vw, 13px);
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.2s ease;
+}
+.chat-model-dropdown .model-dropdown-trigger:hover { background: rgba(0, 0, 0, 0.05); }
+.chat-model-dropdown .model-dropdown-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: clamp(66px, 9.5vw, 112px);
+}
+.chat-model-dropdown .model-dropdown-value.placeholder {
+    color: rgba(60, 60, 60, 0.65);
+    font-weight: 500;
+}
+/* Identical to .am-chev on the Computer/Mobile use trigger (agent_mode.css) —
+   same size, same grey, same 0.25s flip — so both drop-ups on the row read as
+   one control set. */
+.chat-dropdown-chevron {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: rgba(90, 90, 90, 0.65);
+    transition: transform 0.25s ease;
+}
+.chat-model-dropdown.open .chat-dropdown-chevron { transform: rotate(180deg); }
+/* keep it clickable in the no-provider "disabled" state so the click can still toast */
+.chat-model-dropdown.disabled { opacity: 1; pointer-events: auto; }
+
+/* DROP-UP menu: opens upward (above the orb); white card matching the
+   Agent-mode menu across the row; height-capped so it SCROLLS.
+
+   OPENING ANIMATION: the base .model-dropdown-menu in style.css flips
+   display:none/block, which is instant — the menu just popped into existence.
+   Here it stays displayed and animates on opacity + transform instead, with the
+   exact timings the Computer/Mobile use menu uses (.agent-menu in
+   agent_mode.css): opacity 0.25s, transform 0.3s, rising 6px into place.
+   The selector is .model-dropdown.chat-model-dropdown (not just
+   .chat-model-dropdown) so it outranks style.css's
+   `.model-dropdown.open .model-dropdown-menu { display: block }` on specificity
+   rather than relying on stylesheet order. */
+.model-dropdown.chat-model-dropdown .model-dropdown-menu {
+    display: block;
+    opacity: 0;
+    transform: translateY(6px);
+    pointer-events: none;
+    transition:
+        opacity 0.25s ease,
+        transform 0.3s ease;
+    will-change: opacity, transform;   /* no re-raster settle when the slide ends */
+    top: auto;
+    bottom: calc(100% + 8px);
+    /* Right-aligned to the trigger (which sits on the RIGHT, beside the orb) so the
+       list opens up-and-leftward into the box, not off the right edge. */
+    right: 0;
+    left: auto;
+    min-width: clamp(190px, 22vw, 260px);
+    max-height: clamp(190px, 38vh, 320px);
+    overflow-y: auto;
+    /* NOTE: no -webkit-overflow-scrolling: touch here — in the WKWebView host it
+       fails to register the scroll area for content injected after layout (setItems),
+       which left the model list unscrollable. Standard overflow scrolling works. */
+    overscroll-behavior: contain;
+    z-index: 22;
+    /* Same card language as the Agent-mode menu across the row: solid white,
+       hairline border, 14px radius — no frosted glass. */
+    background: #ffffff;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border: 1px solid rgba(0, 0, 0, 0.14);
+    border-radius: 14px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+}
+.model-dropdown.chat-model-dropdown.open .model-dropdown-menu {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+/* Mirrors agent_mode.css's reduced-motion block for the same controls. */
+@media (prefers-reduced-motion: reduce) {
+    .model-dropdown.chat-model-dropdown .model-dropdown-menu,
+    .chat-dropdown-chevron { transition: none; }
+}
+
+/* The drop-up opens UPWARD into screen space owned by #mainGrid (position:fixed,
+   z-index:13) and its zone cells (pointer-events:auto). The menu's z-index:22 is
+   trapped inside this wrapper's own stacking context (z-index:12 < grid's 13), so
+   the grid painted in FRONT of the menu's upper half and stole the clicks there —
+   only the few items below the grid's bottom edge were selectable. While a model
+   dropdown is open, lift the whole wrapper above the grid (and the other in-flow
+   chrome: glass button 20, toast 25, left bar 30) so every menu item is clickable.
+   :has() is supported in the WKWebView host (verified). Reverts the instant the
+   dropdown closes, so the grid stays interactive the rest of the time.
+
+   The SAME trap bit the textarea itself: a long multi-line draft grows the box up
+   past the grid's bottom edge (grid reserves only ~160-196px), so the grid painted
+   over the upper lines and stole the clicks there — you could click/edit the bottom
+   couple of lines but the ones above were keyboard-only. So also lift while the
+   textarea is focused (i.e. while editing the draft): the box's upper lines then
+   sit above the grid and every visible line is clickable. Focus-out reverts.
+
+   The lift is only safe because of the rule after it: the wrapper is transparent
+   and nearly as tall as the window, so lifted it covered the whole grid, the
+   stages mounted in it included (Agent Notes, skills). A click there landed on
+   the wrapper, only took the focus out of the text box, and never reached what
+   was under it — the "first click does nothing" bug. */
+.chat-container-wrapper:has(.chat-model-dropdown.open),
+.chat-container-wrapper:has(.chat-input:focus) {
+    z-index: 40;
+}
+
+/* The wrapper and its content column are layout only and never take a click,
+   lifted or not; what is drawn in them takes its own. The agent strip and the
+   welcome overlay set theirs above, and .output-stream-area is hidden. */
+.chat-container-wrapper,
+.chat-container-content {
+    pointer-events: none;
+}
+.input-area-wrapper,
+.cli-stream-area {
+    pointer-events: auto;
+}
+
+/* Menu rows — same colors AND type as the Agent-mode menu (system sans, same
+   size, hover #f2f1ed, green accent instead of the old blue) so the two
+   drop-ups across the row read as one set. Without the explicit font-family
+   the rows inherit the page serif. */
+.chat-model-dropdown .model-dropdown-option {
+    color: #1a1a1a;
+    border-radius: 9px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    font-size: clamp(12.5px, 1.2vw, 14px);
+    min-height: 38px;
+    padding: 0 12px;
+}
+.chat-model-dropdown .model-dropdown-option:hover {
+    background-color: #f2f1ed;
+    color: #1a1a1a;
+}
+.chat-model-dropdown .model-dropdown-option.selected {
+    background-color: rgba(29, 158, 117, 0.13);   /* agent-mode green, tinted */
+}
+
+/* Keyframes for the gradient animation */
+@keyframes gradientFlow {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Breathing animation */
+@keyframes cursorBreathing {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(0.85); }
+}
+
+/* Custom cursor icon in agent strip */
+.agent-cursor-icon {
+    width: 14px;
+    height: 14px;
+    margin-right: 8px; /* Space between icon and text */
+    
+    /* Animated Gradient Background */
+    background: linear-gradient(135deg, #c17fef, #9b5dcf, #e18ed6, #7f9cf5, #c17fef);
+    background-size: 250% 250%;
+    animation: gradientFlow 6s ease infinite, cursorBreathing 2s ease-in-out infinite;
+    
+    /* Masking with the SVG shape */
+    mask-image: url('data:image/svg+xml;utf8,<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2,2 L12,22 L22,2 Q12,12 2,2 Z" fill="black" transform="rotate(140 12 12)" /></svg>');
+    -webkit-mask-image: url('data:image/svg+xml;utf8,<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2,2 L12,22 L22,2 Q12,12 2,2 Z" fill="black" transform="rotate(140 12 12)" /></svg>');
+    mask-size: contain;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    
+    flex-shrink: 0;
+}
+
+/* Agent Response Strip - Initially hidden, slides up */
+.agent-response-strip {
+    /* Centered and shorter than text box */
+    width: 85%;
+    margin: 0 auto; /* Centers horizontally */
+    
+    /* Start with 0 height and no padding */
+    height: 0;
+    min-height: 0;
+    padding: 0;
+    margin-bottom: 0;
+    
+    /* Same light cream as the composer below it (.input-area-wrapper), so the
+       strip reads as part of that stack rather than a grey band behind it —
+       solid fill (no backdrop-filter; the blur flickered in WebView2 while the
+       top-left animation ran). Opaque enough to read without the blur. */
+    background: rgba(253, 250, 248, 0.9);
+    
+    /* Rounded corners all around */
+    border-radius: 16px;
+    
+    display: flex;
+    align-items: center;
+    
+    /* Animation handling */
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(10px);
+    overflow: visible; /* Visible for pseudo-elements */
+    transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+    position: relative; /* For pseudo-elements */
+
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(10px, 1vw, 11px); /* Reduced text size significantly */
+    color: rgba(50, 50, 50, 0.95);
+
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Connectors removed as requested */
+
+.agent-response-strip.active {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+    /* Expand to full height when active */
+    height: clamp(28px, 3vw, 34px); /* Reduced height by roughly 1/3 */
+    min-height: clamp(28px, 3vw, 34px);
+    margin-bottom: -18px; /* Only apply negative margin when active */
+    /* Adjusted padding to center text in reduced height */
+    padding: 0 clamp(16px, 1.5vw, 20px) 16px clamp(16px, 1.5vw, 20px);
+}
+
+.agent-label {
+    font-weight: 600;
+    color: rgba(90, 90, 90, 0.95); /* Simple grey like other text */
+    margin-right: 8px;
+    white-space: nowrap;
+    /* Removed neon text shadow */
+}
+
+.agent-text {
+    font-weight: 600;
+    color: rgba(90, 90, 90, 0.95);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-input::placeholder {
+    color: rgba(90, 90, 90, 0.6);
+}
+
+/* Orb slot: holds the send orb (send_button.html) and the stop orb (pc_button.html)
+   overlaid at the SAME spot so they crossfade into one another — same-shape circles,
+   so fading grey→0 while glow→1 (and back) reads as one object morphing, not a swap.
+   The ~46px slot keeps the toolbar row compact; each iframe is 72px and centered with
+   overflow:visible so the orb glow + 1.3x click-pop aren't clipped. */
+.input-orb-slot {
+    position: relative;
+    flex: 0 0 auto;
+    width: clamp(34px, 3.4vw, 40px);
+    height: clamp(34px, 3.4vw, 40px);
+    overflow: visible;
+}
+
+/* The frames take no clicks: at 72px they overhang the slot by ~17px on every
+   side, over the text box's corner and the model picker, and swallowed the
+   clicks meant for those. .orb-hit below takes the orb's clicks instead. */
+.send-agent-frame,
+.stop-agent-frame {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 72px;
+    height: 72px;
+    transform: translate(-50%, -50%);
+    background: transparent;
+    border: none;
+    z-index: 20;
+    pointer-events: none;
+    transition: opacity 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* IDLE: grey send orb shown, glowing stop orb hidden. */
+.send-agent-frame { opacity: 1; }
+.stop-agent-frame { opacity: 0; }
+
+/* RUNNING: flip them — the crossfade is the morph. */
+.input-area-wrapper:has(.chat-input.agent-active) .send-agent-frame {
+    opacity: 0;
+}
+.input-area-wrapper:has(.chat-input.agent-active) .stop-agent-frame {
+    opacity: 1;
+}
+
+/* The orbs' click target: exactly the visible orb, the 42px circle both orb
+   pages draw at the frames' centre. chat_input.js presses whichever orb is
+   showing, which then pops and posts its message as a direct click did. */
+.orb-hit {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 42px;
+    height: 42px;
+    transform: translate(-50%, -50%);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    outline: none;      /* out of the tab order (tabindex -1): never drawn */
+    cursor: pointer;
+    z-index: 21;
+}
+
+/* =====================================================================
+   CLI Streaming Area — lives INSIDE the chat-container-content.
+   While idle it's hidden; while .chat-container-wrapper is in .cli-mode
+   it takes over the spot of .output-stream-area and the chat box itself
+   expands across the full viewport width.
+   ===================================================================== */
+
+.cli-stream-area {
+    position: relative;
+    flex: 1;
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: clamp(12px, 1.5vw, 16px);
+    margin-top: clamp(40px, 4vw, 50px);
+    /* iteration 3: the chat box no longer expands, so this padding has to be
+       lean — enough for visual breathing room, not enough to crowd the pills. */
+    padding: clamp(12px, 1.4vw, 18px) clamp(8px, 1vw, 14px);
+    border-radius: clamp(16px, 2vw, 20px);
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    display: none;          /* visible only when .chat-container-wrapper has .cli-mode */
+    flex-direction: column;
+    overflow: hidden;
+    opacity: 0;
+    transition: opacity 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.chat-container-wrapper.cli-mode .cli-stream-area {
+    display: flex;
+    opacity: 1;
+}
+
+/* When CLI mode is on, the existing milestone/welcome panel and the
+   "Agent activated:" strip step aside so the pills own the chat box. */
+.chat-container-wrapper.cli-mode .output-stream-area,
+.chat-container-wrapper.cli-mode .agent-response-strip {
+    display: none;
+}
+
+/* (Iteration 3) The chat-container-wrapper KEEPS its split-layout size
+   during cli-mode. Only its inner content swaps. No left/right/width
+   overrides here. */
+
+.cli-stream-list {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(8px, 1vw, 12px);
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* hide the native scrollbar — content auto-scrolls to bottom */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.cli-stream-list::-webkit-scrollbar { display: none; }
+
+.cli-stream-list::-webkit-scrollbar {
+    width: 6px;
+}
+.cli-stream-list::-webkit-scrollbar-thumb {
+    background: rgba(120, 120, 120, 0.25);
+    border-radius: 3px;
+}
+
+/* ---------- individual CLI pill ---------- */
+
+.cli-pill {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    min-height: clamp(38px, 4vw, 52px);
+    padding: clamp(7px, 0.8vw, 11px) clamp(12px, 1.4vw, 18px) clamp(7px, 0.8vw, 11px) clamp(10px, 1.2vw, 14px);
+    border-radius: clamp(20px, 2.6vw, 30px);
+    overflow: hidden;
+    /* Default stacking: 1. Animating minion pills drop to z-index: 0 in their
+       keyframes so they slide behind their non-animating siblings (the pill
+       directly above masks the moving one — that's the "going behind" feel). */
+    z-index: 1;
+    animation: cli-pill-in 0.35s cubic-bezier(0.25, 0.8, 0.25, 1) both;
+    transition: max-height 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+@keyframes cli-pill-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.cli-pill > .liquidGlass-content {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: clamp(8px, 1vw, 12px);
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+}
+
+/* loader column on the left of the pill.
+   28×28 slot for the particle-engine canvas. The canvas owns its own
+   animation (loader spokes / globe / tick) and morphs between them
+   when the pill state changes. */
+.cli-pill-loader {
+    position: relative;
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    align-self: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cli-pill-canvas {
+    display: block;
+    width: 20px;
+    height: 20px;
+    /* Fade controlled by JS for the post-tick "all CLI done + 1s hold" sequence. */
+    transition: opacity 0.4s ease;
+}
+
+/* status glyph — hidden until pill goes complete */
+.cli-pill-status {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.15rem;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    pointer-events: none;
+}
+
+/* body column on the right (streaming output). flex:1 1 0 means "take up
+   exactly the remaining space, no more, no less" — combined with min-width:0
+   this guarantees the body never pushes the pill wider than its parent. */
+.cli-pill-body {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    overflow: hidden;
+}
+
+/* Task description from the main agent — hidden so the pill shows ONLY
+   the live CLI agent output, not the dispatch instruction. */
+.cli-pill-cmd {
+    display: none;
+}
+
+/* Single-line strip that always shows ONLY the latest streamed line.
+   When a new line arrives, JS swaps the inner div; its words fade in
+   left-to-right via the .cli-word animation. */
+.cli-output {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: clamp(11px, 0.85vw, 12.5px);
+    color: rgba(90, 90, 95, 0.9);
+    line-height: 1.4;
+    width: 100%;
+    height: 1.4em;
+    overflow: hidden;
+}
+.cli-output:empty::before {
+    content: 'Waiting for output…';
+    color: rgba(140, 140, 145, 0.65);
+    font-style: italic;
+}
+
+.cli-line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.cli-line-err {
+    color: rgba(200, 70, 90, 0.95);
+}
+.cli-line-summary {
+    color: rgba(70, 70, 75, 0.9);
+    font-style: italic;
+}
+
+/* word-by-word reveal — each <span class="cli-word"> staggers its fade in. */
+.cli-word {
+    opacity: 0;
+    animation: cli-word-in 0.22s ease-out forwards;
+}
+@keyframes cli-word-in {
+    to { opacity: 1; }
+}
+
+/* ---------- complete state ----------
+   Canvas tick is the success indicator; legacy ✓ glyph is hidden.
+   For error/stopped the canvas fades out via .canvas-faded and
+   the legacy ✕ glyph paints in its place. */
+
+.cli-pill.complete .cli-pill-canvas.canvas-faded {
+    opacity: 0;
+}
+
+.cli-pill.complete .cli-pill-status {
+    opacity: 1;
+}
+
+.cli-pill[data-status="complete"] .cli-pill-status::before {
+    /* Canvas tick replaces this — keep glyph hidden by default. JS adds
+       .show-status-glyph to a pill once the canvas has faded out, at which
+       point the ✓ becomes visible. */
+    content: '✓';
+    color: rgba(64, 160, 110, 0.95);
+    display: none;
+}
+
+.cli-pill[data-status="complete"].show-status-glyph .cli-pill-status::before {
+    display: block;
+}
+
+.cli-pill[data-status="error"] .cli-pill-status::before,
+.cli-pill[data-status="stopped"] .cli-pill-status::before {
+    content: '✕';
+    color: rgba(200, 70, 90, 0.95);
+}
+
+/* Hide the canvas under the ✕ glyph for error/stopped — we don't have a
+   particle "fail" shape, so just let the legacy glyph take over. */
+.cli-pill[data-status="error"] .cli-pill-canvas,
+.cli-pill[data-status="stopped"] .cli-pill-canvas {
+    opacity: 0;
+}
+
+.cli-pill.complete .cli-output {
+    max-height: 1.6em;
+}
+
+/* ============================================================
+   Minion pill — child variant of cli-pill.
+   Card-stack choreography: each minion is wrapped in a .cli-minion-wrap
+   that has overflow: hidden. The wrapper grows in height while the
+   inner pill translates from -100% to 0 — the wrapper's top edge sits
+   directly below the predecessor's bottom edge in flex flow, so the
+   pill geometrically slides out from behind that predecessor. On
+   absorb, the wrapper collapses while the inner pill translates back
+   to -100% — pill tucks back behind the predecessor.
+   Real geometric clip via overflow:hidden, not z-index masking, so
+   it works through the translucent liquid-glass pills.
+   ============================================================ */
+
+.cli-minion-wrap {
+    /* Default matches .cli-pill min-height so the wrapper hugs the inner pill
+       exactly. JS overrides this inline (`wrap.style.--minion-h = pill.offsetHeight`)
+       after spawn for a pixel-perfect fit — no empty space inside the wrapper,
+       so flex-column gap between sibling wrappers stays uniform. */
+    --minion-h: clamp(38px, 4vw, 52px);
+    display: block;
+    align-self: center;     /* narrower than parent, centered in flex column */
+    width: 75%;
+    overflow: hidden;       /* the real clip: hides the pill above the wrapper top */
+    height: 0;
+    animation: cli-minion-wrap-drop 0.45s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+.cli-minion-wrap > .cli-pill.minion {
+    width: 100%;            /* fill the wrapper (which already owns the 75% width) */
+    margin: 0;
+    animation: cli-minion-pill-drop 0.45s cubic-bezier(0.25, 0.8, 0.25, 1) both;
+}
+
+@keyframes cli-minion-wrap-drop {
+    from { height: 0; }
+    to   { height: var(--minion-h, 80px); }
+}
+
+@keyframes cli-minion-pill-drop {
+    from { transform: translateY(-100%); }
+    to   { transform: translateY(0); }
+}
+
+.cli-minion-wrap.absorbing {
+    pointer-events: none;
+    animation: cli-minion-wrap-absorb 0.45s cubic-bezier(0.55, 0, 0.45, 1) forwards;
+}
+
+.cli-minion-wrap.absorbing > .cli-pill.minion {
+    animation: cli-minion-pill-absorb 0.45s cubic-bezier(0.55, 0, 0.45, 1) forwards;
+}
+
+@keyframes cli-minion-wrap-absorb {
+    from { height: var(--minion-h, 80px); }
+    to   { height: 0; }
+}
+
+@keyframes cli-minion-pill-absorb {
+    from { transform: translateY(0); }
+    to   { transform: translateY(-100%); }
+}
+
+/* ============================================================
+   Web-loading state on a pill.
+   When the pill enters .web-loading (CLI agent's web tool is fetching),
+   the canvas icon morphs to the spinning globe and the body streams a
+   loop of funny scraping/searching phrases (handled in script.js).
+   No CSS overlay — globe icon + streamed phrases are the cue.
+   ============================================================ */

@@ -126,4 +126,7 @@ exclude = [
     "AutoCua/**/__pycache__/**",
     "AutoCua/ios_connector/WebDriverAgent/**",
     "AutoCua/ios_connector/paired_devices.json",
+    # the Chromium desktop shell's npm install: Electron itself, ~300 MB and
+    # built per OS (a user runs `npm install` in AutoCua/desktop)
+    "AutoCua/desktop/node_modules/**",
 ]

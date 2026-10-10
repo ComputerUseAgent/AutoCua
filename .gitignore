@@ -85,7 +85,14 @@ coverage.xml
 *.log
 
 .env
-/note/
+# Local notes stay private, except note/fixes: write-ups of fixed and open issues,
+# and the test the bridge-scan write-up keeps beside it (its run output is not kept).
+/note/*
+!/note/fixes/
+/note/fixes/*/staged/
+/note/fixes/*/udd/
+/note/fixes/*/logs/
+/note/fixes/*/site.jsonl
 /cli_conversation
 /cli_minion_conversation
 /milestone
@@ -158,3 +165,10 @@ AutoCua/ios_connector/paired_devices.json
 # Third-party vendored download (installer, library, samples), not our source;
 # it lands here per-machine and has no business in the repo.
 /Interception/
+
+# The Chromium desktop shell's npm install (AutoCua/desktop/package-lock.json is kept)
+/AutoCua/desktop/node_modules/
+# LEGACY shell location (desktop/ at the repo root, before it moved into the
+# package) — kept ignored until every checkout has moved or deleted its npm
+# install, so a pull can't turn it into untracked files.
+/desktop/node_modules/

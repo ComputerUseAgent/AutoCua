@@ -1,0 +1,156 @@
+/* =====================================================================
+   Left Bar — persistent task-history panel (SHELL ONLY for now; contents
+   are intentionally empty and will be filled in a later step).
+
+   Styled as a liquid-glass card matching the other components: an inset,
+   rounded rectangle that reuses the global .liquidGlass-effect / -tint /
+   -shine layers (defined in css/style.css). The horizontal space for the bar
+   is reserved by `--left-bar-w` in css/style.css, which offsets the main app
+   content to the right. Loaded via left_bar/left_bar.js + linked in index.html.
+   ===================================================================== */
+
+.left-bar {
+    position: fixed;
+    /* Very small gap from the window's left edge; taller than the chat card.
+       The RIGHT edge stays anchored at --left-bar-w (so content is unchanged):
+       shrinking the left gap is compensated by growing the width below. */
+    left: clamp(5px, 0.7vw, 9px);
+    top: clamp(5px, 0.7vw, 9px);
+    bottom: clamp(14px, 1.8vw, 22px);
+    /* Fill the reserved bar space minus the (small) left gap, so the right edge
+       lands at --left-bar-w and the gap before the main content is unchanged. */
+    width: calc(var(--left-bar-w) - clamp(5px, 0.7vw, 9px));
+    z-index: 30;
+    box-sizing: border-box;
+
+    /* Rounded rectangle in the app's exact background colour, so the bar
+       reads as one surface with the page/titlebar (see TITLEBAR_COLOR in
+       service.py). The rim shine + drop shadow are what separate it from the
+       background now. */
+    background: #FDFCFA;
+    border-radius: var(--glass-radius);
+    overflow: hidden;
+    box-shadow: 0 clamp(4px, 1vw, 8px) clamp(16px, 3vw, 32px) rgba(0, 0, 0, 0.1);
+
+    display: flex;
+    flex-direction: column;
+
+    /* Hidden until injected; revealed immediately by left_bar.js (still covered
+       by the splash overlay until it fades out on splashDone). */
+    opacity: 0;
+    transform: translateX(-12px);
+    pointer-events: none;
+    transition: opacity 0.6s cubic-bezier(0.25, 0.8, 0.25, 1),
+                transform 0.6s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.left-bar.revealed {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
+}
+
+.left-bar:hover {
+    box-shadow: 0 clamp(6px, 1.5vw, 12px) clamp(20px, 4vw, 40px) rgba(0, 0, 0, 0.15);
+}
+
+/* The bar is now a FLAT off-white panel. The grey glass tint would dull it
+   away from the exact #FDFCFA, and the blur + SVG displacement have nothing to
+   act on (blurring a flat colour returns the same colour) — they would only cost
+   GPU. Drop both here; the shine rim above still draws the card's edge. Same
+   reasoning as the setup card in setup/setup.css. */
+.left-bar .liquidGlass-effect {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    filter: none;
+}
+.left-bar .liquidGlass-tint {
+    background: transparent;
+}
+
+/* Content wrapper — top-aligned column (overrides the centered
+   .liquidGlass-content). Body fills the space; footer pins to the bottom. */
+.left-bar .left-bar-content {
+    /* border-box so width:100% (from .liquidGlass-content) INCLUDES the padding;
+       otherwise the wrapper overflows right and flex-end clips the cog. */
+    box-sizing: border-box;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: clamp(12px, 1.5vw, 18px);
+    gap: clamp(8px, 1vw, 12px);
+}
+
+/* Header — AutoCua logo, top-left. */
+.left-bar .left-bar-header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding-bottom: clamp(8px, 1vw, 12px);
+}
+
+/* AutoCua's mark, top-left of the bar: the splash's logo shape
+   (logo_mark.svg) cut out of a soft silver-grey gradient. A mask, so the
+   colour lives here; its clip-paths keep the edges sharp at any size. */
+.left-bar-logo {
+    height: clamp(26px, 3vw, 34px);
+    aspect-ratio: 1 / 1;
+    flex-shrink: 0;
+    display: block;
+    background: linear-gradient(160deg, #BFC3CA 0%, #9499A2 100%);
+    -webkit-mask: url("logo_mark.svg") center / 100% 100% no-repeat;
+    mask: url("logo_mark.svg") center / 100% 100% no-repeat;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Body — New chat button + future history list. Fills the space so the
+   footer (settings cog) is pushed to the bottom. */
+.left-bar .left-bar-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* Footer — settings cog, pinned bottom-left of the bar. */
+.left-bar .left-bar-footer {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: clamp(8px, 1vw, 12px);
+}
+
+/* GitHub star pill — header's right edge, beside the logo. Same visual
+   recipe as the New-chat button (border/background/radius/font), and the
+   same hover plus a slight grow. Live count wired by left_bar.js; click
+   opens the repo in the system browser via /api/open-github. */
+.gh-star-pill {
+    margin-left: auto;                 /* park at the header's right edge */
+    flex-shrink: 0;                    /* never squeeze — it clips the GitHub mark */
+    display: flex;
+    align-items: center;
+    gap: clamp(5px, 0.7vw, 7px);
+    box-sizing: border-box;
+    padding: clamp(5px, 0.7vw, 7px) clamp(8px, 1vw, 10px);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: clamp(8px, 1vw, 10px);
+    background: rgba(255, 255, 255, 0.28);
+    color: rgba(80, 80, 80, 0.9);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(11px, 1.1vw, 13px);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+    -webkit-user-select: none;
+    user-select: none;
+}
+.gh-star-pill:hover {
+    background: rgba(255, 255, 255, 0.45);
+    border-color: rgba(0, 0, 0, 0.12);
+    transform: scale(1.05);
+}
+.gh-mark { width: clamp(13px, 1.4vw, 15px); height: clamp(13px, 1.4vw, 15px); flex-shrink: 0; }
+.gh-star { width: clamp(11px, 1.2vw, 13px); height: clamp(11px, 1.2vw, 13px); flex-shrink: 0; color: #e3a008; }
+.gh-star-count { line-height: 1; }

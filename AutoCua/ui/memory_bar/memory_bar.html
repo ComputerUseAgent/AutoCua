@@ -1,0 +1,15 @@
+<!-- Memory ring — the composer's context gauge: the main agent's current context
+     size vs the fixed 300k memory budget, drawn as a clean circle in the
+     composer's bottom row, just RIGHT of the Skills icon. The arc fills clockwise
+     from 12 o'clock and its colour moves with it (baby purple when empty, reddish
+     orange when full); the live token count sits in the middle (850, 1.2k, 45k).
+     Both glide whenever window.updateMemoryBar(used, cap) moves: UP as history
+     grows, back DOWN when the runtime memory optimization strips it.
+     Injected into .input-area-wrapper by memory_bar/memory_bar.js. -->
+<div class="memory-ring" id="memoryRing" role="img" aria-label="Memory">
+    <svg class="memory-ring-svg" viewBox="0 0 240 240" aria-hidden="true">
+        <circle class="memory-ring-track" cx="120" cy="120" r="112.5"/>
+        <circle class="memory-ring-arc" cx="120" cy="120" r="112.5" pathLength="100"/>
+    </svg>
+    <span class="memory-ring-value" aria-hidden="true">0</span>
+</div>

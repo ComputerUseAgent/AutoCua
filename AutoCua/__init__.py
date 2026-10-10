@@ -31,7 +31,7 @@ RULES for the code below:
     in the Windows GUI-subsystem binary. Log to `logger` (stderr) instead.
   * Never use the builtin open() on a path under AutoCua_data: compiled builds
     monkey-patch builtins.open to resolve embedded resources by path suffix
-    (frontend/service.py setup_embedded_resources), and a matching write is
+    (ui/service.py setup_embedded_resources), and a matching write is
     silently swallowed into a StringIO. Use Path.read_bytes / write_bytes /
     os.replace here.
 """
@@ -270,7 +270,7 @@ def vault_file() -> Path:
 # =============================================================================
 # Every consumer must agree on this ONE path, or the Settings panel writes a key
 # the agent can't read. Before this moved there were three different answers in
-# the tree: frontend/service.py and windows/llm_provider walked up to
+# the tree: ui/service.py and windows/llm_provider walked up to
 # AutoCua/api_key/ (right), while mac and ios llm_provider stopped one
 # level short at <pkg>/api_key/ (a folder that never existed, so Vertex config
 # silently read back empty on those platforms). One function, one answer.
@@ -321,3 +321,23 @@ def _migrate_legacy_api_key(dest: Path) -> None:
             # Set even on failure so we don't re-scan on every call; the next
             # app start retries from scratch.
             _api_key_migrated = True
+
+
+# =============================================================================
+# The desktop app's port
+# =============================================================================
+# AutoCua's own port on 127.0.0.1. Everything between the window and the
+# backend goes through it: the UI's files, its /api/ calls, the desktop
+# shell's event stream, and the pages the remote-connection banners embed.
+# Below 32768, so outside the range macOS, Windows and Linux hand out to
+# outgoing connections: the OS never gives it to anything on its own. If
+# another program holds it anyway, ui/service.py serves that run on a free
+# port instead and exports the one it got as AUTOCUA_APP_PORT, which every
+# process it starts inherits.
+APP_PORT = 27321
+ENV_APP_PORT = "AUTOCUA_APP_PORT"
+
+
+def app_origin() -> str:
+    """http://127.0.0.1:<port> of the running desktop app's server."""
+    return f"http://127.0.0.1:{os.environ.get(ENV_APP_PORT) or APP_PORT}"

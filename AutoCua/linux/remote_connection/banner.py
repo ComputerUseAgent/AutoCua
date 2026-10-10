@@ -59,6 +59,8 @@ import threading
 import weakref
 from pathlib import Path
 
+from AutoCua import app_origin
+
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -173,7 +175,7 @@ body { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
 </style></head>
 <body>
 <div class="orb-wrap">
-  <iframe id="orbFrame" class="orb-frame" src="http://127.0.0.1:5000/chat_input/pc_button.html"
+  <iframe id="orbFrame" class="orb-frame" src="__APP_ORIGIN__/chat_input/pc_button.html"
           scrolling="no" frameborder="0"></iframe>
 </div>
 <span class="msg" id="msg">Starting…</span>
@@ -568,7 +570,7 @@ body.coder #coderPanel { display: flex; flex-direction: column; gap: 8px; }
 <body>
 <div class="toprow">
   <div class="orb-wrap">
-    <iframe class="orb-frame" src="http://127.0.0.1:5000/telegram/telergam_animation.html"
+    <iframe class="orb-frame" src="__APP_ORIGIN__/telegram/telergam_animation.html"
             scrolling="no" frameborder="0"></iframe>
   </div>
   <span class="msg" id="msg"></span>
@@ -689,7 +691,7 @@ body.coder #coderPanel { display: flex; flex-direction: column; gap: 8px; }
   })();
 
   // ── embedded coder terminal ──────────────────────────────────────────────
-  // Faithful port of the web frontend's CLI pill (frontend/script.js). Every
+  // Faithful port of the web frontend's CLI pill (ui/script.js). Every
   // incoming line is QUEUED and streamed letter-by-letter with pagination
   // (overflow -> hold -> clear -> continue), so the full real content flows by
   // rather than just the latest fragment. The top line shows the coder's REAL
@@ -1531,7 +1533,7 @@ def _run_subprocess_banner():
     win.resize(w_px, h_px)
     win.move(right - w_px, top)
     win.connect("destroy", lambda *_a: Gtk.main_quit())
-    wv.load_html(html, None)
+    wv.load_html(html.replace("__APP_ORIGIN__", app_origin()), None)
     win.show_all()
     _click_through()
     Gtk.main()

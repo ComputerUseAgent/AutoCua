@@ -303,9 +303,12 @@ def run_agent(mode, provider, model, task, os=None,
               extra_tasks=None, ui=False, **agent_kwargs):
     """Create the AgentService for mode/os, run the task, return its response dict.
 
-    ui: True opens the desktop app (AutoCua/frontend) instead of running
+    ui: True opens the desktop app (AutoCua/ui) instead of running
     `task` in the terminal. Every other argument is ignored — the app has its
     own mode/model/task controls — and the call returns once its window closes.
+    It opens in the Chromium shell (AutoCua/desktop, `npm install` there once)
+    when that is installed, else in the pywebview window; AUTOCUA_UI=webview
+    forces the pywebview one.
 
     device ("mobile use, ios" only): "simulation" (the default) runs on an iOS
     Simulator — ios_version picks the runtime (e.g. "26.5"; omitted = newest
@@ -330,7 +333,7 @@ def run_agent(mode, provider, model, task, os=None,
     closed when the agent terminates (success, error, or Ctrl+C).
     """
     if ui:
-        from AutoCua.frontend.service import main as launch_ui
+        from AutoCua.ui.service import main as launch_ui
         launch_ui()
         return {"status": "success", "message": "desktop app closed"}
 
@@ -425,7 +428,7 @@ def run_agent(mode, provider, model, task, os=None,
             show_phones(sim_window, [{"name": phone.status().get("name") or "Simulator",
                                       "port": phone.mjpeg_port}])
         # Terminal mode's half of the desktop cue the UI sets in
-        # frontend/service.py — the lavender cursor and edge glow last exactly
+        # ui/service.py — the lavender cursor and edge glow last exactly
         # as long as the run, including Ctrl+C and a failed construction.
         # Computer use only: it is the one mode that drives this desktop.
         # The import is guarded because it is the one part that can raise:

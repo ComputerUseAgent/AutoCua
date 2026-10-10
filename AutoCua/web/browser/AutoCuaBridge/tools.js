@@ -1262,6 +1262,89 @@ function toolsWatchScan(tabId) {
   };
 }
 
+// ============================================================ a scan reads a loaded page
+
+/// How long one scan may spend waiting for its page and following the tab to new pages:
+/// under the agent side's 40 s for the whole scan (browser.rs), so it answers in time.
+const TOOLS_SCAN_BUDGET_MS = 30000;
+/// How long a scan waits for one page to load before it reads what is there anyway.
+const TOOLS_SCAN_LOAD_MS = 10000;
+const TOOLS_PAGE_LEFT = Symbol("page left");
+
+/// The owner's rule for a scan: read the page once it has loaded, never across a page
+/// change. A tab with a new page on its way (a click that submitted a form) is waited
+/// for, and a tab that moves on to a new page during the read is read again once that
+/// page has loaded. The read of the page that went away is let go, not waited for:
+/// Chrome keeps that page in its back/forward cache, frozen, and a frame of it caught
+/// mid-read (a cross-site ad frame still waiting for its parent) never answers, so the
+/// read never came back and the agent gave up after 40 s (measured: 4 of 8 such scans
+/// hung, 0 of 12 with that cache off, 0 of 12 with no cross-site frames). A page that
+/// stops answering is toolsWatchScan's (5 s, then opened again).
+async function toolsScanLoaded(tabId, scan) {
+  const until = Date.now() + TOOLS_SCAN_BUDGET_MS;
+  for (;;) {
+    await toolsPageLoaded(tabId, until);
+    const left = toolsPageLeaves(tabId);
+    const read = scan(await chrome.tabs.get(tabId));
+    let outcome;
+    try {
+      outcome = await Promise.race([read, left.promise]);
+    } catch (e) {
+      if (!left.happened) throw e;
+      outcome = TOOLS_PAGE_LEFT; // the read failed because its page went away
+    } finally {
+      left.stop();
+    }
+    if (outcome !== TOOLS_PAGE_LEFT) return outcome;
+    read.catch(() => {}); // it ends, if ever, only when that page comes back
+    if (Date.now() >= until) throw new Error("scan failed: the page kept moving on to new pages");
+  }
+}
+
+/// Until the tab has its page: none on its way (Chrome's pendingUrl) and the page's
+/// document parsed (past readyState "loading"). After TOOLS_SCAN_LOAD_MS the scan reads
+/// what is there; its settle waits out the rest of the loading.
+async function toolsPageLoaded(tabId, until) {
+  const stop = Math.min(until, Date.now() + TOOLS_SCAN_LOAD_MS);
+  while (Date.now() < stop) {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.pendingUrl && (await toolsDocumentParsed(tabId))) return;
+    await toolsSleep(100);
+  }
+}
+
+/// Whether the tab's page has parsed its document. A page that does not answer within
+/// TOOLS_PROBE_MS, or one the extension may not script, counts as parsed: the scan has
+/// its own ways with both (toolsWatchScan, the debugger read).
+function toolsDocumentParsed(tabId) {
+  const asked = chrome.scripting
+    .executeScript({ target: { tabId }, injectImmediately: true, func: () => document.readyState })
+    .then((r) => !(r && r[0] && r[0].result === "loading"), () => true);
+  return Promise.race([asked, toolsSleep(TOOLS_PROBE_MS).then(() => true)]);
+}
+
+/// Resolves with TOOLS_PAGE_LEFT once a new page starts or commits in the tab: its own
+/// main frame navigating, not a frame of the page loading something (an ad) and not the
+/// page changing its own address (history.pushState).
+function toolsPageLeaves(tabId) {
+  const out = { happened: false };
+  let seen = null;
+  out.promise = new Promise((resolve) => {
+    seen = (d) => {
+      if (d.tabId !== tabId || d.frameId !== 0) return;
+      out.happened = true;
+      resolve(TOOLS_PAGE_LEFT);
+    };
+    chrome.webNavigation.onBeforeNavigate.addListener(seen);
+    chrome.webNavigation.onCommitted.addListener(seen);
+  });
+  out.stop = () => {
+    chrome.webNavigation.onBeforeNavigate.removeListener(seen);
+    chrome.webNavigation.onCommitted.removeListener(seen);
+  };
+  return out;
+}
+
 // ============================================================ the glow and the cursor
 
 /// The overlay's two files, staged beside this one by stage_bridge.rs: glow.css.js

@@ -55,6 +55,8 @@ import sys
 import threading
 from queue import Queue, Empty
 
+from AutoCua import app_origin
+
 logger = logging.getLogger(__name__)
 
 # True when this module is running inside the Nuitka-compiled AutoCua.exe
@@ -390,7 +392,7 @@ BANNER_HTML = r"""<!DOCTYPE html>
   <div class="banner">
     <div class="measure">
       <div class="stop-agent-button">
-        <iframe id="orbFrame" class="orb-frame" src="http://127.0.0.1:5000/chat_input/pc_button.html"
+        <iframe id="orbFrame" class="orb-frame" src="__APP_ORIGIN__/chat_input/pc_button.html"
                 scrolling="no" frameborder="0"></iframe>
       </div>
       <div class="body">
@@ -782,7 +784,7 @@ COMPACT_HTML = r"""<!DOCTYPE html>
   <div class="pill">
     <div class="toprow">
       <div class="stop-agent-button">
-        <iframe class="orb-frame" src="http://127.0.0.1:5000/telegram/telergam_animation.html"
+        <iframe class="orb-frame" src="__APP_ORIGIN__/telegram/telergam_animation.html"
                 scrolling="no" frameborder="0"></iframe>
       </div>
       <span class="msg" id="msg"></span>
@@ -1781,7 +1783,7 @@ def _run_subprocess_banner() -> None:
             self.view.page().setBackgroundColor(QColor(0, 0, 0, 0))  # transparent page
             self.view.setContextMenuPolicy(Qt.NoContextMenu)
             # The pill page loads as local (qrc:///) content but embeds the orb
-            # from http://127.0.0.1:5000 (pc_button.html / telergam_animation.html),
+            # from the app's own server (pc_button.html / telergam_animation.html),
             # so let local content load that remote URL.
             _wa = (QWebEngineSettings.WebAttribute
                    if hasattr(QWebEngineSettings, "WebAttribute") else QWebEngineSettings)
@@ -1803,7 +1805,7 @@ def _run_subprocess_banner() -> None:
 
             html = COMPACT_HTML if compact else BANNER_HTML
             # qrc:/// base URL so the qwebchannel.js <script> resolves.
-            self.view.setHtml(html, QUrl("qrc:///"))
+            self.view.setHtml(html.replace("__APP_ORIGIN__", app_origin()), QUrl("qrc:///"))
 
         def _move_to_top_right(self):
             screen = QApplication.primaryScreen().availableGeometry()

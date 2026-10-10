@@ -1,4 +1,4 @@
-// The two inline scripts of the desktop app's send orb (AutoCua/frontend/chat_input/
+// The two inline scripts of the desktop app's send orb (AutoCua/ui/chat_input/
 // send_button.html), unchanged: an extension page may not run inline scripts.
 
 // The Linux app is WebKitGTK: flag it before first paint for the

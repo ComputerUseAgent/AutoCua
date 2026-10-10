@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Left bar component styles (markup injected by left_bar/left_bar.js) -->
+    <link rel="stylesheet" href="left_bar/left_bar.css">
+    <!-- Settings button component (markup injected into the left bar footer) -->
+    <link rel="stylesheet" href="settings/settings.css">
+    <!-- New Chat button component (markup injected into the left bar body) -->
+    <link rel="stylesheet" href="chat/chat.css">
+    <!-- Main content T-grid zone components (container/ holds all three) -->
+    <link rel="stylesheet" href="container/top_left/top_left.css">
+    <link rel="stylesheet" href="container/top_left/globe_shell.css">
+    <link rel="stylesheet" href="container/top_right/top_right.css">
+    <link rel="stylesheet" href="container/bottom_left/bottom_left.css">
+    <link rel="stylesheet" href="container/bottom_right/bottom_right.css">
+    <!-- Big center — full-grid 5th zone shell (notes_stage mounts into it) -->
+    <link rel="stylesheet" href="container/big_center_container/big_center_container.css">
+    <!-- Notes stage — Agent Notes content (lives inside big_center) -->
+    <link rel="stylesheet" href="notes_stage/notes_stage.css">
+    <!-- Chat input (bottom text box) component -->
+    <link rel="stylesheet" href="chat_input/chat_input.css">
+    <!-- Agent mode — pill + floating menu at the composer's bottom-left -->
+    <link rel="stylesheet" href="agent_mode/agent_mode.css">
+    <!-- Skills — scroll icon just right of the Computer/Mobile use picker -->
+    <link rel="stylesheet" href="skills/skills.css">
+    <!-- Connect Device — Settings section (iPhone/Android) -->
+    <link rel="stylesheet" href="device_connect/device_connect.css">
+    <!-- Memory ring — context gauge in the composer, just right of the Skills icon -->
+    <link rel="stylesheet" href="memory_bar/memory_bar.css">
+    <!-- CLI container — full-width panel that slides up from the bottom on cli_await -->
+    <link rel="stylesheet" href="cli/cli_stage.css">
+    <!-- Live coder card rendered inside that container (one per CLI agent) -->
+    <link rel="stylesheet" href="cli/cli_container/coder_card.css">
+</head>
+<body>
+
+    <!-- Splash Screen Overlay -->
+    <div id="splashOverlay" class="splash-overlay">
+        <iframe id="splashFrame" frameborder="0"></iframe>
+    </div>
+
+    <!-- The agent screenshot (#imageStreamContainer) and the shell terminal
+         (#shellTerminalContainer) now live INSIDE the T-grid container components:
+           • container/top_left/  → screenshot       (col 1, row 1)
+           • container/top_right/ → tracking progress (col 2, row 1)
+         They keep the same ids/classes so the script.js engine code is unchanged. -->
+
+    <!-- Template cloned by script.js for each CLI subprocess pill -->
+    <template id="cliPillTemplate">
+        <div class="cli-pill" data-task-id="">
+            <div class="liquidGlass-effect"></div>
+            <div class="liquidGlass-tint"></div>
+            <div class="liquidGlass-shine"></div>
+            <div class="liquidGlass-content">
+                <div class="cli-pill-loader">
+                    <canvas class="cli-pill-canvas" width="56" height="56"></canvas>
+                    <div class="cli-pill-status" aria-hidden="true"></div>
+                </div>
+                <div class="cli-pill-body">
+                    <div class="cli-pill-cmd"></div>
+                    <div class="cli-output"></div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Minion variant: same height as parent, narrower (gap on L/R), darker tint.
+         Drops below its parent CLI pill on cliMinionStart, collapses upward
+         (bottom-to-top, last-first) when the whole batch completes. -->
+    <template id="cliMinionPillTemplate">
+        <div class="cli-pill minion" data-task-id="" data-parent-task-id="">
+            <div class="liquidGlass-effect"></div>
+            <div class="liquidGlass-tint"></div>
+            <div class="liquidGlass-shine"></div>
+            <div class="liquidGlass-content">
+                <div class="cli-pill-loader">
+                    <canvas class="cli-pill-canvas" width="56" height="56"></canvas>
+                    <div class="cli-pill-status" aria-hidden="true"></div>
+                </div>
+                <div class="cli-pill-body">
+                    <div class="cli-pill-cmd"></div>
+                    <div class="cli-output"></div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <svg style="display: none">
+        <filter
+            id="glass-distortion"
+            x="-50%"
+            y="-50%"
+            width="200%"
+            height="200%"
+            filterUnits="objectBoundingBox"
+        >
+            <feTurbulence
+                type="fractalNoise"
+                baseFrequency="0.015 0.015"
+                numOctaves="2"
+                seed="5"
+                result="turbulence"
+            />
+
+            <feComponentTransfer in="turbulence" result="mapped">
+                <feFuncR type="gamma" amplitude="1" exponent="8" offset="0.5" />
+                <feFuncG type="gamma" amplitude="0.5" exponent="1" offset="0" />
+                <feFuncB type="gamma" amplitude="0.5" exponent="1" offset="0.5" />
+            </feComponentTransfer>
+
+            <feGaussianBlur in="turbulence" stdDeviation="4" result="softMap" />
+
+            <feSpecularLighting
+                in="softMap"
+                surfaceScale="8"
+                specularConstant="1.2"
+                specularExponent="120"
+                lighting-color="white"
+                result="specLight"
+            >
+                <fePointLight x="-150" y="-150" z="400" />
+            </feSpecularLighting>
+
+            <feComposite
+                in="specLight"
+                operator="arithmetic"
+                k1="0"
+                k2="1"
+                k3="1.2"
+                k4="0"
+                result="litImage"
+            />
+
+            <feDisplacementMap
+                in="SourceGraphic"
+                in2="softMap"
+                scale="200"
+                xChannelSelector="R"
+                yChannelSelector="G"
+            />
+        </filter>
+    </svg>
+
+    <svg style="display: none">
+        <filter
+            id="liquid-glass-button"
+            x="-50%"
+            y="-50%"
+            width="200%"
+            height="200%"
+            filterUnits="objectBoundingBox"
+        >
+            <feTurbulence
+                type="fractalNoise"
+                baseFrequency="0.03 0.05"
+                numOctaves="4"
+                seed="3"
+                result="turbulence"
+            />
+            
+            <feComponentTransfer in="turbulence" result="mapped">
+                <feFuncR type="gamma" amplitude="1" exponent="4" offset="0.4" />
+                <feFuncG type="gamma" amplitude="1" exponent="4" offset="0.4" />
+            </feComponentTransfer>
+            
+            <feGaussianBlur in="mapped" stdDeviation="2.5" result="softMap" />
+            
+            <feDisplacementMap
+                in="SourceGraphic"
+                in2="softMap"
+                scale="25"
+                xChannelSelector="R"
+                yChannelSelector="G"
+            />
+        </filter>
+    </svg>
+
+    <!-- Settings button is now a component injected into the left bar footer
+         (see ui/settings/). Provider/model selection moved into
+         Settings → Model Selection (two dropdowns). -->
+
+    <!-- Right side is intentionally transparent now: the glass card layers were
+         removed so only the text box shows over the cream background. -->
+    <!-- Main content 2x2 grid: screenshot (top-left) | tracking progress (top-right) |
+         tool-response chain (bottom-left) | todo list (bottom-right), plus big_center
+         (full-grid overlay for notes_stage). Zones are injected by their components. -->
+    <!-- Transient top-center notification (driven by window.showToast) -->
+    <div id="appToast" class="app-toast" role="status" aria-live="polite"></div>
+
+    <!-- Empty-state hero: centered "AutoCua / Agent with million moves." over the
+         main area. Shown on a fresh/new chat (default at launch + after New chat);
+         hidden the moment a task is sent or a saved chat is reopened. Toggled via
+         window.showWelcomeHero / window.hideWelcomeHero. -->
+    <div class="welcome-hero" id="welcomeHero" aria-hidden="true">
+        <div class="welcome-hero-title">Made to do...</div>
+    </div>
+
+    <div class="main-grid" id="mainGrid"></div>
+
+    <!-- Chat input (the bottom text box) is a component now — markup lives in
+         chat_input/chat_input.html and is injected here by chat_input.js, which
+         then fires 'chatinput:ready' so script.js wires Enter-to-send etc. -->
+    <div class="chat-container-wrapper" id="chatWrapper"></div>
+
+    <!-- Settings Panel Overlay -->
+    <div class="settings-overlay" id="settingsOverlay">
+        <div class="settings-panel">
+            <div class="settings-panel-content">
+
+                <!-- Single header — flat layout, all sections shown directly (no menu/nesting) -->
+                <div class="settings-header">
+                    <span class="settings-title">Settings</span>
+                </div>
+
+                <!-- Provider Selection (the MODEL is now picked in the chat-box drop-up) -->
+                <div class="settings-view settings-modelselect-view" id="settingsModelView">
+                    <div class="settings-section-heading">Provider</div>
+                    <div class="model-select-row">
+                        <div class="model-select-field">
+                            <label class="model-select-label">Provider</label>
+                            <div class="model-dropdown" id="providerDropdown">
+                                <button class="model-dropdown-trigger" type="button">
+                                    <span class="model-dropdown-value placeholder">Select a provider…</span>
+                                    <svg class="model-dropdown-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                </button>
+                                <div class="model-dropdown-menu"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- API Keys -->
+                <div class="settings-view settings-apikeys-view" id="settingsApikeysView">
+                    <div class="settings-section-heading">API Keys</div>
+                    <div class="settings-provider-list">
+                        <div class="settings-provider-row" data-provider="openrouter">
+                            <a class="settings-provider-name" href="https://openrouter.ai/keys" target="_blank">OpenRouter</a>
+                            <input type="password" class="settings-provider-input" placeholder="sk-or-..." autocomplete="off" />
+                            <button class="settings-delete-btn" title="Remove API key" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="settings-provider-row" data-provider="groq">
+                            <a class="settings-provider-name" href="https://console.groq.com/keys" target="_blank">Groq</a>
+                            <input type="password" class="settings-provider-input" placeholder="gsk_..." autocomplete="off" />
+                            <button class="settings-delete-btn" title="Remove API key" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="settings-provider-row" data-provider="openai">
+                            <a class="settings-provider-name" href="https://platform.openai.com/api-keys" target="_blank">OpenAI</a>
+                            <input type="password" class="settings-provider-input" placeholder="sk-..." autocomplete="off" />
+                            <button class="settings-delete-btn" title="Remove API key" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="settings-provider-row" data-provider="anthropic">
+                            <a class="settings-provider-name" href="https://console.anthropic.com/settings/keys" target="_blank">Anthropic</a>
+                            <input type="password" class="settings-provider-input" placeholder="sk-ant-..." autocomplete="off" />
+                            <button class="settings-delete-btn" title="Remove API key" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="settings-provider-row" data-provider="perplexity">
+                            <a class="settings-provider-name" href="https://docs.perplexity.ai/guides/getting-started" target="_blank">Perplexity</a>
+                            <input type="password" class="settings-provider-input" placeholder="pplx-..." autocomplete="off" />
+                            <button class="settings-delete-btn" title="Remove API key" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="settings-provider-row" data-provider="together">
+                            <a class="settings-provider-name" href="https://api.together.xyz/settings/api-keys" target="_blank">Together AI</a>
+                            <input type="password" class="settings-provider-input" placeholder="Enter API key..." autocomplete="off" />
+                            <button class="settings-delete-btn" title="Remove API key" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="settings-provider-row" data-provider="cerebras">
+                            <a class="settings-provider-name" href="https://cloud.cerebras.ai" target="_blank">Cerebras</a>
+                            <input type="password" class="settings-provider-input" placeholder="csk-..." autocomplete="off" />
+                            <button class="settings-delete-btn" title="Remove API key" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="settings-provider-row" data-provider="aws">
+                            <a class="settings-provider-name" href="https://console.aws.amazon.com/bedrock/home#/api-keys" target="_blank">AWS</a>
+                            <input type="password" class="settings-provider-input" placeholder="ABSK..." autocomplete="off" />
+                            <button class="settings-delete-btn" title="Remove API key" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="settings-provider-row" data-provider="google">
+                            <a class="settings-provider-name" href="https://aistudio.google.com/apikey" target="_blank">Google</a>
+                            <input type="password" class="settings-provider-input google-key-input" placeholder="AIza..." autocomplete="off" />
+                            <button class="settings-delete-btn" title="Remove API key" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                            <button class="gcp-vertex-btn" id="gcpVertexBtn" title="Configure GCP Vertex AI">GCP Vertex</button>
+                        </div>
+                    </div>
+                    <button class="settings-save-btn" id="settingsSaveBtn">Save</button>
+                </div>
+
+                <!-- Remote Connection -->
+                <div class="settings-view settings-remote-view" id="settingsRemoteView">
+                    <div class="settings-section-heading">Remote Connection</div>
+
+                    <!-- Not connected state -->
+                    <div class="remote-setup" id="remoteSetup">
+                        <div class="remote-row">
+                            <span class="remote-row-label remote-telegram-logo" aria-label="Telegram">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M21.5 4.5L2.5 12l5.5 2 2 6 3-3.5 5.5 4 3-16zM10 14l8.5-7L11 14.5l-1 4.5L10 14z"/></svg>
+                            </span>
+                            <span class="remote-row-actions">
+                                <button class="remote-connect-btn" id="remoteToggleBtn" type="button">Connect</button>
+                            </span>
+                        </div>
+                        <div class="remote-instruction" id="remoteInstructions" style="display:none;">Please follow the on-screen instructions in the helper banner (top-right of your screen).</div>
+                    </div>
+                </div>
+
+                <!-- Connect Device — phone automation. iPhone (iOS/WDA) is live;
+                     Android is disabled for now. Wired by device_connect.js. -->
+                <div class="settings-view settings-device-view" id="settingsDeviceView">
+                    <div class="settings-section-heading">Connect Device</div>
+                    <div class="device-list">
+
+                        <!-- iPhone -->
+                        <div class="device-option" id="deviceOptioniOS" role="button" tabindex="0" aria-expanded="false" aria-label="Connect iPhone">
+                            <span class="device-logo device-logo-ios" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>
+                            </span>
+                            <span class="device-name">iPhone</span>
+                            <span class="device-chevron" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"></polyline></svg>
+                            </span>
+                        </div>
+
+                        <!-- iPhone expandable panel — a clean pairing flow in the
+                             app's own theme. It drives setup.py's backend (sign /
+                             build / install / trust / add-account) but shows only a
+                             simple status + one action. Wired by device_connect.js. -->
+                        <div class="device-panel" id="devicePaneliOS" hidden>
+                            <div class="dc-flow">
+                                <!-- Apple Account dropdown (auto-selected; always offers ＋ Add) -->
+                                <div class="dc-field">
+                                    <label class="dc-label">Apple Account</label>
+                                    <div class="dc-select" id="dcTeamSelect" role="button" tabindex="0">
+                                        <span class="dc-select-value placeholder" id="dcTeamValue">Loading…</span>
+                                        <svg class="dc-select-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                        <div class="dc-select-menu" id="dcTeamMenu"></div>
+                                    </div>
+                                </div>
+                                <!-- Device dropdown (auto-selected) -->
+                                <div class="dc-field">
+                                    <label class="dc-label">Device</label>
+                                    <div class="dc-select" id="dcDeviceSelect" role="button" tabindex="0">
+                                        <span class="dc-select-value placeholder" id="dcDeviceValue">Looking…</span>
+                                        <svg class="dc-select-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                        <div class="dc-select-menu" id="dcDeviceMenu"></div>
+                                    </div>
+                                </div>
+
+                                <div class="dc-status" id="dcStatus" data-state="loading">
+                                    <span class="dc-spinner" id="dcSpinner"></span>
+                                    <span class="dc-check" id="dcCheck" hidden></span>
+                                    <span class="dc-status-text" id="dcStatusText">Looking for your iPhone…</span>
+                                </div>
+                                <div class="dc-steps" id="dcSteps" hidden></div>
+                                <button class="dc-action" id="dcAction" type="button" hidden></button>
+
+                                <!-- Paired devices (paired_devices.json) — a device in this
+                                     list is paired: the Apple logo in the chat box just
+                                     activates it. × forgets the device. -->
+                                <div class="dc-paired" id="dcPaired" hidden>
+                                    <div class="dc-label">Paired devices</div>
+                                    <div class="dc-paired-list" id="dcPairedList"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Android (future) -->
+                        <div class="device-option is-disabled" id="deviceOptionAndroid" aria-disabled="true" data-tip="Added in a future update">
+                            <span class="device-logo device-logo-android" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6,18C6,18.55 6.45,19 7,19H8V22.5C8,23.33 8.67,24 9.5,24C10.33,24 11,23.33 11,22.5V19H13V22.5C13,23.33 13.67,24 14.5,24C15.33,24 16,23.33 16,22.5V19H17C17.55,19 18,18.55 18,18V8H6V18M3.5,8C2.67,8 2,8.67 2,9.5V16.5C2,17.33 2.67,18 3.5,18C4.33,18 5,17.33 5,16.5V9.5C5,8.67 4.33,8 3.5,8M20.5,8C19.67,8 19,8.67 19,9.5V16.5C19,17.33 19.67,18 20.5,18C21.33,18 22,17.33 22,16.5V9.5C22,8.67 21.33,8 20.5,8M15.53,2.16L16.84,0.85C17.03,0.66 17.03,0.34 16.84,0.14C16.64,-0.05 16.32,-0.05 16.13,0.14L14.65,1.62C13.85,1.23 12.95,1 12,1C11.04,1 10.14,1.23 9.34,1.63L7.85,0.14C7.66,-0.05 7.34,-0.05 7.15,0.14C6.95,0.34 6.95,0.66 7.15,0.85L8.46,2.16C6.97,3.26 6,5.01 6,7H18C18,5.01 17.03,3.25 15.53,2.16M10,5H9V4H10V5M15,5H14V4H15V5Z"/></svg>
+                            </span>
+                            <span class="device-name">Android</span>
+                            <span class="device-soon">Soon</span>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Recording — while on, every Computer use / Web use run is recorded
+                     as two videos (the screen and this window) into
+                     AutoCua_data/recordings (utils/run_recorder.py). Hidden until
+                     /api/recording says this machine can record (OpenCV on macOS,
+                     imageio-ffmpeg on Windows and Linux).
+                     Wired by settings/settings.js. -->
+                <div class="settings-view settings-recording-view" id="settingsRecordingView" style="display:none;">
+                    <div class="settings-section-heading">Recording</div>
+                    <div class="remote-row">
+                        <span class="remote-row-label">Record runs</span>
+                        <button class="settings-switch" id="recordRunsSwitch" type="button" role="switch" aria-checked="false" aria-label="Record runs">
+                            <span class="settings-switch-thumb"></span>
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+            <div class="settings-footer">
+                <button class="settings-cancel-btn" id="settingsCancelBtn" type="button">Cancel</button>
+                <button class="settings-savebar-btn" id="settingsSaveBarBtn" type="button">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AutoCua helper info popup (shown when Telegram Connect is clicked) -->
+    <div class="telegram-prompt-overlay" id="telegramPromptOverlay">
+        <div class="telegram-prompt-popup">
+            <div class="liquidGlass-effect-btn"></div>
+            <div class="liquidGlass-tint-btn"></div>
+            <div class="liquidGlass-shine-btn"></div>
+            <div class="telegram-prompt-content">
+                <div class="telegram-prompt-title">AutoCua helper</div>
+                <div class="telegram-prompt-countdown" id="telegramPromptCountdown">3</div>
+                <div class="telegram-prompt-caption">Starting your helper… it will appear in the <strong>top-right</strong> corner.</div>
+                <div class="telegram-prompt-message">The helper will walk you through Telegram setup. Please click <strong>Next</strong> on the banner in the <strong>top-right</strong> corner of your screen to continue.</div>
+                <button class="telegram-prompt-ok" id="telegramPromptOk" type="button">Got it</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GCP Vertex AI Popup -->
+    <div class="vertex-overlay" id="vertexOverlay">
+        <div class="vertex-popup">
+            <div class="liquidGlass-effect-btn"></div>
+            <div class="liquidGlass-tint-btn"></div>
+            <div class="liquidGlass-shine-btn"></div>
+            <div class="vertex-popup-content">
+                <span class="vertex-popup-title">GCP Vertex AI</span>
+                <div class="vertex-field">
+                    <label class="vertex-label">Project ID</label>
+                    <input type="text" class="vertex-input" id="vertexProjectId" placeholder="my-gcp-project" autocomplete="off" />
+                </div>
+                <div class="vertex-field">
+                    <label class="vertex-label">Location</label>
+                    <input type="text" class="vertex-input vertex-location-input" id="vertexLocation" value="global" autocomplete="off" />
+                </div>
+                <button class="vertex-done-btn" id="vertexDoneBtn">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shown while a Telegram task occupies the machine (fades the UI away) -->
+    <div class="telegram-task-overlay" id="telegramTaskOverlay">
+        <div class="telegram-task-content">
+            <div class="telegram-task-orb">
+                <!-- The same stop orb the composer and the setup banner show
+                     (chat_input/pc_button.html); it starts hidden and pops in
+                     on 'pcbtn:show' from telegramOccupiedShow(). -->
+                <iframe id="telegramTaskOrbFrame" src="chat_input/pc_button.html?zoom=2.8" scrolling="no" frameborder="0"></iframe>
+            </div>
+            <div class="telegram-task-message">Currently occupied by Telegram</div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Left bar component loader (injects left_bar/left_bar.html, reveals on splashDone) -->
+    <script src="left_bar/left_bar.js"></script>
+    <!-- Settings button component (mounts into the left bar footer, emits 'open-settings') -->
+    <script src="settings/settings.js"></script>
+    <!-- New Chat button component (mounts into the left bar body) -->
+    <script src="chat/chat.js"></script>
+    <!-- Main content T-grid zone components (mount into #mainGrid) -->
+    <script src="container/top_left/top_left.js"></script>
+    <!-- Top-left screen overlays: web globe + shell terminal swap over the screenshot -->
+    <script src="container/top_left/globe_shell.js"></script>
+    <script src="container/top_right/top_right.js"></script>
+    <script src="container/bottom_left/bottom_left.js"></script>
+    <script src="container/bottom_right/bottom_right.js"></script>
+    <!-- Big center: injects the full-grid 5th zone into #mainGrid -->
+    <script src="container/big_center_container/big_center_container.js"></script>
+    <!-- Notes stage: mounts Agent Notes into #zoneBigCenter -->
+    <script src="notes_stage/notes_stage.js"></script>
+    <!-- Chat input (bottom text box): injects into #chatWrapper, fires 'chatinput:ready' -->
+    <script src="chat_input/chat_input.js"></script>
+    <!-- Agent mode: injects into .input-area-wrapper on 'chatinput:ready' (design-only for now) -->
+    <script src="agent_mode/agent_mode.js"></script>
+    <!-- Skills: scroll icon (into .agent-mode-wrap) + a stage inside #zoneBigCenter, one-at-a-time with Agent Notes (design-only for now) -->
+    <script src="skills/skills.js"></script>
+    <!-- Parked: the proven iOS connect logic (window.iosSession) — attached once the design is final -->
+    <script src="agent_mode/ios_session.js"></script>
+    <!-- Connect Device: wires the Settings iPhone/Android device-connect section -->
+    <script src="device_connect/device_connect.js"></script>
+    <!-- Memory ring loader (defines window.updateMemoryBar before script.js) -->
+    <script src="memory_bar/memory_bar.js"></script>
+    <script src="script.js"></script>
+    <!-- CLI container — the coder card component, then the stage orchestrator. Both load
+         AFTER script.js so the orchestrator's window.cli* hooks override the old chat-box
+         CLI rendering. coder_card.js must precede cli_stage.js (it defines CliCoderCard);
+         tool_icons.js precedes coder_card.js (it defines the action-icon engine). -->
+    <script src="cli/cli_container/tool_icons.js"></script>
+    <script src="cli/cli_container/coder_card.js"></script>
+    <script src="cli/cli_stage.js"></script>
+</body>
+</html>

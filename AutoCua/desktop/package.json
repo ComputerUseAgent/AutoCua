@@ -1,0 +1,15 @@
+{
+  "name": "autocua-desktop",
+  "productName": "AutoCua",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AutoCua's desktop window: the app in AutoCua/ui, in Chromium",
+  "main": "main.js",
+  "scripts": {
+    "postinstall": "install-electron",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "44.7.0"
+  }
+}

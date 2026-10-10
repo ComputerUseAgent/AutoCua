@@ -59,7 +59,7 @@ gui_alert() {
 # the whole tree at once instead of one package at a time).
 #
 # The old "sync shared files to macOS flavor" step is long gone too — main.py,
-# cli.py, frontend/index.html and frontend/script.js detect the OS at runtime,
+# cli.py, ui/index.html and ui/script.js detect the OS at runtime,
 # so a single checkout runs on both macOS and Windows with zero file patching.
 print_step "STEP 1: Checking for uv"
 
