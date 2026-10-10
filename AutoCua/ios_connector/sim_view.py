@@ -18,8 +18,12 @@ launcher's is busy running the agent. The launcher talks to it over stdin:
     window = open_view()                  # right away: "Preparing simulation"
     show_phones(window, [{"name": "iPhone 17 Pro", "port": 9100, "task": 1}, ...])
     close_view(window)                    # or the launcher exits: stdin closes
+
+A real, cable-connected iPhone or iPad uses the same window with its own
+words: open_view(text="iPhone connected", title=<device name>).
 """
 
+import html
 import http.server
 import json
 import os
@@ -36,16 +40,43 @@ _VIDEO = Path(__file__).resolve().parents[1] / "logo" / "simulation_background.m
 # The folder holding the AutoCua package (a checkout's root, or site-packages
 # for a pip install), so `-m AutoCua...` imports whatever the cwd is.
 _PACKAGE_PARENT = Path(__file__).resolve().parents[2]
+# The waiting words and the window title. The launcher sets them for a real
+# phone (open_view); a simulator run leaves them alone.
+_TEXT = os.environ.get("AutoCua_VIEW_TEXT") or "Preparing simulation"
+_TITLE = os.environ.get("AutoCua_VIEW_TITLE") or "iOS Simulator"
+# "iphone" or "ipad": one real phone, so a small window just around it
+# (sim_view.html's compact layout). Empty for a simulator run.
+_DEVICE = (os.environ.get("AutoCua_VIEW_DEVICE") or "").strip().lower()
+# The compact window: the device (width / height of the screen plus its bezel,
+# portrait) and the page's compact padding around it: room at the top for the
+# window buttons, some gradient on each side, the name underneath. Keep in
+# step with sim_view.html (PAD_X, PAD_Y + LABEL). macOS takes the title bar's
+# height off the window it was asked for, so that is added back.
+_COMPACT_SHAPE = {"iphone": 0.476, "ipad": 0.76}
+_COMPACT_PAD_X, _COMPACT_PAD_Y = 140, 86
+_TITLE_BAR = 28
 
 
-def open_view():
+def open_view(text=None, title=None, device=None):
     """Open the window ("Preparing simulation") and return its process.
+
+    text and title replace "Preparing simulation" and "iOS Simulator" (a real
+    phone: "iPhone connected" and its name). device ("iphone" or "ipad")
+    makes it the small window of one real phone, sized just around it.
 
     Returns None if it could not start: the window is only for watching, and
     a run must never fail because of it.
     """
     env = os.environ.copy()
     env["PYTHONPATH"] = str(_PACKAGE_PARENT) + os.pathsep + env.get("PYTHONPATH", "")
+    for key in ("AutoCua_VIEW_TEXT", "AutoCua_VIEW_TITLE", "AutoCua_VIEW_DEVICE"):
+        env.pop(key, None)
+    if text:
+        env["AutoCua_VIEW_TEXT"] = str(text)
+    if title:
+        env["AutoCua_VIEW_TITLE"] = str(title)
+    if device:
+        env["AutoCua_VIEW_DEVICE"] = str(device)
     try:
         return subprocess.Popen(
             [sys.executable, "-m", "AutoCua.ios_connector.sim_view"],
@@ -100,7 +131,12 @@ class _Files(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             if self.path == "/":
-                body = _PAGE.read_bytes()
+                page = (_PAGE.read_text(encoding="utf-8")
+                        .replace("<h1>Preparing simulation</h1>", f"<h1>{html.escape(_TEXT)}</h1>")
+                        .replace("<title>iOS Simulator</title>", f"<title>{html.escape(_TITLE)}</title>"))
+                if _DEVICE:
+                    page = page.replace("<body>", '<body class="compact">', 1)
+                body = page.encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
@@ -148,11 +184,17 @@ class _Files(http.server.BaseHTTPRequestHandler):
 
 
 def _window_size(screens):
-    """Landscape, about three quarters of the screen's width."""
+    """Landscape, about three quarters of the screen's width. One real phone
+    (_DEVICE): portrait, just around the device, about half the screen tall."""
     try:
         screen_w, screen_h = screens[0].width, screens[0].height
     except Exception:
         screen_w, screen_h = 1440, 900
+    if _DEVICE:
+        device_h = min(int(screen_h * 0.56), 640)
+        shape = _COMPACT_SHAPE.get(_DEVICE, _COMPACT_SHAPE["iphone"])
+        return (int(device_h * shape) + _COMPACT_PAD_X,
+                device_h + _COMPACT_PAD_Y + _TITLE_BAR)
     width = int(screen_w * 0.72)
     height = int(width / 1.5)
     if height > screen_h * 0.85:
@@ -243,8 +285,8 @@ def _main():
 
     width, height = _window_size(webview.screens)
     window = webview.create_window(
-        "iOS Simulator", url=f"http://127.0.0.1:{server.server_address[1]}/",
-        width=width, height=height, min_size=(520, 380),
+        _TITLE, url=f"http://127.0.0.1:{server.server_address[1]}/",
+        width=width, height=height, min_size=(200, 300) if _DEVICE else (520, 380),
         # The video's own colours, so the window never flashes black or white.
         background_color="#b7c3f4")
 

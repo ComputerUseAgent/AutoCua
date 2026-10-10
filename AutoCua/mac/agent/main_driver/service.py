@@ -391,7 +391,9 @@ class AgentService:
         exists per request). Inside, in order:
           - <todo_list>: the task tracker, or "none".
           - <scratchpad>: the verified checkpoints so far, or "none".
-          - <sub_agents>: an `online:` line naming the sub-agents it can start,
+          - <sub_agents>: an `online:` line naming the sub-agents it can start
+            (ios_agent only while the request's phone is connected, with a
+            `checking connection: ios_agent` line while it is being connected),
             then one row per sub-agent started in this run (id, task cut to 100
             characters, status). Always present.
 
@@ -404,8 +406,12 @@ class AgentService:
             f"<scratchpad>\n{(scratchpad or '').strip() or 'none'}\n</scratchpad>",
         ]
         rows = self.controller.get_sub_agents()
-        pm.append("<sub_agents>\n" + "\n".join([f"online: {', '.join(SUB_AGENT_TYPES)}"]
-                                               + [self._sub_agent_row(r) for r in rows])
+        phone = self.controller.phone_state()
+        online = [t for t in SUB_AGENT_TYPES if t != "ios_agent" or phone == "online"]
+        head = [f"online: {', '.join(online)}"]
+        if phone == "checking":
+            head.append("checking connection: ios_agent")
+        pm.append("<sub_agents>\n" + "\n".join(head + [self._sub_agent_row(r) for r in rows])
                   + "\n</sub_agents>")
         return "<persistent_memory>\n" + "\n\n".join(pm) + "\n</persistent_memory>"
 
@@ -537,6 +543,19 @@ class AgentService:
             pass
 
     def process_request(self, task: str) -> dict:
+        """Run one user request (see _process_request), with the phone around it.
+
+        The moment the request starts, the paired iPhone/iPad is looked for and
+        connected in the background, so ios_agent can come online; however the
+        request ends (done, Stop, an error, Ctrl+C), the phone is let go."""
+        from ...controller.tool import ios_agent
+        self.controller.phone = ios_agent.PhoneLink.start()
+        try:
+            return self._process_request(task)
+        finally:
+            self.controller.release_phone()
+
+    def _process_request(self, task: str) -> dict:
         """Process a user request in an iterative loop until completion.
 
         Returns a structured outcome {"status", "message"} so callers (Telegram,

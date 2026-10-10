@@ -4153,14 +4153,17 @@ def main():
 
     # A browser agent still at work when the app closes: it acts on websites
     # and calls the model, so it must not go on with nobody left to report to.
+    # The same for an ios_agent run on the phone (macOS), which also closes the
+    # phone window and lets the phone go.
     # On the closing event because not every quit runs atexit (Cmd+Q on macOS).
-    # Looked up at closing time: the module is only loaded once a browser agent
-    # has been started. Returns None, so the close is never cancelled.
+    # Looked up at closing time: a module is only loaded once it has been used.
+    # Returns None, so the close is never cancelled.
     try:
         def _stop_browser_agents():
-            launcher = sys.modules.get(f"AutoCua.{PLATFORM_PKG}.controller.tool.browser_agent")
-            if launcher is not None:
-                launcher.stop_all()
+            for name in ("browser_agent", "ios_agent"):
+                launcher = sys.modules.get(f"AutoCua.{PLATFORM_PKG}.controller.tool.{name}")
+                if launcher is not None:
+                    launcher.stop_all()
 
         win.events.closing += _stop_browser_agents
     except Exception:

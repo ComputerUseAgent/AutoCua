@@ -544,18 +544,19 @@ def _main_tools(track: dict, notes: dict = None) -> list:
         _tool("web", {"value": {"type": "string"}},
               'Delegate to a specialized AI to fetch real-time information and provide data at runtime. Use this for speed instead of manual browsing.\n'
               '    2. Example: web {"value": "financial result of nvidia Q4 2025"}', track=track),
-        _tool("sub_agent", {"agent_type": {"type": "string", "enum": ["coder_agent", "browser_agent"]},
+        _tool("sub_agent", {"agent_type": {"type": "string", "enum": ["coder_agent", "browser_agent", "ios_agent"]},
                             "value": {"type": "string"}},
               'Start a sub-agent on a task. It works in parallel while you carry on, and gets a row with its id in <sub_agents>.\n'
               '    1. `agent_type`:\n'
               '      1. `coder_agent`: complex coding and multi-step shell work.\n'
               '      2. `browser_agent`: acts on websites in its own Brave browser (navigate, open tabs, click, fill forms). One at a time. Its window opens in front of your screen: leave it to the browser agent and bring your own app forward with open_app. It runs on the agent\'s own Brave profile, not the person\'s browser, so the person\'s signed-in accounts are not there: buying and anything that needs their accounts stay with you.\n'
+              '      3. `ios_agent`: works on the person\'s real iPhone or iPad, plugged into this Mac by cable: opens its apps, taps, types, scrolls and reads its screen. One at a time. Only while <sub_agents> lists it under `online:`; `checking connection: ios_agent` means the phone is still being connected.\n'
               '    2. `value`: the full instruction. It is all the sub-agent gets, so make it self-contained.\n'
               '    3. Example: sub_agent {"agent_type": "coder_agent", "value": "instruction"}', track=track),
-        _tool("agent_wait", {"agent_type": {"type": "string", "enum": ["coder_agent", "browser_agent"]},
+        _tool("agent_wait", {"agent_type": {"type": "string", "enum": ["coder_agent", "browser_agent", "ios_agent"]},
                              "agent_id": {"type": "integer"},
                              "value": {"type": "string"}},
-              'Hold the pipeline until one sub-agent finishes. Use it only when your next step needs its report, before you start another browser_agent (one at a time), or before done.\n'
+              'Hold the pipeline until one sub-agent finishes. Use it only when your next step needs its report, before you start another browser_agent or ios_agent (one at a time each), or before done.\n'
               '    1. `agent_type` and `agent_id`: the sub-agent to hold for, as its row in <sub_agents> shows them.\n'
               '    2. If another sub-agent finishes first, the hold ends with that report; call agent_wait again to keep holding.\n'
               '    3. Example: agent_wait {"agent_type": "coder_agent", "agent_id": 1, "value": "Reason"}', track=track),

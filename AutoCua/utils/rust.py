@@ -132,6 +132,12 @@ def ensure_web_agent_built() -> None:
     # the result.
     env = dict(os.environ)
     env.setdefault("PYO3_PYTHON", sys.executable)
+    # macOS: the release profile's `strip = true` leaves a library that the
+    # loader of macOS 26+ refuses ("mis-aligned LINKEDIT string pool", with
+    # Xcode's current ld; re-signing does not help, "debuginfo" fails the same
+    # way). Unstripped it loads, 0.8 MB bigger. Other platforms are untouched.
+    if sys.platform == "darwin":
+        env.setdefault("CARGO_PROFILE_RELEASE_STRIP", "false")
     # When cargo was found through the ~/.cargo/bin fallback rather than PATH
     # (a shell that never sourced rustup's profile edit), rustc and the rest
     # of the toolchain live beside it and are found the same way.

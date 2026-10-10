@@ -132,13 +132,48 @@ NUMBER_COLOR = (255, 0, 255)  # Same magenta for numbers
 BOX_WIDTH = 1
 
 # Final geometry/encoding of the annotated screenshot.
-# The image is encoded ONCE, here; those exact bytes are the LLM payload and
-# what DEBUG writes to disk. Callers must NOT re-encode.
-LLM_IMAGE_MAX_EDGE = 2300
-LLM_IMAGE_MAX_PIXELS = 3_300_000
+# The image is encoded ONCE, here, as lossless PNG: those bytes are what DEBUG
+# writes to disk and, with DEBUG on, what the frontend preview shows (with it
+# off, the preview is the plain, unannotated capture). On the way to the model
+# the Linux tool registry (tool_registry/service.py, as_jpeg_base64) converts
+# it to the same JPEG q85 4:4:4 the other platforms send, so the DIMENSIONS
+# chosen here are what the model sees and what it is billed for; the PNG bytes
+# themselves never reach the wire.
+#
+# One cap, matching mac/tree/element.py: the delivered image fits inside full
+# HD (1080p). Orientation-agnostic - long side <= 1920, short side <= 1080 -
+# aspect preserved, never upscaled: a single 1080p monitor's capture is sent
+# as is, anything bigger (4K, HiDPI laptops) is scaled down to fit. NOTE: on
+# Linux the capture is the bounding box of EVERY monitor (get_screen), so with
+# several monitors the box applies to the whole desktop composite - two
+# side-by-side 1080p monitors arrive as 1920x540, two stacked as 1080x1215 -
+# and UI text in the delivered image is correspondingly smaller.
+#
+# Why 1080p: Claude 4.7+ and GPT-6 read an image up to ~2500 px natively and
+# bill per patch, so the cost follows the delivered pixel count. A 16:9 1440p
+# or 4K capture used to go out as 2300x1293 (~3900 Claude tokens per step) and
+# now goes as 1920x1080 (~2690) - about 31% less. 16:10 and 3:2 HiDPI panels
+# save ~45% (the mac tree's 13" Air: ~4300 -> ~2340). A single 1080p monitor
+# was already sent as is, so it is unchanged. Gemini 3 bills a flat ~1066
+# whatever the size; older Claude models downsize to <=1568 either way. The
+# JPEG rides the never-cached live message on EVERY step and shrinks with the
+# pixel count too. Labels are drawn AFTER the resize at a fixed pixel size, so
+# they are untouched.
+LLM_IMAGE_LONG_EDGE = 1920
+LLM_IMAGE_SHORT_EDGE = 1080
 LLM_IMAGE_FORMAT = "PNG"          # lossless — annotations are thin, saturated detail
 LLM_IMAGE_COMPRESS_LEVEL = 1      # PNG is lossless at every level; 1 encodes fastest
 LLM_IMAGE_MEDIA_TYPE = "image/png"
+
+
+def llm_image_shrink(width, height):
+    """Scale factor that fits a capture inside LLM_IMAGE_LONG_EDGE x
+    LLM_IMAGE_SHORT_EDGE whichever way it is oriented; 1.0 when it already
+    fits (never upscale)."""
+    return min(1.0,
+               LLM_IMAGE_LONG_EDGE / max(width, height),
+               LLM_IMAGE_SHORT_EDGE / min(width, height))
+
 
 # Index-label styling, in delivered pixels (labels are drawn AFTER the downscale).
 LABEL_FONT_SIZE = 13
@@ -4833,9 +4868,7 @@ class UIElementScanner:
         try:
             img = self._screenshot
             src_w, src_h = img.size
-            shrink = min(1.0,
-                         LLM_IMAGE_MAX_EDGE / max(src_w, src_h),
-                         (LLM_IMAGE_MAX_PIXELS / (src_w * src_h)) ** 0.5)
+            shrink = llm_image_shrink(src_w, src_h)
             if shrink < 1.0:
                 img = img.resize(
                     (max(1, int(src_w * shrink)), max(1, int(src_h * shrink))),
@@ -4883,12 +4916,19 @@ class UIElementScanner:
             # box; Ashish wants them inside, like the rest.)
             label = f"[{item['index']}]"
             tile = _label_tile(label, font, stroke_w)
-            screenshot.paste(tile, (box[0] + 4, box[1] + 3), tile)
+            # Keep the whole label on the canvas: PIL silently clips a paste
+            # past an edge, so a box near the right or bottom edge would lose
+            # the end of its number. The tile is cropped to its ink, so its
+            # size is exactly what has to fit.
+            tx = max(0, min(box[0] + 4, screenshot.width - tile.width))
+            ty = max(0, min(box[1] + 3, screenshot.height - tile.height))
+            screenshot.paste(tile, (tx, ty), tile)
 
         self._encode_annotation(screenshot)
 
     def _encode_annotation(self, screenshot):
-        """Single lossless encode — these exact bytes are the LLM payload."""
+        """Single lossless encode. On the way to the model the tool registry
+        (as_jpeg_base64) re-encodes it as JPEG at the same dimensions."""
         buffered = io.BytesIO()
         screenshot.save(buffered, format=LLM_IMAGE_FORMAT,
                         compress_level=LLM_IMAGE_COMPRESS_LEVEL)

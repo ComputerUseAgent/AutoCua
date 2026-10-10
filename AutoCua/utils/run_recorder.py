@@ -1,30 +1,21 @@
 #!/usr/bin/env python3
 
-"""Record one agent run as two videos, kept separate so they can be cut
-together later:
+"""Record one agent run as one video of the main screen, nothing else:
 
-    AutoCua_data/recordings/<time>_<mode>/screen.mp4   what the agent drives
-    AutoCua_data/recordings/<time>_<mode>/app.mp4      the AutoCua window
+    AutoCua_data/recordings/<time>_<mode>/screen.mp4
 
-screen.mp4
-  * Computer use: the built-in display, the one the mac agent's get_screen()
-    picks (mac/tree/element.py). A CG capture contains neither the pointer
-    nor the edge glow (the glow is a sharing-none window), so both are drawn
-    in: the lavender arrow that agent_glow shows on Windows, shrinking on a
-    click, and the breathing lavender edge glow.
-  * Web use: the Chrome window the agent drives, found by the pid in its
-    profile's SingletonLock. The app raises itself over Chrome at the start
-    of a web run, so the display would mostly show the app. The page already
-    carries the web agent's own cursor and glow, so nothing is drawn.
-app.mp4: the AutoCua window, grabbed by its own window id, so it stays in
-  the video while the agent's apps cover it.
+macOS: the built-in display, the one the mac agent's get_screen() picks
+(mac/tree/element.py), in Computer use and Web use alike. In Computer use a
+CG capture contains neither the pointer nor the edge glow (the glow is a
+sharing-none window), so both are drawn in: the lavender arrow that
+agent_glow shows on Windows, shrinking on a click, and the breathing
+lavender edge glow. A Web run has neither on the desktop, so nothing is
+drawn.
 
-Both are full resolution (Retina on a Mac), 30 fps, H.264, with all four
-corners rounded on black. Each video has a capture thread that keeps the
-newest frame and a writer thread that stamps it and writes it by the wall
-clock: a late capture repeats the last frame, so the video plays at real
-speed. Both start at the same instant (a late Chrome is padded with black),
-so they line up.
+It is full resolution (Retina on a Mac), 30 fps, H.264, with all four
+corners rounded on black. A capture thread keeps the newest frame and a
+writer thread stamps it and writes it by the wall clock: a late capture
+repeats the last frame, so the video plays at real speed.
 
     rec = run_recorder.start(ui_window, "computer", on_done=notify)
     rec.stop(tail=2.0)   # keeps recording `tail` seconds, then finalizes
@@ -35,18 +26,17 @@ Linux: nothing is drawn in, because agent_glow's glow and lavender cursor are
 real on screen there. screen.mp4 in computer use is the PipeWire screencast
 of the agent's own RemoteDesktop portal session (no second consent dialog);
 in web use it is Chrome's own screencast over its DevTools port, since on
-Wayland one app cannot read another's window. app.mp4 is WebKit's snapshot of
-the app's own web view (the page, without the title bar). imageio-ffmpeg
-encodes: OpenCV's Linux wheels cannot write H.264.
+Wayland one app cannot read another's window. imageio-ffmpeg encodes:
+OpenCV's Linux wheels cannot write H.264.
 Windows: nothing is drawn in either, because agent_glow's lavender arrow is
 the real system cursor there and its glow is real windows. screen.mp4 in
 computer use is the primary display, the one the Windows agent screenshots,
 read through DXGI Desktop Duplication with the pointer composited in from
 the shape the compositor reports; GDI BitBlt stands in while duplication is
 unavailable. In web use it is the Chrome window, found by the pid listening
-on the DevTools port. That window and app.mp4 are PrintWindow with
-PW_RENDERFULLCONTENT: DWM renders the window's own pixels, WebView2's and
-Chrome's GPU content included, while other windows cover it. imageio-ffmpeg
+on the DevTools port, read with PrintWindow and PW_RENDERFULLCONTENT: DWM
+renders the window's own pixels, Chrome's GPU content included, while other
+windows cover it. imageio-ffmpeg
 encodes, as on Linux: OpenCV's Windows wheels reach H.264 only through Media
 Foundation, at a fixed bit per pixel per frame (about 900 MB a minute of a
 2560x1600 screen).
@@ -63,7 +53,7 @@ import threading
 import time
 from datetime import datetime
 
-from AutoCua import _ensure, browser_profile_dir, data_root
+from AutoCua import _ensure, data_root
 
 FPS = 30
 CORNER = 0.022        # corner radius, as a fraction of the short side
@@ -95,7 +85,9 @@ def supported() -> bool:
 def start(ui_window, kind, on_done=None):
     """Start recording a run. kind is "computer" or "web". on_done(folder) is
     called once it is finished, with None when nothing was captured. Returns
-    the recorder, or None when recording is unsupported or could not start."""
+    the recorder, or None when recording is unsupported or could not start.
+    ui_window is no longer used (only the main screen is recorded); callers
+    still pass it."""
     if not supported():
         return None
     try:
@@ -154,62 +146,6 @@ def _grab_display(rect):
                         kCGNullWindowID, kCGWindowImageDefault)
     return _cg_to_bgr(CGWindowListCreateImage(
         rect, kCGWindowListOptionOnScreenOnly, kCGNullWindowID, kCGWindowImageDefault))
-
-
-def _grab_window(wid):
-    """One window's own pixels, even when other windows cover it. None while
-    it is minimized, hidden or on another Space."""
-    if not wid:
-        return None
-    from Quartz import (CGWindowListCreateImage, CGRectNull,
-                        kCGWindowListOptionIncludingWindow,
-                        kCGWindowImageBoundsIgnoreFraming)
-    return _cg_to_bgr(CGWindowListCreateImage(
-        CGRectNull, kCGWindowListOptionIncludingWindow, wid,
-        kCGWindowImageBoundsIgnoreFraming))
-
-
-def _chrome_window_id():
-    """The web agent's Chrome window: the largest normal window owned by the
-    pid in the default profile's SingletonLock ("<host>-<pid>"). The UI always
-    runs the web agent on the default profile. None until Chrome is up."""
-    try:
-        target = os.readlink(browser_profile_dir(None) / "SingletonLock")
-        pid = int(target.rsplit("-", 1)[1])
-    except Exception:
-        return None
-    from Quartz import (CGWindowListCopyWindowInfo, kCGWindowListOptionOnScreenOnly,
-                        kCGWindowListExcludeDesktopElements, kCGNullWindowID)
-    best, best_area = None, 0
-    infos = CGWindowListCopyWindowInfo(
-        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
-        kCGNullWindowID) or []
-    for w in infos:
-        if w.get("kCGWindowOwnerPID") != pid or w.get("kCGWindowLayer", 0) != 0:
-            continue
-        b = w.get("kCGWindowBounds") or {}
-        area = b.get("Width", 0) * b.get("Height", 0)
-        if area > best_area:
-            best, best_area = w.get("kCGWindowNumber"), area
-    return best
-
-
-def _keep_ui_painting(ui_window, on):
-    """WebKit stops repainting a window that macOS reports as fully covered,
-    and in computer use the agent's apps cover the AutoCua window for much of
-    the run. Occlusion detection is switched off while recording, so app.mp4
-    stays live, and back on afterwards. Private WebKit API, so it is only
-    called when the web view answers to it. macOS only."""
-    if sys.platform != "darwin":
-        return
-    try:
-        from PyObjCTools import AppHelper
-        from webview.platforms.cocoa import BrowserView
-        view = BrowserView.instances[ui_window.uid].webview
-        if view.respondsToSelector_(b"_setWindowOcclusionDetectionEnabled:"):
-            AppHelper.callAfter(view._setWindowOcclusionDetectionEnabled_, not on)
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -711,68 +647,6 @@ class _Screencast:
         self.stopped.set()
 
 
-class _WebViewSnapshot:
-    """app.mp4 on Linux. pywebview's GTK backend shows the page in a
-    WebKit2GTK web view, and WebKit hands our own process a snapshot of it,
-    covered or not, with no portal. GTK and WebKit belong to the main thread,
-    so each snapshot is asked for there and picked up here. The page only:
-    the GNOME title bar is not part of it."""
-
-    @staticmethod
-    def usable():
-        try:
-            import gi
-            import webview
-            gi.require_foreign("cairo")    # python3-gi-cairo: the snapshot comes back as a cairo surface
-            return webview.renderer == "gtkwebkit2"   # not when KDE got pywebview's Qt backend
-        except Exception as e:
-            print(f"[recorder] no app video on this desktop: {e}")
-            return False
-
-    def __init__(self, ui_window):
-        self.ui_window = ui_window
-        self.failed = False
-
-    def grab(self):
-        if self.failed:
-            return None
-        from gi.repository import GLib
-        box, ready = {}, threading.Event()
-
-        def done(view, result):
-            try:
-                box["surface"] = view.get_snapshot_finish(result)
-            except Exception as e:
-                box["error"] = e
-            ready.set()
-
-        def ask():
-            try:
-                from gi.repository import WebKit2
-                from webview.platforms.gtk import BrowserView
-                view = BrowserView.instances[self.ui_window.uid].webview
-                view.get_snapshot(WebKit2.SnapshotRegion.VISIBLE,
-                                  WebKit2.SnapshotOptions.NONE, None, done)
-            except Exception as e:
-                box["error"] = e
-                ready.set()
-            return False                   # run once
-
-        GLib.idle_add(ask)
-        if not ready.wait(0.5) or "surface" not in box:
-            if "error" in box:             # a real failure, not a slow frame: stop asking
-                self.failed = True
-                print(f"[recorder] no snapshot of the app window: {box['error']}")
-            return None
-        surface = box["surface"]
-        surface.flush()
-        return _bgrx_to_bgr(surface.get_data(), surface.get_width(),
-                            surface.get_height(), surface.get_stride())
-
-    def close(self):
-        pass
-
-
 # ---------------------------------------------------------------------------
 # Windows
 # ---------------------------------------------------------------------------
@@ -932,14 +806,6 @@ def _bgr(bgra, out=None):
             return np.ascontiguousarray(bgra[..., :3])
         out[...] = bgra[..., :3]
         return out
-
-
-def _ui_hwnd(ui_window):
-    """The AutoCua window's handle (pywebview's WinForms form), or 0."""
-    try:
-        return int(ui_window.native.Handle.ToInt64())
-    except Exception:
-        return 0
 
 
 def _chrome_hwnd():
@@ -1368,38 +1234,25 @@ class _Recorder:
         if sys.platform != "darwin":
             self._streams = self._linux_streams()
             return self._start()
-        ui_id = int(self.ui_window.native.windowNumber()) if self.ui_window else 0
-
+        # The main screen, in Computer use and Web use alike.
+        rect = _display_rect()
+        first = _grab_display(rect)
+        if first is None:
+            raise RuntimeError("the display could not be captured")
+        decorate = None
         if self.kind == "computer":
-            rect = _display_rect()
-            first = _grab_display(rect)
-            if first is None:
-                raise RuntimeError("the display could not be captured")
             scale = first.shape[1] / rect.size.width
             self._pointer = _Pointer(rect, scale)
             glow = _Glow(first.shape[1] - first.shape[1] % 2, first.shape[0] - first.shape[0] % 2, scale)
-            self._t0 = time.monotonic()   # after the setup above, so the video opens on a picture, not black
 
-            def decorate(frame, now):
+            def draw_pointer_and_glow(frame, now):
                 glow.draw(frame, now, self._t0, self._glow_fade(now))
                 self._pointer.draw(frame, now, self._t0)
-            screen = _Stream(self.path / "screen.mp4", lambda: _grab_display(rect),
-                             self._t0, self._done, decorate)
-        else:
-            chrome = {"id": None, "checked": 0.0}
-
-            def grab_chrome():
-                # Chrome starts after the recording does and may open another
-                # window later, so it is looked up again every second.
-                now = time.monotonic()
-                if chrome["id"] is None or now - chrome["checked"] > 1.0:
-                    chrome["checked"] = now
-                    chrome["id"] = _chrome_window_id() or chrome["id"]
-                return _grab_window(chrome["id"])
-            screen = _Stream(self.path / "screen.mp4", grab_chrome, self._t0, self._done)
-
-        app = _Stream(self.path / "app.mp4", lambda: _grab_window(ui_id), self._t0, self._done)
-        self._streams = (screen, app)
+            decorate = draw_pointer_and_glow
+        self._t0 = time.monotonic()   # after the setup above, so the video opens on a picture, not black
+        screen = _Stream(self.path / "screen.mp4", lambda: _grab_display(rect),
+                         self._t0, self._done, decorate)
+        self._streams = (screen,)
         self._start()
 
     def _linux_streams(self):
@@ -1408,11 +1261,7 @@ class _Recorder:
         self._sources.append(src)
         if self.kind == "computer" and src.prime():
             self._t0 = time.monotonic()   # after the setup above, so the video opens on a picture, not black
-        streams = [_Stream(self.path / "screen.mp4", src.grab, self._t0, self._done)]
-        if self.ui_window and _WebViewSnapshot.usable():
-            app = _WebViewSnapshot(self.ui_window)
-            streams.append(_Stream(self.path / "app.mp4", app.grab, self._t0, self._done))
-        return tuple(streams)
+        return (_Stream(self.path / "screen.mp4", src.grab, self._t0, self._done),)
 
     def _windows_streams(self):
         """Windows: nothing is drawn in (see the module docstring)."""
@@ -1433,22 +1282,11 @@ class _Recorder:
                 return chrome["hwnd"]
             src = _WindowGrab(find_chrome)
         self._sources.append(src)
-        streams = [_Stream(self.path / "screen.mp4", src.grab, self._t0, self._done)]
-        hwnd = _ui_hwnd(self.ui_window)
-        if hwnd:
-            app = _WindowGrab(lambda: hwnd)
-            self._sources.append(app)
-            streams.append(_Stream(self.path / "app.mp4", app.grab, self._t0, self._done))
-        return tuple(streams)
+        return (_Stream(self.path / "screen.mp4", src.grab, self._t0, self._done),)
 
     def _start(self):
-        # Two recordings can overlap for a moment (the next run starts during
-        # the last one's tail), so the painting switch is flipped under the
-        # lock: on here, and off only by the last recording to finish.
         with _live_lock:
             _live.add(self)
-            if self.ui_window:
-                _keep_ui_painting(self.ui_window, True)
         for s in self._streams:
             s.start()
         self._thread = threading.Thread(target=self._run, name="run-recorder", daemon=True)
@@ -1501,8 +1339,6 @@ class _Recorder:
                 pass
         with _live_lock:
             _live.discard(self)
-            if self.ui_window and not _live and not _exiting:
-                _keep_ui_painting(self.ui_window, False)
         if self.on_done and not _exiting:
             try:
                 self.on_done(self.path if saved else None)
@@ -1546,10 +1382,6 @@ if __name__ == "__main__":
             Gst.init(None)
             assert Gst.ElementFactory.find("pipewiresrc"), "no pipewiresrc (gstreamer1.0-pipewire)"
 
-        def _cairo():
-            import gi
-            gi.require_foreign("cairo")
-
         def _ffmpeg():
             import imageio_ffmpeg
             imageio_ffmpeg.get_ffmpeg_exe()
@@ -1559,7 +1391,6 @@ if __name__ == "__main__":
 
         for name, check in (("imageio-ffmpeg, the encoder", _ffmpeg),
                             ("GStreamer + pipewiresrc, the screen in computer use", _gst),
-                            ("gi-cairo, the app window", _cairo),
                             ("websockets, the screen in web use", _ws)):
             try:
                 check()
