@@ -27,7 +27,7 @@ quoted code if a line no longer matches.
   try/except; `atexit` is already imported. Raise the kill timeout in main.js
   from 5000 to 15000, so the cleanup has time to finish.
 
-### 2. Recording doesn't work on Mac
+### 2. Recording doesn't work on Mac (fixed 2026-10-10, see the end of this file)
 - **What happens:** with Settings → Recording on, nothing is recorded in the
   Chromium window. The log only says `[recorder] could not start`.
 - **Where:**
@@ -188,3 +188,10 @@ quoted code if a line no longer matches.
   window draws its own off-white bar (`AutoCua/desktop/main.js`, `createWindow`).
 - **Web scan: "no answer from AutoCuaBridge in 40s"**: fixed 2026-10-09 in 458885d.
   See [web_scan_no_answer_from_bridge.md](web_scan_no_answer_from_bridge.md).
+- **Recording doesn't work on Mac (item 2)**: fixed 2026-10-10 in 22be5d5. The
+  recorder no longer touches the app window at all: one `screen.mp4` of the main
+  screen per run, in both windows. See
+  [computer_use_iphone_browser_parallel.md](computer_use_iphone_browser_parallel.md).
+- **Computer use, the iPhone and the browser at the same time**: fixed 2026-10-10/11
+  in 754af08 (eight causes, from the passcode prompt to App Nap and the extension's
+  stopped worker). Same note.
