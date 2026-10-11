@@ -27,6 +27,11 @@ import threading
 
 from .agent.service import MemoryCompressionAgent, make_synthetic_entry
 
+# Compression on/off flag. True: compress when the context crosses
+# COMPRESS_THRESHOLD. False: never compress (token tracking and the memory
+# bar keep working as usual).
+COMPRESSION = True
+
 # Rolling-compression trigger: fire when the agent's live context size
 # (incl. cached tokens) crosses this. memory_tracker.MEMORY_CAP is the bar's
 # display budget; this is the point compression starts keeping context down.
@@ -75,6 +80,8 @@ class CompressionController:
         except Exception:
             return
         if ctx < self._threshold:
+            return
+        if not COMPRESSION:                             # flag off: never compress
             return
         if self._inflight or self._result is not None:
             return

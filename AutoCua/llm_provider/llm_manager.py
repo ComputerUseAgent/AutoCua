@@ -72,10 +72,11 @@ _TRACK_PARAMS = {
 # never as an action.
 NOTE_TOOLS = ("reasoning", "agent_memory", "memory")
 
-# The optional note fields: `thinking` on the `reasoning` tools and, on
-# Claude, `assessment` on `agent_memory` (see each tool registry). Left out of
-# the schema's `required` list and out of the "no arguments" error text.
-REASONING_OPTIONAL = ("thinking", "assessment")
+# The optional note field: `thinking` on the `reasoning` tools (see each tool
+# registry). Left out of the schema's `required` list and out of the "no
+# arguments" error text. Claude's `agent_memory` has no optional field: its
+# `memory` and `next_goal` are filled every step.
+REASONING_OPTIONAL = ("thinking",)
 
 
 def _tool(name: str, params: dict, description: str = "", track: dict = None,
@@ -565,7 +566,7 @@ class LLMManager:
         # own; the main driver gets its action tools, thinking-less in fast
         # mode). mode="text" is the only caller that gets no tools at all.
         # A Claude model (self.claude, any provider) gets the CLAUDE variants,
-        # whose notes tool is `agent_memory` (assessment in place of thinking).
+        # whose notes tool is `agent_memory` (memory + next_goal, no thinking field).
         claude = self.claude
         if self.mode == "minion":
             registry = self.MINION_TOOLS_CLAUDE if claude else self.MINION_TOOLS

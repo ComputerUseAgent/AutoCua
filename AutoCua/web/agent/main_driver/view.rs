@@ -238,8 +238,9 @@ pub const REASONING_RESULT: &str = "ok";
 
 /// DISPLAY-ONLY rendering of one native assistant turn as the familiar
 /// four-block shape {"thinking", "memory", "next_goal", "action"}. The notes
-/// are pulled OUT of the call arguments (the `reasoning` call in quality
-/// mode, the first action call in fast mode and in older saves) and shown as
+/// are pulled OUT of the call arguments (the `reasoning` or `agent_memory`
+/// call in quality mode, the first action call in fast mode and in older
+/// saves) and shown as
 /// their own fields; the notes call itself is NOT listed under action, and a
 /// missing `thinking` renders as "skipped". A fast turn (its notes on the
 /// `memory` call, `next_goal` alone) renders only {"next_goal", "action"}.
@@ -275,12 +276,10 @@ pub fn snapshot_value(text: &str, calls: &Value) -> Value {
             // shift_remove, NOT remove: with preserve_order, plain remove is a
             // swap_remove that scrambles the remaining keys' order.
             let step_thinking = py_str_or_empty(args.shift_remove("thinking").as_ref()).trim().to_string();
-            // Claude's `assessment` renders in the thinking slot.
-            let step_assessment = py_str_or_empty(args.shift_remove("assessment").as_ref()).trim().to_string();
             let step_memory = py_str_or_empty(args.shift_remove("memory").as_ref()).trim().to_string();
             let step_next_goal = py_str_or_empty(args.shift_remove("next_goal").as_ref()).trim().to_string();
             if thinking.is_empty() {
-                thinking = if step_thinking.is_empty() { step_assessment } else { step_thinking };
+                thinking = step_thinking;
             }
             if memory.is_empty() {
                 memory = step_memory;
@@ -705,7 +704,6 @@ pub fn looks_native_py(raw: Bound<'_, PyAny>) -> PyResult<bool> {
 /// (field, emoji label) in the class's source order — the order that drives
 /// format_response's output lines.
 const FIELD_EMOJIS: &[(&str, &str)] = &[
-    ("assessment", "🧠 Assessment"),
     ("thinking", "🧠 Thinking"),
     ("next_goal", "🎯 Next Goal"),
     ("memory", "💾 Memory"),

@@ -22,6 +22,7 @@ from ...tree.element import UIElementScanner, ELEMENT_CONFIG
 from ...controller import ControllerView
 from ...controller.view import SUB_AGENT_TYPES
 from ..skills import DomainKnowledgeService
+from .... import data_extraction
 
 # Run-boundary request markers: on resume, the bridge entry that ended the prior
 # run ("Previous run concluded.", saved by agent_conversation._build_history with
@@ -110,8 +111,8 @@ class AgentService:
         # first in every step, while the action tools carry only their own
         # fields. Quality: `reasoning` (thinking optional, memory + next_goal
         # every step). Fast: `memory` (`next_goal` alone). Quality on Claude
-        # (any Claude model, any provider): `agent_memory`, the same notes with
-        # `assessment` in place of `thinking`, and its own prompt, claude_prompt.md.
+        # (any Claude model, any provider): `agent_memory` (memory + next_goal
+        # every step, no thinking field) and its own prompt, claude_prompt.md.
         fast = self.speed == "fast"
         self._claude = not fast and self.llm_manager.claude
         if fast:
@@ -392,7 +393,8 @@ class AgentService:
           - <scratchpad>: the verified checkpoints so far, or "none".
           - <sub_agents>: an `online:` line naming the sub-agents it can start,
             then one row per sub-agent started in this run (id, task cut to 100
-            characters, status). Always present.
+            characters, status). Always present. While the dataset recorder is
+            on it reads `offline:` instead: the sub-agent tools are withheld.
 
         Skills guidance is deliberately NOT in here: it is reference material
         about the current screen, not something the agent wrote, so it rides
@@ -403,7 +405,11 @@ class AgentService:
             f"<scratchpad>\n{(scratchpad or '').strip() or 'none'}\n</scratchpad>",
         ]
         rows = self.controller.get_sub_agents()
-        pm.append("<sub_agents>\n" + "\n".join([f"online: {', '.join(SUB_AGENT_TYPES)}"]
+        # Recording: the sub-agent tools are not sent at all
+        # (data_extraction.OFF_TOOLS), so none can be started - say offline
+        # rather than offer them.
+        state = "offline" if data_extraction.ENABLED else "online"
+        pm.append("<sub_agents>\n" + "\n".join([f"{state}: {', '.join(SUB_AGENT_TYPES)}"]
                                                + [self._sub_agent_row(r) for r in rows])
                   + "\n</sub_agents>")
         return "<persistent_memory>\n" + "\n\n".join(pm) + "\n</persistent_memory>"
@@ -719,7 +725,7 @@ class AgentService:
                 image_sent = False
                 formatted_element_tree = ""
                 notes_hint = ("`memory` with `next_goal`" if self._notes_tool == "memory"
-                              else "`agent_memory` with `memory` and `next_goal` only (no `assessment`)" if self._claude
+                              else "`agent_memory` with `memory` and `next_goal`" if self._claude
                               else "`reasoning` with `memory` and `next_goal` only (no `thinking`)")
                 user_message = f"""<UAC_Trigger>
 A UAC prompt is blocking the screen. Based on your previous actions, do you want to allow this?
@@ -1036,10 +1042,8 @@ No image and element tree provided. Focus on digesting the web response below.
                                 indent=2, ensure_ascii=False)} for i in note_ids]
                         normalized = encode_step(resp_text, wire_calls_from(all_calls),
                                                  raw_response.get("provider_meta"))
-                        # Only the fields this mode carries (fast has no thinking).
+                        # Only the fields this mode carries (fast and Claude have no thinking).
                         display = {}
-                        if "assessment" in track:
-                            display["assessment"] = track["assessment"] or resp_text or SKIPPED_THINKING
                         if "thinking" in track:
                             display["thinking"] = track["thinking"] or resp_text or SKIPPED_THINKING
                         if "memory" in track:
@@ -1109,11 +1113,10 @@ No image and element tree provided. Focus on digesting the web response below.
                 # and the tool-icon chain read this four-block view; the
                 # transcript sent to the model does not.
                 # Only the params this mode actually carries: quality has all
-                # three, fast has next_goal alone. Rendering one the mode dropped
-                # would print an empty block in the terminal and the UI stream.
+                # three (memory + next_goal on Claude), fast has next_goal alone.
+                # Rendering one the mode dropped would print an empty block in
+                # the terminal and the UI stream.
                 display = {}
-                if "assessment" in track:
-                    display["assessment"] = track["assessment"] or resp_text or SKIPPED_THINKING
                 if "thinking" in track:
                     display["thinking"] = track["thinking"] or resp_text or SKIPPED_THINKING
                 if "memory" in track:

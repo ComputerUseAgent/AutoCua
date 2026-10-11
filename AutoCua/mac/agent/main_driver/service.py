@@ -111,8 +111,8 @@ class AgentService:
         # first in every step, while the action tools carry only their own
         # fields. Quality: `reasoning` (thinking optional, memory + next_goal
         # every step). Fast: `memory` (`next_goal` alone). Quality on Claude
-        # (any Claude model, any provider): `agent_memory`, the same notes with
-        # `assessment` in place of `thinking`, and its own prompt, claude_prompt.md.
+        # (any Claude model, any provider): `agent_memory` (memory + next_goal
+        # every step, no thinking field) and its own prompt, claude_prompt.md.
         fast = self.speed == "fast"
         self._claude = not fast and self.llm_manager.claude
         if fast:
@@ -395,7 +395,8 @@ class AgentService:
             (ios_agent only while the request's phone is connected, with a
             `checking connection: ios_agent` line while it is being connected),
             then one row per sub-agent started in this run (id, task cut to 100
-            characters, status). Always present.
+            characters, status). Always present. While the dataset recorder is
+            on it reads `offline:` instead: the sub-agent tools are withheld.
 
         Skills guidance is deliberately NOT in here: it is reference material
         about the current screen, not something the agent wrote, so it rides
@@ -406,11 +407,17 @@ class AgentService:
             f"<scratchpad>\n{(scratchpad or '').strip() or 'none'}\n</scratchpad>",
         ]
         rows = self.controller.get_sub_agents()
-        phone = self.controller.phone_state()
-        online = [t for t in SUB_AGENT_TYPES if t != "ios_agent" or phone == "online"]
-        head = [f"online: {', '.join(online)}"]
-        if phone == "checking":
-            head.append("checking connection: ios_agent")
+        if data_extraction.ENABLED:
+            # Recording: the sub-agent tools are not sent at all
+            # (data_extraction.OFF_TOOLS), so none of them can be started and
+            # the phone is never looked for. Say offline rather than offer them.
+            head = [f"offline: {', '.join(SUB_AGENT_TYPES)}"]
+        else:
+            phone = self.controller.phone_state()
+            online = [t for t in SUB_AGENT_TYPES if t != "ios_agent" or phone == "online"]
+            head = [f"online: {', '.join(online)}"]
+            if phone == "checking":
+                head.append("checking connection: ios_agent")
         pm.append("<sub_agents>\n" + "\n".join(head + [self._sub_agent_row(r) for r in rows])
                   + "\n</sub_agents>")
         return "<persistent_memory>\n" + "\n\n".join(pm) + "\n</persistent_memory>"
@@ -547,9 +554,13 @@ class AgentService:
 
         The moment the request starts, the paired iPhone/iPad is looked for and
         connected in the background, so ios_agent can come online; however the
-        request ends (done, Stop, an error, Ctrl+C), the phone is let go."""
-        from ...controller.tool import ios_agent
-        self.controller.phone = ios_agent.PhoneLink.start()
+        request ends (done, Stop, an error, Ctrl+C), the phone is let go.
+
+        While the dataset recorder is on, ios_agent cannot be started at all
+        (data_extraction.OFF_TOOLS), so the phone is not looked for either."""
+        if not data_extraction.ENABLED:
+            from ...controller.tool import ios_agent
+            self.controller.phone = ios_agent.PhoneLink.start()
         try:
             return self._process_request(task)
         finally:
@@ -744,7 +755,7 @@ class AgentService:
                 image_sent = False
                 formatted_element_tree = ""
                 notes_hint = ("`memory` with `next_goal`" if self._notes_tool == "memory"
-                              else "`agent_memory` with `memory` and `next_goal` only (no `assessment`)" if self._claude
+                              else "`agent_memory` with `memory` and `next_goal`" if self._claude
                               else "`reasoning` with `memory` and `next_goal` only (no `thinking`)")
                 user_message = f"""<UAC_Trigger>
 A UAC prompt is blocking the screen. Based on your previous actions, do you want to allow this?
@@ -1061,10 +1072,8 @@ No image and element tree provided. Focus on digesting the web response below.
                                 indent=2, ensure_ascii=False)} for i in note_ids]
                         normalized = encode_step(resp_text, wire_calls_from(all_calls),
                                                  raw_response.get("provider_meta"))
-                        # Only the fields this mode carries (fast has no thinking).
+                        # Only the fields this mode carries (fast and Claude have no thinking).
                         display = {}
-                        if "assessment" in track:
-                            display["assessment"] = track["assessment"] or resp_text or SKIPPED_THINKING
                         if "thinking" in track:
                             display["thinking"] = track["thinking"] or resp_text or SKIPPED_THINKING
                         if "memory" in track:
@@ -1144,11 +1153,10 @@ No image and element tree provided. Focus on digesting the web response below.
                 # and the tool-icon chain read this four-block view; the
                 # transcript sent to the model does not.
                 # Only the params this mode actually carries: quality has all
-                # three, fast has next_goal alone. Rendering one the mode dropped
-                # would print an empty block in the terminal and the UI stream.
+                # three (memory + next_goal on Claude), fast has next_goal alone.
+                # Rendering one the mode dropped would print an empty block in
+                # the terminal and the UI stream.
                 display = {}
-                if "assessment" in track:
-                    display["assessment"] = track["assessment"] or resp_text or SKIPPED_THINKING
                 if "thinking" in track:
                     display["thinking"] = track["thinking"] or resp_text or SKIPPED_THINKING
                 if "memory" in track:

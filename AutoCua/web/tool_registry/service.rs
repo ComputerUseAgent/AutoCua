@@ -59,19 +59,19 @@ pub fn main_reasoning_fields() -> &'static Vec<(String, String)> {
     ])
 }
 
-/// The notes tools' optional field: `thinking` on `reasoning`, `assessment` on
-/// Claude's `agent_memory`. Left out of the schema's `required` list and out of
-/// the missing-field reject, so a route step can omit it (a required string
-/// invites filling).
-pub const REASONING_OPTIONAL: &[&str] = &["thinking", "assessment"];
+/// The `reasoning` tool's optional field, `thinking`. Left out of the schema's
+/// `required` list and out of the missing-field reject, so a route step can
+/// omit it (a required string invites filling). Claude's `agent_memory` has no
+/// optional field: both of its fields are filled every step.
+pub const REASONING_OPTIONAL: &[&str] = &["thinking"];
 
-/// Claude's `agent_memory` fields (quality mode, any Claude model): the
-/// `reasoning` notes with `assessment` in place of `thinking`, as on the
-/// desktop agents (CLAUDE_REASONING_FIELDS in <os>/tool_registry/service.py).
+/// Claude's `agent_memory` fields (quality mode, any Claude model): `memory`
+/// and `next_goal`, both filled every step. claude_prompt.md carries no
+/// <assessment> block, so there is no optional third field here, unlike the
+/// desktop agents' tool (CLAUDE_REASONING_FIELDS in <os>/tool_registry/service.py).
 pub fn claude_reasoning_fields() -> &'static Vec<(String, String)> {
     static P: OnceLock<Vec<(String, String)>> = OnceLock::new();
     P.get_or_init(|| vec![
-        ("assessment".to_string(), r#"Follow <assessment>. Omit it (or pass "") on a route step."#.to_string()),
         ("memory".to_string(), "Follow <memory>. Filled every step.".to_string()),
         ("next_goal".to_string(), "Follow <next_goal>. Filled every step.".to_string()),
     ])
@@ -245,29 +245,32 @@ fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
                 ("type", json!({"type": "string", "enum": ["action", "scrape"]})),
                 ("value", json!({"type": "string"})),
              ],
-             r#"Run JavaScript inside a tab's page. Two types, named in `type`:
-  "action" DOES something the ordinary tools cannot reach: put the cursor in a field, take away what covers a control, open a collapsed section, set a plain form value. It may also take a small look at how the page is built, to plan a scrape.
-  "scrape" READS the data the task needs out of the page - records, exact numbers, full text, table rows - as JSON, with your own selectors and fields, three screens at a time.
+             r#"Run JavaScript inside a tab's page. Two types, named in `type`. What the script RETURNS decides the type: page content the task will use, keep or report is a "scrape", however little of it; a receipt or a note on page structure is an "action".
+  "action" DOES something the ordinary tools cannot reach: put the cursor in a field, take away what covers a control, open a collapsed section, set a plain form value. It returns a receipt - what changed, true/false, a count - or, to plan a scrape, how the page is built: selectors, tag and attribute names, how many of a thing there are. Never content: text, numbers or records returned by an action come back bare - no screenshots to check them against, no `more` for the rest, no scraping skill - and are cut at 1000 characters.
+  "scrape" READS the data the task needs out of the page - records, exact numbers, full text, table rows, a list of anything, even one value - as JSON, with your own selectors and fields, three screens at a time (`more` pages on). Every read of content is a scrape, however small.
   USE SPARINGLY: sites that watch for automation can notice page JavaScript and block the session. For actions the ordinary tools come first - `click`, `input`, `keyboard`, `scroll`, and <element_tree> to see what is there. Do each job in ONE call.
   1. Format: run_script {"id": <n_from_all_tabs>, "type": "<action|scrape>", "value": "<javascript>"}
   2. type "action", examples:
     1. run_script {"id": 1, "type": "action", "value": "const box = document.querySelector('#t-name-box'); box.focus(); box.select(); return box.value"} - put the cursor in a field and select what is already in it, so `keyboard` or `input` types over it instead of after it
     2. run_script {"id": 1, "type": "action", "value": "document.querySelector('.sticky-header, .overlay-backdrop')?.remove(); return 'cleared'"} - take away the banner or overlay sitting on top of the control you need to click
+    3. run_script {"id": 1, "type": "action", "value": "const t = document.querySelector('table.results'); return {rows: t?.rows.length, cellClasses: [...(t?.rows[1]?.cells || [])].map(c => c.className)}"} - how a table is built, to write the scrape: counts, tags and class names, not the cell text
   3. type "scrape", examples:
     1. run_script {"id": 1, "type": "scrape", "value": "return [...document.querySelectorAll('shreddit-comment')].map(el => ({author: el.getAttribute('author'), upvotes: Number(el.getAttribute('score')), depth: Number(el.getAttribute('depth')), text: document.getElementById(el.getAttribute('thingid') + '-comment-rtjson-content')?.innerText.trim().slice(0, 400)}))"} - the comments of a Reddit thread on these screens: the exact count from the score attribute (the screen rounds it to "8.2K"), the depth (0 is a top-level comment), and each comment's own words from its own text element (its innerText repeats every reply under it)
     2. run_script {"id": 1, "type": "scrape", "value": "const num = c => Number((c?.innerText || '').replace(/\\[.*?\\]/g, '').replace(/\\D/g, '')) || null; return [...document.querySelectorAll('table.wikitable tr')].filter(tr => tr.querySelector('td')).map(tr => ({city: tr.children[0].innerText.replace(/\\[.*?\\]/g, '').trim(), country: tr.children[1]?.innerText.trim(), un_2025: num(tr.children[2])}))"} - the rows of a Wikipedia table on these screens: header rows left out, cells by position, footnote marks ("[14]") stripped, numbers as numbers
+    3. run_script {"id": 1, "type": "scrape", "value": "return [...document.querySelectorAll('.product-card')].map(el => ({name: el.querySelector('h3')?.innerText.trim(), price: el.querySelector('.price')?.innerText.trim()}))"} - two fields of the product cards on these screens: a small read is still a scrape, because the task will use what comes back
   4. How a scrape reads:
     1. It reads the screen the page is on and the two below it. Your script runs once on each of the 3 screens, and there `document.querySelectorAll` gives only the elements whose top edge is on that screen; the arrays it returns are joined. Start every read from `document.querySelectorAll(<one record>)`: a lookup that starts anywhere else is not held to the screens.
     2. The page scrolls through the 3 screens and stays at the third. A clean screenshot of each screen (no ids, no overlay) comes with the next input, for that step only: check the records against them.
     3. A read that brings records opens scrape mode: the next step shows no page, only your records and the screenshots, and its tools are `more` (the next 3 screens with the same script, with their screenshots), `scratchpad`, `update_todo` and `exit_scrape_mode`. Make the scrape the LAST call of its batch.
     4. One read hands back at most 10000 tokens (about 30000 characters). Over that nothing comes back, the page returns to where the read began, and the screenshots still come, so you can narrow the script: fewer fields, shorter text, a narrower selector. A read that matches nothing opens no mode; its screenshots come too.
-  5. How to scrape: load the scraping skill first (`skills`, its [id] in <skills>). The method, the site notes and worked examples are there; a scrape that opens scrape mode loads it for you.
+  5. How to scrape: before the first scrape of a task, load the scraping skill (`skills`, its [id] in <skills>): the method, the site notes and worked examples there shape the script. Scrape mode shows it too, so from then on it stays in front of you.
   6. Negative examples (NEVER emit these):
-    1. run_script {"id": 1, "type": "scrape", "value": "document.body.innerText"} - WRONG: the whole page as one blob, past the limit and stripped of its structure; read the records the task needs, field by field
-    2. run_script {"id": 1, "type": "scrape", "value": "document.querySelectorAll('shreddit-comment')"} - WRONG: DOM nodes are not data; map each record to the fields the task needs
-    3. run_script {"id": 1, "type": "action", "value": "el.dispatchEvent(new KeyboardEvent('keydown', {key: 'a'}))"} - WRONG: events made by script are untrusted and apps ignore them; press real keys with `keyboard`, type with `input`, click with `click`
+    1. run_script {"id": 1, "type": "action", "value": "return [...document.querySelectorAll('.price')].map(e => e.innerText)"} - WRONG: the return value is content the task needs, so this is a scrape; as an action it comes back with no screenshots to check it against, no `more` for the rest and no skill, and is cut at the action cap
+    2. run_script {"id": 1, "type": "scrape", "value": "document.body.innerText"} - WRONG: the whole page as one blob, past the limit and stripped of its structure; read the records the task needs, field by field
+    3. run_script {"id": 1, "type": "scrape", "value": "document.querySelectorAll('shreddit-comment')"} - WRONG: DOM nodes are not data; map each record to the fields the task needs
+    4. run_script {"id": 1, "type": "action", "value": "el.dispatchEvent(new KeyboardEvent('keydown', {key: 'a'}))"} - WRONG: events made by script are untrusted and apps ignore them; press real keys with `keyboard`, type with `input`, click with `click`
   7. `id` is the [n] from <all_tabs>, NOT an [id] from <element_tree>, and it must be the tab you are working in - `switch_tab` to it first to work in another one.
-  8. Return plain data - strings, numbers, arrays, objects. A single expression gives its value; code with statements produces nothing unless it says `return`, and `await` works there. A thrown error comes back as a failed action carrying its message. A script still running after 10 seconds is stopped. An action's result is cut at 30000 characters: return less.
+  8. Return plain data - strings, numbers, arrays, objects. A single expression gives its value; code with statements produces nothing unless it says `return`, and `await` works there. A thrown error comes back as a failed action carrying its message. A script still running after 10 seconds is stopped. An action's result is a receipt or a structural note and is cut at 1000 characters; content comes back only from a scrape.
   9. What an action changes is REAL: DOM edits, form values and storage stay changed and the next <element_tree> shows them. But a value set by script is one the page was never told about, so an app may ignore it - confirm it took, and leave anything a person would do by hand to `click`, `keyboard` and `input`.
   10. Web pages only, and credentials never travel: a script that reads cookies, stored logins, the clipboard or a password or payment field is refused before it runs, so is one that sends page data to another site, and anything credential-shaped is taken out of what comes back. A refusal quotes the exact construct - rewrite the step without it rather than looking for a way around."#, track),
 
@@ -433,16 +436,16 @@ pub fn main_memory_tool_fast() -> &'static Value {
              main_memory_fields_fast()))
 }
 
-/// Claude's notes tool (quality mode): `agent_memory` {assessment (optional),
-/// memory, next_goal}, word for word the desktop agents' tool.
+/// Claude's notes tool (quality mode): `agent_memory` {memory, next_goal},
+/// both required: the two fields the web prompt's <blocks> name.
 pub fn claude_reasoning_tool() -> &'static Value {
     static T: OnceLock<Value> = OnceLock::new();
-    T.get_or_init(|| tool_opt("agent_memory", &[],
+    T.get_or_init(|| tool("agent_memory", &[],
              r#"Your written notes for this step: a log entry, not an action. It has no result and nothing waits on it, so it NEVER ends a turn: emit it first in the list and the calls that do this step's "Doing" in the SAME message. A message holding only this call and no action is a wasted turn. The call is replayed in <agent_history>, so your future self can read what you knew and decided at every step.
-- `memory` and `next_goal` are filled every step. `assessment` follows <assessment>: omit it (or pass "") on a route step.
+- `memory` and `next_goal` are filled every step: `memory` follows <memory>, `next_goal` follows <next_goal>.
 - Not used on the `done` step: `done` is always the only call of its turn.
-- Format: agent_memory {"assessment": "", "memory": "...", "next_goal": "..."}"#,
-             claude_reasoning_fields(), REASONING_OPTIONAL))
+- Format: agent_memory {"memory": "...", "next_goal": "..."}"#,
+             claude_reasoning_fields()))
 }
 
 pub fn main_tools_quality() -> &'static Vec<Value> {
@@ -504,7 +507,7 @@ pub fn main_action_defaults() -> &'static Value {
     D.get_or_init(|| {
         json!({
             "reasoning": {"thinking": "", "memory": "", "next_goal": ""},
-            "agent_memory": {"assessment": "", "memory": "", "next_goal": ""},
+            "agent_memory": {"memory": "", "next_goal": ""},
             "memory": {"next_goal": ""},
             "new_tab": {"value": ""},
             "switch_tab": {"id": 0},
@@ -798,9 +801,9 @@ pub fn tool_calls_to_steps(
         // instead, naming the missing fields, so the model fixes the CALL.
         // (Tracking params are exempt: they are legitimately "" after the
         // first call of a step.)
-        // The notes tools' `thinking` / `assessment` is the one optional
-        // field: a route step leaves it out on purpose.
-        let optional: &[&str] = if name == "reasoning" || name == "agent_memory" { REASONING_OPTIONAL } else { &[] };
+        // The `reasoning` tool's `thinking` is the one optional field: a
+        // route step leaves it out on purpose. `agent_memory` has none.
+        let optional: &[&str] = if name == "reasoning" { REASONING_OPTIONAL } else { &[] };
         let missing: Vec<String> = defaults
             .keys()
             .filter(|k| !args.contains_key(k.as_str()) && !optional.contains(&k.as_str()))

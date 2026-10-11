@@ -120,12 +120,12 @@ REASONING_RESULT = "ok"
 def snapshot_turn(text: str, calls: list) -> str:
     """DISPLAY-ONLY rendering of one native assistant turn as the familiar
     block shape {"thinking", "memory", "next_goal", "action"}. The notes are
-    pulled OUT of the call arguments (the `reasoning` call in quality mode,
-    the `memory` call in fast mode, the first action call in older saves) and
-    shown as their own fields; the notes call itself is NOT listed under
-    action, and a `thinking` the `reasoning` call left out renders as
-    "skipped". Claude's `assessment` renders in the thinking slot. The API
-    payload is untouched: the model keeps receiving the native transcript.
+    pulled OUT of the call arguments (the `reasoning` or `agent_memory` call
+    in quality mode, the `memory` call in fast mode, the first action call in
+    older saves) and shown as their own fields; the notes call itself is NOT
+    listed under action, and a `thinking` the `reasoning` call left out
+    renders as "skipped". The API payload is untouched: the model keeps
+    receiving the native transcript.
 
     A param the step's MODE never carried is omitted entirely rather than
     rendered blank - fast mode has no `thinking`, and printing an empty one
@@ -153,6 +153,8 @@ def snapshot_turn(text: str, calls: list) -> str:
         if name in ("reasoning", "agent_memory"):
             # The `reasoning` call carries all three by contract; an omitted
             # `thinking` is a route step and must still render (as "skipped").
+            # Claude's `agent_memory` renders the same way: its thinking slot
+            # carries the model's own prose when there is any, else "skipped".
             # The fast `memory` call carries `next_goal` alone, which the loop
             # below picks up, so fast turns keep omitting `thinking`.
             present.update(values)
@@ -163,11 +165,6 @@ def snapshot_turn(text: str, calls: list) -> str:
                 present.add(key)
             step_value = str(args.pop(key, "") or "").strip()
             values[key] = values[key] or step_value
-        # Claude's `assessment`, popped the same way, fills the thinking slot.
-        if "assessment" in args:
-            present.add("thinking")
-        step_assessment = str(args.pop("assessment", "") or "").strip()
-        values["thinking"] = values["thinking"] or step_assessment
         if is_note:
             continue   # its whole content is the note fields above
         actions.append({"type": fn.get("name") or "", **args})
@@ -336,7 +333,6 @@ class AgentResponseFormatter:
     """Formats agent JSON responses for terminal display"""
 
     FIELD_EMOJIS = {
-        "assessment": "🧠 Assessment",
         "thinking": "🧠 Thinking",
         "next_goal": "🎯 Next Goal",
         "memory": "💾 Memory",
