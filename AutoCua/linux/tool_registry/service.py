@@ -8,6 +8,7 @@ import base64
 import io
 from typing import Optional
 
+from AutoCua import data_extraction
 from AutoCua.llm_provider.llm_manager import (LLMManager as _LLMManager, NOTE_TOOLS, REASONING_OPTIONAL,
                                                _tool, drop_bundled_terminal,
                                                tool_calls_to_steps as _tool_calls_to_steps)
@@ -574,9 +575,12 @@ def _main_tools(track: dict, notes: dict = None) -> list:
     counterpart of the macOS `applescript` tool - exists here only. The macOS
     `drag_drop` tool is deliberately not offered on Linux. `clicks` stays on
     right_click/screenshot even though the controller ignores it, because the
-    old strict union required it."""
+    old strict union required it.
+
+    While the dataset recorder is on, live_tools withholds the tools a
+    recorded run must not teach (data_extraction.OFF_TOOLS)."""
     notes = [notes] if notes else []
-    return notes + [
+    return data_extraction.live_tools(notes + [
         # -- <Tool_Capability> ------------------------------------------------
         _tool("open_app", {"value": {"type": "string"}},
               'Launch an installed application (anything with a desktop entry). No manual search required within the OS.\n'
@@ -672,7 +676,7 @@ def _main_tools(track: dict, notes: dict = None) -> list:
               '    3. Write `value` in Markdown - headings, `-` bullets, `**bold**`, backticks and fenced code blocks as the summary needs them.\n'
               '    4. Never combine `done` with any other action/tool in the same step.\n'
               '    5. While scan is off there is no image: base the final verification on the latest tool results.', track=track),
-    ]
+    ])
 
 
 MAIN_TOOLS = _main_tools({}, notes=MAIN_REASONING_TOOL)

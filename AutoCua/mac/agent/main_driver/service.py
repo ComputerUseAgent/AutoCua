@@ -395,7 +395,8 @@ class AgentService:
             (ios_agent only while the request's phone is connected, with a
             `checking connection: ios_agent` line while it is being connected),
             then one row per sub-agent started in this run (id, task cut to 100
-            characters, status). Always present.
+            characters, status). Always present. While the dataset recorder is
+            on it reads `offline:` instead: the sub-agent tools are withheld.
 
         Skills guidance is deliberately NOT in here: it is reference material
         about the current screen, not something the agent wrote, so it rides
@@ -406,11 +407,17 @@ class AgentService:
             f"<scratchpad>\n{(scratchpad or '').strip() or 'none'}\n</scratchpad>",
         ]
         rows = self.controller.get_sub_agents()
-        phone = self.controller.phone_state()
-        online = [t for t in SUB_AGENT_TYPES if t != "ios_agent" or phone == "online"]
-        head = [f"online: {', '.join(online)}"]
-        if phone == "checking":
-            head.append("checking connection: ios_agent")
+        if data_extraction.ENABLED:
+            # Recording: the sub-agent tools are not sent at all
+            # (data_extraction.OFF_TOOLS), so none of them can be started and
+            # the phone is never looked for. Say offline rather than offer them.
+            head = [f"offline: {', '.join(SUB_AGENT_TYPES)}"]
+        else:
+            phone = self.controller.phone_state()
+            online = [t for t in SUB_AGENT_TYPES if t != "ios_agent" or phone == "online"]
+            head = [f"online: {', '.join(online)}"]
+            if phone == "checking":
+                head.append("checking connection: ios_agent")
         pm.append("<sub_agents>\n" + "\n".join(head + [self._sub_agent_row(r) for r in rows])
                   + "\n</sub_agents>")
         return "<persistent_memory>\n" + "\n\n".join(pm) + "\n</persistent_memory>"
@@ -547,9 +554,13 @@ class AgentService:
 
         The moment the request starts, the paired iPhone/iPad is looked for and
         connected in the background, so ios_agent can come online; however the
-        request ends (done, Stop, an error, Ctrl+C), the phone is let go."""
-        from ...controller.tool import ios_agent
-        self.controller.phone = ios_agent.PhoneLink.start()
+        request ends (done, Stop, an error, Ctrl+C), the phone is let go.
+
+        While the dataset recorder is on, ios_agent cannot be started at all
+        (data_extraction.OFF_TOOLS), so the phone is not looked for either."""
+        if not data_extraction.ENABLED:
+            from ...controller.tool import ios_agent
+            self.controller.phone = ios_agent.PhoneLink.start()
         try:
             return self._process_request(task)
         finally:

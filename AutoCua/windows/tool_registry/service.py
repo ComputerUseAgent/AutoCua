@@ -4,6 +4,7 @@ manager itself (providers, retries, fallback, the tool-call parser) is the
 same on every platform: AutoCua/llm_provider/llm_manager.py. The agents
 import everything LLM-related from here."""
 
+from AutoCua import data_extraction
 from AutoCua.llm_provider.llm_manager import (LLMManager as _LLMManager, NOTE_TOOLS, REASONING_OPTIONAL,
                                                _tool, drop_bundled_terminal,
                                                tool_calls_to_steps as _tool_calls_to_steps)
@@ -518,9 +519,12 @@ def _main_tools(track: dict, notes: dict = None) -> list:
     twice, each with NO per-call params (`track` stays {}) and a dedicated
     notes tool in front: quality mode the `reasoning` tool (thinking optional,
     memory + next_goal every step), fast mode the `memory` tool (`next_goal`
-    alone)."""
+    alone).
+
+    While the dataset recorder is on, live_tools withholds the tools a
+    recorded run must not teach (data_extraction.OFF_TOOLS)."""
     notes = [notes] if notes else []
-    return notes + [
+    return data_extraction.live_tools(notes + [
         # -- <Tool_Capability> ------------------------------------------------
         _tool("open_app", {"value": {"type": "string"}},
               'Open an installed application. No manual search required within the OS. If the app is already running, its existing window is brought to the foreground (restored if minimized) instead of launching a duplicate instance - the result reports mode "focused" vs "launched".\n'
@@ -603,7 +607,7 @@ def _main_tools(track: dict, notes: dict = None) -> list:
               '    3. Write `value` in Markdown - headings, `-` bullets, `**bold**`, backticks and fenced code blocks as the summary needs them.\n'
               '    4. Never combine `done` with any other action/tool in the same step.\n'
               '    5. While scan is off there is no image: base the final verification on the latest tool results.', track=track),
-    ]
+    ])
 
 
 MAIN_TOOLS = _main_tools({}, notes=MAIN_REASONING_TOOL)

@@ -22,6 +22,7 @@ from ...tree.element import UIElementScanner, ELEMENT_CONFIG
 from ...controller import ControllerView
 from ...controller.view import SUB_AGENT_TYPES
 from ..skills import DomainKnowledgeService
+from .... import data_extraction
 
 # Run-boundary request markers: on resume, the bridge entry that ended the prior
 # run ("Previous run concluded.", saved by agent_conversation._build_history with
@@ -387,7 +388,8 @@ class AgentService:
           - <scratchpad>: the verified checkpoints so far, or "none".
           - <sub_agents>: an `online:` line naming the sub-agents it can start,
             then one row per sub-agent started in this run (id, task cut to 100
-            characters, status). Always present.
+            characters, status). Always present. While the dataset recorder is
+            on it reads `offline:` instead: the sub-agent tools are withheld.
 
         Skills guidance is deliberately NOT in here: it is reference material
         about the current screen, not something the agent wrote, so it rides
@@ -398,7 +400,11 @@ class AgentService:
             f"<scratchpad>\n{(scratchpad or '').strip() or 'none'}\n</scratchpad>",
         ]
         rows = self.controller.get_sub_agents()
-        pm.append("<sub_agents>\n" + "\n".join([f"online: {', '.join(SUB_AGENT_TYPES)}"]
+        # Recording: the sub-agent tools are not sent at all
+        # (data_extraction.OFF_TOOLS), so none can be started - say offline
+        # rather than offer them.
+        state = "offline" if data_extraction.ENABLED else "online"
+        pm.append("<sub_agents>\n" + "\n".join([f"{state}: {', '.join(SUB_AGENT_TYPES)}"]
                                                + [self._sub_agent_row(r) for r in rows])
                   + "\n</sub_agents>")
         return "<persistent_memory>\n" + "\n\n".join(pm) + "\n</persistent_memory>"

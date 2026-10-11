@@ -30,7 +30,33 @@ from datetime import datetime
 from . import data_root
 
 # Record every run into the dataset. False: runs behave exactly as before.
-ENABLED = False
+ENABLED = True
+
+# Tools the agent does WITHOUT while recording. A recorded run is a lesson in
+# GUI work, so a tool whose work leaves no trace on screen is not sent at all
+# rather than sent and ignored - the model only ever sees tools it may use:
+#   open_app   an app opened by name teaches nothing; let it be opened the way
+#              a person does it, on screen.
+#   sub_agent / agent_wait   a sub-agent (coder, browser, iPhone) works off
+#              this screen, so no frame explains what happened. With these
+#              gone no sub-agent can start, and <sub_agents> says offline.
+#   web        an answer fetched by another model, nothing on screen.
+#   applescript  drives an app from the outside; the same work must be
+#              done on screen instead. (mac only; harmless elsewhere.)
+# shell is kept on purpose (owner decision, 2026-10-11).
+# Recording off: every tool is sent, exactly as before.
+OFF_TOOLS = frozenset(("open_app", "sub_agent", "agent_wait", "web", "applescript"))
+
+
+def live_tools(tools):
+    """The main driver's registry minus OFF_TOOLS while recording.
+
+    Each platform's tool_registry calls this once, where its MAIN_TOOLS are
+    built, so the tools the model is GIVEN and the names a call is CHECKED
+    against (MAIN_TOOL_NAMES*, derived from the same lists) can never
+    disagree: a withheld tool is simply not a tool this run."""
+    return tools if not ENABLED else [t for t in tools if t.get("name") not in OFF_TOOLS]
+
 
 # Tools that act at one element's point. drag_drop acts at two ("8 to 15").
 _POINTER_TOOLS = ("left_click", "right_click", "input", "scroll")
