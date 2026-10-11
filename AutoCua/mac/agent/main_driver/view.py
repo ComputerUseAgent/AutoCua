@@ -121,10 +121,10 @@ REASONING_RESULT = "ok"
 def snapshot_turn(text: str, calls: list) -> str:
     """DISPLAY-ONLY rendering of one native assistant turn as the familiar
     four-block shape {"thinking", "memory", "next_goal", "action"}. The notes
-    are pulled OUT of the call arguments (the `reasoning` call in quality
-    mode, the `memory` call in fast mode, the first action call in older
-    saves) and shown as their own fields; the notes call itself is NOT listed
-    under action. Claude's `assessment` renders in the thinking slot.
+    are pulled OUT of the call arguments (the `reasoning` or `agent_memory`
+    call in quality mode, the `memory` call in fast mode, the first action
+    call in older saves) and shown as their own fields; the notes call itself
+    is NOT listed under action.
     A missing `thinking` renders as "skipped". The API payload is untouched:
     the model keeps receiving the native transcript."""
     actions = []
@@ -143,10 +143,9 @@ def snapshot_turn(text: str, calls: list) -> str:
         # Pop UNCONDITIONALLY, then keep the first non-empty value - later
         # calls carry "" and must not render as bogus action fields.
         step_thinking = str(args.pop("thinking", "") or "").strip()
-        step_assessment = str(args.pop("assessment", "") or "").strip()
         step_memory = str(args.pop("memory", "") or "").strip()
         step_next_goal = str(args.pop("next_goal", "") or "").strip()
-        thinking = thinking or step_thinking or step_assessment
+        thinking = thinking or step_thinking
         memory = memory or step_memory
         next_goal = next_goal or step_next_goal
         # `agent_memory` is Claude's notes tool; `notes` is fast mode's old name
@@ -312,7 +311,6 @@ class AgentResponseFormatter:
     """Formats agent JSON responses for terminal display"""
 
     FIELD_EMOJIS = {
-        "assessment": "🧠 Assessment",
         "thinking": "🧠 Thinking",
         "next_goal": "🎯 Next Goal",
         "memory": "💾 Memory",

@@ -1491,8 +1491,8 @@ impl AgentService {
         // (thinking optional, memory + next_goal every step), action tools
         // carry only their own fields. Fast: `memory` alone, on every call,
         // no `reasoning` tool - unchanged.
-        // A Claude model in quality mode: `agent_memory`, the same notes with
-        // `assessment` in place of `thinking`.
+        // A Claude model in quality mode: `agent_memory`, memory + next_goal
+        // every step and no thinking field at all.
         let fast = self.speed == "fast";
         let claude = !fast && self.llm_manager.get().claude;
         // Scraping mode has no notes tool and a short registry of its own.
@@ -1633,21 +1633,20 @@ impl AgentService {
                 .map_err(|k| pyo3::exceptions::PyKeyError::new_err(k.to_string()))?;
             let normalized =
                 view::encode_step(&resp_text, &Value::Array(wired), provider_meta.as_ref());
-            // Only the fields this mode carries (fast has next_goal alone).
+            // Only the fields this mode carries (fast has next_goal alone,
+            // Claude's `agent_memory` has no thinking).
             let mut display = Map::new();
             let mut thinking: Option<String> = None;
-            for key in ["thinking", "assessment"] {
-                if let Some(t) = track.get(key) {
-                    let value = if truthy(t) {
-                        py_str_of_value(t)
-                    } else if !resp_text.is_empty() {
-                        resp_text.clone()
-                    } else {
-                        view::SKIPPED_THINKING.to_string()
-                    };
-                    thinking = Some(value.clone());
-                    display.insert(key.into(), Value::String(value));
-                }
+            if let Some(t) = track.get("thinking") {
+                let value = if truthy(t) {
+                    py_str_of_value(t)
+                } else if !resp_text.is_empty() {
+                    resp_text.clone()
+                } else {
+                    view::SKIPPED_THINKING.to_string()
+                };
+                thinking = Some(value.clone());
+                display.insert("thinking".into(), Value::String(value));
             }
             if let Some(m) = track.get("memory") {
                 display.insert("memory".into(), m.clone());
@@ -1740,17 +1739,15 @@ impl AgentService {
         // Display payload — the four-block view the terminal print, the
         // frontend text stream and the tool-icon chain read.
         let mut display = Map::new();
-        for key in ["thinking", "assessment"] {
-            if let Some(t) = track.get(key) {
-                let value = if truthy(t) {
-                    t.clone()
-                } else if !resp_text.is_empty() {
-                    Value::String(resp_text.clone())
-                } else {
-                    Value::String(view::SKIPPED_THINKING.to_string())
-                };
-                display.insert(key.into(), value);
-            }
+        if let Some(t) = track.get("thinking") {
+            let value = if truthy(t) {
+                t.clone()
+            } else if !resp_text.is_empty() {
+                Value::String(resp_text.clone())
+            } else {
+                Value::String(view::SKIPPED_THINKING.to_string())
+            };
+            display.insert("thinking".into(), value);
         }
         if let Some(m) = track.get("memory") {
             display.insert("memory".into(), m.clone());
@@ -1765,10 +1762,10 @@ impl AgentService {
         //
         // `thinking` is the real article but it is only filled on FULL steps —
         // a route step omits it and the display shows "skipped", which is most
-        // steps. `next_goal` carries a plain "Doing: ..." line on every single
-        // step, so it is what the bubble falls back to. Without the fallback
-        // the bubble would be silent for long stretches of a run that is very
-        // much still happening.
+        // steps; Claude's `agent_memory` has no thinking field at all. `next_goal`
+        // carries a plain "Doing: ..." line on every single step, so it is what
+        // the bubble falls back to. Without the fallback the bubble would be
+        // silent for long stretches of a run that is very much still happening.
         let say = {
             let block = |k: &str| -> String {
                 display
@@ -1778,10 +1775,7 @@ impl AgentService {
                     .trim()
                     .to_string()
             };
-            let thinking = match block("thinking") {
-                t if t.is_empty() => block("assessment"),
-                t => t,
-            };
+            let thinking = block("thinking");
             if !thinking.is_empty() && thinking != view::SKIPPED_THINKING {
                 thinking
             } else {

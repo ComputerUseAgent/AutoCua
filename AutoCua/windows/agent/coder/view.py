@@ -281,8 +281,8 @@ def snapshot_turn(text: str, calls: list) -> str:
     notes are pulled out of the arguments). `thinking` renders as "skipped"
     when the step omitted it (a route step) and wrote no message: the word is
     written HERE, never by the model, whose own text is shown whenever there
-    is any. Claude's `assessment` renders in the thinking slot. A
-    compressed-memory entry renders as itself. The API payload is untouched:
+    is any. A compressed-memory entry renders as itself. The API payload is
+    untouched:
     the model keeps receiving the native transcript."""
     if not calls:
         try:
@@ -309,10 +309,9 @@ def snapshot_turn(text: str, calls: list) -> str:
         # set, so every call after the first kept its (empty) tracking params
         # and rendered them as bogus action fields.
         step_thinking = str(args.pop("thinking", "") or "").strip()
-        step_assessment = str(args.pop("assessment", "") or "").strip()
         step_memory = str(args.pop("memory", "") or "").strip()
         step_next_goal = str(args.pop("next_goal", "") or "").strip()
-        thinking = thinking or step_thinking or step_assessment
+        thinking = thinking or step_thinking
         memory = memory or step_memory
         next_goal = next_goal or step_next_goal
         if (fn.get("name") or "") in ("reasoning", "agent_memory"):

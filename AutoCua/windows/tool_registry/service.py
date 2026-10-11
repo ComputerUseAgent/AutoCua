@@ -650,12 +650,11 @@ MAIN_TOOL_NAMES_FAST = frozenset(t["name"] for t in MAIN_TOOLS_FAST)
 # CLAUDE: any Claude model, whatever the provider (anthropic direct, or a Claude
 # entry on OpenRouter; see LLMManager.claude). Every agent runs on
 # its own claude_prompt.md (the main driver in quality mode only) with its own
-# notes tool, `agent_memory`: the `reasoning` tool's notes with `assessment` in
-# place of `thinking` (memory + next_goal every step, assessment when
-# <assessment> calls for it).
+# notes tool, `agent_memory`: `memory` and `next_goal`, both filled every step.
+# The Claude prompts have no <assessment> block and no thinking field, so
+# both fields are required (no REASONING_OPTIONAL here).
 # ---------------------------------------------------------------------------
 CLAUDE_REASONING_FIELDS = {
-    "assessment": {"type": "string", "description": 'Follow <assessment>. Omit it (or pass "") on a route step.'},
     "memory": {"type": "string", "description": "Follow <memory>. Filled every step."},
     "next_goal": {"type": "string", "description": "Follow <next_goal>. Filled every step."},
 }
@@ -685,14 +684,13 @@ def _claude_reasoning_tool(final: str, work: str = "calls", batched: bool = Fals
                    "replayed in <agent_history>, so your future self can read what you knew and decided at every step.\n")
     return _tool("agent_memory", CLAUDE_REASONING_FIELDS,
                  opening +
-                 "- `memory` and `next_goal` are filled every step. `assessment` follows <assessment>: omit it "
-                 '(or pass "") on a route step.\n'
+                 "- `memory` and `next_goal` are filled every step: `memory` follows <memory>, "
+                 "`next_goal` follows <next_goal>.\n"
                  f"- Not used on the `{final}` step: `{final}` is always the only call of its turn.\n"
-                 '- Format: agent_memory {"assessment": "", "memory": "...", "next_goal": "..."}',
-                 optional=REASONING_OPTIONAL)
+                 '- Format: agent_memory {"memory": "...", "next_goal": "..."}')
 
 
-_CLAUDE_REASONING_DEFAULTS = {"assessment": "", "memory": "", "next_goal": ""}
+_CLAUDE_REASONING_DEFAULTS = {"memory": "", "next_goal": ""}
 CODER_TOOLS_CLAUDE = ([_claude_reasoning_tool("exit", batched=True)]
                       + [t for t in CODER_TOOLS if t["name"] != "reasoning"])
 MINION_TOOLS_CLAUDE = ([_claude_reasoning_tool("exit", "probe calls", batched=True)]

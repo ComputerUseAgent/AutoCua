@@ -199,7 +199,7 @@ class AgentService:
             cli_agent=True
         )
         # Any Claude model (any provider) runs on claude_prompt.md, and its notes
-        # call is `agent_memory`, with `assessment` in place of `thinking`.
+        # call is `agent_memory` (memory + next_goal, no thinking field).
         self._claude = self.llm.claude
         self._notes_tool = "agent_memory" if self._claude else "reasoning"
 
@@ -841,8 +841,9 @@ class AgentService:
                     defaults_map=ACTION_DEFAULTS_CLAUDE if self._claude else None,
                     track_params=CLAUDE_REASONING_FIELDS if self._claude else REASONING_FIELDS)
                 if self._claude:
-                    # Claude's `assessment` fills the `thinking` slot downstream.
-                    track["thinking"] = track.pop("assessment", "")
+                    # `agent_memory` has no thinking field; the display payloads
+                    # below still read the {thinking, memory, next_goal} shape.
+                    track["thinking"] = ""
                 resp_text = (raw_response.get("text") or "").strip()
 
                 # `reasoning` is the step's note to itself, not an action. Its

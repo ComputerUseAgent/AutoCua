@@ -59,19 +59,19 @@ pub fn main_reasoning_fields() -> &'static Vec<(String, String)> {
     ])
 }
 
-/// The notes tools' optional field: `thinking` on `reasoning`, `assessment` on
-/// Claude's `agent_memory`. Left out of the schema's `required` list and out of
-/// the missing-field reject, so a route step can omit it (a required string
-/// invites filling).
-pub const REASONING_OPTIONAL: &[&str] = &["thinking", "assessment"];
+/// The `reasoning` tool's optional field, `thinking`. Left out of the schema's
+/// `required` list and out of the missing-field reject, so a route step can
+/// omit it (a required string invites filling). Claude's `agent_memory` has no
+/// optional field: both of its fields are filled every step.
+pub const REASONING_OPTIONAL: &[&str] = &["thinking"];
 
-/// Claude's `agent_memory` fields (quality mode, any Claude model): the
-/// `reasoning` notes with `assessment` in place of `thinking`, as on the
-/// desktop agents (CLAUDE_REASONING_FIELDS in <os>/tool_registry/service.py).
+/// Claude's `agent_memory` fields (quality mode, any Claude model): `memory`
+/// and `next_goal`, both filled every step. claude_prompt.md carries no
+/// <assessment> block, so there is no optional third field here, unlike the
+/// desktop agents' tool (CLAUDE_REASONING_FIELDS in <os>/tool_registry/service.py).
 pub fn claude_reasoning_fields() -> &'static Vec<(String, String)> {
     static P: OnceLock<Vec<(String, String)>> = OnceLock::new();
     P.get_or_init(|| vec![
-        ("assessment".to_string(), r#"Follow <assessment>. Omit it (or pass "") on a route step."#.to_string()),
         ("memory".to_string(), "Follow <memory>. Filled every step.".to_string()),
         ("next_goal".to_string(), "Follow <next_goal>. Filled every step.".to_string()),
     ])
@@ -436,16 +436,16 @@ pub fn main_memory_tool_fast() -> &'static Value {
              main_memory_fields_fast()))
 }
 
-/// Claude's notes tool (quality mode): `agent_memory` {assessment (optional),
-/// memory, next_goal}, word for word the desktop agents' tool.
+/// Claude's notes tool (quality mode): `agent_memory` {memory, next_goal},
+/// both required: the two fields the web prompt's <blocks> name.
 pub fn claude_reasoning_tool() -> &'static Value {
     static T: OnceLock<Value> = OnceLock::new();
-    T.get_or_init(|| tool_opt("agent_memory", &[],
+    T.get_or_init(|| tool("agent_memory", &[],
              r#"Your written notes for this step: a log entry, not an action. It has no result and nothing waits on it, so it NEVER ends a turn: emit it first in the list and the calls that do this step's "Doing" in the SAME message. A message holding only this call and no action is a wasted turn. The call is replayed in <agent_history>, so your future self can read what you knew and decided at every step.
-- `memory` and `next_goal` are filled every step. `assessment` follows <assessment>: omit it (or pass "") on a route step.
+- `memory` and `next_goal` are filled every step: `memory` follows <memory>, `next_goal` follows <next_goal>.
 - Not used on the `done` step: `done` is always the only call of its turn.
-- Format: agent_memory {"assessment": "", "memory": "...", "next_goal": "..."}"#,
-             claude_reasoning_fields(), REASONING_OPTIONAL))
+- Format: agent_memory {"memory": "...", "next_goal": "..."}"#,
+             claude_reasoning_fields()))
 }
 
 pub fn main_tools_quality() -> &'static Vec<Value> {
@@ -507,7 +507,7 @@ pub fn main_action_defaults() -> &'static Value {
     D.get_or_init(|| {
         json!({
             "reasoning": {"thinking": "", "memory": "", "next_goal": ""},
-            "agent_memory": {"assessment": "", "memory": "", "next_goal": ""},
+            "agent_memory": {"memory": "", "next_goal": ""},
             "memory": {"next_goal": ""},
             "new_tab": {"value": ""},
             "switch_tab": {"id": 0},
@@ -801,9 +801,9 @@ pub fn tool_calls_to_steps(
         // instead, naming the missing fields, so the model fixes the CALL.
         // (Tracking params are exempt: they are legitimately "" after the
         // first call of a step.)
-        // The notes tools' `thinking` / `assessment` is the one optional
-        // field: a route step leaves it out on purpose.
-        let optional: &[&str] = if name == "reasoning" || name == "agent_memory" { REASONING_OPTIONAL } else { &[] };
+        // The `reasoning` tool's `thinking` is the one optional field: a
+        // route step leaves it out on purpose. `agent_memory` has none.
+        let optional: &[&str] = if name == "reasoning" { REASONING_OPTIONAL } else { &[] };
         let missing: Vec<String> = defaults
             .keys()
             .filter(|k| !args.contains_key(k.as_str()) && !optional.contains(&k.as_str()))

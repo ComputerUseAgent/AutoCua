@@ -39,6 +39,12 @@ pip install AutoCua
 
 ---
 
+## Computer use
+
+Any desktop app, driven with real mouse and keyboard input. Agent mode: computer use.
+
+https://github.com/user-attachments/assets/a767c117-abad-46bf-8a8b-6ecf49be6288
+
 ## Web agent: fast mode
 
 6.1 seconds for a flight search. Agent mode: web.
@@ -57,12 +63,6 @@ https://github.com/user-attachments/assets/82bf6163-55c9-4cc4-95e7-9c6466f2a25d
 A paired iPhone, driven over the USB cable. Agent mode: mobile use, iOS.
 
 https://github.com/user-attachments/assets/3c22eb45-d939-4742-9053-22ecc75b416f
-
-## Computer use
-
-Any desktop app, driven with real mouse and keyboard input. Agent mode: computer use.
-
-https://github.com/user-attachments/assets/a767c117-abad-46bf-8a8b-6ecf49be6288
 
 ---
 
