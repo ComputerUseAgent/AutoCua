@@ -3,11 +3,13 @@
 from AutoCua.agent_launcher import run_agent
 
 run_agent(
-    mode="computer use",
+    mode="web use",
     provider="google",
     model="gemini-3.8-flash",
     task="""
-open chrome and play somthign good no shell command 
+    
 """,
     save_conversation=True,
+    ui=True,
+        
 )
