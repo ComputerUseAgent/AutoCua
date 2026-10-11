@@ -47,6 +47,7 @@ import webview
 # Where the user's data lives (AutoCua_data/, outside the install folder).
 from AutoCua import api_key_file, skills_dir, skills_platform, data_root, default_skills
 from AutoCua import APP_PORT, ENV_APP_PORT
+from AutoCua import data_extraction
 
 # Resumable chat memory + per-chat token tracker. Platform-agnostic, pure-stdlib.
 from AutoCua.agent_conversation.service import conversation
@@ -2161,6 +2162,9 @@ def start_agent():
                 todo_thread.daemon = True
                 todo_thread.start()
 
+                # Training data: tag this run's episode with the chat it belongs
+                # to, so the follow-up tasks of one chat can be put back together.
+                data_extraction.chat_id = chat_session_id
                 run_outcome = agent.process_request(task)
                 if not isinstance(run_outcome, dict):
                     run_outcome = {"status": "success", "message": ""}
@@ -2169,6 +2173,7 @@ def start_agent():
                 debug_exception("run_agent")
                 run_outcome = {"status": "error", "message": str(agent_exc)}
             finally:
+                data_extraction.chat_id = None
                 stop_event.set()
                 agent_glow.stop()   # desktop back to normal, whatever happened
 

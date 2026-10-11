@@ -10,4 +10,5 @@ run_agent(
 check the cheapest flight from delhi to london on 30 october
 """,
     save_conversation=True,
+    ui=True
 )
