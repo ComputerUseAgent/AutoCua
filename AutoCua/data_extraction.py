@@ -38,7 +38,7 @@ from datetime import datetime
 from . import data_root
 
 # Record every run into the dataset. False: runs behave exactly as before.
-ENABLED = True
+ENABLED = False
 
 # The desktop app's chat this run belongs to (its chat_<id>), set by the app
 # around each computer-use run; None for main.py runs. The chat IS the episode:

@@ -7,8 +7,7 @@ run_agent(
     provider="google",
     model="gemini-3.8-flash",
     task="""
-check the cheapest flight from delhi to london on 30 october
+open chrome and play somthign good no shell command 
 """,
     save_conversation=True,
-    ui=True
 )
