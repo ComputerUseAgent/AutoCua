@@ -484,16 +484,16 @@ Two honest exceptions, both deliberate:
   depth; it falls back to the text in reading order on a page without records, so an article or
   a table reads too. A thread comes back as the post, then its comments with each reply nested
   under the comment it answers; a list as its items with title, url, score, counts, price,
-  phone or address where the page shows them. Every chunk is stored as
-  JSON under `AutoCua_data/scrapes/<run>/<n>.json` with its index number and the time it was
-  read. After the call the agent is in **scraping mode** until it calls `exit_scrape_mode`: no
-  scan, no picture, and a schema of exactly five tools, `index` (its own record of the chunk: a
-  one-line title, the findings as a JSON array, what is still pending), `more` (the next three
-  screens, scrolled to from where the last read ended; nothing is read twice), `exit_scrape_mode`,
-  `scratchpad` and `update_todo`. On exit the mode's steps leave the history and the scrape
-  result becomes a pointer; what stays is one line per index in `<indexes>`, and `index_read`
-  brings an index back in full. The rules the model follows are in
-  `AutoCua/default_skills/web/scraping.md`.
+  phone or address where the page shows them. After the call the agent is in **scraping mode**
+  until it calls `exit_scrape_mode`: no scan, one clean picture per screen read, and a schema of
+  six tools: `index` (what the agent keeps from the chunk: a one-line title, what is still pending,
+  and the value as JSON in a shape of its own), `more` (the next three screens, scrolled to from
+  where the last read ended; nothing is read twice), `exit_scrape_mode`, `scratchpad`,
+  `update_todo` and `skills`. Every index is stored as JSON under
+  `AutoCua_data/scrapes/<run>/<n>.json` with its number and the time. On exit the mode's steps
+  leave the history and the scrape result becomes one line per index; `<scraped_index>` lists
+  them on every step, and `index_read` brings an index back in full. The rules the model follows
+  are in `AutoCua/default_skills/web/skills/scraping.md`.
 - The "agent is driving" overlay, an edge glow and the agent's own cursor, is injected into the
   page (its main world in the debugging-port mode, the extension's own world in extension
   mode), which makes it detectable by a page that looks for it. That is a product trade-off in
@@ -524,11 +524,11 @@ matters far more than any fingerprint tuning, because a login wall is where a we
 stops.
 
 **18 tools:** `new_tab`, `switch_tab`, `close_tab`, `update_tab`, `navigate_tab`, `click`,
-`hold_click`, `input`, `keyboard`, `run_script`, `scrape`, `scroll`, `dialog`, `wait`,
-`scratchpad`, `todo_list`, `update_todo`, `done`, plus `index_read` once a run has stored an
-index. Scraping mode sends exactly five: `index`, `more`, `exit_scrape_mode`, `scratchpad`,
-`update_todo`. A parallel agent pinned to one tab gets 15, with the three tab-lifecycle tools
-removed from its registry and refused at the router as a backstop.
+`hold_click`, `input`, `keyboard`, `run_script`, `scroll`, `wait`, `scratchpad`, `todo_list`,
+`update_todo`, `skills`, `index_read`, `done`, plus `dialog` on a step a popup holds. Scraping
+mode sends exactly six: `index`, `more`, `exit_scrape_mode`, `scratchpad`, `update_todo`,
+`skills`. A parallel agent pinned to one tab gets 15, with the three tab-lifecycle tools removed
+from its registry and refused at the router as a backstop.
 
 ---
 

@@ -5,8 +5,17 @@
 //! screen; the three answers are joined. `more` reads the next three screens
 //! with the same script. The pictures go with the next input only
 //! (take_shots), and the page is left at the last screen read.
+//!
+//! Also the run's INDEXES: what the agent keeps from each chunk, through the
+//! `index` tool of scrape mode. Each one is a file, AutoCua_data/scrapes/
+//! <run>/<n>.json, numbered by this module from 1, holding the time, the
+//! agent's title and pending lines and its value. The live <scraped_index>
+//! block lists them (index_lines), and `index_read` brings one back
+//! (read_index).
 
 use std::collections::HashSet;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use pyo3::prelude::*;
@@ -36,14 +45,151 @@ static READ: Mutex<Option<Read>> = Mutex::new(None);
 /// loop takes them for the next input.
 static SHOTS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-/// A run starts with no read and no pictures.
-pub fn new_run() {
+/// One stored index: its number and the two lines the agent gave it. The
+/// value is in the file only.
+#[derive(Clone)]
+struct IndexEntry {
+    n: usize,
+    title: String,
+    pending: String,
+}
+
+/// This run's scrapes folder, AutoCua_data/scrapes/<run>/, set by the agent
+/// loop when the run starts (new_run) and made on the first `index`. None
+/// when AutoCua_data could not be found: `index` then fails and says so.
+static RUN_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+/// This run's indexes, in order.
+static INDEXES: Mutex<Vec<IndexEntry>> = Mutex::new(Vec::new());
+/// How many indexes existed when the current scrape mode opened. The ones
+/// after that mark are the mode's own: on exit they replace its read in the
+/// history (main_driver point_scrape_at_indexes).
+static MODE_MARK: Mutex<usize> = Mutex::new(0);
+
+/// A run starts with no read, no pictures and no index; `dir` is where its
+/// indexes will go.
+pub fn new_run(dir: Option<PathBuf>) {
     if let Ok(mut r) = READ.lock() {
         *r = None;
     }
     if let Ok(mut s) = SHOTS.lock() {
         s.clear();
     }
+    if let Ok(mut d) = RUN_DIR.lock() {
+        *d = dir;
+    }
+    if let Ok(mut i) = INDEXES.lock() {
+        i.clear();
+    }
+    if let Ok(mut m) = MODE_MARK.lock() {
+        *m = 0;
+    }
+}
+
+/// Scrape mode opened: the indexes stored from here on belong to it.
+pub fn mark_mode_start() {
+    let n = INDEXES.lock().map(|i| i.len()).unwrap_or(0);
+    if let Ok(mut m) = MODE_MARK.lock() {
+        *m = n;
+    }
+}
+
+/// Store one index as this run's next file: the number and the time are the
+/// code's, title, pending and value the agent's. `value` is kept as JSON
+/// when its text parses as JSON, else as the text it is. Returns (n, path,
+/// the file's text), the text being what the scraping card streams.
+pub fn store_index(title: &str, pending: &str, value: &str) -> Result<(usize, PathBuf, String), String> {
+    let dir = RUN_DIR
+        .lock()
+        .ok()
+        .and_then(|d| d.clone())
+        .ok_or_else(|| "no scrapes folder for this run: AutoCua_data could not be found".to_string())?;
+    fs::create_dir_all(&dir).map_err(|e| format!("could not make {}: {e}", dir.display()))?;
+    let mut indexes = INDEXES.lock().map_err(|_| "the index store is poisoned".to_string())?;
+    let n = indexes.len() + 1;
+    let parsed = serde_json::from_str::<Value>(value).unwrap_or_else(|_| Value::String(value.to_string()));
+    let record = json!({
+        "index": n,
+        "time": chrono::Utc::now().to_rfc3339(),
+        "title": title,
+        "pending": pending,
+        "value": parsed,
+    });
+    let path = dir.join(format!("{n}.json"));
+    let text = serde_json::to_string_pretty(&record).map_err(|e| e.to_string())?;
+    fs::write(&path, &text).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    indexes.push(IndexEntry { n, title: title.to_string(), pending: pending.to_string() });
+    Ok((n, path, text))
+}
+
+/// The file of index `n`, as its text, for `index_read`.
+pub fn read_index(n: usize) -> Result<String, String> {
+    let dir = RUN_DIR
+        .lock()
+        .ok()
+        .and_then(|d| d.clone())
+        .ok_or_else(|| "no scrapes folder for this run".to_string())?;
+    let count = INDEXES.lock().map(|i| i.len()).unwrap_or(0);
+    if n == 0 || n > count {
+        return Err(if count == 0 {
+            "no index has been stored in this run yet".to_string()
+        } else {
+            format!("no index [{n}] in this run: the indexes are 1 to {count}")
+        });
+    }
+    let path = dir.join(format!("{n}.json"));
+    fs::read_to_string(&path).map_err(|e| format!("could not read {}: {e}", path.display()))
+}
+
+/// One line per stored index, "n. title. pending: ...", for <scraped_index>.
+pub fn index_lines() -> Vec<String> {
+    INDEXES
+        .lock()
+        .map(|i| i.iter().map(|e| format!("{}. {}. pending: {}", e.n, e.title.trim(), pending_text(&e.pending))).collect())
+        .unwrap_or_default()
+}
+
+/// The indexes stored since the current scrape mode opened: (n, title,
+/// pending). What the mode's read becomes in the history on exit.
+pub fn mode_indexes() -> Vec<(usize, String, String)> {
+    let mark = MODE_MARK.lock().map(|m| *m).unwrap_or(0);
+    INDEXES
+        .lock()
+        .map(|i| i.iter().skip(mark).map(|e| (e.n, e.title.clone(), pending_text(&e.pending).to_string())).collect())
+        .unwrap_or_default()
+}
+
+/// This run's scrapes folder, for the pointer a scrape mode leaves in the
+/// history (main_driver point_scrape_at_indexes).
+pub fn run_dir() -> Option<PathBuf> {
+    RUN_DIR.lock().ok().and_then(|d| d.clone())
+}
+
+/// A continued run (the UI's follow-up in the same chat): the folder the
+/// history's pointer names is this run's folder again, its files are the
+/// indexes so far, read back in order, and numbering goes on from them.
+pub fn resume(dir: PathBuf) {
+    let mut entries = Vec::new();
+    for n in 1usize.. {
+        let Ok(text) = fs::read_to_string(dir.join(format!("{n}.json"))) else { break };
+        let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+        let field = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        entries.push(IndexEntry { n, title: field("title"), pending: field("pending") });
+    }
+    let count = entries.len();
+    if let Ok(mut d) = RUN_DIR.lock() {
+        *d = Some(dir);
+    }
+    if let Ok(mut i) = INDEXES.lock() {
+        *i = entries;
+    }
+    if let Ok(mut m) = MODE_MARK.lock() {
+        *m = count;
+    }
+}
+
+fn pending_text(pending: &str) -> &str {
+    let p = pending.trim();
+    if p.is_empty() { "none" } else { p }
 }
 
 /// The pictures of the latest read, once: the agent loop sends them with the

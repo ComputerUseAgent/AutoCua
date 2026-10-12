@@ -427,11 +427,15 @@ impl ControllerView {
                 )),
             },
             // Scrape mode, which a run_script scrape opened: the next three
-            // screens with the same script, and the way out.
+            // screens with the same script, the index that keeps a chunk, and
+            // the way out. `index_read` brings a stored index back, on the
+            // page steps.
             // A skill into <skills>, or out of it. Its `type` travels as
             // `script_type` like run_script's (tool_calls_to_steps).
             "skills" => skills::service::run(&get("script_type"), &get("id")),
             "more" => run_script::service::more(py, sc),
+            "index" => run_script::service::index(py, sc, &get("title"), &get("pending"), &get("value")),
+            "index_read" => run_script::service::index_read(&get("id")),
             "exit_scrape_mode" => run_script::service::exit_scrape_mode(&get("value")),
             "scroll" => scroll::service::scroll(py, sc, &get("id"), &get("direction"), &elements),
             "wait" => wait::service::wait(&get("value")),

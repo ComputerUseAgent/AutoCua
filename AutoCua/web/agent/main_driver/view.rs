@@ -737,6 +737,11 @@ pub fn extract_tools_impl(normalized_response: &str) -> Vec<Value> {
         if let Some(e) = obj.get("enter") {
             tool.insert("enter".into(), e.clone());
         }
+        // run_script's own `type` ("action" or "scrape"), so the chain can
+        // show a scrape as scraping mode starting, not as a script.
+        if let Some(t) = obj.get("script_type") {
+            tool.insert("script_type".into(), t.clone());
+        }
         tools.push(Value::Object(tool));
     }
     tools

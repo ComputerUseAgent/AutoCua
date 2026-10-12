@@ -261,7 +261,7 @@ fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
   4. How a scrape reads:
     1. It reads the screen the page is on and the two below it. Your script runs once on each of the 3 screens, and there `document.querySelectorAll` gives only the elements whose top edge is on that screen; the arrays it returns are joined. Start every read from `document.querySelectorAll(<one record>)`: a lookup that starts anywhere else is not held to the screens.
     2. The page scrolls through the 3 screens and stays at the third. A clean screenshot of each screen (no ids, no overlay) comes with the next input, for that step only: check the records against them.
-    3. A read that brings records opens scrape mode: the next step shows no page, only your records and the screenshots, and its tools are `more` (the next 3 screens with the same script, with their screenshots), `scratchpad`, `update_todo` and `exit_scrape_mode`. Make the scrape the LAST call of its batch.
+    3. A read that brings records opens scrape mode: the next step shows no page, only your records and the screenshots, and its tools are `index` (what the task needs from this chunk, stored as a numbered file under AutoCua_data/scrapes/), `more` (the next 3 screens with the same script, with their screenshots), `scratchpad`, `update_todo`, `skills` and `exit_scrape_mode`. Make the scrape the LAST call of its batch.
     4. One read hands back at most 10000 tokens (about 30000 characters). Over that nothing comes back, the page returns to where the read began, and the screenshots still come, so you can narrow the script: fewer fields, shorter text, a narrower selector. A read that matches nothing opens no mode; its screenshots come too.
   5. How to scrape: before the first scrape of a task, load the scraping skill (`skills`, its [id] in <skills>): the method, the site notes and worked examples there shape the script. Scrape mode shows it too, so from then on it stays in front of you.
   6. Negative examples (NEVER emit these):
@@ -326,6 +326,12 @@ fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
   3. A `run_script` scrape loads the scraping skill itself when it opens scrape mode; remove it when you are done with it.
   4. <domain_knowledge> is not a skill: it comes with the current tab's site and goes with it on its own, has no id, and this tool does not touch it."#, track),
 
+        tool("index_read", &[("id", json!({"type": "integer"}))],
+             r#"A stored index back in full: the file `index` wrote in scrape mode, as one JSON text (index, time, title, pending, value).
+  1. Format: index_read {"id": <n_from_scraped_index>}
+  2. Example: index_read {"id": 2}
+  3. <scraped_index> lists this run's indexes, one line each ("n. title. pending: ..."). The line is usually enough: read an index only when its details are needed - the summary step, a comparison, a url you must open."#, track),
+
         tool("done", &[("value", json!({"type": "string"}))],
              r#"Ends the loop - the completion tool. Follow <task_completion>: a dedicated final step, never combined with any other action.
   1. Format: done {"value": "<end_to_end_summary>"}
@@ -336,27 +342,34 @@ fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
 
 /// The tools of scrape mode, offered on the steps after a run_script of type
 /// "scrape" brought records back, until `exit_scrape_mode` (controller/
-/// run_script): `more` reads the next three screens, `exit_scrape_mode`
-/// leaves. Defined here so every tool this crate offers a model is still in
-/// this one file.
+/// run_script): `index` keeps what the task needs from a chunk, `more` reads
+/// the next three screens, `exit_scrape_mode` leaves. Defined here so every
+/// tool this crate offers a model is still in this one file.
 pub fn scraping_tools() -> &'static Vec<Value> {
     static T: OnceLock<Vec<Value>> = OnceLock::new();
     T.get_or_init(|| {
         vec![
+            tool("index", &[("title", json!({"type": "string"})), ("pending", json!({"type": "string"})), ("value", json!({"type": "string"}))],
+                 r#"Keep what the task needs from the chunk the last read returned, as this run's next index: a file under AutoCua_data/scrapes/<run>/, numbered by the code (1, 2, 3 ...) and stamped with the time.
+  1. Format: index {"title": "<what this chunk has, and what it does not>", "pending": "<what the task still needs after it, or none>", "value": "<the JSON you keep from this chunk, as text>"}
+  2. Example: index {"title": "r/iphone search 'iPhone 18 Pro', past month, Top: 7 posts, 2 on topic", "pending": "comments of the 2 on-topic threads not read yet", "value": "{\"on_topic\": [{\"title\": \"LG vs Samsung display\", \"url\": \"https://www.reddit.com/r/iphone/comments/1wqkzy3/\", \"votes\": 1764, \"comments\": 201}, {\"title\": \"1TB 18 Pro Max slow as SD card\", \"url\": \"https://www.reddit.com/r/iphone/comments/1wn3j57/\", \"votes\": 1706, \"comments\": 325}], \"off_topic\": [\"scuba-found iPhone\", \"Duo video area\", \"Word Grind ad\", \"case review\", \"wallpaper thread\"]}"}
+  3. The order inside the mode: read, check the records against the screenshots, `index`, then `more` or `exit_scrape_mode`. A chunk that leaves the context without its index is gone.
+  4. `value` is what you keep, in the shape the task needs, in the page's own words and numbers, urls absolute: a list as its items, a table as its rows, a thread as the post with its comments and each comment's replies nested inside it, as the read returned them. Only what the task needs, never the raw records. A read that brought nothing useful gets no index: fix the read instead.
+  5. `title` and `pending` are what survive in your history and in <scraped_index>, so make them specific: a later step must know what is stored and what is still missing without opening the file. `index_read` brings the whole index back when the details are needed."#, &[]),
             tool("more", &[("value", json!({"type": "string"}))],
                  r#"The next 3 screens of the page being read, with the same script: the page scrolls on from where the last read ended, and a clean screenshot of each screen comes with the next input.
   1. Format: more {"value": "<what you are looking for next on this page>"}
-  2. Call it while what the task needs goes on below. Not once the read said the page ends there.
+  2. Call it after this chunk's `index`, while what the task needs goes on below. Not once the read said the page ends there.
   3. Over 10000 tokens nothing comes back and the page goes back to where this `more` began: `exit_scrape_mode`, then read again with a narrower script."#, &[]),
             tool("exit_scrape_mode", &[("value", json!({"type": "string"}))],
                  r#"Leave scrape mode: the look comes off the page, the next step scans it as normal and the page tools are back.
   1. Format: exit_scrape_mode {"value": "<what the data gave and which parts of the task it settles>"}
-  2. Call it in the same turn as the `scratchpad` notes that keep what the task needs from the data. After it, the steps of the mode leave your history; your run_script call and its data stay, and so does the scratchpad."#, &[]),
+  2. Call it after the last chunk's `index`, in the same turn as any `scratchpad` note. After it, the steps of the mode leave your history and your read becomes one line per index it stored ("stored at index [n]: title. pending: ..."); <scraped_index> lists them every step, and `index_read` brings one back in full."#, &[]),
         ]
     })
 }
 
-/// The whole schema of scrape mode (`LLMManager::set_scrape_step`): the two
+/// The whole schema of scrape mode (`LLMManager::set_scrape_step`): the three
 /// tools above plus scratchpad, update_todo and skills, and nothing else - no
 /// notes tool, no page tool.
 pub fn scrape_mode_tools() -> &'static Vec<Value> {
@@ -521,6 +534,8 @@ pub fn main_action_defaults() -> &'static Value {
             "dialog": {"id": 0, "value": ""},
             "run_script": {"id": 0, "type": "action", "value": ""},
             "more": {"value": ""},
+            "index": {"title": "", "pending": "", "value": ""},
+            "index_read": {"id": 0},
             "exit_scrape_mode": {"value": ""},
             "scroll": {"id": 0, "direction": "down"},
             "wait": {"value": ""},

@@ -63,7 +63,7 @@
 
     <button id="think" class="target">say a step's thinking</button>
     <button id="scrape" class="target">scraping mode on / off</button>
-    <button id="feed" class="target">a read's data for the card</button>
+    <button id="feed" class="target">an index for the card</button>
     <button id="finish" class="target">finish the run (done)</button>
 
     <script src="glow.js"></script>
@@ -104,9 +104,10 @@
             window.__AutoCuaScrapeGlow(scraping);
         });
 
-        // What browser.rs scrape_feed does after each read that stored a
-        // chunk: the chunk, as the scrape folder holds it. A second press is
-        // a `more`: the card fades the first out and streams this one.
+        // What browser.rs scrape_feed does after each `index`: the stored
+        // JSON, as the scrape folder holds it. A second press is the next
+        // index: appended below the first and streamed on from where the
+        // letters are.
         var reads = 0;
         document.getElementById('feed').addEventListener('click', function () {
             reads++;
@@ -118,10 +119,10 @@
                                url: 'https://example.com/item/' + n });
             }
             window.__AutoCuaScrapeFeed(JSON.stringify({
-                index: reads, scraped_at: '2026-10-06 14:32:08', asked: 'stories',
-                page: { site: 'example.com', title: 'Example feed', url: 'https://example.com/' },
-                read: { screens: 3, from_y: 0, to_y: 2279, page_height: 6912, more_below: true },
-                records: records
+                index: reads, time: '2026-10-06T14:32:08+00:00',
+                title: 'Example feed, chunk ' + reads + ': 6 stories with author, upvotes, comments, age, url',
+                pending: 'more stories below',
+                value: records
             }, null, 2));
         });
 
