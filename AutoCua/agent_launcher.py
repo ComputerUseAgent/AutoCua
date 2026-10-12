@@ -306,9 +306,10 @@ def run_agent(mode, provider, model, task, os=None,
     ui: True opens the desktop app (AutoCua/ui) instead of running
     `task` in the terminal. Every other argument is ignored — the app has its
     own mode/model/task controls — and the call returns once its window closes.
-    It opens in the Chromium shell (AutoCua/desktop, `npm install` there once)
-    when that is installed, else in the pywebview window; AUTOCUA_UI=webview
-    forces the pywebview one.
+    It opens in the Chromium shell (AutoCua/desktop) when Electron is here
+    (a checkout's `npm install`, or AutoCua/utils/electron.py's download,
+    which the first launch asks about on the terminal), else in the
+    pywebview window; AUTOCUA_UI=webview forces the pywebview one.
 
     device ("mobile use, ios" only): "simulation" (the default) runs on an iOS
     Simulator — ios_version picks the runtime (e.g. "26.5"; omitted = newest

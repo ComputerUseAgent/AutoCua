@@ -7,8 +7,11 @@
 // on /api/desktop/events. So this window never shares a process, a thread or a
 // lock with the agent, and it is the same Chromium on macOS, Windows and Linux.
 //
-//   npm install     once, in this folder
-//   npm start       or run_agent(..., ui=True), which uses this when installed
+// Electron comes from `npm install` in this folder (a checkout) or from
+// AutoCua/utils/electron.py, which fetches the release zip into a per-user
+// cache when the person says yes on the first launch (a pip install; no
+// Node.js needed). run_agent(..., ui=True) starts it with this folder, as
+// `npm start` does.
 'use strict';
 
 // Started as plain Node: ELECTRON_RUN_AS_NODE=1 was inherited (VS Code, an
@@ -22,7 +25,7 @@ if (typeof require('electron') === 'string') {
   process.exit(result.status ?? 1);
 }
 
-const { app, BaseWindow, WebContentsView, nativeImage, nativeTheme, powerSaveBlocker, shell } = require('electron');
+const { app, BaseWindow, Menu, WebContentsView, nativeImage, nativeTheme, powerSaveBlocker, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -36,6 +39,11 @@ const PACKAGE = path.resolve(__dirname, '..');
 const ROOT = path.dirname(PACKAGE);
 const BACKGROUND = '#FDFCFA';   // TITLEBAR_COLOR in AutoCua/ui/service.py
 const LOGO = path.join(PACKAGE, 'logo', 'logo.png');
+// Windows and Linux: the strip that stands in for the title bar, and the
+// colour of the window's buttons drawn on it (macOS sizes its strip to the
+// system bar, systemTitleBarHeight).
+const STRIP_HEIGHT = 32;
+const SYMBOLS = '#3B3B3B';
 const PENDING_MAX = 500;
 const MAC = process.platform === 'darwin';
 
@@ -46,7 +54,7 @@ const SMOKE = process.env.AUTOCUA_DESKTOP_SMOKE || '';
 
 let win = null;
 let page = null;       // the app, in a view of the window
-let titleBar = null;   // macOS: the strip above it, in the app's colour
+let titleBar = null;   // the strip above it, in the app's colour
 let backend = null;
 let quitting = false;
 let relaunching = false;
@@ -255,9 +263,16 @@ async function createWindow() {
     backgroundColor: BACKGROUND,
     show: false,
     acceptFirstMouse: true,   // macOS: the click that focuses the window lands too
-    // macOS: no system bar (it can't take the app's colour); titleBar below
-    // stands in for it, and the traffic lights stay where they were.
-    ...(MAC ? { titleBarStyle: 'hidden' } : {}),
+    // No system bar: it can't take the app's colour (on Windows it follows
+    // dark mode, black above the off-white app). titleBar below stands in
+    // for it. On macOS the traffic lights stay where they were; on Windows
+    // and Linux the window's own buttons are drawn on the strip, in its
+    // colour, and the window takes the logo (the taskbar showed Electron's).
+    titleBarStyle: 'hidden',
+    ...(MAC ? {} : {
+      titleBarOverlay: { color: BACKGROUND, symbolColor: SYMBOLS, height: STRIP_HEIGHT },
+      icon: LOGO,
+    }),
   });
   page = new WebContentsView({
     webPreferences: {
@@ -272,17 +287,14 @@ async function createWindow() {
   // The page gets the size it had under the system bar; the strip above it
   // is the app's colour and drags the window, so bar and page read as one
   // surface, like the pywebview window's tinted bar.
-  let bar = 0;
-  if (MAC) {
-    bar = systemTitleBarHeight();
-    titleBar = new WebContentsView({
-      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
-    });
-    titleBar.setBackgroundColor(BACKGROUND);
-    titleBar.webContents.loadURL('data:text/html,' + encodeURIComponent(
-      `<style>html,body{margin:0;height:100%;background:${BACKGROUND};-webkit-app-region:drag}</style>`));
-    win.contentView.addChildView(titleBar);
-  }
+  const bar = MAC ? systemTitleBarHeight() : STRIP_HEIGHT;
+  titleBar = new WebContentsView({
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  titleBar.setBackgroundColor(BACKGROUND);
+  titleBar.webContents.loadURL('data:text/html,' + encodeURIComponent(
+    `<style>html,body{margin:0;height:100%;background:${BACKGROUND};-webkit-app-region:drag}</style>`));
+  win.contentView.addChildView(titleBar);
   win.contentView.addChildView(page);
   const layout = () => {
     const [width, height] = win.getContentSize();
@@ -377,9 +389,13 @@ if (!app.requestSingleInstanceLock()) {
     // browser_agent they then get almost no CPU at all (a 1 s phone step
     // measured at 25 s, and over two minutes under a full load).
     powerSaveBlocker.start('prevent-app-suspension');
-    // The app is light only: keep the traffic lights and menus light on its
-    // off-white bar in Dark Mode too, as the pywebview window pins Aqua.
-    if (MAC) nativeTheme.themeSource = 'light';
+    // The app is light only: keep the traffic lights, menus, scrollbars and
+    // form controls light in Dark Mode too, as the pywebview window pins Aqua.
+    nativeTheme.themeSource = 'light';
+    // Windows and Linux: no menu bar (File, Edit, View, Window) above the
+    // app; the pywebview window never had one. macOS keeps its menu, which
+    // lives in the system's bar and carries Quit and the editing shortcuts.
+    if (!MAC) Menu.setApplicationMenu(null);
     if (MAC && app.dock) {
       if (SMOKE) {
         app.dock.hide();
@@ -391,7 +407,11 @@ if (!app.requestSingleInstanceLock()) {
     return createWindow();
   }).catch((err) => {
     console.error('[desktop] could not start:', err.message);
-    app.quit();
+    // Not 0: the launcher (_launch_desktop_shell in AutoCua/ui/service.py)
+    // then opens the pywebview window instead, unless the person quit while
+    // the backend was starting. The backend never got going, so there is
+    // nothing for before-quit to wait for.
+    app.exit(quitting ? 0 : 1);
   });
 }
 

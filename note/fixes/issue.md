@@ -1,7 +1,7 @@
 # Known issues: the Chromium (Electron) window
 
-Found by a code review on 2026-10-09. **None of these is fixed yet.** All of
-them are in the Chromium window (`AutoCua/desktop` and the desktop-shell part of
+Found by a code review on 2026-10-09. The ones fixed since say so in their
+title and are listed at the end. All of them are in the Chromium window (`AutoCua/desktop` and the desktop-shell part of
 `AutoCua/ui/service.py`), not the pywebview window.
 
 Line numbers were refreshed on 2026-10-09 (after 458885d) and move as the files change; search for the
@@ -38,7 +38,7 @@ quoted code if a line no longer matches.
   screen video still records. Recording the app's own window needs Electron's
   window id (`win.getMediaSourceId()` in main.js).
 
-### 3. No fallback when the Chromium window can't start
+### 3. No fallback when the Chromium window can't start (fixed 2026-10-12, see the end of this file)
 - **What happens:** if Electron fails to start, nothing opens and
   `run_agent(ui=True)` still returns "desktop app closed". Common causes:
   - Ubuntu 23.10+ blocks its sandbox by default;
@@ -155,6 +155,9 @@ quoted code if a line no longer matches.
 - **Fix:** `IS_DESKTOP_SHELL = __name__ == "__main__" and "--desktop" in sys.argv`.
 
 ### 14. `npm install` on old Node.js fails with a confusing error
+- **Since 2026-10-12** this only hits a checkout that chooses npm: any install can
+  fetch Electron with `python -m AutoCua.utils.electron` instead, no Node.js
+  needed, and the README names the Node.js floor next to `npm install`.
 - **What happens:** Electron 44 declares Node.js 22.12+. On older Node, npm only
   warns, then fails deep inside Electron's install script with
   `ERR_REQUIRE_ESM`.
@@ -195,3 +198,22 @@ quoted code if a line no longer matches.
 - **Computer use, the iPhone and the browser at the same time**: fixed 2026-10-10/11
   in 754af08 (eight causes, from the passcode prompt to App Nap and the extension's
   stopped worker). Same note.
+- **No fallback when the Chromium window can't start (item 3)**: fixed 2026-10-12.
+  The backend writes a marker file the launcher names (`AUTOCUA_DESKTOP_STARTED`)
+  once it is serving. When Electron exits non-zero without it, or cannot be
+  launched at all (`OSError`), `_launch_desktop_shell` opens the pywebview window
+  instead; main.js now exits 1 when its backend dies before it is ready. Machines
+  Electron cannot run on (macOS older than 13, a Linux that restricts unprivileged
+  user namespaces) are known before anything is downloaded and go straight to
+  pywebview. That check covers the Electron AutoCua/utils/electron.py fetches, not
+  a checkout's `npm install` one, which still relies on the exit status.
+- **Windows and Linux showed Electron's menu bar, a black system title bar and
+  Electron's icon**: fixed 2026-10-12. The window hides the system bar there too
+  and draws the same off-white strip as on macOS, with the window's own buttons
+  drawn on it (`titleBarOverlay`); no menu bar; the AutoCua logo is the window and
+  taskbar icon (`AutoCua/desktop/main.js`, `createWindow`).
+- **pip installs never got the Chromium window**: fixed 2026-10-12.
+  AutoCua/utils/electron.py fetches Electron's official release zip (pinned
+  SHA-256) into a per-user cache once the person says yes on the terminal; no
+  Node.js needed. The pywebview window on macOS now opts out of App Nap too
+  (`_opt_out_of_app_nap` in service.py), as the Chromium shell already did.
