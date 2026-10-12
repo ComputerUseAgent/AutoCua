@@ -429,38 +429,57 @@ body {
    click-through show/hide controller; the panel itself is the glass card. */
 .settings-overlay {
     position: fixed;
-    /* Cover the content area (right of the left bar) with the app's exact base
-       colour so a prior agent run's grid (#mainGrid zones, which body.settings-open
-       does NOT fade) is fully hidden behind Settings instead of showing through a
-       transparent panel and cluttering the view. Left bar stays visible, matching
-       how body.settings-open already keeps it. */
+    /* Cover the WHOLE window with the app's exact base colour, so a prior agent
+       run's grid (#mainGrid zones, which body.settings-open does NOT fade) is
+       fully hidden behind Settings, and so is the left bar (left_bar.css hides
+       it once covered). The bar's logo and GitHub pill stand in the top
+       corners meanwhile (.settings-corners, left_bar.js). */
     top: 0;
     right: 0;
     bottom: 0;
-    left: var(--left-bar-w);
+    left: 0;
     background: #FDFCFA;
     z-index: 100;
 
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
-    transition: opacity 0.3s ease, visibility 0.3s ease;
+    /* Closing: the panel fades out first (below), then the cream, so the
+       settings and the page never show through each other. */
+    transition: opacity 0.22s ease 0.12s, visibility 0s linear 0.34s;
 }
 
 .settings-overlay.active {
     opacity: 1;
     visibility: visible;
+    transition: opacity 0.2s ease, visibility 0s;
+}
+
+/* Opening: the panel comes in once the cream has covered the page, so the
+   page never shows through the settings. Closing: it goes first. */
+.settings-overlay .settings-panel {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.settings-overlay.active .settings-panel {
+    opacity: 1;
+    transition: opacity 0.22s ease 0.14s;
 }
 
 .settings-panel {
     position: fixed;
-    /* Docked in the right content area — same geometry as .chat-container-wrapper. */
-    left: calc(50% + var(--left-bar-w) / 2);
+    /* Centred in the whole window: the left bar is out of the way while Settings
+       is open, leaving only the logo and the GitHub pill in the top corners. */
+    left: 50%;
     transform: translateX(-50%);
     width: clamp(600px, 65vw, 1000px);
-    top: clamp(30px, 4vw, 60px);
-    bottom: clamp(30px, 4vw, 50px);
-    padding: clamp(20px, 2.5vw, 28px);
+    /* As high as the bar's header, so the title sits on the logo's row, and
+       close to the bottom edge: the room goes to the settings themselves. */
+    top: clamp(5px, 0.7vw, 9px);
+    bottom: clamp(10px, 1.2vw, 16px);
+    padding: calc(clamp(12px, 1.5vw, 18px) + clamp(26px, 3vw, 34px) / 2 - clamp(18px, 2vw, 22px) * 0.6)
+             clamp(20px, 2.5vw, 28px) clamp(8px, 1vw, 12px);
     border-radius: var(--glass-radius);
     overflow: hidden;
     pointer-events: auto;
@@ -612,18 +631,21 @@ body.tg-occupied #zoneBottomRight {
     /* Consistent gap between sections (header / Model Selection / API Keys /
        Remote); each section keeps its heading tight to its content. */
     gap: clamp(22px, 2.8vw, 32px);
+    /* Scrolls without a bar, like .model-dropdown-menu. */
+    scrollbar-width: none;
 }
+.settings-panel-content::-webkit-scrollbar { display: none; }
 
-/* Footer with Cancel / Save, pinned at the bottom of the right-side panel. */
+/* Footer with Cancel / Save, centred at the bottom of the right-side panel. */
 .settings-footer {
     position: relative;
     z-index: 3;
     flex: 0 0 auto;
     display: flex;
-    justify-content: flex-end;
+    justify-content: center;
     gap: clamp(8px, 1vw, 12px);
-    padding-top: clamp(14px, 1.8vw, 20px);
-    margin-top: clamp(8px, 1vw, 12px);
+    padding-top: clamp(10px, 1.2vw, 14px);
+    margin-top: clamp(4px, 0.6vw, 8px);
     border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 .settings-cancel-btn, .settings-savebar-btn {
@@ -635,10 +657,8 @@ body.tg-occupied #zoneBottomRight {
     font-weight: 600;
     transition: background-color 0.2s ease, transform 0.15s ease;
 }
-.settings-cancel-btn { background: rgba(0, 0, 0, 0.06); color: rgba(70, 70, 70, 0.95); }
-.settings-cancel-btn:hover { background: rgba(0, 0, 0, 0.1); }
-.settings-savebar-btn { background: rgba(80, 165, 230, 0.9); color: #fff; }
-.settings-savebar-btn:hover { background: rgba(80, 165, 230, 1); }
+.settings-cancel-btn, .settings-savebar-btn { background: rgba(0, 0, 0, 0.06); color: rgba(70, 70, 70, 0.95); }
+.settings-cancel-btn:hover, .settings-savebar-btn:hover { background: rgba(0, 0, 0, 0.1); }
 .settings-cancel-btn:active, .settings-savebar-btn:active { transform: scale(0.97); }
 
 /* The old per-view API-keys Save button is replaced by the footer Save. */

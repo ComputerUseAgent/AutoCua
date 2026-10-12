@@ -21,11 +21,12 @@
     // using a plain <a href>, because a link would navigate the pywebview
     // window itself instead of opening the system browser; the URL is fixed
     // server-side (service.py open_github) — keep the two in sync.
+    // Every pill is wired: the header's and its copy in the Settings cover
+    // (cornerCopy).
     var GH_REPO = 'AutoCua/AutoCua';
-    function wireGithubPill(bar) {
-        var pill = bar.querySelector('#ghStarPill');
-        if (!pill) return;
-        var countEl = pill.querySelector('#ghStarCount');
+    function wireGithubPill() {
+        var pills = document.querySelectorAll('.gh-star-pill');
+        if (!pills.length) return;
         function fmt(n) {
             if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k';
             return String(n);
@@ -34,18 +35,35 @@
             fetch('https://api.github.com/repos/' + GH_REPO)
                 .then(function (r) { return r.json(); })
                 .then(function (d) {
-                    if (d && typeof d.stargazers_count === 'number' && countEl) {
-                        countEl.textContent = fmt(d.stargazers_count);
+                    if (d && typeof d.stargazers_count === 'number') {
+                        var text = fmt(d.stargazers_count);
+                        document.querySelectorAll('.gh-star-count').forEach(function (el) { el.textContent = text; });
                     }
                 })
                 .catch(function () { /* keep last value */ });
         }
-        pill.addEventListener('click', function () {
-            fetch('/api/open-github', { method: 'POST' })
-                .catch(function () { /* non-fatal: the browser just doesn't open */ });
+        pills.forEach(function (pill) {
+            pill.addEventListener('click', function () {
+                fetch('/api/open-github', { method: 'POST' })
+                    .catch(function () { /* non-fatal: the browser just doesn't open */ });
+            });
         });
         refresh();
         setInterval(refresh, 5 * 60 * 1000);
+    }
+
+    // Settings covers the whole window and hides the bar under it
+    // (left_bar.css), so the bar's header stands in the cover's top corners: a
+    // copy without the ids, laid out at the same spot, logo left, pill right.
+    function cornerCopy(bar) {
+        var cover = document.getElementById('settingsOverlay');
+        var header = bar.querySelector('#leftBarHeader');
+        if (!cover || !header || cover.querySelector('.settings-corners')) return;
+        var copy = header.cloneNode(true);
+        copy.removeAttribute('id');
+        copy.className = 'settings-corners';
+        copy.querySelectorAll('[id]').forEach(function (el) { el.removeAttribute('id'); });
+        cover.insertBefore(copy, cover.firstChild);
     }
 
     function inject() {
@@ -61,7 +79,8 @@
                 // Let dependent components (e.g. the settings button) mount into
                 // the bar now that it exists in the DOM.
                 document.dispatchEvent(new CustomEvent('leftbar:ready', { detail: { bar: bar } }));
-                wireGithubPill(bar);
+                cornerCopy(bar);
+                wireGithubPill();
                 revealWhenReady(bar);
             })
             .catch(function () { /* non-fatal: the bar simply won't render */ });
