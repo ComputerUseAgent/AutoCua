@@ -217,3 +217,16 @@ quoted code if a line no longer matches.
   SHA-256) into a per-user cache once the person says yes on the terminal; no
   Node.js needed. The pywebview window on macOS now opts out of App Nap too
   (`_opt_out_of_app_nap` in service.py), as the Chromium shell already did.
+- **Ubuntu 24.04+ got pywebview instead of the Chromium window**: fixed
+  2026-10-13. Chromium aborts without its sandbox, and there a downloaded
+  Electron has neither route to one: AppArmor takes every capability away in
+  its user namespaces, and its `chrome-sandbox` is not root's
+  (`FATAL ... setuid_sandbox_host.cc:166`, killed by signal 5, reproduced with
+  the pinned 44.7.0). The pre-check that sent these machines to pywebview is
+  gone. On Linux only, `electron.sandbox_switches` runs Chromium's own user
+  namespace test and checks the helper. When neither works, the launcher adds
+  `--no-sandbox` to Electron's command line (not its environment, which the
+  backend and the agent inherit) and prints the `sudo chown`/`chmod` that make
+  the helper root's, as Cursor's package does. The README's AppArmor profile is
+  gone: this Electron runs any app folder, so the profile let every program
+  around Ubuntu's restriction.

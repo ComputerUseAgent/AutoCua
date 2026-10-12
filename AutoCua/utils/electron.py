@@ -193,17 +193,15 @@ def unsupported_reason():
     elif sys.platform == "win32":
         if sys.getwindowsversion().major < 10:
             return f"Electron {VERSION} needs Windows 10 or newer"
-    elif sys.platform.startswith("linux") and not os.environ.get("ELECTRON_DISABLE_SANDBOX"):
+    elif sys.platform.startswith("linux") and "ELECTRON_DISABLE_SANDBOX" not in os.environ:
         # ELECTRON_DISABLE_SANDBOX is Electron's own switch for running
-        # without the sandbox: whoever set it has made that call.
+        # without the sandbox, honoured when it is set at all, even empty:
+        # whoever set it has made that call. A Linux that keeps the sandbox
+        # from starting is no reason: the window runs without it there
+        # (sandbox_switches).
         if os.geteuid() == 0:
             return ("Electron will not run as root with its sandbox on "
                     "(ELECTRON_DISABLE_SANDBOX=1 turns the sandbox off)")
-        blocked = _userns_blocked()
-        if blocked:
-            return (f"this Linux restricts unprivileged user namespaces ({blocked}), "
-                    "which Chromium's sandbox needs (README.md, 'The desktop app', "
-                    "says how to allow it)")
     return None
 
 
@@ -225,11 +223,87 @@ def _macos_version():
     return None if parts[:2] == (10, 16) else parts[:2]
 
 
-def _userns_blocked():
-    """The kernel setting that keeps Chromium's sandbox from starting, as
-    "name = value", or None. Without user namespaces Chromium falls back to
-    its setuid helper (chrome-sandbox), which only an installer running as
-    root can set up, and aborts."""
+def sandbox_switches(exe):
+    """Linux: ["--no-sandbox"] when Chromium's sandbox cannot start for the
+    Electron at `exe`, after saying so and how to turn it on; [] when it can,
+    and always on macOS and Windows, whose sandboxes need nothing from here.
+
+    Chromium will not run without its sandbox, which on Linux needs a user
+    namespace it can use, or its setuid helper (chrome-sandbox, next to the
+    executable) owned by root. Ubuntu 24.04 and newer
+    (kernel.apparmor_restrict_unprivileged_userns) let a program with no
+    AppArmor profile make a user namespace but take every capability away in
+    it, and a download made as the person cannot make the helper root's, so
+    a fetched Electron aborts there. Chrome and VS Code get through on
+    profiles Ubuntu ships, Cursor on its package's root-owned helper. A
+    profile for this Electron would be a hole rather than a fix: it runs any
+    app folder it is given, so every program on the machine could use it to
+    get around the restriction. Without the sandbox the window is as
+    protected as the pywebview one (WebKitGTK's sandbox is off there too),
+    and it only shows the app's own pages, from 127.0.0.1. The switch goes
+    on Electron's command line, not into ELECTRON_DISABLE_SANDBOX: main.js
+    hands its environment to the backend, and on to all the agent starts."""
+    if not sys.platform.startswith("linux") or "ELECTRON_DISABLE_SANDBOX" in os.environ:
+        return []
+    helper = Path(exe).parent / "chrome-sandbox"
+    if _helper_ready(helper) or _userns_works():
+        return []
+    setting = _userns_setting()
+    why = f" ({setting})" if setting else ""
+    print(f"[ui] This Linux keeps Chromium's sandbox from starting for a downloaded "
+          f"Electron{why}, so the window runs without it.", flush=True)
+    if helper.is_file():
+        path = shlex.quote(str(helper))
+        print("[ui] To turn it on (sudo asks for your password; again after an update "
+              "brings a new Electron):\n"
+              f"[ui]   sudo chown root:root {path}\n"
+              f"[ui]   sudo chmod 4755 {path}", flush=True)
+    return ["--no-sandbox"]
+
+
+def _helper_ready(helper):
+    """True when the chrome-sandbox at `helper` can run Chromium's setuid
+    sandbox: owned by root, setuid and executable by all (what Chromium
+    checks), on a mount that honours setuid."""
+    try:
+        st = helper.stat()
+        nosuid = os.statvfs(helper).f_flag & os.ST_NOSUID
+    except OSError:
+        return False
+    return bool(st.st_uid == 0 and st.st_mode & stat.S_ISUID
+                and st.st_mode & stat.S_IXOTH and not nosuid)
+
+
+# Chromium's own test (Credentials::CanCreateProcessInNewUserNS), in a fresh
+# interpreter: unshare(CLONE_NEWUSER) needs a process with one thread, and a
+# child of this process runs under the AppArmor label Electron will, since no
+# profile attaches to Python or to a downloaded Electron. Ubuntu's restriction
+# lets the namespace be made, then refuses these writes in it.
+_USERNS_PROBE = """
+import ctypes, os
+uid, gid = os.getuid(), os.getgid()
+if ctypes.CDLL(None, use_errno=True).unshare(0x10000000):     # CLONE_NEWUSER
+    raise SystemExit(1)
+for name, text in (("setgroups", "deny"), ("gid_map", f"{gid} {gid} 1"),
+                   ("uid_map", f"{uid} {uid} 1")):
+    with open(f"/proc/self/{name}", "w") as f:
+        f.write(text)
+"""
+
+
+def _userns_works():
+    """True when a process started from here can set up a user namespace
+    the way Chromium's sandbox does."""
+    try:
+        return subprocess.run([sys.executable, "-I", "-c", _USERNS_PROBE],
+                              capture_output=True, timeout=15).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _userns_setting():
+    """The kernel setting that restricts unprivileged user namespaces here,
+    as "name = value", or None."""
     for path, blocked in (("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1"),
                           ("/proc/sys/kernel/unprivileged_userns_clone", "0"),
                           ("/proc/sys/user/max_user_namespaces", "0")):
@@ -238,28 +312,8 @@ def _userns_blocked():
         except OSError:
             continue
         if value == blocked:
-            if "apparmor" in path and _apparmor_label() not in (None, "unconfined"):
-                # The restriction binds unconfined processes. One under a
-                # profile (VS Code's terminal runs under Ubuntu's `code`
-                # profile, which allows user namespaces, and so does all it
-                # starts) gets what that profile says; a no there is caught by
-                # the launcher when Electron exits before the app is up.
-                continue
             name = path[len("/proc/sys/"):].replace("/", ".")
             return f"{name} = {value}"
-    return None
-
-
-def _apparmor_label():
-    """This process's AppArmor label ("unconfined", "vscode (unconfined)",
-    ...), or None when there is none to read."""
-    for path in ("/proc/self/attr/apparmor/current", "/proc/self/attr/current"):
-        try:
-            label = Path(path).read_text(encoding="utf-8").strip("\x00\n ")
-        except OSError:
-            continue
-        if label:
-            return label
     return None
 
 

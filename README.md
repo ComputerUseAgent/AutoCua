@@ -767,8 +767,8 @@ Parallel mode is for `run_agent`. The desktop app runs one agent at a time.
 `ui=True` opens a native window, 1140 by 700, on a Flask server at AutoCua's own port
 (27321, or a free one for that run when another program holds it). The window is Chromium,
 through Electron, the same on every OS. Electron is not in the wheel, and nothing is
-downloaded without asking: on macOS 13 or newer, Windows 10 or newer, and a Linux that allows
-unprivileged user namespaces, the first launch from a terminal asks whether to fetch it, and
+downloaded without asking: on macOS 13 or newer, Windows 10 or newer, and 64-bit Linux, the
+first launch from a terminal asks whether to fetch it, and
 says how big it is and where it goes (a 120 to 160 MB download from Electron's own GitHub
 releases, the same zip `npm install electron` fetches, checked against a pinned SHA-256, and
 300 to 390 MB on disk). `y` puts it in a per-user cache (`~/Library/Caches/AutoCua/electron`,
@@ -782,28 +782,28 @@ is never asked.
 
 Without Electron, or with `AUTOCUA_UI=webview`, the app opens in
 [pywebview](https://pywebview.flowrl.com/), with the OS title bar tinted to match the page so
-the whole surface reads as one. So does an Electron that cannot run here (macOS older than 13,
-a Linux that restricts unprivileged user namespaces) or that fails before the app is up (a
-missing system library, a policy that blocks it). While the Chromium window is open, a second
-launch just brings it to the front.
+the whole surface reads as one. So does an Electron that cannot run here (macOS older than 13)
+or that fails before the app is up (a missing system library, a policy that blocks it). While
+the Chromium window is open, a second launch just brings it to the front.
 
-Ubuntu 23.10 and newer restrict unprivileged user namespaces
-(`kernel.apparmor_restrict_unprivileged_userns=1`), and Chromium's sandbox needs them, so
-those machines get pywebview. To use the Chromium window there anyway, allow them for
-AutoCua's Electron with an AppArmor profile, the route
-[Chromium documents](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md),
-then fetch it with `python -m AutoCua.utils.electron --force`:
+On Linux, Chromium's sandbox needs a user namespace it can use, or its setuid helper,
+`chrome-sandbox` next to the executable, owned by root. Ubuntu 24.04 and newer (23.10 as an
+opt-in) take every capability away in the user namespaces of a program with no AppArmor
+profile (`kernel.apparmor_restrict_unprivileged_userns=1`), and a download made as you cannot
+make the helper root's, so there the Chromium window starts without the sandbox
+(`--no-sandbox`, for this window only) and the launch says so. The pywebview window has no
+sandbox there either: WebKitGTK's is off in it. To turn the sandbox on, make the helper
+root's, as Chrome's and Cursor's packages do, with the two commands the launch prints:
 
 ```
-# /etc/apparmor.d/autocua-electron, then: sudo apparmor_parser -r /etc/apparmor.d/autocua-electron
-abi <abi/4.0>,
-include <tunables/global>
-profile autocua-electron /home/*/.cache/AutoCua/electron/*/electron flags=(unconfined) {
-  userns,
-}
+sudo chown root:root ~/.cache/AutoCua/electron/v<version>-linux-<arch>/chrome-sandbox
+sudo chmod 4755 ~/.cache/AutoCua/electron/v<version>-linux-<arch>/chrome-sandbox
 ```
 
-Setting `ELECTRON_DISABLE_SANDBOX=1` also works, but it turns Chromium's sandbox off.
+An update that brings a new Electron needs them again. An AppArmor profile that allows user
+namespaces for this Electron is not the way: it runs any app folder it is given, so the
+profile would let every program on the machine around Ubuntu's restriction, and everything
+the agent runs would inherit it.
 
 ```
 +--------------+----------------------------------------------+

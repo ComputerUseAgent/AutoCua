@@ -3959,12 +3959,17 @@ def _launch_desktop_shell():
     # Set for everything VS Code (an Electron app) spawns; inherited, it makes
     # Electron start as plain Node, with no window and no `app`.
     env.pop("ELECTRON_RUN_AS_NODE", None)
+    # Linux only: where Chromium's sandbox cannot start (Ubuntu 24.04 and
+    # newer, for a downloaded Electron), the window runs without it rather
+    # than not at all, by a switch on its command line, which the backend's
+    # environment, and what the agent starts from it, never carries.
+    switches = electron.sandbox_switches(exe) if IS_LINUX else []
     fd, started = tempfile.mkstemp(prefix="autocua-desktop-", suffix=".started")
     os.close(fd)
     env[ENV_DESKTOP_STARTED] = started
     try:
         try:
-            code = subprocess.run([str(exe), str(DESKTOP_SHELL_DIR)], env=env,
+            code = subprocess.run([str(exe), *switches, str(DESKTOP_SHELL_DIR)], env=env,
                                   check=False).returncode
             why = (f"killed by signal {-code}" if code < 0          # POSIX
                    else f"exit status {code:#010x}" if code > 0xFFFF  # a Windows crash code

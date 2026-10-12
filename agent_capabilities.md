@@ -745,9 +745,12 @@ Enter means not now, and with no terminal nothing is asked.
 `python -m AutoCua.utils.electron` fetches it any time. With Electron,
 `main()` starts the shell and waits for it to quit: the shell runs the backend
 as a process of its own (`python -m AutoCua.ui.service --desktop`), which
-tells the launcher once it is serving. Without Electron, with
+tells the launcher once it is serving. On a Linux that keeps Chromium's
+sandbox from starting (Ubuntu 24.04 and newer, unless Electron's
+`chrome-sandbox` is owned by root and setuid), the shell starts with
+`--no-sandbox` and says how to turn the sandbox on. Without Electron, with
 `AUTOCUA_UI=webview`, on a machine Electron cannot run on (macOS older than
-13, a Linux that restricts unprivileged user namespaces), or when the shell
+13), or when the shell
 fails before the backend is serving (it exits with an error), Flask starts in
 a daemon thread and the pywebview window opens on the main thread. While the
 Chromium window is open, a second launch only brings it to the front. Either way Flask serves on AutoCua's own port,
