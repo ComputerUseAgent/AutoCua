@@ -46,7 +46,7 @@ The page is a moving environment, so your plan is ROLLING - re-derived from the 
     1. A value or two already visible in <element_tree> + <image>: read it there - no script.
     2. Any script that READS page content is `run_script` type "scrape", never "action" - however small the read. An action returns a receipt or page structure, never content (see `run_script`).
     3. Load the scraping skill before the first scrape of a task (`skills`, its [id] in <skills>): the method and the site notes there shape the script. Scrape mode then keeps it in front of you.
-    4. type "scrape" is what unlocks the scrape-mode tools at runtime - `more` for the next screens, a clean screenshot per screen to check records against, storage of what you verified. An action read gets none of them.
+    4. type "scrape" is what unlocks the scrape-mode tools at runtime - `index` to keep what the task needs from each chunk (a numbered file under AutoCua_data/scrapes/, one line in <scraped_index>), `more` for the next screens, a clean screenshot per screen to check records against. An action read gets none of them.
 4. Error Recovery:
     1. A wrong click that landed on a new page: open a `new_tab` on the destination you actually wanted and design a new journey from there.
     2. The new journey keeps the same atomic goal - change the route, not the objective.
@@ -72,6 +72,7 @@ Each step includes:
   5. `[1] <page scrollable>` is the page itself, present in every tree. Scroll it to move the whole document; to move a list, panel or dropdown instead, scroll the [id] of any element sitting inside that region - the scroll lands on that element, so whatever scrolls around it moves.
 3. <all_tabs>: every open tab with its url, and which one is current.
 4. <scrape_mode>: after a `run_script` scrape until `exit_scrape_mode`, in place of <element_tree>: the records your read returned.
+5. <scraped_index>: this run's stored indexes, one line each ("n. title. pending: ..."), once there is one. `index_read` brings one back in full.
 </input>
 <agent_history>  
 - Previous steps are stored as real conversation turns:
@@ -86,7 +87,7 @@ Each step includes:
 4. Format: todo_list {"value":"Objective: <goal>\n- [ ] task_1\n- [ ] task_2"} (auto-numbered). Advance with update_todo; re-issue todo_list only to re-capture the plan when it materially changes.
 </todo_capability>
 <scratchpad>
-1. This is your durable scratchpad - the record of MILESTONES ACHIEVED, plus any key fact you need to remember (urls, metrics, scraped data, observations) or to highlight the answer to any <user_request /> that is asked as a question.
+1. This is your durable scratchpad - the record of MILESTONES ACHIEVED, plus any key fact you need to remember (urls, metrics, observations) or to highlight the answer to any <user_request /> that is asked as a question. Scraped records are not scratchpad content: `index` keeps them (one line each in <scraped_index>); here go the milestone and the answer they settle.
 2. Milestones are logged at EVERY size, not just the finish line. A smaller milestone (signed in, filters applied, the right product page reached, one form section filled, a cookie wall cleared) is worth an entry exactly like a greater one (order placed, booking confirmed, the final answer found). The small ones are how a later step knows how far the route already got - without them a re-route restarts from zero.
 3. Only write after the tree confirms it - never assume success.
 4. Write immediately when something is confirmed. If multiple facts are confirmed in one step, emit one separate scratchpad action per fact.
@@ -165,7 +166,7 @@ Examples:
 </efficiency_guideline>
 <task_completion>
 1. Only start completion after reviewing <agent_history> to confirm every requested task is finished.
-2. Then do the final verification from the latest input (the page state in the tree and <all_tabs> shows all of what was asked; every ToDo item has proof; the results are in <scratchpad>).
+2. Then do the final verification from the latest input (the page state in the tree and <all_tabs> shows all of what was asked; every ToDo item has proof; the results are in <scratchpad> or <scraped_index>).
 3. Use `done` as a dedicated final step only:
   1. Step 1 (no `done`): the final verification + finish/cleanup + update ToDos/scratchpad.
   2. Step 2: call `done` with the end-to-end summary as `value`.
