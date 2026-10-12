@@ -141,6 +141,14 @@ pub fn browser_profile_dir(py: Python<'_>, name: Option<&str>) -> PyResult<PathB
     Ok(PathBuf::from(dir.str()?.extract::<String>()?))
 }
 
+/// AutoCua_data itself, asked of Python for the same reason. The indexes a
+/// run's scrapes store (controller/run_script window.rs) go under it.
+pub fn data_root(py: Python<'_>) -> PyResult<PathBuf> {
+    let module = py.import("AutoCua")?;
+    let dir = module.call_method0("data_root")?;
+    Ok(PathBuf::from(dir.str()?.extract::<String>()?))
+}
+
 /// AutoCua/web/agent — kept as a helper because the main_driver prompts the
 /// agent reads live under it.
 pub fn agent_dir(py: Python<'_>) -> PyResult<PathBuf> {

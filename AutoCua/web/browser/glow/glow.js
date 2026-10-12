@@ -527,8 +527,6 @@
     orbRgb = hexRgb(cs.getPropertyValue('--AutoCua-scrape-ink'), orbRgb);
     orbCtx = orbCanvas.getContext('2d');
     feedCtx = feedCanvas.getContext('2d');
-    var panel = parseFloat(cs.getPropertyValue('--AutoCua-scrape-panel-h'));
-    feedPanelH = panel > 0 ? panel : 460;
     feedInk = 'rgb(' + orbRgb[0] + ',' + orbRgb[1] + ',' + orbRgb[2] + ')';
     if (feedCtx) feedMeasure();
   }
@@ -733,14 +731,16 @@
 
   // -- scraping mode: the card's data -----------------------------------------
 
-  // Each read's data, the records a run_script scrape brought (browser.rs scrape_feed),
-  // streamed into the card a letter at a time: the card is at its full size
-  // the moment the data comes, and the letters come in from a blur at once
-  // while the lines glide up to keep the newest in view. A later read fades
-  // the old text out and streams its own; the end of the mode stops it
-  // wherever it is (feedReset). The letters run on the frame loop's clock,
-  // which only moves while the page draws, so a page that was not drawing for
-  // a while carries on where it was instead of jumping ahead.
+  // Each index the agent keeps from a read, the stored JSON (browser.rs scrape_feed),
+  // streamed into the card a letter at a time, like a log: the card is at its
+  // full size the moment the first index comes, the letters come in from a
+  // blur while the lines glide up to keep the newest in view, and a later
+  // index is appended below and streamed on from where the letters are. When
+  // the card is behind what it holds it catches up at several times the pace;
+  // the end of the mode stops it wherever it is (feedReset). The letters run
+  // on the frame loop's clock, which only moves while the page draws, so a
+  // page that was not drawing for a while carries on where it was instead of
+  // jumping ahead.
   //
   // The text is kept here and nowhere else. It is painted on a canvas in the
   // overlay, so the page gains no text, no element per letter and no DOM
@@ -748,30 +748,32 @@
   // scrape's wait for a settled page to wait on (the scrape skips
   // [data-AutoCua="overlay"] outright as well).
   var cardEl = null, headEl = null, feedCanvas = null, feedCtx = null;
-  var feedW = 0, feedH = 0, feedDpr = 1, feedPanelH = 460, feedBase = 13.8, feedInk = '#4d4d55';
+  var feedW = 0, feedH = 0, feedDpr = 1, feedBase = 13.8, feedInk = '#4d4d55';
   var feedPillW = 0, feedPillH = 0;   // the pill's size, as it was when the card opened
-  var feedText = '', feedNext = '';   // the data streaming, and a later read's, waiting for it to fade
+  var feedText = '';                  // everything the card holds, index after index
   var feedG = [];                     // its letters
   var feedX = [], feedOff = [], feedLineOf = [], feedLines = [];   // where each sits (feedLayout)
   var feedOpen = false;
   var feedClock = 0;                  // seconds of frames since the look came on
-  var feedT0 = -1;                    // the clock at the first letter; -1 before it is set
-  var feedSwap = -1, feedSwapFrom = 1;   // the clock the old text began to fade at, and from what
-  var feedIn = -1;                    // the clock the new text began to fade in at
+  var feedShown = 0;                  // letters out so far (fractional between frames)
+  var feedAt = [];                    // the clock each letter came out at
+  var feedSettled = 0;                // letters fully in: the first still on its way
   var feedY = 0;                      // how far the text has glided up, px
   var feedRest = false;               // painted with nothing moving: no need to paint again
   var feedSeg = null;
   var FEED_FONT = '12px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
   var FEED_LH = 19.2;                 // 12px at line-height 1.6
   var FEED_TOP = 10, FEED_SIDE = 12, FEED_FOOT = 12;   // margins round the text
-  var FEED_RATE = 120;                // letters per second
+  var FEED_RATE = 300;                // letters per second
+  var FEED_CATCHUP = 4;               // times the pace while the card is behind
+  var FEED_BACKLOG = 600;             // letters still to come that count as behind
   // Seconds a letter takes to come in: some twenty letters are on their way
   // in at any moment, whatever the pace, so the trail looks the same and
   // costs the same at any speed.
   var FEED_LIVE = 20 / FEED_RATE;
   var FEED_BLUR = 2;                  // px of blur a letter comes in from
-  var FEED_FADE = 0.45;               // a later read: the old text fades out,
-  var FEED_SWAP = 0.5;                // and the new one starts after this
+  var FEED_GAP = '\n\n';              // between one index and the next
+  var FEED_MAX = 48000;               // letters kept; the oldest indexes go first
   // Right-to-left or joined writing (Hebrew, Arabic, Syriac, Thaana, N'Ko,
   // Mongolian, their presentation forms, the astral right-to-left blocks) and
   // the marks that turn text right to left. The canvas orders and joins it
@@ -794,7 +796,6 @@
     };
   }
   var feedEaseOut = cubicBezier(0, 0, 0.58, 1);     // a letter coming in (ease-out)
-  var feedEase = cubicBezier(0.25, 0.1, 0.25, 1);   // the text fading (ease)
 
   // Where the text sits in each line, as CSS sets a line of 12px/1.6: the
   // font's height centred in it.
@@ -898,15 +899,16 @@
   }
 
   // The open card: right to the same gap from the far edge as from this one,
-  // and down to its panel height, or to that gap from the bottom; never
-  // smaller than the pill. (The pill's size is kept from when it opened: the
-  // head is as wide as the card once the card is open.)
+  // and down to the same gap from the bottom as from the top, so the newest
+  // line sits at the foot of the window; never smaller than the pill. (The
+  // pill's size is kept from when it opened: the head is as wide as the card
+  // once the card is open.)
   function feedFit() {
     var rr = scrapeEl.getBoundingClientRect();
     var cr = cardEl.getBoundingClientRect();
     var left = cr.left - rr.left, top = cr.top - rr.top;
     var w = Math.max(feedPillW, rr.width - 2 * left);
-    var h = Math.max(feedPillH, Math.min(feedPanelH, rr.height - top - left));
+    var h = Math.max(feedPillH, rr.height - 2 * top);
     cardSize(w, h);
     feedResize(w, h - feedPillH);
   }
@@ -939,31 +941,30 @@
     return b > 0.5 ? 'blur(' + (b * feedDpr).toFixed(2) + 'px)' : 'none';
   }
 
-  function feedAlpha(c) {
-    if (feedSwap >= 0) return feedSwapFrom * (1 - feedEase(Math.min(1, (c - feedSwap) / FEED_FADE)));
-    if (feedIn >= 0 && c - feedIn < FEED_FADE) return feedEase((c - feedIn) / FEED_FADE);
-    return 1;
+  // Where the glide rests with `shown` letters out: the newest line in view
+  // at the bottom of the card.
+  function feedTarget(shown) {
+    if (shown < 1) return 0;
+    return Math.max(0, FEED_TOP + (feedLineOf[shown - 1] + 1) * FEED_LH + FEED_FOOT - feedH);
   }
 
-  // One frame: the card opening with the first data, a later read's fade,
-  // then the letters.
+  // One frame: the card opening with the first index, then the letters, at
+  // the pace, or at several times it while the card is behind what it holds.
   function feedTick(dt) {
     feedClock += dt;
-    if (!feedText || !feedCtx) return;           // a pill until a read's data comes
+    if (!feedText || !feedCtx) return;           // a pill until an index comes
     var c = feedClock;
-    if (!feedOpen) {
-      feedUnfold();
-      feedT0 = c;
+    if (!feedOpen) feedUnfold();
+    var n = feedG.length;
+    if (feedShown < n) {
+      var rate = n - feedShown > FEED_BACKLOG ? FEED_RATE * FEED_CATCHUP : FEED_RATE;
+      var before = Math.floor(feedShown);
+      feedShown = Math.min(n, feedShown + rate * dt);
+      // each letter's own moment within the frame, so the trail is continuous
+      for (var i = before, after = Math.floor(feedShown); i < after; i++) feedAt[i] = c - (feedShown - i - 1) / rate;
     }
-    if (feedSwap >= 0 && c - feedSwap >= FEED_SWAP) {
-      feedText = feedNext;
-      feedNext = '';
-      feedSwap = -1;
-      feedSet();
-      feedT0 = c;
-      feedIn = c;
-      feedY = 0;
-    }
+    var out = Math.floor(feedShown);
+    while (feedSettled < out && c - feedAt[feedSettled] >= FEED_LIVE) feedSettled++;
     feedPaint(dt, false);
   }
 
@@ -971,23 +972,29 @@
   // the rest as whole lines. `still` paints all of it at once and at rest
   // (reduced motion).
   function feedPaint(dt, still) {
-    var ctx = feedCtx, n = feedG.length;
-    var t = still ? Infinity : feedClock - feedT0;
-    var shown = feedT0 < 0 || !(t >= 0) ? 0 : Math.min(n, Math.floor(t * FEED_RATE) + 1);
-    var settled = !(t >= FEED_LIVE) ? 0 : Math.min(n, Math.floor((t - FEED_LIVE) * FEED_RATE) + 1);
+    var ctx = feedCtx, n = feedG.length, c = feedClock;
+    var shown = still ? n : Math.min(n, Math.floor(feedShown));
+    var settled = still ? n : Math.min(shown, feedSettled);
     var target = feedY;
-    if (shown && !still) {                       // the glide: the newest line stays in view
-      target = Math.max(0, FEED_TOP + (feedLineOf[shown - 1] + 1) * FEED_LH + FEED_FOOT - feedH);
-      feedY += (target - feedY) * (1 - Math.pow(0.9, dt * 60));
-      if (Math.abs(target - feedY) < 0.01) feedY = target;
+    if (shown) {                                 // the glide: the newest line stays in view
+      target = feedTarget(shown);
+      if (still) {
+        feedY = target;                          // at rest: straight there
+      } else {
+        // Tighter while the letters come, so the newest line keeps up with
+        // them, and never further behind than the foot: the line coming in
+        // is always on the canvas, not below its edge.
+        feedY += (target - feedY) * (1 - Math.pow(shown < n ? 0.6 : 0.9, dt * 60));
+        if (target - feedY > FEED_FOOT) feedY = target - FEED_FOOT;
+        if (Math.abs(target - feedY) < 0.01) feedY = target;
+      }
     }
-    var alpha = feedAlpha(feedClock);
-    var moving = shown > 0 && (settled < n || feedY !== target || alpha < 1 || feedSwap >= 0);
+    var moving = shown > 0 && (settled < n || feedY !== target);
     if (!moving && feedRest) return;
     feedRest = !moving;
     ctx.setTransform(feedDpr, 0, 0, feedDpr, 0, 0);
     ctx.clearRect(0, 0, feedW, feedH);
-    if (!shown || alpha <= 0) return;
+    if (!shown) return;
     ctx.font = FEED_FONT;
     ctx.fillStyle = feedInk;
     ctx.textBaseline = 'alphabetic';
@@ -998,15 +1005,15 @@
       if (ln.start >= shown) break;
       var y = FEED_TOP + k * FEED_LH - feedY + feedBase;
       if (ln.whole) {                            // FEED_RTL: all of it, on its first letter's clock
-        var ew = feedEaseOut((t - ln.start / FEED_RATE) / FEED_LIVE);
-        ctx.globalAlpha = alpha * ew;
+        var ew = still ? 1 : feedEaseOut((c - feedAt[ln.start]) / FEED_LIVE);
+        ctx.globalAlpha = ew;
         ctx.filter = feedBlur(ew);
         ctx.fillText(ln.str, FEED_SIDE + ln.x0, y);
         continue;
       }
       var upTo = Math.min(ln.end, settled);
       if (upTo > ln.start && ln.str) {
-        ctx.globalAlpha = alpha;
+        ctx.globalAlpha = 1;
         ctx.filter = 'none';
         ctx.fillText(upTo >= ln.end ? ln.str : ln.str.slice(0, feedOff[upTo]), FEED_SIDE + ln.x0, y);
       }
@@ -1014,8 +1021,8 @@
       for (var i = Math.max(ln.start, settled); i < end; i++) {
         var ch = feedG[i];
         if (ch === ' ' || ch === '\n') continue;
-        var e = feedEaseOut((t - i / FEED_RATE) / FEED_LIVE);
-        ctx.globalAlpha = alpha * e;
+        var e = still ? 1 : feedEaseOut((c - feedAt[i]) / FEED_LIVE);
+        ctx.globalAlpha = e;
         ctx.filter = feedBlur(e);
         ctx.fillText(ch, FEED_SIDE + feedX[i], y);
       }
@@ -1028,13 +1035,12 @@
   // wherever the stream had got to.
   function feedReset() {
     feedText = '';
-    feedNext = '';
     feedG = []; feedX = []; feedOff = []; feedLineOf = []; feedLines = [];
     feedOpen = false;
     feedClock = 0;
-    feedT0 = -1;
-    feedSwap = -1;
-    feedIn = -1;
+    feedShown = 0;
+    feedAt = [];
+    feedSettled = 0;
     feedY = 0;
     feedRest = false;
     if (cardEl) {
@@ -1047,32 +1053,36 @@
     }
   }
 
-  // A read's data for the card (browser.rs scrape_feed): streamed in, or, if
-  // the card is already showing a read, the next one once that has faded.
-  // Only while the look is on; data for a page whose look is off is dropped,
-  // and never turns it on. Answers whether it was taken.
+  // An index for the card (browser.rs scrape_feed): appended below what the
+  // card holds and streamed on from where the letters are. Nothing given is
+  // dropped: a card that is behind catches up at several times the pace
+  // (feedTick). Only while the look is on; text for a page whose look is off
+  // is dropped, and never turns it on. Answers whether it was taken.
   window.__AutoCuaScrapeFeed = scrapeFeed;
   function scrapeFeed(text) {
     if (off || !scraping || !feedCtx || typeof text !== 'string' || !text) return false;
     try {
+      var all = feedText ? feedText + FEED_GAP + text : text, trimmed = false;
+      if (all.length > FEED_MAX) {               // the oldest indexes go, whole
+        var cut = all.indexOf(FEED_GAP, all.length - FEED_MAX);
+        cut = cut < 0 ? all.length - FEED_MAX : cut + FEED_GAP.length;
+        var gone = feedSplit(all.slice(0, cut)).length;
+        all = all.slice(cut);
+        feedShown = Math.max(0, feedShown - gone);
+        feedAt = feedAt.slice(gone);
+        feedSettled = Math.max(0, feedSettled - gone);
+        trimmed = true;
+      }
+      feedText = all;
       if (reduceMotion) {                        // all of it at once, at rest
-        feedText = text;
         if (feedOpen) feedSet(); else feedUnfold();
-        feedT0 = 0;
         feedPaint(0, true);
         return true;
       }
-      if (!feedOpen || feedT0 < 0 || feedClock < feedT0) {
-        feedText = text;                         // nothing on the card yet: this streams instead
-        if (feedOpen) feedSet();
-        return true;
+      if (feedOpen) {
+        feedSet();                               // the old lines keep their places; the new ones follow
+        if (trimmed) feedY = feedTarget(Math.floor(feedShown));
       }
-      if (feedSwap < 0) {
-        feedSwapFrom = feedAlpha(feedClock);
-        feedSwap = feedClock;
-        feedIn = -1;
-      }
-      feedNext = text;
       return true;
     } catch (e) {
       return false;

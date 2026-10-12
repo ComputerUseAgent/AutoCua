@@ -335,7 +335,6 @@
     --AutoCua-scrape-ink: #dcdce4;                        /* label, orb and data (light grey, glow.js reads it) */
     --AutoCua-scrape-sheen: #ffffff;                      /* glint running through the label */
     --AutoCua-scrape-orb: 26px;                           /* orb size next to the label    */
-    --AutoCua-scrape-panel-h: 460px;                      /* height the data streams in (glow.js reads it) */
     display: none !important;
     position: absolute !important;
     inset: 0 !important;

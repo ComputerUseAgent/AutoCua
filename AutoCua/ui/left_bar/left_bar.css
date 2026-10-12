@@ -154,3 +154,33 @@
 .gh-mark { width: clamp(13px, 1.4vw, 15px); height: clamp(13px, 1.4vw, 15px); flex-shrink: 0; }
 .gh-star { width: clamp(11px, 1.2vw, 13px); height: clamp(11px, 1.2vw, 13px); flex-shrink: 0; color: #e3a008; }
 .gh-star-count { line-height: 1; }
+
+/* ---- Settings open ---------------------------------------------------------
+   Settings covers the whole window (css/style.css .settings-overlay) and the
+   bar stays where it is under it, untouched: once the cover has faded in the
+   bar is hidden, so nothing of it takes a click or a Tab, and it is back the
+   moment Settings starts to close (the base rule has no visibility
+   transition). Its logo and GitHub pill stand in the cover's top corners
+   meanwhile: a copy of the header (left_bar.js) laid out at exactly the same
+   spot, so the logo never moves and the pill fades across to the right. */
+body.settings-open .left-bar {
+    visibility: hidden;
+    transition: opacity 0.6s cubic-bezier(0.25, 0.8, 0.25, 1),
+                transform 0.6s cubic-bezier(0.25, 0.8, 0.25, 1),
+                visibility 0s linear 0.3s;
+}
+
+/* The bar's left/top gap plus its content padding: where its header sits. */
+.settings-corners {
+    position: absolute;
+    top: calc(clamp(5px, 0.7vw, 9px) + clamp(12px, 1.5vw, 18px));
+    left: calc(clamp(5px, 0.7vw, 9px) + clamp(12px, 1.5vw, 18px));
+    right: calc(clamp(5px, 0.7vw, 9px) + clamp(12px, 1.5vw, 18px));
+    display: flex;
+    align-items: center;
+    pointer-events: none;
+}
+
+.settings-corners .gh-star-pill {
+    pointer-events: auto;
+}

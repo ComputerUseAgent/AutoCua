@@ -313,7 +313,7 @@ pub fn more(py: Python<'_>, scanner: &Arc<Mutex<ScannerInner>>) -> ActResult<Val
         return err("no read is in progress: run_script with type \"scrape\" reads first, then `more` goes on");
     };
     if ended {
-        return err("the page ends at the last screen read: there is nothing below it - exit_scrape_mode");
+        return err("the page ends at the last screen read: there is nothing below it - `index` the last chunk if you have not, then exit_scrape_mode");
     }
     let target = tab.clone();
     let idx = scan_op(py, scanner, move |s| {
@@ -400,18 +400,19 @@ fn read_screens(
         out["redacted"] = report.classes_json();
     }
     if n > 0 {
-        let text = serde_json::to_string_pretty(&out["result"]).unwrap_or_default();
+        // The look goes on the tab; the card stays folded until the agent
+        // stores an index from the read (`index` below), and then streams
+        // that stored JSON. The raw records never reach the card.
         let target = tab.to_string();
         // Decoration: a tab that cannot take the look still opens the mode.
         let _ = scan_op(py, scanner, move |s| {
             s.scrape_glow_on(&target);
-            s.scrape_feed(&text);
             Ok(())
         });
         let next = if w.ended {
-            "the page ends here, so exit_scrape_mode next"
+            "the page ends here: `index` this chunk, then exit_scrape_mode"
         } else {
-            "`more` reads the next 3 screens"
+            "`index` this chunk, then `more` for the next 3 screens"
         };
         out["message"] = json!(format!(
             "{message} - scrape mode is on: a clean screenshot of each screen comes with the next input; {next}"
@@ -428,6 +429,60 @@ pub fn exit_scrape_mode(value: &Value) -> ActResult<Value> {
     let note = if value.is_null() { String::new() } else { py_str_of(value).trim().to_string() };
     let message = format!("scrape mode left. {note}");
     Ok(json!({"status": "success", "tool": "exit_scrape_mode", "message": message.trim()}))
+}
+
+/// `index`, in scrape mode: what the task needs from the chunk the last read
+/// returned, stored as this run's next index (window.rs store_index), a file
+/// under AutoCua_data/scrapes/<run>/ with the agent's title, pending and
+/// value. The code numbers it; the result says where it went, and the card
+/// on the tab being read streams the stored JSON.
+pub fn index(
+    py: Python<'_>,
+    scanner: &Arc<Mutex<ScannerInner>>,
+    title: &Value,
+    pending: &Value,
+    value: &Value,
+) -> ActResult<Value> {
+    let text = |v: &Value| if v.is_null() { String::new() } else { py_str_of(v).trim().to_string() };
+    let (title, pending, value) = (text(title), text(pending), text(value));
+    if title.is_empty() {
+        return err("index needs a `title`: what this chunk has, and what it does not");
+    }
+    if value.is_empty() {
+        return err(
+            "index needs a `value`: the JSON the task needs from this chunk, as text. A chunk with nothing \
+             worth keeping gets no index: fix the read instead",
+        );
+    }
+    match window::store_index(&title, &pending, &value) {
+        Ok((n, path, stored)) => {
+            let _ = scan_op(py, scanner, move |s| {
+                s.scrape_feed(&stored);
+                Ok(())
+            });
+            let pending = if pending.is_empty() { "none".to_string() } else { pending };
+            // The folder too, so a chat stopped inside the mode (no exit
+            // pointer) still resumes into its indexes (main_driver seeded_scrapes_dir).
+            Ok(json!({
+                "status": "success", "tool": "index", "index": n,
+                "scrapes_dir": path.parent().map(|d| d.to_string_lossy().into_owned()),
+                "message": format!("stored at index [{n}]: {title}. pending: {pending} ({})", path.display()),
+            }))
+        }
+        Err(message) => err(message),
+    }
+}
+
+/// `index_read`: a stored index back in full, as the text of its file.
+pub fn index_read(raw_id: &Value) -> ActResult<Value> {
+    let n = match py_int_value(raw_id) {
+        Ok(i) if i > 0 => i as usize,
+        _ => return err(format!("'{}' is not an index number: see <scraped_index>", py_str_of(raw_id))),
+    };
+    match window::read_index(n) {
+        Ok(content) => Ok(json!({"status": "success", "tool": "index_read", "index": n, "content": content})),
+        Err(message) => err(message),
+    }
 }
 
 /// Run `code` in tab [index] and report what it returned: both types.

@@ -1240,6 +1240,382 @@
     }
 
     // shape name -> painter factory (call to get a painter instance)
+    /* ---------------- newer logos (ported from new_tool_logos.html) ----------------
+       reading skills, reading / building the index, absorbing images, and the spider
+       of scrape mode. Same painter contract: painter(ctx, cx, cy, now, alpha). */
+    // skill scroll unrolls; the agent head turns to it and reads it line by line — "reading skills"
+    var SKILL_LINES = [{ y: -12, x2: -14 }, { y: -4, x2: -17 }, { y: 4, x2: -15 }, { y: 12, x2: -21 }];
+    var SKILL_X0 = -30;
+    var SKILL_GAZE_Y = [-3.5, -1.2, 1.2, 3.5];    // eye height per line, in head units
+    function drawSkillScroll(ctx, u, inks) {
+        var open = 20 * u;                        // half-height of the exposed sheet
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        if (open > 0.5) {
+            ctx.lineWidth = 3;                    // sheet edges
+            ctx.beginPath();
+            ctx.moveTo(-34, -open); ctx.lineTo(-34, open);
+            ctx.moveTo(-10, -open); ctx.lineTo(-10, open);
+            ctx.stroke();
+            ctx.save();                           // text lines: faint until read, then inked
+            ctx.beginPath(); ctx.rect(-34, -open, 24, open * 2); ctx.clip();
+            ctx.lineWidth = 2.5;
+            SKILL_LINES.forEach(function (L, i) {
+                ctx.save(); ctx.globalAlpha *= 0.3;
+                ctx.beginPath(); ctx.moveTo(SKILL_X0, L.y); ctx.lineTo(L.x2, L.y); ctx.stroke();
+                ctx.restore();
+                if (inks[i] > 0.01) {
+                    ctx.beginPath(); ctx.moveTo(SKILL_X0, L.y); ctx.lineTo(SKILL_X0 + (L.x2 - SKILL_X0) * inks[i], L.y); ctx.stroke();
+                }
+            });
+            ctx.restore();
+        }
+        [-open - 8, open].forEach(function (ry) { // top + bottom rolls with rod knobs
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(-37, ry, 30, 8, 4); else ctx.rect(-37, ry, 30, 8);
+            ctx.stroke();
+            ctx.beginPath(); ctx.arc(-39.5, ry + 4, 2.3, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(-4.5, ry + 4, 2.3, 0, Math.PI * 2); ctx.fill();
+        });
+    }
+    // shared agent mascot head (same face as "sub agent"): turn to the left, gaze, blink, open mouth, chomp squash
+    function drawMascotHead(ctx, o, alpha) {
+        var k = o.half / 30, turn = o.turn || 0, gx = o.gx || 0, gy = o.gy || 0;
+        var sy = o.sy == null ? 1 : o.sy, mouth = o.mouth || 0, sq = o.squash || 0;
+        ctx.save();
+        ctx.translate(o.x - 3 * turn, o.y);       // lean in toward what it's looking at
+        ctx.rotate(-0.1 * turn);
+        ctx.scale(k * (1 - 0.08 * turn) * (1 + 0.07 * sq), k * (1 - 0.09 * sq));
+        ctx.globalAlpha = alpha * 0.92; ctx.fillStyle = COLOR;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(-30, -30, 60, 60, 13); else ctx.rect(-30, -30, 60, 60);
+        ctx.fill();
+        // eyes slide left as the head turns (the far eye narrows); gaze nudges them further
+        var comp = 1 - 0.25 * turn, shift = -10 * turn + gx;
+        var wL = 8 * (1 - 0.3 * turn), wR = 8 * (1 - 0.1 * turn);
+        var cL = -8 * comp + shift, cR = 8 * comp + shift;
+        var eh = 14 * sy, ey = -5 + gy - eh / 2;
+        ctx.globalAlpha = alpha; ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        if (ctx.roundRect) {
+            ctx.roundRect(cL - wL / 2, ey, wL, eh, Math.min(4, eh / 2, wL / 2));
+            ctx.roundRect(cR - wR / 2, ey, wR, eh, Math.min(4, eh / 2, wR / 2));
+        } else { ctx.rect(cL - wL / 2, ey, wL, eh); ctx.rect(cR - wR / 2, ey, wR, eh); }
+        ctx.fill();
+        if (mouth > 0.01) {                       // mouth only appears while eating
+            var mh = 11 * mouth, mx = shift * 0.5;
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(mx - 8, 14 - mh / 2, 16, mh, Math.min(6, mh / 2)); else ctx.rect(mx - 8, 14 - mh / 2, 16, mh);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+    function skillReadPainter() {
+        var CYCLE = 4600, READ_S = 1100, LINE_T = 500, SACC = 90, NL = SKILL_LINES.length;
+        function blinkAt(t, s) { var d = t - s; return (d < 0 || d > 180) ? 0 : (d < 90 ? d / 90 : (180 - d) / 90); }
+        return function (ctx, cx, cy, now, alpha) {
+            var t = now % CYCLE;
+            var u;                                // scroll: 0 rolled up, 1 open
+            if (t < 250) u = 0;
+            else if (t < 750) u = easeInOutCubic((t - 250) / 500);
+            else if (t < 3800) u = 1;
+            else if (t < 4300) u = 1 - easeInOutCubic((t - 3800) / 500);
+            else u = 0;
+            var turn;                             // head: 0 facing front, 1 turned to the scroll
+            if (t < 700) turn = 0;
+            else if (t < READ_S) turn = easeInOutCubic((t - 700) / (READ_S - 700));
+            else if (t < 3100) turn = 1;
+            else if (t < 3500) turn = 1 - easeInOutCubic((t - 3100) / 400);
+            else turn = 0;
+            var inks = [0, 0, 0, 0], gx = 0, gy = 0;
+            if (t >= READ_S) {
+                var rt = t - READ_S, li = Math.floor(rt / LINE_T);
+                if (li >= NL) { inks = [1, 1, 1, 1]; gx = 3; gy = SKILL_GAZE_Y[NL - 1]; }
+                else {
+                    for (var j = 0; j < li; j++) inks[j] = 1;
+                    var lt = rt - li * LINE_T;
+                    var pgx = li === 0 ? 0 : 3, pgy = li === 0 ? 0 : SKILL_GAZE_Y[li - 1];
+                    if (lt < SACC) {              // eyes jump back to the start of the next line
+                        var s = easeInOutCubic(lt / SACC);
+                        gx = pgx + (-4 - pgx) * s; gy = pgy + (SKILL_GAZE_Y[li] - pgy) * s;
+                    } else {                      // eyes sweep along the line as it gets inked
+                        var p = (lt - SACC) / (LINE_T - SACC);
+                        inks[li] = p; gx = -4 + 7 * p; gy = SKILL_GAZE_Y[li];
+                    }
+                }
+            }
+            var sy = 1 - 0.92 * Math.max(blinkAt(t, 120), blinkAt(t, 3580));
+            ctx.save();
+            ctx.translate(cx, cy); ctx.scale(VSCALE, VSCALE);
+            ctx.globalAlpha = alpha * 0.92; ctx.strokeStyle = COLOR; ctx.fillStyle = COLOR;
+            drawSkillScroll(ctx, u, inks);
+            drawMascotHead(ctx, { x: 22, y: 0, half: 17, turn: turn, gx: gx * turn, gy: gy * turn, sy: sy }, alpha);
+            ctx.restore();
+        };
+    }
+
+    /* ---------- shared helpers for the newer icons ---------- */
+    function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function easeOutBack(x) { var c1 = 1.4, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+
+    // tabbed index page (term ··· page-number rows) — shared by "index read" and "index created"
+    var IDX_SECT = [-16, 0, 16];                  // section centers, one tab each
+    var IDX_ROWS = [                              // main entry + indented sub-entry per section
+        { y: -19.5, x1: -19, x2: -1, w: 2.8 }, { y: -12.5, x1: -14, x2: -5, w: 2.4 },
+        { y: -3.5,  x1: -19, x2: -4, w: 2.8 }, { y: 3.5,   x1: -14, x2: -8, w: 2.4 },
+        { y: 12.5,  x1: -19, x2: -2, w: 2.8 }, { y: 19.5,  x1: -14, x2: -3, w: 2.4 }
+    ];
+    function idxTabPath(ctx, i, width) {
+        var top = IDX_SECT[i] - 5.5, bot = IDX_SECT[i] + 5.5, x1 = 18 + width, r = Math.min(3.5, width);
+        ctx.beginPath();
+        ctx.moveTo(18, top); ctx.lineTo(x1 - r, top);
+        ctx.quadraticCurveTo(x1, top, x1, top + r); ctx.lineTo(x1, bot - r);
+        ctx.quadraticCurveTo(x1, bot, x1 - r, bot); ctx.lineTo(18, bot);
+    }
+    function drawIndexPage(ctx, ink, tabs, hi, ca) {
+        var base = ctx.globalAlpha;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        tabs.forEach(function (tb, i) {           // tabs stick out of the right edge
+            var width = 8 * tb.w + 4 * tb.out;
+            if (width < 0.3) return;
+            if (tb.fill > 0.01) { ctx.globalAlpha = base * ca * 0.45 * tb.fill; idxTabPath(ctx, i, width); ctx.fill(); }
+            ctx.globalAlpha = base * ca; ctx.lineWidth = 3; idxTabPath(ctx, i, width); ctx.stroke();
+        });
+        ctx.globalAlpha = base; ctx.lineWidth = 3.5;  // the page
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(-26, -28, 44, 56, 5); else ctx.rect(-26, -28, 44, 56);
+        ctx.stroke();
+        if (hi && hi.a > 0.01) {                  // reading highlight over the current section
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(-22, hi.y - 9, 36, 18, 3); else ctx.rect(-22, hi.y - 9, 36, 18);
+            ctx.globalAlpha = base * 0.18 * hi.a; ctx.fill();
+            ctx.globalAlpha = base * hi.a; ctx.lineWidth = 2; ctx.stroke();
+        }
+        ctx.globalAlpha = base * ca;              // entries: term line first, then its page number
+        IDX_ROWS.forEach(function (R, i) {
+            var r = ink[i];
+            if (r < 0.01) return;
+            var ti = Math.min(1, r / 0.7), ni = clamp01((r - 0.78) / 0.22);
+            ctx.lineWidth = R.w;
+            ctx.beginPath(); ctx.moveTo(R.x1, R.y); ctx.lineTo(R.x1 + (R.x2 - R.x1) * ti, R.y); ctx.stroke();
+            if (ni > 0.01) { ctx.beginPath(); ctx.moveTo(6, R.y); ctx.lineTo(6 + 5 * ni, R.y); ctx.stroke(); }
+        });
+        ctx.globalAlpha = base;
+    }
+    // highlight steps through the sections; each section's tab pulls out as it's read — "reading the index"
+    function indexReadPainter() {
+        var P = 1000, N = IDX_SECT.length, FULL = [1, 1, 1, 1, 1, 1];
+        return function (ctx, cx, cy, now, alpha) {
+            var ph = (now % (P * N)) / P, idx = Math.floor(ph), f = ph - idx;
+            var hy = IDX_SECT[idx], ha = 1;
+            if (f > 0.6) {                        // hop to the next section; after the last, fade and restart
+                var m = easeInOutCubic((f - 0.6) / 0.4);
+                if (idx < N - 1) hy += (IDX_SECT[idx + 1] - IDX_SECT[idx]) * m; else ha = 1 - m;
+            }
+            if (idx === 0 && f < 0.15) ha = easeInOutCubic(f / 0.15);
+            var out = f < 0.12 ? easeInOutCubic(f / 0.12) : f < 0.5 ? 1 : f < 0.62 ? 1 - easeInOutCubic((f - 0.5) / 0.12) : 0;
+            var tabs = IDX_SECT.map(function (s, i) { return { w: 1, out: i === idx ? out : 0, fill: i === idx ? out : 0 }; });
+            ctx.save();
+            ctx.translate(cx, cy); ctx.scale(VSCALE, VSCALE);
+            ctx.globalAlpha = alpha * 0.92; ctx.strokeStyle = COLOR; ctx.fillStyle = COLOR;
+            drawIndexPage(ctx, FULL, tabs, { y: hy, a: ha }, 1);
+            ctx.restore();
+        };
+    }
+    // entries write in section by section, each tab pops out when its section is done — "building the index"
+    function indexCreatePainter() {
+        var SEC = 700, CYCLE = 3600;
+        return function (ctx, cx, cy, now, alpha) {
+            var t = now % CYCLE, ink = [], tabs = [];
+            IDX_SECT.forEach(function (s, i) {
+                var g = t - i * SEC;
+                ink.push(clamp01(g / 280), clamp01((g - 280) / 240));
+                tabs.push({ w: g < 500 ? 0 : easeOutBack(clamp01((g - 500) / 200)), out: 0, fill: 0 });
+            });
+            var ca = 1 - clamp01((t - 2900) / 350);   // hold the finished index, then clear and rebuild
+            ctx.save();
+            ctx.translate(cx, cy); ctx.scale(VSCALE, VSCALE);
+            ctx.globalAlpha = alpha * 0.92; ctx.strokeStyle = COLOR; ctx.fillStyle = COLOR;
+            drawIndexPage(ctx, ink, tabs, null, ca);
+            ctx.restore();
+        };
+    }
+
+    // three image tiles hop into the agent's open mouth one by one — "absorbing images"
+    var IMG_SLOTS = [-19, 0, 19], IMG_X = -24, IMG_MOUTH = { x: 21, y: 8 };
+    function drawImageTile(ctx, knock) {
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        if (knock) {                              // clear what's underneath (the head) so the tile stays readable
+            ctx.save();
+            ctx.globalCompositeOperation = 'destination-out'; ctx.globalAlpha = 1;
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(-13.5, -9.5, 27, 19, 4); else ctx.rect(-13.5, -9.5, 27, 19);
+            ctx.fill();
+            ctx.restore();
+        }
+        ctx.lineWidth = 2.6;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(-12, -8, 24, 16, 3); else ctx.rect(-12, -8, 24, 16);
+        ctx.stroke();
+        ctx.beginPath(); ctx.arc(-6, -3.5, 1.9, 0, Math.PI * 2); ctx.fill();          // sun
+        ctx.lineWidth = 2.2;                                                          // mountains
+        ctx.beginPath(); ctx.moveTo(-10.5, 7); ctx.lineTo(-3, -0.5); ctx.lineTo(1.5, 3.5); ctx.lineTo(5, 0.5); ctx.lineTo(10.5, 7); ctx.stroke();
+    }
+    function imageEatPainter() {
+        var G = 850, FLY = 520, N = IMG_SLOTS.length, EATEN = G * N, CYCLE = 3700, BACK = 3200;
+        return function (ctx, cx, cy, now, alpha) {
+            var t = now % CYCLE, eating = t < EATEN;
+            var gi = Math.floor(t / G), g = t - gi * G;
+            var mouth = 0, squash = 0, look = 0, sy = 1;
+            if (eating) {
+                mouth = g < 80 ? 0 : g < 420 ? easeInOutCubic((g - 80) / 340) : g < 520 ? 1 : g < 600 ? 1 - easeInOutCubic((g - 520) / 80) : 0;
+                if (g > 560 && g < 820) squash = Math.sin(Math.PI * (g - 560) / 260);    // chomp bounce
+                look = g < 520 ? easeInOutCubic(Math.min(1, g / 220)) : 1 - clamp01((g - 520) / 160);
+                sy = 1 - 0.6 * squash;                                                    // happy squint while chewing
+            } else {
+                var d = t - (EATEN + 200);                                                // contented blink
+                if (d > 0 && d < 180) sy = 1 - 0.92 * (d < 90 ? d / 90 : (180 - d) / 90);
+            }
+            var back = t >= BACK ? easeInOutCubic(clamp01((t - BACK) / 400)) : 0;
+            ctx.save();
+            ctx.translate(cx, cy); ctx.scale(VSCALE, VSCALE);
+            var base = alpha * 0.92;
+            ctx.globalAlpha = base; ctx.strokeStyle = COLOR; ctx.fillStyle = COLOR;
+            IMG_SLOTS.forEach(function (ty, j) {      // tiles still waiting, or popping back in for the next round
+                var a = eating ? (j > gi ? 1 : 0) : back;
+                if (a < 0.01) return;
+                ctx.save();
+                ctx.globalAlpha = base * a;
+                ctx.translate(IMG_X, ty);
+                if (!eating) ctx.scale(0.6 + 0.4 * a, 0.6 + 0.4 * a);
+                drawImageTile(ctx, false);
+                ctx.restore();
+            });
+            drawMascotHead(ctx, { x: 22, y: 0, half: 17, gx: -4 * look, sy: sy, mouth: mouth, squash: squash }, alpha);
+            if (eating && g < FLY) {                  // the tile in flight, shrinking into the mouth
+                var p = g / FLY, e = easeInOutCubic(p), S = { x: IMG_X, y: IMG_SLOTS[gi] };
+                var C = { x: (S.x + IMG_MOUTH.x) / 2 - 6, y: Math.min(S.y, IMG_MOUTH.y) - 18 };
+                var px = (1 - e) * (1 - e) * S.x + 2 * (1 - e) * e * C.x + e * e * IMG_MOUTH.x;
+                var py = (1 - e) * (1 - e) * S.y + 2 * (1 - e) * e * C.y + e * e * IMG_MOUTH.y;
+                var s = (1 - 0.8 * e) * (p > 0.8 ? 1 - (p - 0.8) / 0.2 : 1);
+                if (s > 0.02) {
+                    ctx.save();
+                    ctx.translate(px, py); ctx.rotate(-0.5 * Math.sin(Math.PI * e)); ctx.scale(s, s);
+                    ctx.globalAlpha = base;
+                    drawImageTile(ctx, true);
+                    ctx.restore();
+                }
+            }
+            ctx.restore();
+        };
+    }
+
+    // spider on its web — "entering scrape mode" (web spins up, spider drops in and works it)
+    // and "exiting scrape mode" (spider climbs out, web dissolves)
+    var WEB_C = { x: 0, y: 4 }, WEB_R = 34, WEB_RINGS = [12, 22, 32];
+    var SPIDER_LEGS = [                           // right side, mirrored for the left: root, knee, tip
+        [[2.5, -5], [10, -13], [16, -9]],
+        [[3, -2.5], [13, -6], [19, 0]],
+        [[3, 0.5], [13, 3], [18, 10]],
+        [[2.5, 3], [10, 9.5], [13, 17]]
+    ];
+    function webRing(ctx, R) {
+        ctx.beginPath();
+        for (var i = 0; i <= 8; i++) {
+            var a = Math.PI / 8 + i * Math.PI / 4;
+            var px = WEB_C.x + Math.cos(a) * R, py = WEB_C.y + Math.sin(a) * R;
+            if (i === 0) ctx.moveTo(px, py);
+            else {
+                var am = a - Math.PI / 8;          // each strand sags toward the hub
+                ctx.quadraticCurveTo(WEB_C.x + Math.cos(am) * R * 0.84, WEB_C.y + Math.sin(am) * R * 0.84, px, py);
+            }
+        }
+    }
+    function drawWeb(ctx, spokeLen, ringA) {
+        var base = ctx.globalAlpha;
+        ctx.save();
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        if (spokeLen > 0.5) {
+            ctx.globalAlpha = base * 0.35; ctx.lineWidth = 1.8;
+            ctx.beginPath();
+            for (var i = 0; i < 8; i++) {
+                var a = Math.PI / 8 + i * Math.PI / 4;
+                ctx.moveTo(WEB_C.x, WEB_C.y);
+                ctx.lineTo(WEB_C.x + Math.cos(a) * spokeLen, WEB_C.y + Math.sin(a) * spokeLen);
+            }
+            ctx.stroke();
+        }
+        ctx.lineWidth = 1.6;
+        WEB_RINGS.forEach(function (R, r) {
+            if (ringA[r] < 0.01) return;
+            ctx.globalAlpha = base * 0.35 * ringA[r];
+            webRing(ctx, R); ctx.stroke();
+        });
+        ctx.restore();
+    }
+    function drawSpider(ctx, x, y, now, amp, speed, eyeA) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = 2.6;
+        var w = Math.sin(now * speed);
+        [-1, 1].forEach(function (s) {            // alternating gait: neighbouring legs swing in opposite phase
+            SPIDER_LEGS.forEach(function (L, j) {
+                var th = s * amp * w * (((j % 2 === 0) === (s > 0)) ? 1 : -1), c = Math.cos(th), sn = Math.sin(th);
+                var rx = s * L[0][0], ry = L[0][1];
+                var pts = [L[1], L[2]].map(function (pt) {
+                    var dx = s * pt[0] - rx, dy = pt[1] - ry;
+                    return [rx + dx * c - dy * sn, ry + dx * sn + dy * c];
+                });
+                ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]); ctx.stroke();
+            });
+        });
+        ctx.beginPath(); ctx.ellipse(0, 5, 6.5, 8, 0, 0, Math.PI * 2); ctx.fill();   // abdomen
+        ctx.beginPath(); ctx.arc(0, -5.5, 4.5, 0, Math.PI * 2); ctx.fill();          // head
+        ctx.globalAlpha = eyeA; ctx.fillStyle = '#ffffff';                           // tiny mascot eyes
+        ctx.beginPath(); ctx.arc(-1.7, -6.2, 1.15, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(1.7, -6.2, 1.15, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+    }
+    function spiderPainter(mode) {
+        var exit = mode === 'exit', CYCLE = exit ? 2950 : 4000, TOP = -70;
+        return function (ctx, cx, cy, now, alpha) {
+            var t = now % CYCLE, rings = [0, 0, 0], spoke, spy, fade, amp, speed, pulse = -1, r;
+            if (!exit) {                          // web spins up, spider drops in on its thread, then works the web
+                spoke = WEB_R * easeInOutCubic(clamp01(t / 500));
+                for (r = 0; r < 3; r++) rings[r] = clamp01((t - 350 - 150 * r) / 200);
+                spy = t < 600 ? TOP : t < 1400 ? TOP + (WEB_C.y - TOP) * easeOutBack((t - 600) / 800) : WEB_C.y;
+                if (t > 1500 && t < 3600) pulse = ((t - 1500) % 700) / 700;
+                fade = 1 - clamp01((t - 3500) / 400);
+                amp = t < 1400 ? 0.06 : 0.16; speed = 0.016;
+            } else {                              // spider climbs out, then the web dissolves outer ring first
+                for (r = 0; r < 3; r++) rings[r] = 1 - clamp01((t - 1800 - 150 * (2 - r)) / 200);
+                spoke = WEB_R * (1 - easeInOutCubic(clamp01((t - 2250) / 400)));
+                spy = WEB_C.y + (TOP - WEB_C.y) * easeInOutCubic(clamp01((t - 1100) / 900));
+                fade = clamp01(t / 400);
+                amp = t < 1100 ? 0.07 : 0.2; speed = t < 1100 ? 0.008 : 0.024;
+            }
+            ctx.save();
+            ctx.translate(cx, cy); ctx.scale(VSCALE, VSCALE);
+            var base = alpha * 0.92 * fade;
+            ctx.globalAlpha = base; ctx.strokeStyle = COLOR; ctx.fillStyle = COLOR;
+            drawWeb(ctx, spoke, rings);
+            if (pulse >= 0) {                     // scraping: a ring of the web pulls in toward the spider
+                ctx.save();
+                ctx.globalAlpha = base * 0.8 * Math.sin(Math.PI * pulse);
+                ctx.lineWidth = 2; ctx.lineJoin = 'round';
+                webRing(ctx, 33 - 22 * easeInOutCubic(pulse)); ctx.stroke();
+                ctx.restore();
+            }
+            if (spy > -58) {
+                var by = spy + 0.6 * Math.sin(now * 0.006);
+                ctx.globalAlpha = base; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(0, -48); ctx.lineTo(0, by - 9.5); ctx.stroke();   // silk thread
+                drawSpider(ctx, 0, by, now, amp, speed, alpha * fade);
+            }
+            ctx.restore();
+        };
+    }
+
     var SHAPES = {
         screen: function () { return vecPainter(vecScreen); },
         tree:   function () { return vecPainter(vecTree); },
@@ -1281,6 +1657,13 @@
         closeTab:    closeTabPainter,
         updateTab:   updateTabPainter,               // reload
         navigateTab: navigateTabPainter,             // url typed, page lands
+        // newer logos (the block above the registry)
+        skill:       skillReadPainter,               // scroll unrolls, the head reads it
+        idxRead:     indexReadPainter,               // highlight steps through the index
+        idxNew:      indexCreatePainter,             // entries write in, tabs pop out
+        imgEat:      imageEatPainter,                // image tiles hop into the mouth
+        scrape:      function () { return spiderPainter('enter'); },   // web spins up, spider drops in
+        scrapeX:     function () { return spiderPainter('exit'); },    // spider climbs out, web dissolves
     };
 
     /* =====================================================================
@@ -1372,6 +1755,11 @@
         update_tab:   { shape: 'updateTab',   label: 'reloading the tab' },
         navigate_tab: { shape: 'navigateTab', label: 'going to a url' },
         dialog:       { shape: 'mouseClick',  label: 'answering a popup' },
+        skills:       { shape: 'skill',       label: 'reading skills' },
+        index:        { shape: 'idxNew',      label: 'building the index' },
+        index_read:   { shape: 'idxRead',     label: 'reading the index' },
+        more:         { shape: 'imgEat',      label: 'absorbing images' },
+        exit_scrape_mode: { shape: 'scrapeX', label: 'exiting scrape mode' },
     };
 
     // video_player carries its sub-command in `value` (iOS router: play/pause/close/streaming).
@@ -1667,6 +2055,11 @@
             if (name === 'click') return { shape: 'mouseClick', label: 'clicking' };
             if (name === 'scroll') return { shape: 'mouse', label: 'scrolling the page' };
         }
+        // run_script with type "scrape" is the way into scraping mode (its own
+        // tools follow, `more` to `exit_scrape_mode`); any other script keeps the shell.
+        if (name === 'run_script' && p.script_type === 'scrape') return { shape: 'scrape', label: 'entering scrape mode' };
+        // skills {"type": "remove"} puts a read skill away: same scroll, its own word.
+        if (name === 'skills' && p.script_type === 'remove') return { shape: 'skill', label: 'closing the skill' };
         if (name === 'video_player') return VIDEO_MAP[p.value] || VIDEO_MAP.streaming;
         // A second (or later) create-todo in the same run overrides the first — same logo, different word.
         if (name === 'todo_list' && ++todoCreateCount > 1) return { shape: 'todo', label: 'overwrote todo' };

@@ -155,6 +155,19 @@ fn persistent_memory(todo_list: &str, scratchpad: &str, skills: &str, domain: &s
     )
 }
 
+/// <scraped_index>: the indexes this run's scrapes stored (controller/
+/// run_script `index`), one line each, "[n]: title. pending: ...", on every
+/// step once there is one. The files are under AutoCua_data/scrapes/<run>/;
+/// `index_read` brings one back in full. Empty before the first index.
+fn scraped_index_block() -> String {
+    let lines = crate::controller::run_script::service::window::index_lines();
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!("<scraped_index>\n{}\n</scraped_index>", lines.join("\n"))
+    }
+}
+
 /// The <skills> and <domain_knowledge> blocks of <persistent_memory>
 /// (controller/skills): the domain knowledge follows the current tab's url
 /// first. Each is empty when it has nothing.
@@ -195,13 +208,15 @@ enum Flow {
 fn scrape_mode_block() -> String {
     "<scrape_mode>\nYou are in scrape mode. No page was scanned this step: the records your last read \
      returned, attached to that call above, and a clean screenshot of each screen it covered (with this input, \
-     top to bottom, after any screenshot of the page) are the whole input. The only tools this step are `more`, \
-     `scratchpad`, `update_todo`, `skills` and `exit_scrape_mode`; there is no notes call and no page tool. The \
-     scraping skill is loaded in <skills>: follow it. Check the records against the screenshots and write what the \
-     task needs to `scratchpad`, then, in the same turn, `more` for the next 3 screens while what the task needs \
-     goes on below, or `exit_scrape_mode` once it is met. The screenshots are for this step only. After the exit, \
-     your run_script call and its data stay in your history; the steps of the mode leave it, and the scratchpad \
-     keeps what you wrote.\n</scrape_mode>"
+     top to bottom, after any screenshot of the page) are the whole input. The only tools this step are `index`, \
+     `more`, `scratchpad`, `update_todo`, `skills` and `exit_scrape_mode`; there is no notes call and no page \
+     tool. The scraping skill is loaded in <skills>: follow it. Check the records against the screenshots, then, \
+     in the same turn: `index` what the task needs from this chunk (title, pending, value), then `more` for the \
+     next 3 screens while what the task needs goes on below, or `exit_scrape_mode` once it is met. A chunk with \
+     nothing useful gets no index. The records go to `index`, never to `scratchpad`: the scratchpad takes the \
+     milestone and the answer they settle. The screenshots are for this step only. After the exit, the steps of the mode \
+     leave your history and your read becomes one line per index it stored; <scraped_index> lists them every \
+     step, `index_read` brings one back in full, and the scratchpad keeps what you wrote.\n</scrape_mode>"
         .to_string()
 }
 
@@ -254,6 +269,102 @@ fn retire_scrape_mode(am: &Bound<'_, PyList>, tr: &Bound<'_, PyList>, start: usi
         tr.del_slice(start + 1, n)?;
     }
     Ok(())
+}
+
+/// The mode stored indexes (window.rs mode_indexes): the read that opened it
+/// no longer needs its records in the history. In the slot of the step that
+/// read, its result becomes one line per index, "stored at index [n]:
+/// title. pending: ..."; a batched step keeps its other results. A mode that
+/// stored nothing leaves the read as it was.
+fn point_scrape_at_indexes(
+    tr: &Bound<'_, PyList>,
+    start: usize,
+    stored: &[(usize, String, String)],
+) -> PyResult<()> {
+    if stored.is_empty() || start >= tr.len() {
+        return Ok(());
+    }
+    let raw: String = match tr.get_item(start)?.extract() {
+        Ok(s) => s,
+        Err(_) => return Ok(()),
+    };
+    let Ok(Value::Array(mut items)) = serde_json::from_str::<Value>(&raw) else {
+        return Ok(());
+    };
+    let lines: Vec<String> = stored
+        .iter()
+        .map(|(n, title, pending)| format!("stored at index [{n}]: {}. pending: {pending}", title.trim()))
+        .collect();
+    let mut pointer = json!({"status": "success", "tool": "run_script", "message": lines.join("\n")});
+    if let Some(dir) = crate::controller::run_script::service::window::run_dir() {
+        // Where the files are: a run continued from this history adopts the
+        // folder again (seeded_scrapes_dir), so the lines stay true.
+        pointer["scrapes_dir"] = json!(dir.to_string_lossy());
+    }
+    let is_read = |r: &Value| {
+        matches!(r.get("tool").and_then(Value::as_str), Some("run_script" | "more"))
+            && r.get("scrape_mode").and_then(Value::as_bool) == Some(true)
+    };
+    let mut changed = false;
+    for item in items.iter_mut() {
+        let Some(content) = item.get("content").and_then(Value::as_str) else { continue };
+        let Ok(mut result) = serde_json::from_str::<Value>(content) else { continue };
+        if is_read(&result) {
+            result = pointer.clone();
+        } else if let Some(batch) = result.get_mut("results").and_then(Value::as_array_mut) {
+            let mut hit = false;
+            for r in batch.iter_mut() {
+                if is_read(r) {
+                    *r = pointer.clone();
+                    hit = true;
+                }
+            }
+            if !hit {
+                continue;
+            }
+        } else {
+            continue;
+        }
+        item["content"] = Value::String(view::dumps_pretty(&result));
+        changed = true;
+    }
+    if changed {
+        tr.set_item(start, view::encode_results(&items))?;
+    }
+    Ok(())
+}
+
+/// The scrapes folder the seeded history points at: the last tool result
+/// carrying one (a scrape mode's exit pointer, point_scrape_at_indexes), if
+/// any. A batched step's envelope is searched too.
+fn seeded_scrapes_dir(tr: &Bound<'_, PyList>) -> Option<std::path::PathBuf> {
+    let dir_of = |v: &Value| v.get("scrapes_dir").and_then(Value::as_str).map(str::to_string);
+    let mut found: Option<String> = None;
+    for item in tr.iter() {
+        let Ok(raw) = item.extract::<String>() else { continue };
+        for result in view::decode_results(&raw) {
+            let Some(content) = result.get("content").and_then(Value::as_str) else { continue };
+            let dir = match serde_json::from_str::<Value>(content) {
+                Ok(value) => dir_of(&value).or_else(|| {
+                    value
+                        .get("results")
+                        .and_then(Value::as_array)
+                        .and_then(|rs| rs.iter().rev().find_map(dir_of))
+                }),
+                // The slot of a compressed stretch (view::compression_slot):
+                // the folder on its last line.
+                Err(_) => content
+                    .lines()
+                    .rev()
+                    .find_map(|l| l.strip_prefix(view::SCRAPES_FOLDER_LINE))
+                    .map(|d| d.trim().to_string()),
+            };
+            if dir.is_some() {
+                found = dir;
+            }
+        }
+    }
+    found.map(std::path::PathBuf::from)
 }
 
 struct RunState {
@@ -946,8 +1057,18 @@ impl AgentService {
         task: Bound<'py, PyAny>,
     ) -> PyResult<Py<PyDict>> {
         let task: String = task.str()?.extract()?;
-        // A run's scrapes are numbered from 1 and stored in a folder of their own.
-        crate::controller::run_script::service::window::new_run();
+        // A run's indexes (what the agent keeps from its scrapes, the `index`
+        // tool) are numbered from 1 and stored in a folder of their own,
+        // AutoCua_data/scrapes/<run>/, made on the first index. Nothing of an
+        // earlier run carries over.
+        let scrapes_dir = crate::data_root(py).ok().map(|root| {
+            root.join("scrapes").join(format!(
+                "{}_{}",
+                chrono::Local::now().format("%Y-%m-%d_%H-%M-%S"),
+                std::process::id()
+            ))
+        });
+        crate::controller::run_script::service::window::new_run(scrapes_dir);
         if let Some(web) = crate::web_dir(py).ok().and_then(|d| d.parent().map(|p| p.join("default_skills").join("web"))) {
             crate::controller::skills::service::new_run(&web.join("skills"), &web.join("domain_skill"));
         }
@@ -991,6 +1112,12 @@ impl AgentService {
                     tools_list.append(py.None())?;
                 }
                 tr = tools_list;
+                // The chat's indexes come back with its history: the last
+                // scrape mode's exit pointer names their folder, and the
+                // files there are the list (window.rs resume).
+                if let Some(dir) = seeded_scrapes_dir(&tr) {
+                    crate::controller::run_script::service::window::resume(dir);
+                }
                 is_resumed = true;
                 is_first_iteration = false; // continuation, not a fresh dialogue
                 let prior_task = prior.call_method1("get", ("task",))?;
@@ -1179,6 +1306,7 @@ impl AgentService {
             let (skills, domain) = skills_blocks(py, self.scanner.get());
             let state_block = [
                 persistent_memory(&todo_list, &scratchpad_content, &skills, &domain),
+                scraped_index_block(),
             ]
             .into_iter()
             .filter(|b| !b.is_empty())
@@ -1470,9 +1598,14 @@ impl AgentService {
         }
 
         // Runtime compression trigger: context size is fresh in last_usage.
-        self.compression
-            .bind(py)
-            .call_method1("maybe_trigger", (am, tr, original_task))?;
+        // Not from inside scrape mode: the mode's steps leave the history at
+        // the exit (retire_scrape_mode), and a splice there would move the
+        // mode's start.
+        if !self.state.lock().map(|st| st.scrape_mode).unwrap_or(false) {
+            self.compression
+                .bind(py)
+                .call_method1("maybe_trigger", (am, tr, original_task))?;
+        }
 
         println!("LLM response received");
 
@@ -1941,6 +2074,11 @@ impl AgentService {
                     st.scrape_mode = entered && !left;
                     if entered && st.scrape_start.is_none() {
                         st.scrape_start = Some(am.len() - 1);
+                        crate::controller::run_script::service::window::mark_mode_start();
+                        // A compression still in flight would land inside the
+                        // mode and move this start: dropped; the next trigger
+                        // comes after the exit.
+                        self.compression.bind(py).call_method0("reset")?;
                     }
                     if entered {
                         // The mode's rules: the agent may remove them after.
@@ -1955,7 +2093,12 @@ impl AgentService {
                 if let Some(start) = retire {
                     let retired = am.len().saturating_sub(start + 1);
                     retire_scrape_mode(am, tr, start)?;
-                    println!("Scraping mode left: {retired} step(s) retired from the history.");
+                    let stored = crate::controller::run_script::service::window::mode_indexes();
+                    point_scrape_at_indexes(tr, start, &stored)?;
+                    println!(
+                        "Scraping mode left: {retired} step(s) retired from the history, {} index(es) stored.",
+                        stored.len()
+                    );
                 }
             }
             // The scrape look follows the mode: a run_script scrape put it on

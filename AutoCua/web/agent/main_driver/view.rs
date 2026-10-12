@@ -587,8 +587,28 @@ pub fn compression_entry(
     let wrapped = wrap_handoff(py, &text)?;
     Ok((
         encode_step(&wrapped, &json!([]), None),
-        COMPRESSION_NOTE.to_string(),
+        compression_slot(),
     ))
+}
+
+/// Before the folder, on the last line of a compressed stretch's slot.
+pub const SCRAPES_FOLDER_LINE: &str = "scrapes folder: ";
+
+/// The slot of a compressed stretch: the note, then the indexes this run's
+/// scrapes have stored so far, kept as they stand in the history (one line
+/// each, controller/run_script `index`), with their folder on a last line,
+/// so a compressed chat still has its indexes and resumes into them
+/// (main_driver seeded_scrapes_dir). The note alone before the first index.
+fn compression_slot() -> String {
+    use crate::controller::run_script::service::window;
+    let lines = window::index_lines();
+    match window::run_dir() {
+        Some(dir) if !lines.is_empty() => {
+            let kept: Vec<String> = lines.iter().map(|l| format!("stored at index {l}")).collect();
+            format!("{COMPRESSION_NOTE}\n{}\n{SCRAPES_FOLDER_LINE}{}", kept.join("\n"), dir.display())
+        }
+        _ => COMPRESSION_NOTE.to_string(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -736,6 +756,11 @@ pub fn extract_tools_impl(normalized_response: &str) -> Vec<Value> {
         }
         if let Some(e) = obj.get("enter") {
             tool.insert("enter".into(), e.clone());
+        }
+        // run_script's own `type` ("action" or "scrape"), so the chain can
+        // show a scrape as scraping mode starting, not as a script.
+        if let Some(t) = obj.get("script_type") {
+            tool.insert("script_type".into(), t.clone());
         }
         tools.push(Value::Object(tool));
     }

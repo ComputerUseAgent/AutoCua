@@ -3538,14 +3538,15 @@ impl ScannerInner {
         }
     }
 
-    /// One `<all_tabs>` line for a tab: `[n] url (current) - title`.
+    /// One `<all_tabs>` line for a tab: `[n] (current) url - title`.
     fn tab_line(&self, n: usize, target: &Value, current: bool) -> String {
         let url = target.get("url").and_then(Value::as_str).unwrap_or("");
         let title = target.get("title").and_then(Value::as_str).unwrap_or("");
-        let mut line = format!("[{n}] {}", if url.is_empty() { BLANK_URL } else { url });
+        let mut line = format!("[{n}]");
         if current {
             line.push_str(" (current)");
         }
+        line.push_str(&format!(" {}", if url.is_empty() { BLANK_URL } else { url }));
         if !title.is_empty() {
             line.push_str(&format!(" - {title}"));
         }
@@ -4176,9 +4177,9 @@ impl ScannerInner {
         }
     }
 
-    /// A read's data for the card on the tab being read: the records a
-    /// run_script scrape brought, which glow.js unfolds the card for and
-    /// streams in a letter at a time. Only to the tab the look is on, and
+    /// Text for the card on the tab being read: the stored JSON of each
+    /// index the agent keeps from a read, which glow.js unfolds the card for
+    /// and streams in a letter at a time. Only to the tab the look is on, and
     /// only while it is; fire-and-forget like the switch. glow.js keeps the
     /// text to itself and paints it on a canvas in the overlay, so the page,
     /// and the next read of it, gain none of it.
@@ -4202,9 +4203,9 @@ impl ScannerInner {
         let _ = self.cdp.send("Runtime.evaluate", call, Some(&sess));
     }
 
-    /// What the card is given of one chunk: some three and a half minutes
-    /// of letters at its pace, far more than it streams before the next read
-    /// comes, cut at a line's end.
+    /// What the card is given at once: about a minute of letters at its
+    /// pace, far more than it streams before the next text comes, cut at a
+    /// line's end.
     fn scrape_feed_cut(text: &str) -> &str {
         const CHARS: usize = 12_000;
         match text.char_indices().nth(CHARS) {
