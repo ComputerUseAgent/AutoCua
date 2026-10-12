@@ -140,11 +140,11 @@ pub fn read_index(n: usize) -> Result<String, String> {
     fs::read_to_string(&path).map_err(|e| format!("could not read {}: {e}", path.display()))
 }
 
-/// One line per stored index, "n. title. pending: ...", for <scraped_index>.
+/// One line per stored index, "[n]: title. pending: ...", for <scraped_index>.
 pub fn index_lines() -> Vec<String> {
     INDEXES
         .lock()
-        .map(|i| i.iter().map(|e| format!("{}. {}. pending: {}", e.n, e.title.trim(), pending_text(&e.pending))).collect())
+        .map(|i| i.iter().map(|e| format!("[{}]: {}. pending: {}", e.n, e.title.trim(), pending_text(&e.pending))).collect())
         .unwrap_or_default()
 }
 

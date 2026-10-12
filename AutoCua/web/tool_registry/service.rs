@@ -330,7 +330,7 @@ fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
              r#"A stored index back in full: the file `index` wrote in scrape mode, as one JSON text (index, time, title, pending, value).
   1. Format: index_read {"id": <n_from_scraped_index>}
   2. Example: index_read {"id": 2}
-  3. <scraped_index> lists this run's indexes, one line each ("n. title. pending: ..."). The line is usually enough: read an index only when its details are needed - the summary step, a comparison, a url you must open."#, track),
+  3. <scraped_index> lists this run's indexes, one line each ("[n]: title. pending: ..."). The line is usually enough: read an index only when its details are needed - the summary step, a comparison, a url you must open."#, track),
 
         tool("done", &[("value", json!({"type": "string"}))],
              r#"Ends the loop - the completion tool. Follow <task_completion>: a dedicated final step, never combined with any other action.

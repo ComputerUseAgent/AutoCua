@@ -156,7 +156,7 @@ fn persistent_memory(todo_list: &str, scratchpad: &str, skills: &str, domain: &s
 }
 
 /// <scraped_index>: the indexes this run's scrapes stored (controller/
-/// run_script `index`), one line each, "n. title. pending: ...", on every
+/// run_script `index`), one line each, "[n]: title. pending: ...", on every
 /// step once there is one. The files are under AutoCua_data/scrapes/<run>/;
 /// `index_read` brings one back in full. Empty before the first index.
 fn scraped_index_block() -> String {
@@ -344,13 +344,21 @@ fn seeded_scrapes_dir(tr: &Bound<'_, PyList>) -> Option<std::path::PathBuf> {
         let Ok(raw) = item.extract::<String>() else { continue };
         for result in view::decode_results(&raw) {
             let Some(content) = result.get("content").and_then(Value::as_str) else { continue };
-            let Ok(value) = serde_json::from_str::<Value>(content) else { continue };
-            let dir = dir_of(&value).or_else(|| {
-                value
-                    .get("results")
-                    .and_then(Value::as_array)
-                    .and_then(|rs| rs.iter().rev().find_map(dir_of))
-            });
+            let dir = match serde_json::from_str::<Value>(content) {
+                Ok(value) => dir_of(&value).or_else(|| {
+                    value
+                        .get("results")
+                        .and_then(Value::as_array)
+                        .and_then(|rs| rs.iter().rev().find_map(dir_of))
+                }),
+                // The slot of a compressed stretch (view::compression_slot):
+                // the folder on its last line.
+                Err(_) => content
+                    .lines()
+                    .rev()
+                    .find_map(|l| l.strip_prefix(view::SCRAPES_FOLDER_LINE))
+                    .map(|d| d.trim().to_string()),
+            };
             if dir.is_some() {
                 found = dir;
             }
@@ -1590,9 +1598,14 @@ impl AgentService {
         }
 
         // Runtime compression trigger: context size is fresh in last_usage.
-        self.compression
-            .bind(py)
-            .call_method1("maybe_trigger", (am, tr, original_task))?;
+        // Not from inside scrape mode: the mode's steps leave the history at
+        // the exit (retire_scrape_mode), and a splice there would move the
+        // mode's start.
+        if !self.state.lock().map(|st| st.scrape_mode).unwrap_or(false) {
+            self.compression
+                .bind(py)
+                .call_method1("maybe_trigger", (am, tr, original_task))?;
+        }
 
         println!("LLM response received");
 
@@ -2062,6 +2075,10 @@ impl AgentService {
                     if entered && st.scrape_start.is_none() {
                         st.scrape_start = Some(am.len() - 1);
                         crate::controller::run_script::service::window::mark_mode_start();
+                        // A compression still in flight would land inside the
+                        // mode and move this start: dropped; the next trigger
+                        // comes after the exit.
+                        self.compression.bind(py).call_method0("reset")?;
                     }
                     if entered {
                         // The mode's rules: the agent may remove them after.

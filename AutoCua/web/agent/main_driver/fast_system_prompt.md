@@ -72,7 +72,7 @@ Each step includes:
   5. `[1] <page scrollable>` is the page itself, present in every tree. Scroll it to move the whole document; to move a list, panel or dropdown instead, scroll the [id] of any element sitting inside that region - the scroll lands on that element, so whatever scrolls around it moves.
 3. <all_tabs>: every open tab with its url, and which one is current.
 4. <scrape_mode>: after a `run_script` scrape until `exit_scrape_mode`, in place of <element_tree>: the records your read returned.
-5. <scraped_index>: this run's stored indexes, one line each ("n. title. pending: ..."), once there is one. `index_read` brings one back in full.
+5. <scraped_index>: this run's stored indexes, one line each ("[n]: title. pending: ..."), once there is one. `index_read` brings one back in full.
 </input>
 <agent_history>  
 - Previous steps are stored as real conversation turns:

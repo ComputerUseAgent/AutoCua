@@ -68,7 +68,7 @@ Each step includes:
 3. <image>: annotated screenshot where color boxes contain the [id] at the top-left of each detected element. Only the CURRENT screenshot is provided - previous images are not retained. [1] carries no box: it is the whole page, not a region of it.
 4. <all_tabs>: every open tab with its url, and which one is current.
 5. <scrape_mode>: after a `run_script` scrape until `exit_scrape_mode`, in place of <element_tree> and <image>: the records your read returned and a clean screenshot of each screen it covered.
-6. <scraped_index>: this run's stored indexes, one line each ("n. title. pending: ..."), once there is one. `index_read` brings one back in full.
+6. <scraped_index>: this run's stored indexes, one line each ("[n]: title. pending: ..."), once there is one. `index_read` brings one back in full.
 </input>
 <agent_history>  
 - Previous steps are stored as real conversation turns:

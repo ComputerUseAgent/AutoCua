@@ -3538,14 +3538,15 @@ impl ScannerInner {
         }
     }
 
-    /// One `<all_tabs>` line for a tab: `[n] url (current) - title`.
+    /// One `<all_tabs>` line for a tab: `[n] (current) url - title`.
     fn tab_line(&self, n: usize, target: &Value, current: bool) -> String {
         let url = target.get("url").and_then(Value::as_str).unwrap_or("");
         let title = target.get("title").and_then(Value::as_str).unwrap_or("");
-        let mut line = format!("[{n}] {}", if url.is_empty() { BLANK_URL } else { url });
+        let mut line = format!("[{n}]");
         if current {
             line.push_str(" (current)");
         }
+        line.push_str(&format!(" {}", if url.is_empty() { BLANK_URL } else { url }));
         if !title.is_empty() {
             line.push_str(&format!(" - {title}"));
         }
