@@ -481,10 +481,10 @@ impl AgentService {
 
     /// Cached messages carry content as a list of {type,text,...} blocks.
     fn message_text(content: &Bound<'_, PyAny>) -> PyResult<String> {
-        if let Ok(list) = content.downcast::<PyList>() {
+        if let Ok(list) = content.cast::<PyList>() {
             let mut parts: Vec<String> = Vec::new();
             for item in list.iter() {
-                if let Ok(d) = item.downcast::<PyDict>() {
+                if let Ok(d) = item.cast::<PyDict>() {
                     let text = match d.get_item("text")? {
                         Some(t) => t.str()?.extract()?,
                         None => String::new(),
@@ -494,7 +494,7 @@ impl AgentService {
             }
             return Ok(parts.join("\n"));
         }
-        if let Ok(s) = content.downcast::<PyString>() {
+        if let Ok(s) = content.cast::<PyString>() {
             return s.extract();
         }
         content.str()?.extract()
@@ -951,7 +951,7 @@ impl AgentService {
 
         // Resumable chat memory (UI path only) — only a dict counts.
         let prior = match &prior_history {
-            Some(v) if v.downcast::<PyDict>().is_ok() => Some(v.clone().unbind()),
+            Some(v) if v.cast::<PyDict>().is_ok() => Some(v.clone().unbind()),
             _ => None,
         };
 
@@ -1138,7 +1138,7 @@ impl AgentService {
                     }
                     let mut max_no = n_bridges;
                     for item in tr.iter() {
-                        if let Ok(s) = item.downcast::<PyString>() {
+                        if let Ok(s) = item.cast::<PyString>() {
                             let text: String = s.extract()?;
                             for cap in re_marker_no().captures_iter(&text) {
                                 if let Ok(n) = cap[1].parse::<i64>() {
@@ -1430,7 +1430,7 @@ impl AgentService {
                         continue;
                     }
                     let content = cache_msg.call_method1("get", ("content",))?;
-                    if let Ok(s) = content.downcast::<PyString>() {
+                    if let Ok(s) = content.cast::<PyString>() {
                         let text: String = s.extract()?;
                         if !text.is_empty() {
                             let block = pythonize::pythonize(
