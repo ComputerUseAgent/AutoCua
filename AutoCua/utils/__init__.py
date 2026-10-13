@@ -8,6 +8,8 @@ reachable from the first run that needs it, which is what lives here.
     rust.py        compile AutoCua/web (no-op from a wheel — it ships prebuilt)
     wda.py         clone WebDriverAgent for iOS
     ocr_models.py  fetch the PP-OCRv6 models for the Linux scanner's OCR
+    electron.py    fetch Electron for the desktop app's Chromium window, once
+                   the person says yes to it (the only one that asks first)
 
 All are cheap no-ops once satisfied: a timestamp check, a directory check, a
 file-size check.

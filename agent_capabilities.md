@@ -705,7 +705,7 @@ the chat, stages, skills and settings) and returns when that window closes.
 | What runs | `task` from `main.py`, in the terminal | The desktop app |
 | Mode / model / task | From `main.py` | Chosen inside the app |
 | Other flags in `run_agent(...)` | Honoured | Ignored |
-| Needs | An API key | An API key (Settings → API Keys works too) |
+| Needs | An API key | An API key (Settings → API Keys works too). For the Chromium window, Electron: the first launch asks whether to download it (120 to 160 MB, once); without it the app opens in pywebview |
 
 ## Default
 
@@ -735,12 +735,25 @@ terminal run.
 
 `run_agent` checks `ui` before anything else. When it is `True` it imports
 `AutoCua.ui.service` and calls its `main()`; the order-sensitive process
-bootstrap runs at that import. If the Chromium window is installed (a one-time
-`npm install` in `AutoCua/desktop`, which needs Node.js 22.12 or newer),
-`main()` starts it and waits for it to quit: the shell runs the backend as a
-process of its own (`python -m AutoCua.ui.service --desktop`). Otherwise, or
-with `AUTOCUA_UI=webview`, Flask starts in a daemon thread and the pywebview
-window opens on the main thread. Either way Flask serves on AutoCua's own port,
+bootstrap runs at that import. `main()` then looks for Electron, which runs the
+Chromium window (`AutoCua/desktop`): the copy a checkout's `npm install` put
+there, else the one `AutoCua/utils/electron.py` fetched into a per-user cache.
+When there is neither, it asks on the terminal whether to fetch it (the
+official release zip, 120 to 160 MB, checked against a pinned SHA-256; no
+Node.js needed) and downloads nothing without a `y`: `n` is remembered,
+Enter means not now, and with no terminal nothing is asked.
+`python -m AutoCua.utils.electron` fetches it any time. With Electron,
+`main()` starts the shell and waits for it to quit: the shell runs the backend
+as a process of its own (`python -m AutoCua.ui.service --desktop`), which
+tells the launcher once it is serving. On a Linux that keeps Chromium's
+sandbox from starting (Ubuntu 24.04 and newer, unless Electron's
+`chrome-sandbox` is owned by root and setuid), the shell starts with
+`--no-sandbox` and says how to turn the sandbox on. Without Electron, with
+`AUTOCUA_UI=webview`, on a machine Electron cannot run on (macOS older than
+13), or when the shell
+fails before the backend is serving (it exits with an error), Flask starts in
+a daemon thread and the pywebview window opens on the main thread. While the
+Chromium window is open, a second launch only brings it to the front. Either way Flask serves on AutoCua's own port,
 27321 (`127.0.0.1` on every OS, never the LAN, and it refuses requests from
 other hostnames or websites); when another program holds that port, the app
 takes a free one for that run and stops nothing. The call returns once the

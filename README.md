@@ -156,7 +156,8 @@ That is the whole API.
 
 ### What the wheel brings, and what it cannot
 
-Two of the native pieces arrive on their own. Two cannot: a Windows kernel driver, which `pip`
+Two of the native pieces arrive on their own, and one, the desktop app's Electron, when you
+say yes to it. Two cannot: a Windows kernel driver, which `pip`
 is structurally unable to install, and on Linux the desktop's accessibility and input bindings,
 which come from your distro.
 
@@ -164,6 +165,7 @@ which come from your distro.
 |---|---|
 | **Browser agent** — Rust | Ships **prebuilt** in the Windows x64, Apple Silicon macOS and Linux x86_64 wheels. On any other platform pip builds it from the source distribution, which needs [Rust](https://rustup.rs) and a C compiler. |
 | **WebDriverAgent** — iOS | **Cloned automatically** the first time you run a `"mobile use, ios"` task. Needs full Xcode and git. Nothing to do by hand. |
+| **Electron** — the desktop app's Chromium window | **Downloaded only if you say yes.** The first `ui=True` launch from a terminal asks (120 to 160 MB, once) on macOS 13+, Windows 10+ and Linux, except stock Ubuntu 23.10+ ([below](#the-desktop-app)); without it the app opens in pywebview. `python -m AutoCua.utils.electron` fetches it any time. No Node.js needed. |
 | **Interception** — Windows UAC | **Not installed by pip.** One manual step, once — below. |
 | **AT-SPI, GTK and the desktop portal** — Linux | **Not installed by pip.** One `apt` line, once — [below](#linux-from-pip). |
 
@@ -230,7 +232,10 @@ The first scan also downloads the PP-OCRv6 models that read text the desktop doe
 
 ### A few things worth knowing on the first run
 
-- Add `ui=True` to open the desktop app instead of running the task in the terminal.
+- Add `ui=True` to open the desktop app instead of running the task in the terminal. The first
+  time, it asks in the terminal whether to download Electron for its Chromium window (`y`, `n`
+  for no and don't ask again, or Enter for not now); without it the same app opens in
+  pywebview ([The desktop app](#the-desktop-app)).
 - Put your provider key in a `.env` file, or paste it into Settings in the app.
 - Model names come from **[model_list.txt](https://github.com/AutoCua/AutoCua/blob/main/model_list.txt)** and are case sensitive. A name
   that is not on the list is forwarded verbatim and comes back as a 404.
@@ -760,11 +765,45 @@ Parallel mode is for `run_agent`. The desktop app runs one agent at a time.
 ## The desktop app
 
 `ui=True` opens a native window, 1140 by 700, on a Flask server at AutoCua's own port
-(27321, or a free one for that run when another program holds it). After a one-time
-`npm install` in `AutoCua/desktop` (Node.js 22.12 or newer) the window is Chromium, through
-Electron, the same on every OS. Without it the app opens in
+(27321, or a free one for that run when another program holds it). The window is Chromium,
+through Electron, the same on every OS. Electron is not in the wheel, and nothing is
+downloaded without asking: on macOS 13 or newer, Windows 10 or newer, and 64-bit Linux, the
+first launch from a terminal asks whether to fetch it, and
+says how big it is and where it goes (a 120 to 160 MB download from Electron's own GitHub
+releases, the same zip `npm install electron` fetches, checked against a pinned SHA-256, and
+300 to 390 MB on disk). `y` puts it in a per-user cache (`~/Library/Caches/AutoCua/electron`,
+`%LOCALAPPDATA%\AutoCua\electron`, `~/.cache/AutoCua/electron`); no Node.js is needed. `n` is
+remembered and the question is not asked again; Enter, Ctrl+C, or no answer within two minutes
+means not now. With no terminal (an IDE's run button) or a hidden one, nothing is asked. `python -m AutoCua.utils.electron` fetches it any time (`--force`
+fetches it again). Deleting the cache folder removes it. `ELECTRON_MIRROR` and
+`ELECTRON_CUSTOM_DIR` fetch from a mirror, as they do for npm, and the question names it. A
+checkout that ran `npm install` in `AutoCua/desktop` (Node.js 22.12 or newer) uses that copy and
+is never asked.
+
+Without Electron, or with `AUTOCUA_UI=webview`, the app opens in
 [pywebview](https://pywebview.flowrl.com/), with the OS title bar tinted to match the page so
-the whole surface reads as one.
+the whole surface reads as one. So does an Electron that cannot run here (macOS older than 13)
+or that fails before the app is up (a missing system library, a policy that blocks it). While
+the Chromium window is open, a second launch just brings it to the front.
+
+On Linux, Chromium's sandbox needs a user namespace it can use, or its setuid helper,
+`chrome-sandbox` next to the executable, owned by root. Ubuntu 24.04 and newer (23.10 as an
+opt-in) take every capability away in the user namespaces of a program with no AppArmor
+profile (`kernel.apparmor_restrict_unprivileged_userns=1`), and a download made as you cannot
+make the helper root's, so there the Chromium window starts without the sandbox
+(`--no-sandbox`, for this window only) and the launch says so. The pywebview window has no
+sandbox there either: WebKitGTK's is off in it. To turn the sandbox on, make the helper
+root's, as Chrome's and Cursor's packages do, with the two commands the launch prints:
+
+```
+sudo chown root:root ~/.cache/AutoCua/electron/v<version>-linux-<arch>/chrome-sandbox
+sudo chmod 4755 ~/.cache/AutoCua/electron/v<version>-linux-<arch>/chrome-sandbox
+```
+
+An update that brings a new Electron needs them again. An AppArmor profile that allows user
+namespaces for this Electron is not the way: it runs any app folder it is given, so the
+profile would let every program on the machine around Ubuntu's restriction, and everything
+the agent runs would inherit it.
 
 ```
 +--------------+----------------------------------------------+
@@ -1105,7 +1144,7 @@ AutoCua_data/              YOUR data: chats, keys, skills, browser profiles, vau
 AutoCua/
   agent_launcher.py        mode to AgentService dispatch, parallel fan-out, the ui flag
   ui/                      the desktop app: Flask, pywebview, chat, stages, skills, settings
-  desktop/                 the app's Chromium window (Electron), used once `npm install` has run in it
+  desktop/                 the app's Chromium window (Electron, fetched on a yes at the first launch)
   default_skills/          the shipped skills, read-only; yours go in AutoCua_data/skills/
   llm_provider/            every LLM endpoint and the model tables, one copy for all platforms
   mac/  windows/           computer use: agent, controller, tree, sandbox, tool_registry
@@ -1182,6 +1221,7 @@ this repository. They are fetched from their authors at setup time or on first u
 | **WebDriverAgent**, by Facebook, Inc. and the [Appium](https://github.com/appium/WebDriverAgent) project | [`setup_ios.sh`](https://github.com/AutoCua/AutoCua/blob/main/setup_ios.sh) clones it at pinned tag `v15.1.1` | BSD 3-Clause, some files Apache 2.0 |
 | **Interception**, a Windows kernel input driver by [Francisco Lopes da Silva](https://github.com/oblitum/Interception) | `setup_windows.bat` downloads the author's signed `v1.0.1` release and verifies its SHA-256 | **Dual:** LGPL v3.0 non-commercial. **Commercial use needs a paid licence from the author** |
 | **PP-OCRv6** text detection and recognition models, by [PaddlePaddle](https://huggingface.co/PaddlePaddle) | `AutoCua/utils/ocr_models.py` downloads the two ONNX models from the author's Hugging Face repositories at pinned commits, SHA-256 verified, the first time a Linux scan needs them | Apache 2.0 |
+| **Electron**, by the [Electron](https://github.com/electron/electron) project (OpenJS Foundation) | `AutoCua/utils/electron.py` downloads the official `v44.7.0` release zip for your OS, SHA-256 verified, into a per-user cache, only after you say yes at the first `ui=True` launch (or run `python -m AutoCua.utils.electron`); a checkout's `npm install` in `AutoCua/desktop` works too | MIT; the Chromium and Node.js it bundles keep their own licences |
 
 > If you ship or sell anything built on AutoCua that bundles or installs the Interception
 > driver, you must obtain a commercial Interception licence yourself. AutoCua's MIT licence

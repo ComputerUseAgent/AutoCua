@@ -31,6 +31,7 @@ import queue
 import time
 import shutil
 import subprocess
+import tempfile
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -64,6 +65,9 @@ from AutoCua.utils import agent_glow
 # (the screen and this window, as two videos) into AutoCua_data/recordings, on
 # every machine run_recorder.supported() says can.
 from AutoCua.utils import run_recorder
+# Electron for the Chromium desktop shell when no `npm install` put one in
+# AutoCua/desktop (every pip install): fetched once the person says yes.
+from AutoCua.utils import electron
 
 # This file lives at <repo>/AutoCua/ui/service.py. Anchor everything
 # off these.
@@ -3900,37 +3904,50 @@ def minimize_main_window():
 # =============================================================================
 # The Chromium desktop shell (AutoCua/desktop, an Electron app)
 # =============================================================================
-# main() opens the app in it when it is installed (`npm install` in that
-# folder, once), else in the pywebview window. The shell starts this module
+# main() opens the app in it, else in the pywebview window. The shell is
+# main.js and package.json; the Electron that runs it is the one a checkout's
+# `npm install` put in that folder, else the one AutoCua/utils/electron.py
+# fetches into a per-user cache once the person says yes to it on a launch (a
+# pip install has no npm and needs no Node.js). The shell starts this module
 # again as its own process, the backend (`python -m AutoCua.ui.service
 # --desktop`, which ends in _serve_desktop_shell), so the window never shares
 # a process, a thread or a lock with the agent. The process that launched the
 # shell only waits for it to quit.
 DESKTOP_SHELL_DIR = _THIS_DIR.parent / "desktop"     # <package>/desktop
 
+# The backend writes to the file this names once it is serving, so the
+# launcher can tell a shell that ran from one that died before it came up.
+ENV_DESKTOP_STARTED = "AUTOCUA_DESKTOP_STARTED"
+
 
 def _electron_binary():
     """The Electron executable that `npm install` put in the shell's
-    node_modules (the electron package records where in path.txt), or None."""
+    node_modules (the electron package records where in path.txt), else the
+    one already fetched into the cache, or None."""
     package = DESKTOP_SHELL_DIR / "node_modules" / "electron"
     try:
         relative = (package / "path.txt").read_text(encoding="utf-8").strip()
     except OSError:
-        return None
-    exe = package / "dist" / relative
-    return exe if exe.is_file() else None
+        relative = ""
+    if relative and (package / "dist" / relative).is_file():
+        return package / "dist" / relative
+    return electron.executable()
 
 
 def _launch_desktop_shell():
-    """Run the shell and block until it quits. Returns False, with nothing
-    started, when it is not installed (and in the compiled app, which does
-    not ship it), or when AUTOCUA_UI=webview asks for the pywebview window."""
+    """Run the shell and block until it quits. Returns False, so that the
+    pywebview window opens instead: in the compiled app (it does not ship the
+    shell), when AUTOCUA_UI=webview asks for that window, when Electron
+    cannot be had on this machine, and when the shell died before it came
+    up."""
     if IS_COMPILED or os.environ.get("AUTOCUA_UI", "").strip().lower() == "webview":
         return False
-    exe = _electron_binary()
+    # Not here yet: ask on the terminal whether to fetch it (120-160 MB,
+    # once). Nothing is downloaded without a yes.
+    exe = _electron_binary() or electron.offer_electron()
     if exe is None:
-        print(f"[ui] The Chromium window is not installed (cd {DESKTOP_SHELL_DIR} "
-              "&& npm install); opening the pywebview one.", flush=True)
+        print("[ui] Opening the pywebview window.", flush=True)
+        _stay_in_webview()
         return False
     # The backend starts in the folder that holds the package (so `-m` loads
     # this copy) and then moves to AUTOCUA_CWD, this process's folder, where
@@ -3942,8 +3959,53 @@ def _launch_desktop_shell():
     # Set for everything VS Code (an Electron app) spawns; inherited, it makes
     # Electron start as plain Node, with no window and no `app`.
     env.pop("ELECTRON_RUN_AS_NODE", None)
-    subprocess.run([str(exe), str(DESKTOP_SHELL_DIR)], env=env, check=False)
-    return True
+    # Linux only: where Chromium's sandbox cannot start (Ubuntu 24.04 and
+    # newer, for a downloaded Electron), the window runs without it rather
+    # than not at all, by a switch on its command line, which the backend's
+    # environment, and what the agent starts from it, never carries.
+    switches = electron.sandbox_switches(exe) if IS_LINUX else []
+    fd, started = tempfile.mkstemp(prefix="autocua-desktop-", suffix=".started")
+    os.close(fd)
+    env[ENV_DESKTOP_STARTED] = started
+    try:
+        try:
+            code = subprocess.run([str(exe), *switches, str(DESKTOP_SHELL_DIR)], env=env,
+                                  check=False).returncode
+            why = (f"killed by signal {-code}" if code < 0          # POSIX
+                   else f"exit status {code:#010x}" if code > 0xFFFF  # a Windows crash code
+                   else f"exit status {code}")
+        except OSError as e:      # not executable, or blocked by a policy
+            code, why = None, str(e)
+        try:
+            came_up = os.path.getsize(started) > 0
+        except OSError:
+            # A temp cleaner took it during a long session; the backend wrote
+            # it at the start of that session.
+            came_up = True
+    finally:
+        try:
+            os.unlink(started)
+        except OSError:
+            pass
+    # Exit status 0 with no backend is a second launch that handed over to
+    # the window already open (main.js's single-instance lock). Anything else
+    # is an Electron that could not run here (a Linux without a library
+    # Chromium needs, a policy that blocks it, a crash) or a backend that
+    # died before it was serving (main.js exits 1 then).
+    if came_up or code == 0:
+        return True
+    print(f"[ui] The Chromium window did not start ({why}); opening the pywebview "
+          "one. AUTOCUA_UI=webview opens that one directly.", flush=True)
+    _stay_in_webview()
+    return False
+
+
+def _stay_in_webview():
+    """Keep this session in the pywebview window. relaunch_app() re-executes
+    with this environment (the macOS setup wizard's restart), and without
+    this it would ask the terminal again, or retry a shell that just failed,
+    before its window came back."""
+    os.environ["AUTOCUA_UI"] = "webview"
 
 
 def _serve_desktop_shell(win, start_path):
@@ -3967,6 +4029,14 @@ def _serve_desktop_shell(win, start_path):
 
     if sys.stdin is not None:
         threading.Thread(target=until_stdin_closes, daemon=True).start()
+    # The shell came up: the launcher (_launch_desktop_shell) no longer falls
+    # back to the pywebview window when it exits.
+    started = os.environ.pop(ENV_DESKTOP_STARTED, "")
+    if started:
+        try:
+            Path(started).write_text("1", encoding="utf-8")
+        except OSError:
+            debug_exception("desktop shell started marker")
     print(f"AUTOCUA_DESKTOP_READY http://127.0.0.1:{_app_port}{start_path}", flush=True)
 
     if IS_MAC:
@@ -3976,6 +4046,30 @@ def _serve_desktop_shell(win, start_path):
         ns_app.run()
     else:
         threading.Event().wait()
+
+
+# Held for the life of the process: macOS ends the activity once this object
+# is deallocated.
+_app_nap_activity = None
+
+
+def _opt_out_of_app_nap():
+    """Keep macOS from putting the app into App Nap. The agent works in other
+    apps, so this window is soon covered, and a napping app and every process
+    it started (the agent, its helpers, the phone's) drop to background
+    priority: a 1 s phone step took 25 s (754af08, which opted the Chromium
+    shell out). Unlike the shell's powerSaveBlocker this does not keep the
+    Mac from idle sleep."""
+    global _app_nap_activity
+    if not IS_MAC or _app_nap_activity is not None:
+        return
+    try:
+        from Foundation import NSProcessInfo, NSActivityUserInitiatedAllowingIdleSystemSleep
+        _app_nap_activity = NSProcessInfo.processInfo().beginActivityWithOptions_reason_(
+            NSActivityUserInitiatedAllowingIdleSystemSleep,
+            "AutoCua works in other apps while its window is covered")
+    except Exception:
+        debug_exception("app_nap_opt_out")
 
 
 # =============================================================================
@@ -4067,6 +4161,10 @@ def main():
         except Exception:
             debug_exception("Minion mode")
         return
+
+    # macOS: never nap, in the pywebview window's process and in the Chromium
+    # shell's backend alike (the shell's own process opts out in main.js).
+    _opt_out_of_app_nap()
 
     # Startup sequence (no-ops where not applicable).
     clean_scratchpad()

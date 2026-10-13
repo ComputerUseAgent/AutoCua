@@ -113,6 +113,22 @@ AutoCua's MIT license.
 
 ---
 
+## 5. Electron — **not redistributed; fetched on request**
+
+| | |
+|---|---|
+| **Author** | The Electron project (OpenJS Foundation and Electron contributors) |
+| **Upstream** | https://github.com/electron/electron (release `v44.7.0`) |
+| **How it reaches you** | **Not vendored in this repository or in the wheel.** `AutoCua/desktop/package.json` names it as an npm devDependency, so a checkout's `npm install` in that folder fetches it the usual npm way. Otherwise the first `ui=True` launch asks on the terminal whether to download it, and only on a yes does `AutoCua/utils/electron.py` download the official release zip for the machine (`electron-v44.7.0-<os>-<arch>.zip`) from the project's own GitHub release, over TLS, into a per-user cache folder (`~/Library/Caches/AutoCua/electron`, `%LOCALAPPDATA%\AutoCua\electron`, `~/.cache/AutoCua/electron`), or does so straight away for `python -m AutoCua.utils.electron`. With `ELECTRON_MIRROR` set (as for npm), the same zip comes from that mirror instead, and the question names it. Size and SHA-256 are verified before anything is unpacked; a mismatch is discarded. |
+| **Pinned checksums** | In `AutoCua/utils/electron.py` (`ZIPS`): the byte size and SHA-256 of the darwin, linux and win32 zips for arm64 and x64, as published in the release's `SHASUMS256.txt`. For example darwin-arm64 `e04e411b58a0a14375dd21b0ab4a378fd38930a702e4e20e322fee4849404c0b`, win32-x64 `eee30dc8fa1f5ea95490e59f44e46ea68dd24c6e93d22facf70fe5c2d4c2665c` |
+| **License** | MIT (Electron). The zip bundles Chromium, Node.js and their dependencies under their own licenses, listed in the `LICENSE` and `LICENSES.chromium.html` files it contains. |
+| **Used by** | The desktop app's Chromium window (`AutoCua/desktop`). Without Electron the app opens in pywebview instead. |
+
+Electron and the components it bundles remain under their own licenses and are
+not covered by AutoCua's MIT license.
+
+---
+
 ## Reporting a licensing concern
 
 If you believe something here is misattributed, under-attributed, or

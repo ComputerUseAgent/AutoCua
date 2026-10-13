@@ -14,7 +14,7 @@ build-backend = "maturin"
 
 [project]
 name = "AutoCua"
-version = "0.1.1"
+version = "0.1.2"
 description = "AutoCua: an AI agent that operates your computer, shell, browser and iPhone"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -127,6 +127,7 @@ exclude = [
     "AutoCua/ios_connector/WebDriverAgent/**",
     "AutoCua/ios_connector/paired_devices.json",
     # the Chromium desktop shell's npm install: Electron itself, ~300 MB and
-    # built per OS (a user runs `npm install` in AutoCua/desktop)
+    # built per OS (a checkout runs `npm install` in AutoCua/desktop; a pip
+    # install fetches it into a per-user cache, AutoCua/utils/electron.py)
     "AutoCua/desktop/node_modules/**",
 ]
