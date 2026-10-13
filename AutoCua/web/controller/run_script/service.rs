@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 
 use crate::agent::main_driver::view::py_str_of;
 use crate::browser::{Cdp, CdpFail, ScannerInner};
-use crate::controller::service::{err, py_int_value, scan_op, ActResult};
+use crate::controller::service::{err, py_int_value, scan_op, ActErr, ActResult};
 
 // Every guardrail of this tool, in one file beside this one: checked before a
 // script runs and on the reply before the response is packed, for both
@@ -62,7 +62,9 @@ const TO_DATA: &str = r#"function () {
     try {
       if (v === undefined || v === null) return null;
       const t = typeof v;
-      if (t === 'string' || t === 'number' || t === 'boolean') return v;
+      // A string the script cut through an emoji (.slice) would not parse as JSON.
+      if (t === 'string') return typeof v.toWellFormed === 'function' ? v.toWellFormed() : v;
+      if (t === 'number' || t === 'boolean') return v;
       if (t === 'bigint' || t === 'symbol') return String(v);
       if (t === 'function') return '<function ' + (v.name || 'anonymous') + '> is not data';
       if (typeof v.document === 'object' && v.window === v) return '<Window> is not data';
@@ -70,7 +72,9 @@ const TO_DATA: &str = r#"function () {
         const name = (v.constructor && v.constructor.name) || v.nodeName;
         return '<' + name + (v.id ? '#' + v.id : '') + '> is not data - map it to text/attributes first';
       }
-      if (depth > 8) return '<nested too deep>';
+      // Nine: a scrape's answer comes one level down, inside its read's
+      // {value, held, last} (window.rs on_screen), with eight of its own.
+      if (depth > 9) return '<nested too deep>';
       if (path.has(v)) return '<circular>';
       path.add(v);
       try {
@@ -307,13 +311,18 @@ pub fn scrape(
 }
 
 /// `more`, in scrape mode: the next three screens of the page being read,
-/// with the same script, and their pictures.
+/// with the same script, and their pictures, from exactly where the last read
+/// stopped. The live page decides whether anything is left below: a feed may
+/// have loaded more since a read said it ended.
 pub fn more(py: Python<'_>, scanner: &Arc<Mutex<ScannerInner>>) -> ActResult<Value> {
-    let Some((tab, code, next_top, ended)) = window::current() else {
+    let Some((tab, code, next, pick)) = window::current() else {
         return err("no read is in progress: run_script with type \"scrape\" reads first, then `more` goes on");
     };
-    if ended {
-        return err("the page ends at the last screen read: there is nothing below it - `index` the last chunk if you have not, then exit_scrape_mode");
+    if pick {
+        return err(
+            "the last read was a pick: it took everything the page had loaded in one go, so there is no `more` - \
+             `index` it if you have not, then exit_scrape_mode",
+        );
     }
     let target = tab.clone();
     let idx = scan_op(py, scanner, move |s| {
@@ -329,29 +338,42 @@ pub fn more(py: Python<'_>, scanner: &Arc<Mutex<ScannerInner>>) -> ActResult<Val
     let Some(idx) = idx else {
         return err("the tab being read is gone - exit_scrape_mode");
     };
-    read_screens(py, scanner, idx, &tab, &code, Some(next_top), "more")
+    read_screens(py, scanner, idx, &tab, &code, Some(next), "more")
 }
 
 /// One read, from the guardrails to the packed answer: the script checked
-/// before it runs, three screens read, the size held to MAX_READ_TOKENS, the
-/// records screened before they are packed.
+/// before it runs, the screens read, the size held to MAX_READ_TOKENS, the
+/// records screened before they are packed. The page is left at the read's
+/// next unread point, where `more` or a new read goes on; a read that
+/// delivers nothing puts it back where it began.
 fn read_screens(
     py: Python<'_>,
     scanner: &Arc<Mutex<ScannerInner>>,
     idx: i64,
     tab: &str,
     code: &str,
-    top: Option<f64>,
+    from: Option<window::Spot>,
     tool: &str,
 ) -> ActResult<Value> {
     let gate = match guardrails_check::before(py, scanner, idx, code) {
         Ok(gate) => gate,
         Err(message) => return err(message),
     };
-    let w = window::read(py, scanner, tab, code, top)?;
+    // A script error puts the page back where the read began (window::read).
+    // Its text is screened and audited like a result, as an action's is (run).
+    let w = match window::read(py, scanner, tab, code, from) {
+        Ok(w) => w,
+        Err(ActErr::Msg(m)) => {
+            let (text, report) = guardrails_check::screen_error(&m);
+            guardrails_check::audit(&gate, "error", &report, Some(&text), 0, 0);
+            return err(text);
+        }
+        Err(e) => return Err(e),
+    };
+    let pane = w.next.pane.as_deref();
     let tokens = w.chars / window::CHARS_PER_TOKEN;
     if w.cut || tokens > window::MAX_READ_TOKENS {
-        window::back_to(py, scanner, tab, w.start_top);
+        window::place(py, scanner, tab, w.start, pane);
         let message = format!(
             "result too long: about {tokens} tokens ({} characters) from {} screen(s) of tab [{idx}], and one \
              read hands back at most {} tokens. Nothing was delivered and the page is back where this read \
@@ -367,18 +389,44 @@ fn read_screens(
     }
     let (value, report) = guardrails_check::screen_result(Value::Array(w.records));
     if let Some(reason) = report.withheld.clone() {
+        window::place(py, scanner, tab, w.start, pane);
         guardrails_check::audit(&gate, "withheld", &report, Some(&reason), report.chars, 0);
-        return err(format!("tab [{idx}]: {reason}"));
+        return err(format!("tab [{idx}]: {reason} - the page is back where this read began"));
     }
     let n = value.as_array().map(Vec::len).unwrap_or(0);
-    let mut message = if n == 0 {
+    // `more` goes on from here even past screens without records, and the
+    // page is left at the next unread screen; a first read that found
+    // nothing opens no mode and goes back where it began, so the corrected
+    // script reads the same screens. A pick never moved the page.
+    let goes_on = tool == "more" || n > 0;
+    if goes_on {
+        window::remember(tab, code, w.next.clone(), w.pick);
+    }
+    if !w.pick {
+        window::place(py, scanner, tab, if goes_on { w.next.top } else { w.start }, pane);
+    }
+    let end = if w.blocked {
+        ", and the page would not scroll further (it snaps back, or holds its place)"
+    } else if w.ended {
+        ", and the page ends there (nothing more loaded within 1.5 s)"
+    } else {
+        ""
+    };
+    let mut message = if n == 0 && tool == "more" {
+        format!("read {} screen(s) of tab [{idx}]: no new records below the last chunk{end}", w.screens)
+    } else if n == 0 {
         format!(
-            "read {} screen(s) of tab [{idx}]: nothing matched there - check the selector against the \
-             screenshots that come with the next input",
+            "read {} screen(s) of tab [{idx}]: nothing matched there{end} - check the selector against the \
+             screenshots that come with the next input - the page is back where this read began",
             w.screens
         )
+    } else if w.pick {
+        format!(
+            "picked {n} record(s) from what tab [{idx}] has loaded: the script never calls \
+             document.querySelectorAll, so it is a pick, read once (start from document.querySelectorAll to \
+             read screen by screen with `more`)"
+        )
     } else {
-        let end = if w.ended { ", and the page ends there" } else { "" };
         format!("read {} screen(s) of tab [{idx}]: {n} record(s){end}", w.screens)
     };
     if report.redacted() > 0 {
@@ -386,16 +434,14 @@ fn read_screens(
         message.push_str(&report.note());
     }
     guardrails_check::audit(&gate, "ok", &report, None, report.chars, 0);
-    // `more` goes on from here even past screens without records; a first
-    // read that found nothing opens no mode, so nothing goes on from it.
-    if tool == "more" || n > 0 {
-        window::remember(tab, code, w.next_top, w.ended);
-    }
     let mut out = json!({
         "status": "success", "tool": tool, "id": idx, "result": value,
-        "read": {"screens": w.screens, "records": n, "more_below": !w.ended},
+        "read": {"screens": w.screens, "records": n, "more_below": !w.ended && !w.pick && !w.blocked},
         "message": message,
     });
+    if w.pick {
+        out["read"]["pick"] = json!(true);
+    }
     if report.redacted() > 0 {
         out["redacted"] = report.classes_json();
     }
@@ -409,21 +455,31 @@ fn read_screens(
             s.scrape_glow_on(&target);
             Ok(())
         });
-        let next = if w.ended {
-            "the page ends here: `index` this chunk, then exit_scrape_mode"
+        let (shots, next) = if w.pick {
+            ("a clean screenshot of the screen", "there is no `more` after a pick: `index` this chunk, then exit_scrape_mode")
+        } else if w.blocked {
+            (
+                "a clean screenshot of each screen",
+                "the page would not scroll further: `index` this chunk, then exit_scrape_mode",
+            )
+        } else if w.ended {
+            (
+                "a clean screenshot of each screen",
+                "the page ends here: `index` this chunk, then exit_scrape_mode (on a feed that loads slowly, \
+                 `more` looks again)",
+            )
         } else {
-            "`index` this chunk, then `more` for the next 3 screens"
+            ("a clean screenshot of each screen", "`index` this chunk, then `more` for the next 3 screens")
         };
-        out["message"] = json!(format!(
-            "{message} - scrape mode is on: a clean screenshot of each screen comes with the next input; {next}"
-        ));
+        out["message"] = json!(format!("{message} - scrape mode is on: {shots} comes with the next input; {next}"));
         out["scrape_mode"] = json!(true);
     }
     Ok(out)
 }
 
 /// Leave scrape mode. `value` is the model's closing note. The agent loop
-/// takes the look off and scans the page again from the next step.
+/// takes the look off and scans the page again from the next step. The page
+/// stays where the last read left it, at the next unread screen.
 pub fn exit_scrape_mode(value: &Value) -> ActResult<Value> {
     window::end();
     let note = if value.is_null() { String::new() } else { py_str_of(value).trim().to_string() };
