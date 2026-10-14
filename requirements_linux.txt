@@ -81,7 +81,7 @@
 # happens, install with `--no-deps` minus this line and run without OCR; the
 # scanner says "OCR off" once and carries on. Floors (not pins) are what keep
 # this rare: pip takes the newest wheel that matches your interpreter.
-Pillow>=10.0
+Pillow>=12.3.0
 numpy>=1.26
 onnxruntime>=1.20
 
@@ -106,8 +106,8 @@ onnxruntime>=1.20
 # through the same PyGObject the scanner needs. There is no pip input library
 # on this platform, by design; see section 4.
 
-python-dotenv>=1.0
-requests>=2.32
+python-dotenv>=1.2.2
+requests>=2.33.0
 groq>=1.0
 openai>=2.0
 anthropic>=0.83
@@ -128,8 +128,8 @@ google-genai>=1.64
 # cannot see; service.py imports the Linux scanner before webview so that
 # element._add_system_gi_to_path has put it on sys.path first.
 
-flask>=3.1
-werkzeug>=3.1
+flask>=3.1.3
+werkzeug>=3.1.9
 pywebview>=5.0
 
 # Remote connection (Telegram bot) — AutoCua/linux/remote_connection/telegram,
