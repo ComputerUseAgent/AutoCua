@@ -26,7 +26,9 @@
                 holder.innerHTML = html.trim();
                 var btn = holder.querySelector('.settings-btn');
                 if (!btn) return;
-                slot.appendChild(btn);
+                // First in the footer: the cog stays bottom-left, the GitHub
+                // star pill (left_bar.html) sits to its right.
+                slot.insertBefore(btn, slot.firstChild);
                 wire(btn);
             })
             .catch(function () { /* non-fatal: the cog just won't render */ });

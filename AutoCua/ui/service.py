@@ -3706,21 +3706,23 @@ if IS_COMPILED:
 # Native window styling + centering (the "critical bit")
 # =============================================================================
 
-# Just off white, used to tint the native title bar (pywebview) on macOS,
+# Pure white, used to colour the native title bar (pywebview) on macOS,
 # Windows and Linux; the Chromium shell draws its own bar in it
 # (AutoCua/desktop/main.js BACKGROUND). KEEP IN SYNC with the app/splash
-# background in ui/ (style.css `body` + `.splash-overlay`, left_bar.css,
-# skills.css, setup.css and intro_animation.html) so the bar and content read
-# as one unified surface.
-TITLEBAR_COLOR = "#FDFCFA"
+# background in ui/ (style.css `body` + `.splash-overlay` + `.settings-overlay`,
+# left_bar.css, skills.css, setup.css and intro_animation.html) so the bar and
+# content read as one unified surface. Six-digit hex only: the macOS and
+# Windows hooks below parse it in pairs ("white" or "#FFF" silently skip the
+# tint).
+TITLEBAR_COLOR = "#FFFFFF"
 
 
 def _style_macos_titlebar():
-    """Tint the native macOS window titlebar cream instead of stark white.
+    """Paint the native macOS window titlebar the app's white, not the system grey.
 
     The bright bar at the top of the window is the native NSWindow titlebar
     (pywebview exposes it as `window.native`). We make it transparent so the
-    window's own background color shows through, set to a warm cream. macOS-only.
+    window's own background color shows through, set to the app colour. macOS-only.
     """
     win = get_window()
     nswindow = getattr(win, 'native', None) if win is not None else None
@@ -3741,12 +3743,13 @@ def _style_macos_titlebar():
             nswindow.setBackgroundColor_(color)
             nswindow.setTitlebarAppearsTransparent_(True)
             # Pin the titlebar to Aqua so title text + traffic lights stay dark on
-            # the cream bar even in Dark Mode.
+            # the white bar even in Dark Mode.
             nswindow.setAppearance_(
                 NSAppearance.appearanceNamed_(NSAppearanceNameAqua)
             )
-            # pywebview pins the titlebar's own background view to white at window
-            # creation; recolor that exact view (NSTitlebarContainerView).
+            # pywebview paints the titlebar's own background view in the system
+            # window colour (NSColor.windowBackgroundColor, a grey, not white) at
+            # window creation; recolor that exact view (NSTitlebarContainerView).
             try:
                 titlebar_view = nswindow.contentView().superview().subviews().lastObject()
                 titlebar_view.setBackgroundColor_(color)
@@ -3761,11 +3764,11 @@ def _style_macos_titlebar():
 
 
 def _style_linux_titlebar():
-    """Tint the GTK titlebar to the same cream as macOS / Windows.
+    """Paint the GTK titlebar the same white as macOS / Windows.
 
     On GNOME the window is decorated by GTK itself — a header bar drawn from
     the desktop theme — so under a dark theme (prefer-dark with Yaru-dark,
-    the user's setup) the bar came out black over the cream app. A CSS
+    the user's setup) the bar came out black over the white app. A CSS
     provider at application priority outranks the theme: it pins the bar's
     background, the title text and the window-control icons, focused and
     backdrop alike. Mirrors `_style_macos_titlebar`.
@@ -3786,7 +3789,7 @@ def _style_linux_titlebar():
     headerbar.titlebar, headerbar.titlebar:backdrop {{
         background: {TITLEBAR_COLOR};
         color: #3b3532;
-        border-color: #e6ddd7;
+        border-color: #ebebeb;
         box-shadow: none;
         text-shadow: none;
     }}
@@ -3813,7 +3816,7 @@ def _style_linux_titlebar():
 
 
 def _style_windows_titlebar():
-    """Tint the native Windows title bar (caption) to the same cream as macOS.
+    """Paint the native Windows title bar (caption) the same white as macOS.
 
     Windows 11 (build 22000+) exposes DWM attributes to set the caption background
     and title-text colors; on Windows 10 these are unsupported and the calls
@@ -3850,7 +3853,7 @@ def _style_windows_titlebar():
             dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), ctypes.sizeof(v))
 
         # Force light-mode caption (dark glyphs) so they stay readable on the
-        # cream bar even in Dark Mode, then set the caption + title-text colors.
+        # white bar even in Dark Mode, then set the caption + title-text colors.
         _set(DWMWA_USE_IMMERSIVE_DARK_MODE, 0)
         _set(DWMWA_CAPTION_COLOR, _colorref(TITLEBAR_COLOR))
         _set(DWMWA_TEXT_COLOR, _colorref("#2A2A2A"))
@@ -4210,9 +4213,9 @@ def main():
             f'http://127.0.0.1:{_app_port}{start_path}',
             width=win_w,
             height=win_h,
-            # What the webview paints BEFORE the page loads. pywebview defaults this
-            # to '#FFFFFF', which flashed stark white for a beat at every launch
-            # before the cream splash painted over it. Pin it to the app colour.
+            # What the webview paints BEFORE the page loads: the app colour, so
+            # nothing flashes before the splash paints. Pinned to TITLEBAR_COLOR
+            # so it follows the app colour if that ever changes.
             background_color=TITLEBAR_COLOR,
         )
     set_window(win)

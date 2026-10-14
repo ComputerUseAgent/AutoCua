@@ -55,8 +55,29 @@
         return svg;
     }
 
+    // The collapsed left bar's rail (left_bar.html) shows a circle per chat
+    // instead of the rows: same mode icon, same click, name as the tooltip.
+    function railChats() {
+        return document.querySelector('#leftBarRail .rail-chats');
+    }
+
+    function railDot(row, list) {
+        var dot = document.createElement('button');
+        dot.type = 'button';
+        dot.className = 'rail-btn';
+        if (row.id === window.currentSessionId) dot.classList.add('active');
+        dot.dataset.id = row.id;
+        dot.title = escapeAttr(row.name);
+        dot.setAttribute('aria-label', row.name || 'New chat');
+        dot.appendChild(chatModeIcon(row));
+        dot.addEventListener('click', function () { openChat(row.id, list); });
+        return dot;
+    }
+
     function renderChats(list, rows) {
         list.innerHTML = '';
+        var rail = railChats();
+        if (rail) rail.innerHTML = '';
         rows.forEach(function (row) {
             var item = document.createElement('div');
             item.className = 'chat-history-item';
@@ -84,6 +105,7 @@
 
             item.addEventListener('click', function () { openChat(row.id, list); });
             list.appendChild(item);
+            if (rail) rail.appendChild(railDot(row, list));
         });
     }
 
@@ -91,8 +113,12 @@
     // show ONLY its last done message in the top-left container (the reopen view).
     function openChat(id, list) {
         window.currentSessionId = id;
-        Array.prototype.forEach.call(list.children, function (el) {
-            el.classList.toggle('active', el.dataset.id === id);
+        var rail = railChats();
+        [list, rail].forEach(function (box) {
+            if (!box) return;
+            Array.prototype.forEach.call(box.children, function (el) {
+                el.classList.toggle('active', el.dataset.id === id);
+            });
         });
         if (window.resetChatUi) window.resetChatUi();   // clear leftover live view
         if (window.hideWelcomeHero) window.hideWelcomeHero();   // reopening != empty state
@@ -288,6 +314,23 @@
                     list = document.createElement('div');
                     list.className = 'chat-history-list';
                     body.insertBefore(list, btn.nextSibling);
+                }
+
+                // The collapsed bar's rail: New chat as a circle, then the
+                // chats' circles (filled by renderChats).
+                var rail = bar.querySelector('#leftBarRail');
+                if (rail && !rail.querySelector('.rail-chats')) {
+                    var dot = document.createElement('button');
+                    dot.type = 'button';
+                    dot.className = 'rail-btn';
+                    dot.title = 'New chat';
+                    dot.setAttribute('aria-label', 'New chat');
+                    dot.appendChild(btn.querySelector('.new-chat-icon').cloneNode(true));
+                    dot.addEventListener('click', startNewChat);
+                    var chats = document.createElement('div');
+                    chats.className = 'rail-chats';
+                    rail.appendChild(dot);
+                    rail.appendChild(chats);
                 }
                 loadChats(list);
             })

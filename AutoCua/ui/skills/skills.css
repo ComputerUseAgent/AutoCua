@@ -55,7 +55,7 @@
    Skills STAGE — mounted inside #zoneBigCenter (the full-grid container that
    shows one thing at a time). Fills the zone like Agent Notes does; skills.js
    reveals it (and hides the notes) on the Skills icon click. Default hidden;
-   .active shows it. Light cream + grey text to match the app; Save uses the
+   .active shows it. White + grey text to match the app; Save uses the
    app's blue "Save" tone.
    ===================================================================== */
 .skills-stage {
@@ -76,7 +76,7 @@
     /* OPAQUE. The host zone is transparent, so without this the four zones
        behind it (and the shell terminal) show straight through the skills
        list. Same colour as <body> so the stage reads as the app surface. */
-    background: #FDFCFA;
+    background: #FFFFFF;
 }
 
 /* ── Skills owns the screen while it's open ───────────────────────────────

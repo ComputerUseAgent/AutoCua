@@ -7,7 +7,33 @@
 
     function reveal(bar) {
         // rAF so the initial hidden state is committed before the transition.
-        requestAnimationFrame(function () { bar.classList.add('revealed'); });
+        requestAnimationFrame(function () {
+            bar.classList.add('revealed');
+            var toggle = document.getElementById('leftBarToggle');
+            if (toggle) toggle.classList.add('revealed');
+        });
+    }
+
+    // Collapse toggle on the bar's edge: body.left-bar-collapsed shrinks the
+    // bar to an icon rail (left_bar.css). left-bar-animating turns on the
+    // --left-bar-w transition just for this (css/style.css), so the main
+    // content slides along with the bar while a window resize still snaps.
+    var TOGGLE_MS = 450;   // the --left-bar-w transition
+    function wireToggle(toggle) {
+        var timer = null;
+        toggle.addEventListener('click', function () {
+            var body = document.body;
+            body.classList.add('left-bar-animating');
+            var collapsed = body.classList.toggle('left-bar-collapsed');
+            var label = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+            toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            toggle.setAttribute('aria-label', label);
+            toggle.title = label;
+            clearTimeout(timer);
+            timer = setTimeout(function () {
+                body.classList.remove('left-bar-animating');
+            }, TOGGLE_MS + 100);
+        });
     }
 
     function revealWhenReady(bar) {
@@ -21,7 +47,7 @@
     // using a plain <a href>, because a link would navigate the pywebview
     // window itself instead of opening the system browser; the URL is fixed
     // server-side (service.py open_github) — keep the two in sync.
-    // Every pill is wired: the header's and its copy in the Settings cover
+    // Every pill is wired: the footer's and its copy in the Settings cover
     // (cornerCopy).
     var GH_REPO = 'AutoCua/AutoCua';
     function wireGithubPill() {
@@ -54,7 +80,8 @@
 
     // Settings covers the whole window and hides the bar under it
     // (left_bar.css), so the bar's header stands in the cover's top corners: a
-    // copy without the ids, laid out at the same spot, logo left, pill right.
+    // copy without the ids, laid out at the same spot, logo left, plus a copy
+    // of the footer's GitHub pill on the right.
     function cornerCopy(bar) {
         var cover = document.getElementById('settingsOverlay');
         var header = bar.querySelector('#leftBarHeader');
@@ -62,6 +89,8 @@
         var copy = header.cloneNode(true);
         copy.removeAttribute('id');
         copy.className = 'settings-corners';
+        var pill = bar.querySelector('#ghStarPill');
+        if (pill) copy.appendChild(pill.cloneNode(true));
         copy.querySelectorAll('[id]').forEach(function (el) { el.removeAttribute('id'); });
         cover.insertBefore(copy, cover.firstChild);
     }
@@ -76,6 +105,11 @@
                 var bar = holder.querySelector('.left-bar');
                 if (!bar) return;
                 document.body.appendChild(bar);
+                var toggle = holder.querySelector('.left-bar-toggle');
+                if (toggle) {
+                    document.body.appendChild(toggle);
+                    wireToggle(toggle);
+                }
                 // Let dependent components (e.g. the settings button) mount into
                 // the bar now that it exists in the DOM.
                 document.dispatchEvent(new CustomEvent('leftbar:ready', { detail: { bar: bar } }));

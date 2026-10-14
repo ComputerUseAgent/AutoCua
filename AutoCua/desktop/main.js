@@ -37,7 +37,7 @@ const readline = require('node:readline');
 // backend runs from ROOT, so `-m AutoCua...` loads this same copy of AutoCua.
 const PACKAGE = path.resolve(__dirname, '..');
 const ROOT = path.dirname(PACKAGE);
-const BACKGROUND = '#FDFCFA';   // TITLEBAR_COLOR in AutoCua/ui/service.py
+const BACKGROUND = '#FFFFFF';   // TITLEBAR_COLOR in AutoCua/ui/service.py
 const LOGO = path.join(PACKAGE, 'logo', 'logo.png');
 // Windows and Linux: the strip that stands in for the title bar, and the
 // colour of the window's buttons drawn on it (macOS sizes its strip to the
@@ -264,7 +264,7 @@ async function createWindow() {
     show: false,
     acceptFirstMouse: true,   // macOS: the click that focuses the window lands too
     // No system bar: it can't take the app's colour (on Windows it follows
-    // dark mode, black above the off-white app). titleBar below stands in
+    // dark mode, black above the white app). titleBar below stands in
     // for it. On macOS the traffic lights stay where they were; on Windows
     // and Linux the window's own buttons are drawn on the strip, in its
     // colour, and the window takes the logo (the taskbar showed Electron's).

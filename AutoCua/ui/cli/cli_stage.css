@@ -7,7 +7,7 @@
    ===================================================================== */
 
 /* Clip the grid so the zones scrolling up + the panel sliding in stay inside its box. */
-#mainGrid { overflow: hidden; transition: top 0.5s cubic-bezier(0.25, 0.8, 0.25, 1); }
+#mainGrid { overflow: hidden; }
 
 /* Smooth the zones' push-up / restore. */
 #zoneTopLeft, #zoneTopRight, #zoneBottomLeft, #zoneBottomRight {
@@ -49,6 +49,3 @@ body.cli-stage #zoneTopLeft,
 body.cli-stage #zoneTopRight,
 body.cli-stage #zoneBottomLeft,
 body.cli-stage #zoneBottomRight { transform: translateY(-130%); opacity: 0; }
-/* the four zones are hidden during cli_await, so raise the whole grid (and thus the panel)
-   up into the freed header space — the terminal sits much higher. */
-body.cli-stage #mainGrid { top: clamp(10px, 1.4vw, 22px); }

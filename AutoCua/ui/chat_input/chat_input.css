@@ -46,7 +46,7 @@
     justify-content: flex-end;
     padding: clamp(16px, 2vw, 24px);
     /* Fully transparent now — no glass card, no shadow. Only the text box (which
-       carries its own background) stays visible over the cream background. */
+       carries its own background) stays visible over the white background. */
     background: transparent;
     box-shadow: none;
 
@@ -54,6 +54,13 @@
                 right 0.5s cubic-bezier(0.25, 0.8, 0.25, 1),
                 width 0.5s cubic-bezier(0.25, 0.8, 0.25, 1),
                 transform 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* While the left bar collapses or expands, --left-bar-w itself animates
+   (css/style.css): the box follows it frame by frame instead of easing
+   after it a second time. */
+body.left-bar-animating .chat-container-wrapper {
+    transition: none;
 }
 
 .chat-container-wrapper.split-layout {
@@ -93,10 +100,8 @@
     padding-bottom: calc(var(--pad-y) + var(--orb) + var(--tools-gap));
     /* Opaque fill (no backdrop-filter: it flickers in WebView2/Chromium while
        the top-left globe/shell animations run — same reasoning as the old .chat-input).
-       A light warm cream: the old page cream #F9F1EC lifted ~65% toward white,
-       keeping its warm R>G>B ordering. Left as it was when the page moved to
-       the splash's off-white #FDFCFA. */
-    background: rgba(253, 250, 248, 0.96);
+       White, the page colour: its soft shadow and glow mark the edge. */
+    background: rgba(255, 255, 255, 0.96);
     border-radius: clamp(16px, 1.8vw, 22px);
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
     overflow: visible;
@@ -684,11 +689,11 @@
     padding: 0;
     margin-bottom: 0;
     
-    /* Same light cream as the composer below it (.input-area-wrapper), so the
+    /* Same white as the composer below it (.input-area-wrapper), so the
        strip reads as part of that stack rather than a grey band behind it —
        solid fill (no backdrop-filter; the blur flickered in WebView2 while the
        top-left animation ran). Opaque enough to read without the blur. */
-    background: rgba(253, 250, 248, 0.9);
+    background: rgba(255, 255, 255, 0.9);
     
     /* Rounded corners all around */
     border-radius: 16px;

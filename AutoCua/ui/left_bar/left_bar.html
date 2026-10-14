@@ -8,11 +8,20 @@
     <div class="liquidGlass-tint"></div>
     <div class="liquidGlass-shine"></div>
     <div class="liquidGlass-content left-bar-content">
-        <!-- Header: AutoCua logo (top-left) + GitHub star pill (top-right). -->
+        <!-- Header: AutoCua logo (top-left). -->
         <div class="left-bar-header" id="leftBarHeader">
             <!-- Brand mark: the splash's logo shape in grey (left_bar.css
                  draws it from left_bar/logo_mark.svg). -->
             <span class="left-bar-logo" role="img" aria-label="AutoCua"></span>
+        </div>
+        <!-- Body: New chat button (chat/ component) + future history list. -->
+        <div class="left-bar-body"></div>
+        <!-- Rail: shown instead of the body while the bar is collapsed;
+             chat/chat.js fills it with circles (New chat, then one per chat). -->
+        <div class="left-bar-rail" id="leftBarRail"></div>
+        <!-- Footer: the settings cog (settings/ component) mounts here first,
+             bottom-left; the GitHub star pill sits beside it. -->
+        <div class="left-bar-footer" id="leftBarFooter">
             <!-- Live stargazer count; clicking opens the repo in the system
                  browser via /api/open-github. Wired by left_bar.js. -->
             <button class="gh-star-pill" id="ghStarPill" type="button" aria-label="AutoCua on GitHub" title="AutoCua on GitHub">
@@ -21,9 +30,11 @@
                 <span class="gh-star-count" id="ghStarCount">–</span>
             </button>
         </div>
-        <!-- Body: New chat button (chat/ component) + future history list. -->
-        <div class="left-bar-body"></div>
-        <!-- Footer: the settings cog (settings/ component) mounts here, bottom-left. -->
-        <div class="left-bar-footer" id="leftBarFooter"></div>
     </div>
 </aside>
+<!-- Collapse toggle: sits on the bar's right edge, so it lives outside the
+     bar (whose overflow is clipped). Injected next to it and wired by
+     left_bar.js; the arrow turns to point right while collapsed. -->
+<button class="left-bar-toggle" id="leftBarToggle" type="button" aria-controls="leftBar" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar">
+    <svg class="left-bar-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6l-6 6 6 6"/></svg>
+</button>

@@ -297,7 +297,7 @@
    cream base neutralises into a cold grey, and at the old 0.34/28px the top
    band of the box measured (240,243,247) — bluer AND darker than the page.
    Tighter blur + lower alpha keeps the light hugging the edge, so the box
-   stays cream and the glow still reads as "This PC" blue. */
+   stays white and the glow still reads as "This PC" blue. */
 .input-area-wrapper:has(.agent-mode-wrap[data-sub="thispc"]) {
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05),
         inset 0 10px 20px -14px rgba(90, 200, 250, 0.16),

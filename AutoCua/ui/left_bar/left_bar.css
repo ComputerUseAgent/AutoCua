@@ -25,12 +25,11 @@
 
     /* Rounded rectangle in the app's exact background colour, so the bar
        reads as one surface with the page/titlebar (see TITLEBAR_COLOR in
-       service.py). The rim shine + drop shadow are what separate it from the
-       background now. */
-    background: #FDFCFA;
+       service.py). Flat, no shadow: only a thin edge line (the shine layer,
+       below) separates it from the background. */
+    background: #FFFFFF;
     border-radius: var(--glass-radius);
     overflow: hidden;
-    box-shadow: 0 clamp(4px, 1vw, 8px) clamp(16px, 3vw, 32px) rgba(0, 0, 0, 0.1);
 
     display: flex;
     flex-direction: column;
@@ -50,15 +49,10 @@
     pointer-events: auto;
 }
 
-.left-bar:hover {
-    box-shadow: 0 clamp(6px, 1.5vw, 12px) clamp(20px, 4vw, 40px) rgba(0, 0, 0, 0.15);
-}
-
-/* The bar is now a FLAT off-white panel. The grey glass tint would dull it
-   away from the exact #FDFCFA, and the blur + SVG displacement have nothing to
+/* The bar is now a FLAT white panel. The grey glass tint would dull it
+   away from the exact #FFFFFF, and the blur + SVG displacement have nothing to
    act on (blurring a flat colour returns the same colour) — they would only cost
-   GPU. Drop both here; the shine rim above still draws the card's edge. Same
-   reasoning as the setup card in setup/setup.css. */
+   GPU. Drop both here. Same reasoning as the setup card in setup/setup.css. */
 .left-bar .liquidGlass-effect {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -66,6 +60,13 @@
 }
 .left-bar .liquidGlass-tint {
     background: transparent;
+}
+/* Flat edge: the shine's glassy white rim becomes a plain 1px line (same
+   colour as the New chat button and GitHub pill borders). Inset, not a
+   border, so the header does not move by 1px and still lines up with its
+   copy in the Settings cover (.settings-corners). */
+.left-bar .liquidGlass-shine {
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
 /* Content wrapper — top-aligned column (overrides the centered
@@ -110,50 +111,142 @@
 .left-bar .left-bar-body {
     flex: 1 1 auto;
     min-height: 0;
+    /* Always its open width: while the bar grows back from the rail the rows
+       are revealed (the bar clips the rest), never reflowed. */
+    min-width: calc(var(--left-bar-open-w) - clamp(5px, 0.7vw, 9px) - 2 * clamp(12px, 1.5vw, 18px));
     overflow-y: auto;
 }
 
-/* Footer — settings cog, pinned bottom-left of the bar. */
+/* Footer — settings cog pinned bottom-left, GitHub star pill beside it. */
 .left-bar .left-bar-footer {
     flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: flex-start;
+    gap: clamp(8px, 1vw, 12px);
     padding-top: clamp(8px, 1vw, 12px);
 }
 
-/* GitHub star pill — header's right edge, beside the logo. Same visual
-   recipe as the New-chat button (border/background/radius/font), and the
-   same hover plus a slight grow. Live count wired by left_bar.js; click
-   opens the repo in the system browser via /api/open-github. */
+/* GitHub star pill: a rounded square beside the settings cog, flat like it:
+   the same height and the same thin outline, no fill. Same font as the
+   New-chat button, and a slight grow on hover. Live count wired by
+   left_bar.js; click opens the repo in the system browser via
+   /api/open-github. */
 .gh-star-pill {
-    margin-left: auto;                 /* park at the header's right edge */
     flex-shrink: 0;                    /* never squeeze — it clips the GitHub mark */
     display: flex;
     align-items: center;
     gap: clamp(5px, 0.7vw, 7px);
     box-sizing: border-box;
-    padding: clamp(5px, 0.7vw, 7px) clamp(8px, 1vw, 10px);
+    height: clamp(30px, 3vw, 36px);    /* the cog's size (settings.css) */
+    padding: 0 clamp(8px, 1vw, 10px);
     border: 1px solid rgba(0, 0, 0, 0.08);
     border-radius: clamp(8px, 1vw, 10px);
-    background: rgba(255, 255, 255, 0.28);
+    background: transparent;
     color: rgba(80, 80, 80, 0.9);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: clamp(11px, 1.1vw, 13px);
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+    transition: transform 0.15s ease;
     -webkit-user-select: none;
     user-select: none;
 }
 .gh-star-pill:hover {
-    background: rgba(255, 255, 255, 0.45);
-    border-color: rgba(0, 0, 0, 0.12);
     transform: scale(1.05);
 }
 .gh-mark { width: clamp(13px, 1.4vw, 15px); height: clamp(13px, 1.4vw, 15px); flex-shrink: 0; }
 .gh-star { width: clamp(11px, 1.2vw, 13px); height: clamp(11px, 1.2vw, 13px); flex-shrink: 0; color: #e3a008; }
 .gh-star-count { line-height: 1; }
+
+/* ---- Collapse toggle + collapsed rail --------------------------------------
+   The toggle is a small flat circle centred on the bar's right edge, level
+   with the logo (left_bar.html; outside the bar, whose overflow is clipped).
+   Clicking it sets body.left-bar-collapsed: --left-bar-w (css/style.css)
+   narrows to one icon plus the bar's padding, so the logo and the cog stay
+   exactly where they are, New chat and the chats give way to a rail of
+   circles (below) and the GitHub pill hides. The main content slides along
+   through the same variable. */
+.left-bar-toggle {
+    position: fixed;
+    z-index: 31;                       /* over the bar's edge (the bar is 30) */
+    left: calc(var(--left-bar-w) - 12px);
+    top: calc(clamp(5px, 0.7vw, 9px) + clamp(12px, 1.5vw, 18px) + clamp(26px, 3vw, 34px) / 2 - 12px);
+    width: 24px;
+    height: 24px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 50%;
+    background-color: inherit;         /* the page colour: covers the bar's edge line */
+    color: rgba(90, 90, 90, 0.85);     /* the cog's grey */
+    cursor: pointer;
+    /* Hidden until the bar is revealed (left_bar.js), like the bar. */
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.6s cubic-bezier(0.25, 0.8, 0.25, 1),
+                border-color 0.2s ease, color 0.2s ease;
+}
+.left-bar-toggle.revealed {
+    opacity: 1;
+    pointer-events: auto;
+}
+.left-bar-toggle:hover {
+    border-color: rgba(0, 0, 0, 0.14);
+    color: rgba(50, 50, 50, 0.95);
+}
+.left-bar-toggle-icon {
+    width: 13px;
+    height: 13px;
+    transition: transform 0.45s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+body.left-bar-collapsed .left-bar-toggle-icon {
+    transform: rotate(180deg);         /* points right: click to expand */
+}
+
+body.left-bar-collapsed {
+    /* The bar's left gap + its padding on both sides + one icon circle (the
+       cog's size): the logo and the cog do not move, the icons sit centred. */
+    --left-bar-w: calc(clamp(5px, 0.7vw, 9px) + 2 * clamp(12px, 1.5vw, 18px) + clamp(30px, 3vw, 36px));
+}
+body.left-bar-collapsed .left-bar .gh-star-pill {
+    display: none;
+}
+
+/* Collapsed, the body's rows simply go away and the rail (left_bar.html,
+   filled by chat/chat.js) fades in in their place: New chat, then one circle
+   per chat. On the way back the rows fade in once the bar has some room. */
+.left-bar .left-bar-rail {
+    display: none;
+}
+body.left-bar-collapsed .left-bar .left-bar-body {
+    display: none;
+}
+body.left-bar-collapsed .left-bar .left-bar-rail {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: clamp(10px, 1.2vw, 14px);
+    overflow-y: auto;
+    scrollbar-width: none;             /* one icon wide: no room for a scrollbar */
+    animation: left-bar-fade-in 0.22s ease 0.08s both;
+}
+body.left-bar-collapsed .left-bar .left-bar-rail::-webkit-scrollbar {
+    display: none;
+}
+body.left-bar-animating:not(.left-bar-collapsed) .left-bar .left-bar-body,
+body.left-bar-animating:not(.left-bar-collapsed) .left-bar .gh-star-pill {
+    animation: left-bar-fade-in 0.25s ease 0.12s both;
+}
+@keyframes left-bar-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
 
 /* ---- Settings open ---------------------------------------------------------
    Settings covers the whole window (css/style.css .settings-overlay) and the
@@ -162,11 +255,18 @@
    moment Settings starts to close (the base rule has no visibility
    transition). Its logo and GitHub pill stand in the cover's top corners
    meanwhile: a copy of the header (left_bar.js) laid out at exactly the same
-   spot, so the logo never moves and the pill fades across to the right. */
+   spot, so the logo never moves, plus a copy of the footer's pill on the
+   right. */
 body.settings-open .left-bar {
     visibility: hidden;
     transition: opacity 0.6s cubic-bezier(0.25, 0.8, 0.25, 1),
                 transform 0.6s cubic-bezier(0.25, 0.8, 0.25, 1),
+                visibility 0s linear 0.3s;
+}
+/* Its collapse toggle goes the same way. */
+body.settings-open .left-bar-toggle {
+    visibility: hidden;
+    transition: opacity 0.6s cubic-bezier(0.25, 0.8, 0.25, 1),
                 visibility 0s linear 0.3s;
 }
 
@@ -181,6 +281,8 @@ body.settings-open .left-bar {
     pointer-events: none;
 }
 
+/* In the cover the pill still stands in the top-right corner. */
 .settings-corners .gh-star-pill {
+    margin-left: auto;
     pointer-events: auto;
 }

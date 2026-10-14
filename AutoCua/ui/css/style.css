@@ -4,8 +4,23 @@
     --expanded-height: 130px;
     /* Width of the persistent left bar. The main app components are offset to
        the right by this amount (left-anchored ones by the full width, centered
-       ones by half) so the content always sits to the right of the bar. */
-    --left-bar-w: 240px;
+       ones by half) so the content always sits to the right of the bar.
+       Narrower while the bar is collapsed (left_bar.css). */
+    --left-bar-open-w: 240px;
+    --left-bar-w: var(--left-bar-open-w);
+}
+
+/* Registered as a length so it can animate: while the bar collapses or
+   expands (left_bar.js sets body.left-bar-animating for that moment), the
+   bar and everything placed by --left-bar-w slide along in step. Only then,
+   so a window resize still snaps. */
+@property --left-bar-w {
+    syntax: '<length>';
+    inherits: true;
+    initial-value: 240px;
+}
+body.left-bar-animating {
+    transition: --left-bar-w 0.45s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 /* WebKit click responsiveness — eliminates tap delay and ghost highlights */
@@ -25,9 +40,9 @@ button, input, textarea, select, a, [role="button"],
     width: 100vw;
     height: 100vh;
     z-index: 99999;
-    /* Same off-white as the app background and intro_animation.html, so the
+    /* Same white as the app background and intro_animation.html, so the
        splash blends seamlessly. */
-    background: #FDFCFA;
+    background: #FFFFFF;
     /* 0.999, NOT 1: an opaque overlay lets Chromium occlusion-cull the app
        beneath, so the first fade frame had to rasterise every backdrop-filter
        glass card at once — a burst that jittered the handoff right as the
@@ -56,10 +71,10 @@ button, input, textarea, select, a, [role="button"],
 body {
     margin: 0;
     padding: 0;
-    /* Just off white, the splash's colour (intro_animation.html). Kept in
+    /* Pure white, the splash's colour (intro_animation.html). Kept in
        sync with the title bar (TITLEBAR_COLOR in service.py) so the bar and
        content area read as one unified surface. */
-    background-color: #FDFCFA;
+    background-color: #FFFFFF;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -438,13 +453,13 @@ body {
     right: 0;
     bottom: 0;
     left: 0;
-    background: #FDFCFA;
+    background: #FFFFFF;
     z-index: 100;
 
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
-    /* Closing: the panel fades out first (below), then the cream, so the
+    /* Closing: the panel fades out first (below), then the white cover, so the
        settings and the page never show through each other. */
     transition: opacity 0.22s ease 0.12s, visibility 0s linear 0.34s;
 }
@@ -455,7 +470,7 @@ body {
     transition: opacity 0.2s ease, visibility 0s;
 }
 
-/* Opening: the panel comes in once the cream has covered the page, so the
+/* Opening: the panel comes in once the white cover has covered the page, so the
    page never shows through the settings. Closing: it goes first. */
 .settings-overlay .settings-panel {
     opacity: 0;
@@ -485,7 +500,7 @@ body {
     pointer-events: auto;
     display: flex;
     flex-direction: column;
-    /* Fully transparent panel — no glass card. The controls float on the cream
+    /* Fully transparent panel — no glass card. The controls float on the white
        background; text is grey (see below). */
     background: transparent;
     box-shadow: none;
@@ -509,7 +524,7 @@ body {
        itself still spans the full window to block interaction. */
     padding-left: calc(var(--left-bar-w) + clamp(10px, 2vw, 30px));
     padding-right: clamp(10px, 2vw, 30px);
-    padding-top: clamp(30px, 4vw, 60px);
+    padding-top: clamp(5px, 0.7vw, 9px);
     padding-bottom: clamp(160px, 15vw, 196px);
 
     opacity: 0;
@@ -1321,7 +1336,9 @@ body.settings-open #chatWrapper {
     position: fixed;
     left: calc(var(--left-bar-w) + clamp(10px, 2vw, 30px));
     right: clamp(10px, 2vw, 30px);
-    top: clamp(30px, 4vw, 60px);
+    /* Same top as the left bar (left_bar.css), so the content starts on the
+       bar's top line and gets the full height. */
+    top: clamp(5px, 0.7vw, 9px);
     /* Leave room at the bottom for the chat input (the agent-start text box). */
     /* Raised so the bottom container clears the "Agent activated" strip that
        sits just above the chat input. */
@@ -1343,7 +1360,7 @@ body.settings-open #chatWrapper {
     position: fixed;
     left: calc(var(--left-bar-w) + clamp(10px, 2vw, 30px));
     right: clamp(10px, 2vw, 30px);
-    top: clamp(30px, 4vw, 60px);
+    top: clamp(5px, 0.7vw, 9px);
     bottom: clamp(160px, 15vw, 196px);
     z-index: 12;                /* just under the grid zones; pointer-transparent */
     display: flex;
