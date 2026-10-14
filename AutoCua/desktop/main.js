@@ -345,7 +345,8 @@ async function createWindow() {
 function smokeCheck() {
   if (smokeCheck.started) return;
   smokeCheck.started = true;
-  // The splash hands off at 4 s and fades out over 0.9 s.
+  // The splash hands off about 5.9 s in (up to 7.4 s if its images are slow
+  // to decode) and fades out over 0.9 s.
   setTimeout(() => {
     handle({ type: 'js', code: "document.title = 'AutoCua (pushed script ran)'" });
     setTimeout(async () => {
@@ -369,7 +370,7 @@ function smokeCheck() {
       }
       app.quit();
     }, 500);
-  }, 5500);
+  }, 8500);
 }
 
 if (!app.requestSingleInstanceLock()) {

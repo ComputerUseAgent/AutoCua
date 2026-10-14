@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // Splash screen: intro_animation.html handles macOS vs Windows rendering
-    // internally and posts 'splashDone' back to us when finished.
+    // Splash screen: intro_animation.html plays the intro and posts
+    // 'splashDone' back to us when finished.
+    let pendingToast = null;   // a toast asked for under the splash (showToast)
     const splash = document.getElementById('splashOverlay');
     if (splash) {
         const splashFrame = document.getElementById('splashFrame');
@@ -11,7 +12,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (e.data === 'splashDone') {
                 splash.style.pointerEvents = 'none';
                 splash.classList.add('fade-out');
-                splash.addEventListener('transitionend', () => splash.remove());
+                splash.addEventListener('transitionend', () => {
+                    splash.remove();
+                    if (pendingToast) {
+                        const [message, ms] = pendingToast;
+                        pendingToast = null;
+                        window.showToast(message, ms);
+                    }
+                });
             }
         });
     }
@@ -52,10 +60,16 @@ document.addEventListener('DOMContentLoaded', () => {
     window.getModelSelection = () => ({ provider: selectedProvider, model: selectedModel });
 
     // Small transient top-center notification (e.g. "Please set the provider in Settings").
+    // Under the splash it would expire unseen, so the latest one waits until
+    // the splash is gone (see the splash code at the top).
     let _toastTimer = null;
     window.showToast = (message, ms = 4000) => {
         const el = document.getElementById('appToast');
         if (!el || !message) return;
+        if (document.getElementById('splashOverlay')) {
+            pendingToast = [message, ms];
+            return;
+        }
         el.textContent = message;
         el.classList.add('active');
         clearTimeout(_toastTimer);

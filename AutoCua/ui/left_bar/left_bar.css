@@ -91,8 +91,8 @@
     padding-bottom: clamp(8px, 1vw, 12px);
 }
 
-/* AutoCua's mark, top-left of the bar: the splash's logo shape
-   (logo_mark.svg) cut out of a soft silver-grey gradient. A mask, so the
+/* AutoCua's mark, top-left of the bar: the logo's shape (logo_mark.svg,
+   from logo/logo.html) cut out of a soft silver-grey gradient. A mask, so the
    colour lives here; its clip-paths keep the edges sharp at any size. */
 .left-bar-logo {
     height: clamp(26px, 3vw, 34px);

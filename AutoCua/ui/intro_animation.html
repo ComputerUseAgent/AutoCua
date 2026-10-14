@@ -19,14 +19,15 @@
        ui/bots/: the body, the eyes and the glass shine. The eyes are their
        own layer so they can open and blink between body and shine.
 
-       The lineup (Atlas's own numbers, in bot widths): Computer use in the
-       middle at 1x, Mobile and Coder use at 0.8x, 1.05 out, Web and Scraper
-       use at 0.6x, 1.87 out, the middle one in front, all standing on one
-       line and fading out over their lower third.
+       The lineup (Atlas's, a little closer together, in bot widths):
+       Computer use in the middle at 1x, Mobile and Coder use at 0.8x, 0.92
+       out, Web and Scraper use at 0.6x, 1.64 out, the middle one in front,
+       all standing on one line and fading out over their lower third.
 
        Timeline (from the moment the bot images are decoded):
-         0.10s           the team fades in (0.35s) at 1.75x, pushed down a
-                         little: only Computer use shows, the others wait
+         0.10s           the team fades in (0.35s) at 1.75x, pushed down (at
+                         least enough to keep the big lead's head below the
+                         title): only Computer use shows, the others wait
                          behind it, see-through. It grows from 0.85x of that
                          as a 6px blur sharpens (1s, ease "settle")
          0.42s - 1.02s   its eyes wake; a blink at 1.22s
@@ -34,25 +35,30 @@
                          bottom edge (1.8s, ease "inOutExpo": slow, fast,
                          slow)
          2.20s - 3.30s   the others fan out from behind it (1s, Atlas's
-                         lineup ease; the outer pair 0.05s later), waking
+                         lineup ease; the outer pair 0.05s later), fading in
+                         as one group from 2.30s (0.5s), waking
          1.50s - 4.40s   "Automatic Computer use agent" rises in the middle
                          of the window out of a 4px blur (the big lead never
                          reaches up to it), then collapses into "AutoCua"
          4.50s - 5.50s   "AutoCua" stays and one shimmer crosses it (Atlas's
                          sheen); the bots blink along with it, left to right
          5.75s           postMessage('splashDone') -> script.js fades the
-                         overlay over 0.9s
+                         overlay over 0.9s (a watchdog posts it anyway if
+                         anything here fails)
        With reduced motion: the lineup and "AutoCua", still, and the
        hand-off at 0.60s.
 
-       EVERYTHING HERE ANIMATES ON THE COMPOSITOR
-       ------------------------------------------
-       This plays in an iframe on top of the booting app, and the host page
-       saturates the main thread for the whole splash, so any frame that
-       needs the main thread gets dropped. Nothing here animates anything
-       but `transform`, `opacity` and a `filter` blur, and every animation is
-       created in one task up front with its own delay, so a late timer
-       cannot shift it:
+       THE MOTION RUNS ON THE COMPOSITOR
+       ---------------------------------
+       This plays in an iframe on top of the booting app, which keeps the
+       main thread busy, so anything that needs the main thread can stall.
+       Every move here is `transform` or `opacity`, each element has at most
+       one animation per property (Chromium keeps two animations of one
+       property on the main thread), and every animation is created in one
+       task up front with its own delay, so a late timer cannot shift it.
+       Only the two blurs (the hero's and the headline's) need the main
+       thread in Chromium. They are animations of their own, so a stall can
+       pause a blur, never a move:
 
          - The team is laid out at its biggest and only ever scaled down,
            so the bots stay sharp on every engine.
@@ -70,8 +76,9 @@
       overflow: hidden;
     }
 
-    /* --- 1. The team: lift (fade + rise) > row (grow, blur, shrink) >
-       slot (fan-out) > bot. Placed and sized by the script below. --- */
+    /* --- 1. The team: lift (fade + rise) > row (grow and shrink, blur) >
+       side (the four others' fade) > slot (fan-out) > bot. Placed and sized
+       by the script below. --- */
     .lift {
       position: fixed;
       inset: 0;
@@ -84,14 +91,22 @@
       right: 0;
       transform-origin: 50% 100%;   /* Atlas: grows and shrinks from its feet */
     }
+    /* The four side bots fade in as ONE group, behind the lead: while they
+       still overlap, the inner ones then hide the outer ones like solid
+       things, instead of showing through each other and through the lead's
+       see-through lower third. */
+    .side {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      opacity: 0;
+    }
     .slot {
       position: absolute;
       bottom: 0;
       left: 50%;
       transform-origin: 50% 100%;   /* each bot stands on the one line */
-      opacity: 0;                   /* the middle one shows from the start */
     }
-    .slot.lead { opacity: 1; }
     .bot {
       position: absolute;
       inset: 0;
@@ -130,7 +145,9 @@
     }
     .title i { font-style: normal; }
 
-    /* Atlas's headline rise: up from a little below, out of a 4px blur. */
+    /* Atlas's headline rise: up from a little below, out of a 4px blur.
+       The blur is an animation of its own: Chromium runs a blur on the main
+       thread only, and mixed in, it would keep the rise there too. */
     .word {
       display: flex;
       opacity: 0;
@@ -141,15 +158,22 @@
     .keep { will-change: transform; }
     .fade { will-change: transform, opacity; }
 
-    /* --t0: when the title starts, set by the script. */
-    .go .word { animation: rise 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    /* --t0: when the title starts, set by the script. One delay serves both
+       animations. */
+    .go .word {
+      animation: rise 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+                 unblur 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
     .go .word:nth-of-type(1) { animation-delay: calc(var(--t0) + 0.00s); }
     .go .word:nth-of-type(2) { animation-delay: calc(var(--t0) + 0.08s); }
     .go .word:nth-of-type(3) { animation-delay: calc(var(--t0) + 0.16s); }
     .go .word:nth-of-type(4) { animation-delay: calc(var(--t0) + 0.24s); }
 
     @keyframes rise {
-      to { opacity: 1; transform: none; filter: blur(0px); }
+      to { opacity: 1; transform: none; }
+    }
+    @keyframes unblur {
+      to { filter: blur(0px); }
     }
 
     /* The faded letters always trail their word's kept ones, so counting from
@@ -204,11 +228,13 @@
 
   <div class="lift">
     <div class="row">
-      <div class="slot"><div class="bot" role="img" aria-label="Web use"><img src="bots/webuse.webp" alt=""><img class="eyes" src="bots/webuse-eyes.webp" alt=""><img src="bots/webuse-shine.webp" alt=""></div></div>
-      <div class="slot"><div class="bot" role="img" aria-label="Mobile use"><img src="bots/mobileuse.webp" alt=""><img class="eyes" src="bots/mobileuse-eyes.webp" alt=""><img src="bots/mobileuse-shine.webp" alt=""></div></div>
+      <div class="side">
+        <div class="slot"><div class="bot" role="img" aria-label="Web use"><img src="bots/webuse.webp" alt=""><img class="eyes" src="bots/webuse-eyes.webp" alt=""><img src="bots/webuse-shine.webp" alt=""></div></div>
+        <div class="slot"><div class="bot" role="img" aria-label="Mobile use"><img src="bots/mobileuse.webp" alt=""><img class="eyes" src="bots/mobileuse-eyes.webp" alt=""><img src="bots/mobileuse-shine.webp" alt=""></div></div>
+        <div class="slot"><div class="bot" role="img" aria-label="Coder use"><img src="bots/coderuse.webp" alt=""><img class="eyes" src="bots/coderuse-eyes.webp" alt=""><img src="bots/coderuse-shine.webp" alt=""></div></div>
+        <div class="slot"><div class="bot" role="img" aria-label="Scraper use"><img src="bots/scraperuse.webp" alt=""><img class="eyes" src="bots/scraperuse-eyes.webp" alt=""><img src="bots/scraperuse-shine.webp" alt=""></div></div>
+      </div>
       <div class="slot lead"><div class="bot" role="img" aria-label="Computer use"><img src="bots/computeruse.webp" alt=""><img class="eyes" src="bots/computeruse-eyes.webp" alt=""><img src="bots/computeruse-shine.webp" alt=""></div></div>
-      <div class="slot"><div class="bot" role="img" aria-label="Coder use"><img src="bots/coderuse.webp" alt=""><img class="eyes" src="bots/coderuse-eyes.webp" alt=""><img src="bots/coderuse-shine.webp" alt=""></div></div>
-      <div class="slot"><div class="bot" role="img" aria-label="Scraper use"><img src="bots/scraperuse.webp" alt=""><img class="eyes" src="bots/scraperuse-eyes.webp" alt=""><img src="bots/scraperuse-shine.webp" alt=""></div></div>
     </div>
   </div>
 
@@ -232,8 +258,11 @@
         window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
       // script.js fades .splash-overlay over 0.9s from this message. Opened
-      // standalone there is no parent, so nothing is posted.
+      // standalone there is no parent, so nothing is posted. Posted once.
+      var handed = false;
       function handOff() {
+        if (handed) return;
+        handed = true;
         if (window.parent && window.parent !== window) {
           window.parent.postMessage('splashDone', '*');
         }
@@ -246,8 +275,10 @@
       var WAKE_AT = 320, WAKE = 600;        // the lead's eyes open
       var BLINK1_AT = 1120;                 // and blink, just after waking
       var SHRINK_AT = 1400, SHRINK = 1800;  // big -> 1x, rising into place
-      // Atlas's lineup fan-out, as the shrink speeds up.
-      var FAN_AT = SHRINK_AT + 700, FAN = 1000, FAN_FADE = 600;
+      // Atlas's lineup fan-out, as the shrink speeds up. The side bots fade
+      // in as one group, just after they start to move.
+      var FAN_AT = SHRINK_AT + 700, FAN = 1000;
+      var SIDE_AT = FAN_AT + 100, SIDE_FADE = 500;
       var T0 = FIRST + SHRINK_AT;           // the title, with the shrink (Atlas)
       var SLIDE_AT = T0 + 1900, SLIDE = 900;
       // "AutoCua" stays; one shimmer crosses it, the bots blink along with
@@ -255,26 +286,36 @@
       var SHEEN_AT = SLIDE_AT + SLIDE + 200, SHEEN = 1000;
       var BLINK_AT = SHEEN_AT + 100, BLINK_GAP = 150, BLINK = 300;
       var END = SHEEN_AT + SHEEN + 250;
+      var DECODE_MAX = 1500;                // the longest wait for the images
       var EASE_SHEEN = 'cubic-bezier(0.4, 0, 0.6, 1)';     // Atlas sheen
       var EASE_SETTLE = 'cubic-bezier(0.16, 1, 0.3, 1)';   // Atlas "settle"
       var EASE_EXPO = 'cubic-bezier(0.87, 0, 0.13, 1)';    // Atlas "inOutExpo"
       var EASE_OUT = 'cubic-bezier(0.33, 1, 0.68, 1)';     // Atlas "outCubic"
       var EASE_FAN = 'cubic-bezier(0.2, 0.8, 0.2, 1)';     // Atlas lineup
 
-      // The lineup, left to right: offset (bot widths), scale, extra delay
-      // (Atlas's "Build your AI team": +-149.4 / +-265.6 of a 142px robot).
-      var TEAM = [[-1.87, 0.6, 50], [-1.05, 0.8, 0], [0, 1, 0], [1.05, 0.8, 0], [1.87, 0.6, 50]];
+      // Whatever happens below, the app is never left under the splash.
+      setTimeout(handOff, DECODE_MAX + END + 1000);
+
+      // The lineup, left to right: offset (bot widths), scale, extra delay.
+      // Atlas's "Build your AI team" (+-149.4 / +-265.6 of a 142px robot,
+      // so 1.05 / 1.87 bot widths), drawn a little closer together.
+      var TEAM = [[-1.64, 0.6, 50], [-0.92, 0.8, 0], [0, 1, 0], [0.92, 0.8, 0], [1.64, 0.6, 50]];
       var LEAD = 2;
 
       // ---- geometry ------------------------------------------------------
       var ASPECT = 520 / 720;     // the cropped bot images, width / height
       var lift = document.querySelector('.lift');
       var row = document.querySelector('.row');
-      var slots = [].slice.call(document.querySelectorAll('.slot'));
+      var side = document.querySelector('.side');
+      // The slots in TEAM's order, left to right (in the markup the lead
+      // comes last, in front of the side group).
+      var slots = ['Web use', 'Mobile use', 'Computer use', 'Coder use', 'Scraper use'].map(function (name) {
+        return document.querySelector('.bot[aria-label="' + name + '"]').parentNode;
+      });
       var title = document.querySelector('.title');
       var sheen = document.querySelector('.sheen');
       var sheenArt = document.querySelector('.sheen-art');
-      var shrink = null, rise = null, fans = [], sweep = null, still = null;
+      var zoom = null, rise = null, fans = [], sweep = null, still = null;
 
       function geometry() {
         var W = window.innerWidth, H = window.innerHeight, vmin = Math.min(W, H);
@@ -288,12 +329,13 @@
         g.feet = H;
         g.h = Math.min(0.36 * vmin, 0.29 * W, 280, g.feet - clear);  // the lead, at the end
         g.w = g.h * ASPECT;
-        var teamW = (2 * 1.87 + 0.6) * g.w;         // outer edge to outer edge
-        // Atlas: pushed down a little while big, rising into place.
-        g.drop = Math.max(28, Math.round(H * 0.06));
-        // Atlas: 1.75x, or less if the team would not fit the width or the
-        // big lead would reach up into the title.
-        g.big = Math.max(1, Math.min(1.75, 0.95 * W / teamW, (g.feet + g.drop - clear) / g.h));
+        // Atlas: 1.75x while big, pushed down a little, rising into place as
+        // it shrinks. Pushed down further where it takes that for the big
+        // lead's head to stay below the title. The width needs no check:
+        // while big only the lead shows (at most 0.37 W wide), and the lineup
+        // fits (g.h <= 0.29 W keeps it within 0.81 W).
+        g.big = 1.75;
+        g.drop = Math.max(28, Math.round(H * 0.06), Math.ceil(clear + g.h * g.big - g.feet));
         return g;
       }
 
@@ -327,7 +369,7 @@
           sweep.effect.setKeyframes([{ transform: 'translateX(' + (-k) + 'px)' }, { transform: 'translateX(' + k + 'px)' }]);
           still.effect.setKeyframes([{ transform: 'translateX(' + k + 'px)' }, { transform: 'translateX(' + (-k) + 'px)' }]);
         }
-        if (shrink) shrink.effect.setKeyframes([{ transform: 'scale(1)' }, { transform: 'scale(' + (1 / B) + ')' }]);
+        if (zoom) zoom.effect.setKeyframes(rowFrames(B));
         if (rise) rise.effect.setKeyframes([{ transform: 'translateY(' + g.drop + 'px)' }, { transform: 'translateY(0px)' }]);
         return g;
       }
@@ -336,9 +378,9 @@
       function settle() {
         var g = layout();
         lift.style.opacity = 1;
+        side.style.opacity = 1;
         row.style.transform = 'scale(' + (1 / g.big) + ')';
         slots.forEach(function (s, i) {
-          s.style.opacity = 1;
           s.style.transform = placed(g, i);
           s.querySelector('.eyes').style.opacity = 1;
         });
@@ -391,47 +433,62 @@
         return (last.right - first.left) / 2 + 1.6 * parseFloat(getComputedStyle(sheen).fontSize);
       }
 
-      function blinkAt(eyes, at) {
-        eyes.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.1)', offset: 0.42 },
-                      { transform: 'scaleY(0.1)', offset: 0.52 }, { transform: 'scaleY(1)' }],
-                     { delay: at, duration: BLINK, easing: 'ease-in-out' });
+      // The row's ONE transform animation: it grows from 0.85x (ease
+      // "settle"), holds, then shrinks to 1x around its feet (ease
+      // "inOutExpo"). It is laid out big, so 1x is scale(1/B).
+      function rowFrames(B) {
+        var D = SHRINK_AT + SHRINK;
+        return [{ offset: 0, transform: 'scale(0.85)', easing: EASE_SETTLE },
+                { offset: GROW / D, transform: 'scale(1)' },
+                { offset: SHRINK_AT / D, transform: 'scale(1)', easing: EASE_EXPO },
+                { offset: 1, transform: 'scale(' + (1 / B) + ')' }];
+      }
+
+      // A pair of eyes' ONE animation: they wake at `at` (open out of a line,
+      // ease "outCubic"), then blink at each of the `blinks` times: shut,
+      // about a frame closed, open again.
+      function wake(eyes, at, blinks) {
+        var span = blinks[blinks.length - 1] + BLINK - at;
+        function key(t, open, easing) {
+          return { offset: (t - at) / span, opacity: 1, transform: 'scaleY(' + open + ')', easing: easing || 'linear' };
+        }
+        var frames = [{ offset: 0, opacity: 0, transform: 'scaleY(0.06)', easing: EASE_OUT }, key(at + WAKE, 1)];
+        blinks.forEach(function (b) {
+          frames.push(key(b, 1, 'ease-in'), key(b + 0.45 * BLINK, 0.1),
+                      key(b + 0.51 * BLINK, 0.1, 'ease-out'), key(b + BLINK, 1));
+        });
+        eyes.animate(frames, { delay: at, duration: span, fill: 'both' });
       }
 
       // Every animation is created here, in one task, each with its own delay.
       function start() {
         var g = layout(), B = g.big;
         // Comes in as Atlas's hero: fades in big, grows from 0.85x out of a
-        // blur (only the lead shows; the others wait behind it)...
+        // blur (only the lead shows; the others wait behind it), then
+        // shrinks to 1x around its feet and rises into place...
         lift.animate([{ opacity: 0 }, { opacity: 1 }],
                      { delay: FIRST, duration: FADE, fill: 'both' });
-        row.animate([{ transform: 'scale(0.85)' }, { transform: 'scale(1)' }],
-                    { delay: FIRST, duration: GROW, easing: EASE_SETTLE, fill: 'both' });
+        zoom = row.animate(rowFrames(B), { delay: FIRST, duration: SHRINK_AT + SHRINK, fill: 'both' });
         row.animate([{ filter: 'blur(6px)' }, { filter: 'blur(0px)' }],
                     { delay: FIRST, duration: GROW, easing: EASE_SETTLE, fill: 'backwards' });
-        // ...shrinks to 1x around its feet and rises into place...
-        shrink = row.animate([{ transform: 'scale(1)' }, { transform: 'scale(' + (1 / B) + ')' }],
-                             { delay: FIRST + SHRINK_AT, duration: SHRINK, easing: EASE_EXPO, fill: 'forwards' });
         rise = lift.animate([{ transform: 'translateY(' + g.drop + 'px)' }, { transform: 'translateY(0px)' }],
                             { delay: FIRST + SHRINK_AT, duration: SHRINK, easing: EASE_EXPO, fill: 'both' });
+        // ...while the others fan out from behind it into the lineup, fading
+        // in together and waking as they come.
+        side.animate([{ opacity: 0 }, { opacity: 1 }],
+                     { delay: FIRST + SIDE_AT, duration: SIDE_FADE, fill: 'both' });
         slots.forEach(function (s, i) {
           var eyes = s.querySelector('.eyes');
+          var last = BLINK_AT + i * BLINK_GAP;   // all of them blink at the end
           if (i === LEAD) {
             // the lead wakes up and blinks while it is big
-            eyes.animate([{ opacity: 0, transform: 'scaleY(0.06)' }, { opacity: 1, transform: 'scaleY(1)' }],
-                         { delay: FIRST + WAKE_AT, duration: WAKE, easing: EASE_OUT, fill: 'both' });
-            blinkAt(eyes, FIRST + BLINK1_AT);
+            wake(eyes, FIRST + WAKE_AT, [FIRST + BLINK1_AT, last]);
           } else {
-            // ...while the others fan out from behind it into the lineup,
-            // waking as they come.
             var at = FIRST + FAN_AT + TEAM[i][2];
             fans[i] = s.animate([{ transform: behind(g, i) }, { transform: placed(g, i) }],
                                 { delay: at, duration: FAN, easing: EASE_FAN, fill: 'both' });
-            s.animate([{ opacity: 0 }, { opacity: 1 }],
-                      { delay: at, duration: FAN_FADE, fill: 'both' });
-            eyes.animate([{ opacity: 0, transform: 'scaleY(0.06)' }, { opacity: 1, transform: 'scaleY(1)' }],
-                         { delay: at + 250, duration: WAKE, easing: EASE_OUT, fill: 'both' });
+            wake(eyes, at + 250, [last]);
           }
-          blinkAt(eyes, BLINK_AT + i * BLINK_GAP);   // all of them, at the end
         });
         titleIn();
         // "AutoCua" stays; one shimmer crosses it.
@@ -444,15 +501,24 @@
         window.addEventListener('resize', layout);
       }
 
+      // A layer that fails to load would draw a broken-image box: hide its
+      // bot instead.
+      var imgs = [].slice.call(document.querySelectorAll('.bot img'));
+      imgs.forEach(function (im) {
+        function broken() { im.closest('.bot').style.visibility = 'hidden'; }
+        if (im.complete && !im.naturalWidth) broken();
+        else im.addEventListener('error', broken);
+      });
+
       if (reduced) {
+        setTimeout(handOff, 600);
         settle();
         window.addEventListener('resize', settle);
-        setTimeout(handOff, 600);
         return;
       }
 
       // Start once every bot layer is decoded (they are small and local), so
-      // no bot comes in half drawn; never wait more than 1.5s for that.
+      // no bot comes in half drawn; never wait more than DECODE_MAX for that.
       var started = false;
       function go() {
         if (started) return;
@@ -460,15 +526,19 @@
         try {
           start();
         } catch (e) {
-          settle();
+          // No motion then, but the still end state and the hand-off.
           setTimeout(handOff, 600);
+          if (document.getAnimations) {
+            document.getAnimations().forEach(function (a) { a.cancel(); });
+          }
+          settle();
+          window.addEventListener('resize', settle);
         }
       }
-      var imgs = [].slice.call(document.querySelectorAll('.bot img'));
       Promise.all(imgs.map(function (im) {
         return im.decode ? im.decode().catch(function () {}) : null;
       })).then(go);
-      setTimeout(go, 1500);
+      setTimeout(go, DECODE_MAX);
     })();
   </script>
 
