@@ -588,7 +588,9 @@ const TOOLS_TO_DATA = `function () {
     try {
       if (v === undefined || v === null) return null;
       const t = typeof v;
-      if (t === 'string' || t === 'number' || t === 'boolean') return v;
+      // A string the script cut through an emoji (.slice) would not parse as JSON.
+      if (t === 'string') return typeof v.toWellFormed === 'function' ? v.toWellFormed() : v;
+      if (t === 'number' || t === 'boolean') return v;
       if (t === 'bigint' || t === 'symbol') return String(v);
       if (t === 'function') return '<function ' + (v.name || 'anonymous') + '> is not data';
       if (typeof v.document === 'object' && v.window === v) return '<Window> is not data';
@@ -596,7 +598,9 @@ const TOOLS_TO_DATA = `function () {
         const name = (v.constructor && v.constructor.name) || v.nodeName;
         return '<' + name + (v.id ? '#' + v.id : '') + '> is not data - map it to text/attributes first';
       }
-      if (depth > 8) return '<nested too deep>';
+      // Nine: a scrape's answer comes one level down, inside its read's
+      // {value, held, last} (window.rs on_screen), with eight of its own.
+      if (depth > 9) return '<nested too deep>';
       if (path.has(v)) return '<circular>';
       path.add(v);
       try {

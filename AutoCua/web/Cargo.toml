@@ -20,14 +20,14 @@ path = "lib.rs"
 [build-dependencies]
 # Emits the macOS -undefined dynamic_lookup link args (see build.rs) that
 # maturin would otherwise supply.
-pyo3-build-config = "0.26"
+pyo3-build-config = "0.29"
 
 [dependencies]
 # abi3-py310: one .so works on every CPython >= 3.10, so the user's Python
 # can move without a relink — there is no pip/maturin step to redo one.
-pyo3 = { version = "0.26", features = ["extension-module", "abi3-py310"] }
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py310"] }
 # serde_json::Value <-> Python objects at the LLM/controller boundary.
-pythonize = "0.26"
+pythonize = "0.29"
 # preserve_order: Python dicts are insertion-ordered; persisted transcript
 # JSON must not reshuffle keys relative to the Python implementation.
 serde = "1"
