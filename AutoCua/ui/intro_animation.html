@@ -34,10 +34,10 @@
          1.50s - 3.30s   the team shrinks to 1x and rises into place on the
                          bottom edge (1.8s, ease "inOutExpo": slow, fast,
                          slow)
-         2.20s - 3.30s   the others fan out from behind it (1s, Atlas's
+         2.20s - 3.25s   the others fan out from behind it (1s, Atlas's
                          lineup ease; the outer pair 0.05s later), fading in
                          as one group from 2.30s (0.5s), waking
-         1.50s - 4.40s   "Automatic Computer use agent" rises in the middle
+         1.50s - 4.30s   "Automatic Computer use agent" rises in the middle
                          of the window out of a 4px blur (the big lead never
                          reaches up to it), then collapses into "AutoCua"
          4.50s - 5.50s   "AutoCua" stays and one shimmer crosses it (Atlas's
@@ -293,8 +293,9 @@
       var EASE_OUT = 'cubic-bezier(0.33, 1, 0.68, 1)';     // Atlas "outCubic"
       var EASE_FAN = 'cubic-bezier(0.2, 0.8, 0.2, 1)';     // Atlas lineup
 
-      // Whatever happens below, the app is never left under the splash.
-      setTimeout(handOff, DECODE_MAX + END + 1000);
+      // Whatever happens below, the app is never left under the splash
+      // (go() restarts this when the intro starts).
+      var watchdog = setTimeout(handOff, DECODE_MAX + END + 1000);
 
       // The lineup, left to right: offset (bot widths), scale, extra delay.
       // Atlas's "Build your AI team" (+-149.4 / +-265.6 of a 142px robot,
@@ -364,7 +365,7 @@
         });
         title.style.top = g.titleTop + 'px';
         sheen.style.top = g.titleTop + 'px';
-        if (sweep) {
+        if (sweep && still) {
           var k = sheenTravel();
           sweep.effect.setKeyframes([{ transform: 'translateX(' + (-k) + 'px)' }, { transform: 'translateX(' + k + 'px)' }]);
           still.effect.setKeyframes([{ transform: 'translateX(' + k + 'px)' }, { transform: 'translateX(' + (-k) + 'px)' }]);
@@ -420,7 +421,7 @@
           Promise.all(slides.map(function (a) { return a.finished; })).then(function () {
             title.classList.add('settled');
             slides.forEach(function (a) { a.cancel(); });
-          });
+          }).catch(function () {});   // cancelled: go()'s catch settles instead
         } catch (e) {
           title.classList.add('settled');   // no slide, but never a blank title
         }
@@ -502,12 +503,14 @@
       }
 
       // A layer that fails to load would draw a broken-image box: hide its
-      // bot instead.
+      // bot instead. Checked now, on its error event, and again in go().
       var imgs = [].slice.call(document.querySelectorAll('.bot img'));
+      function hideIfBroken(im) {
+        if (im.complete && !im.naturalWidth) im.closest('.bot').style.visibility = 'hidden';
+      }
       imgs.forEach(function (im) {
-        function broken() { im.closest('.bot').style.visibility = 'hidden'; }
-        if (im.complete && !im.naturalWidth) broken();
-        else im.addEventListener('error', broken);
+        hideIfBroken(im);
+        im.addEventListener('error', function () { hideIfBroken(im); });
       });
 
       if (reduced) {
@@ -523,10 +526,17 @@
       function go() {
         if (started) return;
         started = true;
+        // The intro runs from now: the watchdog counts from here too.
+        clearTimeout(watchdog);
+        watchdog = setTimeout(handOff, END + 1000);
+        // A failed layer's decode has rejected by now, but its error event
+        // may still be queued: hide its bot before the team shows.
+        imgs.forEach(hideIfBroken);
         try {
           start();
         } catch (e) {
           // No motion then, but the still end state and the hand-off.
+          console.error(e);
           setTimeout(handOff, 600);
           if (document.getAnimations) {
             document.getAnimations().forEach(function (a) { a.cancel(); });
