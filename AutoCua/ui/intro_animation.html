@@ -18,6 +18,8 @@
        scale and one helmet line) into three stacked layers each, in
        ui/bots/: the body, the eyes and the glass shine. The eyes are their
        own layer so they can open and blink between body and shine.
+       Computer use's layers keep the source's full detail (884x1224, the
+       others 520x720), as the hero draws it at up to 1.75x.
 
        The lineup (Atlas's, a little closer together, in bot widths):
        Computer use in the middle at 1x, Mobile and Coder use at 0.8x, 0.92
@@ -198,12 +200,15 @@
     .settled .word { opacity: 1; transform: none; filter: none; animation: none; will-change: auto; }
     .settled .keep { will-change: auto; }
 
-    /* --- 3. One shimmer across "AutoCua" once it has formed: a darker
-       copy of the word, seen through a soft band. Atlas's sheen: the band
-       (a mask on the window) travels one way while the copy inside moves
-       the other, so the copy stays on the word and only the light moves.
-       Same font and the same letter-per-box layout as the title, so the
-       copy lands on the very same pixels. --- */
+    /* --- 3. One shimmer across "AutoCua" once it has formed: the light
+       theme's text shimmer, a thin dark glint that runs over the letters
+       one by one. It is a darker copy of the word, seen through a narrow
+       soft band. Atlas's sheen: the band (a mask on the window) travels one
+       way while the copy inside moves the other, so the copy stays on the
+       word and only the glint moves. Same font and the same letter-per-box
+       layout as the title, so the copy lands on the very same pixels. (A
+       light glint would not do: on this light grey, the letters it crosses
+       vanish into the white.) --- */
     .sheen {
       position: absolute;
       left: 0;
@@ -211,15 +216,16 @@
       z-index: 2;
       pointer-events: none;
       font: 500 min(5vmin, 40px)/1.2 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      -webkit-mask-image: linear-gradient(90deg, transparent calc(50% - 1.6em), #000 50%, transparent calc(50% + 1.6em));
-              mask-image: linear-gradient(90deg, transparent calc(50% - 1.6em), #000 50%, transparent calc(50% + 1.6em));
+      /* the band: 0.7em either side of its middle (sheenTravel() uses it) */
+      -webkit-mask-image: linear-gradient(90deg, transparent calc(50% - 0.7em), #000 50%, transparent calc(50% + 0.7em));
+              mask-image: linear-gradient(90deg, transparent calc(50% - 0.7em), #000 50%, transparent calc(50% + 0.7em));
       -webkit-user-select: none;
       user-select: none;
     }
     .sheen-art {
       display: flex;
       justify-content: center;
-      color: #5C6270;   /* the gleam: a deeper cool grey */
+      color: #4E535E;   /* the glint: a dark cool grey */
     }
     .sheen-art i { font-style: normal; }
   </style>
@@ -316,7 +322,7 @@
       var title = document.querySelector('.title');
       var sheen = document.querySelector('.sheen');
       var sheenArt = document.querySelector('.sheen-art');
-      var zoom = null, rise = null, fans = [], sweep = null, still = null;
+      var zoom = null, rise = null, fans = [], sweep = null, still = null, slides = null;
 
       function geometry() {
         var W = window.innerWidth, H = window.innerHeight, vmin = Math.min(W, H);
@@ -365,6 +371,7 @@
         });
         title.style.top = g.titleTop + 'px';
         sheen.style.top = g.titleTop + 'px';
+        if (slides) remeasureSlides();
         if (sweep && still) {
           var k = sheenTravel();
           sweep.effect.setKeyframes([{ transform: 'translateX(' + (-k) + 'px)' }, { transform: 'translateX(' + k + 'px)' }]);
@@ -377,6 +384,7 @@
 
       // The end state, still: the lineup under "AutoCua".
       function settle() {
+        slides = null;
         var g = layout();
         lift.style.opacity = 1;
         side.style.opacity = 1;
@@ -393,45 +401,65 @@
       // The collapse. Each kept letter slides from where the full phrase
       // put it to where it sits in "AutoCua", centred on the same point,
       // which is exactly where plain layout puts it once .settled drops the
-      // rest. Distances are in em: the font size is vmin-based and the line
-      // is centred, so a resize mid-slide scales them with the text.
+      // rest. The distances are measured at the current size, and again
+      // after a resize: the system font's letters do not scale exactly with
+      // the font size (it has optical sizes), so they would land off.
       // --------------------------------------------------------------
       var SLIDE_EASE = 'cubic-bezier(0.65, 0, 0.35, 1)';
+
+      // How far each kept letter slides, in px, measured on `t`: the title
+      // before it moves (its words only rise, so the letters' x is right).
+      function slideDistances(t) {
+        var letters = t.querySelectorAll('i');
+        var centre = (letters[0].getBoundingClientRect().left +
+                      letters[letters.length - 1].getBoundingClientRect().right) / 2;
+        var rects = [].map.call(t.querySelectorAll('.keep'), function (el) { return el.getBoundingClientRect(); });
+        var x = centre - rects.reduce(function (w, r) { return w + r.width; }, 0) / 2;
+        return rects.map(function (r) { var dx = x - r.left; x += r.width; return dx; });
+      }
+      function slideFrames(dx) {
+        return [{ transform: 'translateX(0px)' }, { transform: 'translateX(' + dx + 'px)' }];
+      }
+
       function titleIn() {
         title.style.setProperty('--t0', T0 + 'ms');
         try {
-          var em = parseFloat(getComputedStyle(title).fontSize);
-          var letters = title.querySelectorAll('i');
-          var centre = (letters[0].getBoundingClientRect().left +
-                        letters[letters.length - 1].getBoundingClientRect().right) / 2;
-          var keeps = [].slice.call(title.querySelectorAll('.keep'));
-          var rects = keeps.map(function (el) { return el.getBoundingClientRect(); });
-          var x = centre - rects.reduce(function (w, r) { return w + r.width; }, 0) / 2;
-
-          var slides = keeps.map(function (el, i) {
-            var dx = (x - rects[i].left) / em;
-            x += rects[i].width;
-            return el.animate(
-              [{ transform: 'translateX(0)' }, { transform: 'translateX(' + dx + 'em)' }],
-              { delay: SLIDE_AT, duration: SLIDE, easing: SLIDE_EASE, fill: 'forwards' }
-            );
+          var keeps = title.querySelectorAll('.keep');
+          slides = slideDistances(title).map(function (dx, i) {
+            return keeps[i].animate(slideFrames(dx),
+              { delay: SLIDE_AT, duration: SLIDE, easing: SLIDE_EASE, fill: 'forwards' });
           });
+          var mine = slides;
           title.classList.add('go');
 
-          Promise.all(slides.map(function (a) { return a.finished; })).then(function () {
+          Promise.all(mine.map(function (a) { return a.finished; })).then(function () {
+            slides = null;
             title.classList.add('settled');
-            slides.forEach(function (a) { a.cancel(); });
+            mine.forEach(function (a) { a.cancel(); });
           }).catch(function () {});   // cancelled: go()'s catch settles instead
         } catch (e) {
           title.classList.add('settled');   // no slide, but never a blank title
         }
       }
 
-      // How far the band travels: from just left of "AutoCua" to just right.
+      // After a resize, while the letters are still to land: measure again,
+      // on a still copy of the title (the live letters are mid-slide).
+      function remeasureSlides() {
+        var copy = title.cloneNode(true);
+        copy.classList.remove('go');
+        copy.setAttribute('aria-hidden', 'true');
+        copy.style.visibility = 'hidden';
+        document.body.appendChild(copy);
+        slideDistances(copy).forEach(function (dx, i) { slides[i].effect.setKeyframes(slideFrames(dx)); });
+        document.body.removeChild(copy);
+      }
+
+      // How far the band travels: from just left of "AutoCua" to just right
+      // (half the word, plus the band's 0.7em half width in .sheen's mask).
       function sheenTravel() {
         var first = sheenArt.firstElementChild.getBoundingClientRect();
         var last = sheenArt.lastElementChild.getBoundingClientRect();
-        return (last.right - first.left) / 2 + 1.6 * parseFloat(getComputedStyle(sheen).fontSize);
+        return (last.right - first.left) / 2 + 0.7 * parseFloat(getComputedStyle(sheen).fontSize);
       }
 
       // The row's ONE transform animation: it grows from 0.85x (ease
