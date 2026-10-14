@@ -111,7 +111,7 @@
 /* =====================================================================
    Rendered Markdown (.md) — the HTML ui/markdown.py produces for
    scratchpad notes, done/exit summaries AND the live "tracking progress"
-   stream (container/top_right). Everything is scoped to .md so plain-text
+   stream (container/bottom_left). Everything is scoped to .md so plain-text
    rows are untouched, and every colour is `inherit` so one rule set works
    on all three surfaces, each of which sets its own grey. Kept tight:
    notes sit in a dense numbered column, so block elements collapse their

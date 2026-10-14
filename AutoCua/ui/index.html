@@ -13,8 +13,9 @@
     <link rel="stylesheet" href="container/top_left/globe_shell.css">
     <link rel="stylesheet" href="container/top_right/top_right.css">
     <link rel="stylesheet" href="container/bottom_left/bottom_left.css">
-    <link rel="stylesheet" href="container/bottom_right/bottom_right.css">
-    <!-- Big center — full-grid 5th zone shell (notes_stage mounts into it) -->
+    <link rel="stylesheet" href="container/bottom_left/tracking_progress.css">
+    <!-- Big center — the main container, always on: the frame around the
+         zones (notes_stage and Skills mount into it) -->
     <link rel="stylesheet" href="container/big_center_container/big_center_container.css">
     <!-- Notes stage — Agent Notes content (lives inside big_center) -->
     <link rel="stylesheet" href="notes_stage/notes_stage.css">
@@ -182,9 +183,11 @@
 
     <!-- Right side is intentionally transparent now: the glass card layers were
          removed so only the text box shows over the white background. -->
-    <!-- Main content 2x2 grid: screenshot (top-left) | tracking progress (top-right) |
-         tool-response chain (bottom-left) | todo list (bottom-right), plus big_center
-         (full-grid overlay for notes_stage). Zones are injected by their components. -->
+    <!-- Main content grid: screenshot (top-left) | empty, kept for the user's message
+         (top-right); the bottom row is one container: tool-response chain (left half)
+         | tracking progress (right half). (The old bottom-right todo list is parked in
+         container/dead/.) big_center frames them all and holds the notes_stage.
+         Zones are injected by their components. -->
     <!-- Transient top-center notification (driven by window.showToast) -->
     <div id="appToast" class="app-toast" role="status" aria-live="polite"></div>
 
@@ -506,8 +509,9 @@
     <script src="container/top_left/globe_shell.js"></script>
     <script src="container/top_right/top_right.js"></script>
     <script src="container/bottom_left/bottom_left.js"></script>
-    <script src="container/bottom_right/bottom_right.js"></script>
-    <!-- Big center: injects the full-grid 5th zone into #mainGrid -->
+    <!-- Tracking progress: the scratchpad stream in the bottom container's right half -->
+    <script src="container/bottom_left/tracking_progress.js"></script>
+    <!-- Big center: injects the main container (the frame) into #mainGrid -->
     <script src="container/big_center_container/big_center_container.js"></script>
     <!-- Notes stage: mounts Agent Notes into #zoneBigCenter -->
     <script src="notes_stage/notes_stage.js"></script>

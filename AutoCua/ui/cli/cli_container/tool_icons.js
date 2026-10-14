@@ -694,7 +694,7 @@
         return { addStep: addStep, addAction: addAction, dispose: dispose };
     }
 
-    /* ====== "tracking progress" — scratchpad entries streamed char-by-char (top_right style:
+    /* ====== "tracking progress" — scratchpad entries streamed char-by-char (tracking_progress style:
        a dot bullet on a connecting line + wrapping typed text, conveyor-scrolled; NO logo). ====== */
     function createTracker(treeEl, flowEl, zoneEl) {
         var TYPE = 5, STEP = 2;            // ~2 chars every 5ms

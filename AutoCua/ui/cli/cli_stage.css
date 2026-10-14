@@ -1,16 +1,16 @@
 /* =====================================================================
    CLI container (step 1) — a single full-width panel that slides UP from the bottom
-   when the agent enters cli_await. It takes the bottom-row slot (spanning bottom-left
-   + bottom-right, full width, same height as the bottom row) and pushes the grid up so
-   the top two zones scroll out of view. EMPTY for now — its content will live in
-   cli/cli_container/ later. Toggled by body.cli-stage (cli/cli_stage.js).
+   when the agent enters cli_await. It takes the bottom-row slot (full width, same
+   height as the bottom row) and pushes the grid up so the zones scroll out of view.
+   EMPTY for now — its content will live in cli/cli_container/ later. Toggled by
+   body.cli-stage (cli/cli_stage.js).
    ===================================================================== */
 
 /* Clip the grid so the zones scrolling up + the panel sliding in stay inside its box. */
 #mainGrid { overflow: hidden; }
 
 /* Smooth the zones' push-up / restore. */
-#zoneTopLeft, #zoneTopRight, #zoneBottomLeft, #zoneBottomRight {
+#zoneTopLeft, #zoneTopRight, #zoneBottomLeft {
     transition: transform 0.55s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.4s ease;
 }
 
@@ -34,7 +34,7 @@
     transition: transform 0.55s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.4s ease;
 }
 
-/* cli_await ON: panel slides up into the bottom row; ALL four zones push up & fade out
+/* cli_await ON: panel slides up into the bottom row; ALL the zones push up & fade out
    (so the panel has the cleared space to itself).
    translateY(0), NOT 2%: the old shift pushed the panel's bottom 2% under #mainGrid's
    clip, cutting off the tool-response row. The top gap the 2% gave is padding now, so
@@ -47,5 +47,4 @@ body.cli-stage #cliContainer {
 }
 body.cli-stage #zoneTopLeft,
 body.cli-stage #zoneTopRight,
-body.cli-stage #zoneBottomLeft,
-body.cli-stage #zoneBottomRight { transform: translateY(-130%); opacity: 0; }
+body.cli-stage #zoneBottomLeft { transform: translateY(-130%); opacity: 0; }

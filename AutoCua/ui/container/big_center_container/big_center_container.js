@@ -1,5 +1,6 @@
-// Big center container loader — injects the full-grid overlay zone into
-// #mainGrid. Empty shell; notes_stage/ mounts Agent Notes into #zoneBigCenter.
+// Big center container loader — injects the main container (the always-on
+// frame around the zones) into #mainGrid. Empty shell; notes_stage/ mounts
+// Agent Notes into #zoneBigCenter.
 // Fires 'bigcenter:ready' once the zone is in the DOM.
 (function () {
     'use strict';

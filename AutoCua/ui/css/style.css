@@ -541,17 +541,15 @@ body {
 
 /* While a Telegram task occupies the machine: fade the app's UI components away.
    The orb + message live in the transparent overlay above. We fade the whole
-   T-grid CELLS (#zoneTopLeft / #zoneTopRight / #zoneBottomLeft / #zoneBottomRight)
-   rather than the inner cards — the cell carries the frosted-glass chrome, and the
-   right cell's idle TODO card must fade too (not just the globe/shell). */
+   T-grid CELLS (#zoneTopLeft / #zoneTopRight / #zoneBottomLeft) rather than the
+   inner cards — the cell carries the chrome. */
 body.tg-occupied #chatWrapper,
 body.tg-occupied #llmWrapper,
 body.tg-occupied #settingsBtn,
 body.tg-occupied #welcomeHero,
 body.tg-occupied #zoneTopLeft,
 body.tg-occupied #zoneTopRight,
-body.tg-occupied #zoneBottomLeft,
-body.tg-occupied #zoneBottomRight {
+body.tg-occupied #zoneBottomLeft {
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.4s ease;
@@ -1327,10 +1325,11 @@ body.settings-open #chatWrapper {
 
 /* Chat Container - Big vertical rectangle with equal gaps */
 /* =====================================================================
-   Main content 2x2 grid — four component zones (top-left screenshot /
-   top-right tracking-progress / bottom-left tool-response / bottom-right todo)
-   fill the area to the right of the left bar. The zones are injected by the
-   container/top_left, top_right, bottom_left and bottom_right components.
+   Main content 2x2 grid — three component zones (top-left screenshot /
+   top-right, empty, kept for the user's message / the bottom row: tool
+   response | tracking progress) fill the area to the right of the left bar,
+   inside the big center container's frame. The zones are injected by the
+   container/top_left, top_right and bottom_left components.
    ===================================================================== */
 .main-grid {
     position: fixed;

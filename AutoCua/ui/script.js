@@ -862,10 +862,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     // Scratchpad/milestone streaming — the backend calls this once per entry
-    // (~every 1s). It feeds the LIVE "tracking progress" stream in the top-right
-    // cell (container/top_right), which types each entry on a circle-bullet line
-    // and fades away when the run ends. (The old #milestoneStream node was
-    // orphaned/hidden; this is the visible home now.)
+    // (~every 1s). It feeds the LIVE "tracking progress" stream in the bottom
+    // container's right half (container/bottom_left/tracking_progress.js), which
+    // types each entry on a circle-bullet line and fades away when the run ends.
+    // (The old #milestoneStream node was orphaned/hidden; this is the visible
+    // home now.)
     window.streamMilestone = (text) => {
         if (window.trackingProgress) window.trackingProgress.push(text);
     };
@@ -1032,23 +1033,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         window.agentComplete();
     };
-
-    // ============================================
-    // BOTTOM-RIGHT WORK STATE — todo only. (The old web globe / shell states were
-    // removed; the globe + shell now live in container/top_left/globe_shell.*.)
-    // setWorkState keeps the todo list as the single state of this cell; it's still
-    // used on run reset.
-    // ============================================
-    const setWorkState = (state) => {
-        const map = { todo: 'todoState' };
-        Object.keys(map).forEach((k) => {
-            const el = document.getElementById(map[k]);
-            if (el) el.classList.toggle('is-active', k === state);
-        });
-    };
-    // Exposed so the chat-input wiring (chat_input/chat_input.js) can reset this
-    // cell to 'todo' when a run starts.
-    window.setWorkState = setWorkState;
 
     // Web globe + shell terminal now live in container/top_left/globe_shell.js —
     // they swap in over the screenshot while their tool runs. The backend hooks

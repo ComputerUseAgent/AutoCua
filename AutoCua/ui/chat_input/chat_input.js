@@ -8,7 +8,6 @@
 // interface so this file never holds a second copy:
 //   • window.getModelSelection() -> { provider, model }  (live selection)
 //   • window.stopStreaming()                              (cancel agent-text stream)
-//   • window.setWorkState(state)                          (reset the work-state cell)
 // Every one of those is only called at user-event time (Enter / send / stop click),
 // long after script.js has defined them — so injection order doesn't matter.
 //
@@ -97,7 +96,7 @@
                 const welcomeEl = document.getElementById('welcomeOverlay');
                 if (welcomeEl) welcomeEl.classList.add('eyes-hidden');
 
-                // Start the live tracking-progress stream (top-right), then clear the
+                // Start the live tracking-progress stream (bottom container), then clear the
                 // previous run's visual outputs (shared with the New-chat button).
                 if (window.trackingProgress) window.trackingProgress.start();
                 resetChatUi();
@@ -191,8 +190,6 @@
         function resetChatUi() {
             const milestoneStream = document.getElementById('milestoneStream');
             if (milestoneStream) milestoneStream.innerHTML = '';
-            if (window.updateTodoList) window.updateTodoList({ objective: '', tasks: [] });
-            if (window.setWorkState) window.setWorkState('todo');
             // Drop the previous run's "Agent Notes" so the screenshot area is live again.
             if (window.hideAgentNotes) window.hideAgentNotes();
             // Clear the previous run's screenshot + tool-response chain (and any

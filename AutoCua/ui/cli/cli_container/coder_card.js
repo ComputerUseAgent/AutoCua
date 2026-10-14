@@ -605,8 +605,8 @@
         }
         showCount();   // seed the card from the main agent's current count — continue from there
 
-        // RIGHT zone — "tracking progress" (the coder's scratchpad), mirroring the top-right
-        // container: NO logo; each scratchpad entry streams in char-by-char as a dot-bullet line.
+        // RIGHT zone — "tracking progress" (the coder's scratchpad), mirroring the app's
+        // tracking-progress stream: NO logo; each scratchpad entry streams in char-by-char as a dot-bullet line.
         var trackEl = document.createElement('div');
         trackEl.className = 'cc-track';
         trackEl.innerHTML =
@@ -1023,11 +1023,10 @@
         // and every later update re-renders (todo.md is rewritten, not appended).
         // payload is the JSON string service.py sends: {objective, tasks:[{text, done}]}.
         //
-        // Deliberately built with the MAIN agent's todo classes (.todo-list / .todo-item /
-        // .todo-check / .todo-spinner / .todo-text from container/bottom_right/). Those are
-        // unscoped and loaded globally, so this list is pixel-identical to the Computer-use
-        // card — same animated tick colour, same spinner on the current task — with no style
-        // duplicated here. Row states mirror bottom_right.js's renderTodo().
+        // Built with the main agent's todo classes (.todo-list / .todo-item / .todo-check /
+        // .todo-spinner / .todo-text, styled at the end of coder_card.css): the animated tick
+        // colour and the spinner on the current task. Row states mirror renderTodo() of the
+        // main agent's todo list, now parked in container/dead/bottom_right/.
         var todoEl = el.querySelector('.cc-todo');
         function setTodo(payload) {
             if (!header || !todoEl) return;

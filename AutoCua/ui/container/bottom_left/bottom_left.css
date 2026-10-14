@@ -6,16 +6,28 @@
    the label, and morphs the loader to a tick on the canvas. No @keyframes timeline.
    ===================================================================== */
 .bottom-left-zone {
-    grid-column: 1;          /* bottom-LEFT cell now (was full-width); bottom-right is a separate container */
+    grid-column: 1 / -1;     /* the whole bottom row, under both top cells */
     grid-row: 2;
     min-width: 0;
     min-height: 0;
     position: relative;
-    border: 1px solid transparent;           /* no visible box — blends in (the bottom-right cell is borderless too) */
+    border: 1px solid rgba(0, 0, 0, 0.08);      /* the one thin grey line, also while empty */
     border-radius: var(--glass-radius);
-    padding: clamp(8px, 1vw, 12px) clamp(12px, 1.4vw, 16px);
+    --bl-pad-x: clamp(12px, 1.4vw, 16px);
+    padding: clamp(8px, 1vw, 12px) var(--bl-pad-x);
     box-sizing: border-box;
     overflow: hidden;
+    /* Two halves: tool response | tracking progress (tracking_progress.css).
+       The gap between them is the grid's gap plus a cell's border and padding
+       on each side, so each half is exactly as wide as a top cell's content
+       and sits right under it. */
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: calc(var(--main-pad) + 2 * var(--bl-pad-x) + 2px);
+}
+.bl-panel {
+    min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
 }

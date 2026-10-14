@@ -10,10 +10,12 @@
     min-width: 0;
     min-height: 0;
     position: relative;
+    /* Transparent, with the one thin grey line (also while empty). A border,
+       not an inset shadow: overflow clips the screenshot INSIDE the rounded
+       line, where an inset shadow would sit under the image. */
+    border: 1px solid rgba(0, 0, 0, 0.08);
     border-radius: var(--glass-radius);
     overflow: hidden;
-    /* Fully transparent — nothing shows until the screenshot streams
-       (no frosted bg, no shadow, no border). */
 }
 
 .screenshot-frame {

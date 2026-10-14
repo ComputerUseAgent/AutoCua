@@ -1,12 +1,25 @@
-<!-- Bottom-left container — the tool-response flow (chain). The flow steps
-     (logos + labels + line) are BUILT FROM CONFIG in bottom_left.js (STEPS /
-     SHAPES), so the backend can map its tool events to steps. Injected into
-     #mainGrid (column 1, row 2) by bottom_left.js. -->
-<div class="container-zone bottom-left-zone" id="zoneBottomLeft" aria-label="Tool response">
-    <div class="tool-response-label">Tool response: <span class="tool-used-count" id="toolUsedCount">0</span> tools used</div>
+<!-- Bottom container — the whole bottom row: the tool-response flow (chain) on
+     the left, the live "tracking progress" stream on the right
+     (tracking_progress.js). The flow steps (logos + labels + line) are BUILT
+     FROM CONFIG in bottom_left.js (STEPS / SHAPES), so the backend can map its
+     tool events to steps. Injected into #mainGrid (row 2, both columns) by
+     bottom_left.js. -->
+<div class="container-zone bottom-left-zone" id="zoneBottomLeft" aria-label="Tool response and tracking progress">
+    <div class="bl-panel tool-panel">
+        <div class="tool-response-label">Tool response: <span class="tool-used-count" id="toolUsedCount">0</span> tools used</div>
 
-    <div class="tool-flow" aria-hidden="true">
-        <!-- bottom.js builds one .tool-flow-item per STEP into here -->
-        <div class="tool-flow-tree" id="toolFlowTree"></div>
+        <div class="tool-flow" aria-hidden="true">
+            <!-- bottom.js builds one .tool-flow-item per STEP into here -->
+            <div class="tool-flow-tree" id="toolFlowTree"></div>
+        </div>
+    </div>
+
+    <div class="bl-panel tracking-panel">
+        <div class="scratchpad-label">tracking progress</div>
+
+        <div class="br-flow" aria-hidden="true">
+            <!-- tracking_progress.js appends one .br-item per scratchpad entry into here -->
+            <div class="br-tree" id="brTree"></div>
+        </div>
     </div>
 </div>

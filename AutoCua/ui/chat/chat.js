@@ -279,7 +279,7 @@
         // Roll a run-active composer back to idle (orbs/strip/box) — idempotent,
         // and agentComplete won't do it for us now that its push is invalidated.
         if (window.chatInputRestoreIdle) window.chatInputRestoreIdle();
-        // Same reason for the top-right stream: its fade normally comes from
+        // Same reason for the tracking-progress stream: its fade normally comes from
         // agentComplete; clear it here so a mid-run New chat can't leave old text.
         if (window.trackingProgress) window.trackingProgress.start();
         if (window.resetChatUi) window.resetChatUi();
