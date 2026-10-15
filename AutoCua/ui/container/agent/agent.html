@@ -1,0 +1,54 @@
+<!-- Agent container — the whole bottom row: the tool-response flow (chain) on
+     the left, the live "tracking progress" stream on the right
+     (tracking_progress.js); once the run ends, its reply takes both their
+     places, like a chat (run_reply.js). The flow steps (logos + labels + line) are BUILT
+     FROM CONFIG in agent.js (STEPS / SHAPES), so the backend can map its
+     tool events to steps. Injected into #liveTurn (row 5) by
+     agent.js. -->
+<div class="container-zone agent-container" id="agentContainer" aria-label="Tool response and tracking progress">
+    <div class="bl-panel tool-panel">
+        <div class="tool-response-label">Tool response: <span class="tool-used-count" id="toolUsedCount">0</span> tools used</div>
+
+        <div class="tool-flow" aria-hidden="true">
+            <!-- bottom.js builds one .tool-flow-item per STEP into here -->
+            <div class="tool-flow-tree" id="toolFlowTree"></div>
+        </div>
+
+        <!-- Shell terminal — while a shell command (or an AppleScript) runs, its
+             lines take the chain's place: a transparent `>` command line (streams
+             + shimmers with a dot loader while it runs), then an L-connector down
+             to the output line that comes back. Then the chain is back. Driven by
+             globe_shell.js shell*(); ids preserved so the backend hooks drive it
+             unchanged. -->
+        <div class="sh-panel" id="shellPanel" aria-hidden="true">
+            <div class="shell-term" id="shellTerminalContainer">
+                <div class="sh-body">
+                    <div class="sh-lines">
+                        <div class="sh-cmd-line" id="shellCmdLine">
+                            <span class="sh-p">&gt;</span>
+                            <span class="sh-cmd-text" id="shellCmdText"></span>
+                        </div>
+                        <div class="sh-progress" id="shellProgress" aria-hidden="true">
+                            <span class="sh-fill"></span>
+                        </div>
+                        <div class="sh-out-line" id="shellOutLine">
+                            <span class="sh-out-text" id="shellOutText"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bl-panel tracking-panel">
+        <div class="scratchpad-label">tracking progress</div>
+
+        <div class="br-flow" aria-hidden="true">
+            <!-- tracking_progress.js appends one .br-item per scratchpad entry into here -->
+            <div class="br-tree" id="brTree"></div>
+        </div>
+    </div>
+
+    <!-- The run's reply (window.showRunReply), shown once the run ends -->
+    <div class="bl-panel reply-panel md" id="runReply" aria-live="polite"></div>
+</div>

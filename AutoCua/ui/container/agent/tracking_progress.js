@@ -1,11 +1,11 @@
 // =====================================================================
 // Tracking progress — the LIVE scratchpad stream in the right half of the
-// bottom container (bottom_left.html's .tracking-panel). Exposes
+// bottom container (agent.html's .tracking-panel). Exposes
 // window.trackingProgress { push, start, end }. While the agent runs, each
 // scratchpad entry (fed from window.streamMilestone in script.js) streams in
 // as a circle-bullet line on a connecting line, conveyor-scrolling up as it
 // fills; the content fades out when the run ends. Chain mechanics mirror
-// bottom_left.js. (It used to be the top-right container.)
+// agent.js. (It used to be the top-right container.)
 // =====================================================================
 (function () {
     'use strict';
@@ -15,11 +15,11 @@
 
     var panelEl = null, flowEl = null, treeEl = null, frontier = -1;
 
-    // The panel lives in the bottom container, which bottom_left.js mounts
+    // The panel lives in the bottom container, which agent.js mounts
     // after a fetch: look it up the first time it is needed.
     function bind() {
         if (treeEl && treeEl.isConnected) return true;
-        var panel = document.querySelector('#zoneBottomLeft .tracking-panel');
+        var panel = document.querySelector('#agentContainer .tracking-panel');
         if (!panel) return false;
         panelEl = panel;
         flowEl = panel.querySelector('.br-flow');
@@ -27,7 +27,7 @@
         return !!treeEl;
     }
 
-    /* ---------------- blazing-fast typewriter (from bottom_left) ----------------
+    /* ---------------- blazing-fast typewriter (from agent.js) ----------------
        Entries arrive as HTML (ui/markdown.py). Typing markup character by
        character would show raw tags mid-animation, so we type the PLAIN text and
        swap the real markup in on the final tick — the line lands formatted. */

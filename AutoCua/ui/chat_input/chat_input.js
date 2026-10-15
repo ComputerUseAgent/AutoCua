@@ -73,6 +73,15 @@
             // ...and reveal the memory ring (stays shown until a new chat).
             if (window.showMemoryBar) window.showMemoryBar();
 
+            // Like a chat: the turn on screen (message, video, reply) stays,
+            // as an earlier turn above this task's (chat_scroll.js), before
+            // the live zones are cleared for it below. Not Shell use: it keeps
+            // its own transcript under the terminal.
+            const chatGoesOn = agentMode !== 'shell' && !!window.chatScroll;
+            // A reopen still loading must not paint over this task's turn.
+            if (window.chatOpenCancel) window.chatOpenCancel();
+            const lastTurn = chatGoesOn ? window.chatScroll.archiveLive() : null;
+
             const agentStrip = document.getElementById('agentResponseStrip');
             const agentText = document.getElementById('agentText');
             const sendBtnFrame = getSendFrame();
@@ -103,6 +112,8 @@
             }
             // The sent message, top right of the main area like a chat.
             if (window.showUserMessage) window.showUserMessage(message);
+            // ...right below the last reply: the chat glides up to this turn.
+            if (chatGoesOn) window.chatScroll.toLive(lastTurn);
 
             // Shell use bypasses the main agent: the task goes STRAIGHT to the
             // coder agent (backend: run_shell_task in service.py) and the CLI
@@ -137,6 +148,10 @@
                     // Adopt the backend's session id (a brand-new chat is minted
                     // server-side) so the run-end save + future sends target it.
                     if (data.session_id) window.currentSessionId = data.session_id;
+                    // This run's id: its video finds its turn by it (chat_scroll.js).
+                    if (chatGoesOn && data.run_id) window.chatScroll.setLive(data.run_id, '');
+                    // Computer use: the bot comes into the screen box (run_bot.js).
+                    if (agentMode === 'computer' && window.startScreenBot) window.startScreenBot();
                     // First run commits the chat to this mode — lock the picker.
                     // Shell included: the lock fires only on a STARTED run (this
                     // branch), so merely toggling to Shell use never locks — using
@@ -194,10 +209,17 @@
             if (milestoneStream) milestoneStream.innerHTML = '';
             // The previous message box goes; the send path shows the new one.
             if (window.showUserMessage) window.showUserMessage('');
-            // Drop the previous run's video and reply, so the screen box and the
-            // bottom container are live again.
+            // Drop the previous run's video, bot and reply, so the screen box and
+            // the bottom container are live again.
             if (window.hideRunVideo) window.hideRunVideo();
+            if (window.stopScreenBot) window.stopScreenBot();
             if (window.hideRunReply) window.hideRunReply();
+            // The live turn shows no run or saved recording any more, and has
+            // its screen box again.
+            if (window.chatScroll) {
+                window.chatScroll.setLive('', '');
+                window.chatScroll.setLiveScreen(true);
+            }
             // A full-size stage (Skills) gives the grid back; skills.js drops its own panel.
             const bigCenter = document.getElementById('zoneBigCenter');
             if (bigCenter) bigCenter.classList.remove('active');

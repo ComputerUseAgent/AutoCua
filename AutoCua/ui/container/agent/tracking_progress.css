@@ -1,6 +1,6 @@
 /* =====================================================================
    Tracking progress — the LIVE scratchpad stream in the right half of the
-   bottom container (bottom_left.html's .tracking-panel). Its CONTENT (label +
+   bottom container (agent.html's .tracking-panel). Its CONTENT (label +
    bullet stream) fades in while the agent runs and out when it finishes
    (tracking_progress.js toggles .br-active on the panel). The bullet chain
    reuses the tool-response mechanics (connecting line + conveyor scroll + top

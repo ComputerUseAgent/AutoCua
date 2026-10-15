@@ -2,25 +2,21 @@
    Run reply — the run's done message in the bottom container once it ends
    (run_reply.js), like a chat reply: plain text on the left, in the chat
    input's type like the message box above. It takes the whole container
-   while .show-reply is on; the tool chain and tracking progress come back
-   on the next run. Markdown styles come from the shared .md rules
-   (notes_stage/notes_stage.css).
+   while .show-reply is on, and the container grows with it: a long reply
+   never scrolls inside its box, the chat scrolls (chat_scroll.css). The
+   tool chain and tracking progress come back on the next run. Markdown
+   styles come from the shared .md rules (notes_stage/notes_stage.css).
    ===================================================================== */
 .reply-panel {
     display: none;
 }
-.bottom-left-zone.show-reply {
-    grid-template-rows: minmax(0, 1fr);    /* a long reply scrolls inside the box */
-}
-.bottom-left-zone.show-reply > .tool-panel,
-.bottom-left-zone.show-reply > .tracking-panel {
+.agent-container.show-reply > .tool-panel,
+.agent-container.show-reply > .tracking-panel {
     display: none;
 }
-.bottom-left-zone.show-reply > .reply-panel {
+.agent-container.show-reply > .reply-panel {
     display: block;
     grid-column: 1 / -1;
-    overflow-y: auto;
-    scrollbar-width: none;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: clamp(13px, 1.3vw, 15px);
     line-height: 1.5;
@@ -28,7 +24,6 @@
     overflow-wrap: anywhere;
     animation: runReplyIn 0.35s ease both;
 }
-.reply-panel::-webkit-scrollbar { display: none; }
 /* Stopped / incomplete / error: why the run ended, muted. */
 .reply-panel.is-ended {
     color: rgba(110, 110, 110, 0.9);

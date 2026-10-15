@@ -9,9 +9,11 @@
 /* Clip the grid so the zones scrolling up + the panel sliding in stay inside its box. */
 #mainGrid { overflow: hidden; }
 
-/* Smooth the zones' push-up / restore. */
-#zoneTopLeft, #zoneTopRight, #zoneBottomLeft {
-    transition: transform 0.55s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.4s ease;
+/* Smooth the chat's push-up / restore (and keep chat_scroll.css's edge fades
+   easing: one transition list per element). */
+#chatScroll {
+    transition: transform 0.55s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.4s ease,
+                --fade-top 0.25s ease, --fade-bottom 0.25s ease;
 }
 
 /* The panel: a full-width container CENTERED vertically (straddling the lower half of
@@ -34,8 +36,8 @@
     transition: transform 0.55s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.4s ease;
 }
 
-/* cli_await ON: panel slides up into the bottom row; ALL the zones push up & fade out
-   (so the panel has the cleared space to itself).
+/* cli_await ON: panel slides up into the bottom row; the whole chat (#chatScroll,
+   every turn) pushes up & fades out (so the panel has the cleared space to itself).
    translateY(0), NOT 2%: the old shift pushed the panel's bottom 2% under #mainGrid's
    clip, cutting off the tool-response row. The top gap the 2% gave is padding now, so
    it stays INSIDE the box. And the panel NEVER scrolls — the agent unit sizes itself
@@ -45,6 +47,4 @@ body.cli-stage #cliContainer {
     padding-top: clamp(16px, 2.4vh, 30px);
     overflow: hidden;
 }
-body.cli-stage #zoneTopLeft,
-body.cli-stage #zoneTopRight,
-body.cli-stage #zoneBottomLeft { transform: translateY(-130%); opacity: 0; }
+body.cli-stage #chatScroll { transform: translateY(-100%); opacity: 0; pointer-events: none; }

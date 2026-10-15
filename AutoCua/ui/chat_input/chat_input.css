@@ -36,7 +36,8 @@
     width: clamp(600px, 65vw, 1000px);
     transform: translateX(-50%);
 
-    bottom: clamp(30px, 4vw, 50px);
+    /* How far the text box's bottom edge sits above the window's bottom. */
+    bottom: clamp(20px, 2.7vw, 36px);
     top: clamp(30px, 4vw, 60px);
     border-radius: var(--glass-radius);
     z-index: 12;
@@ -45,6 +46,7 @@
     flex-direction: column;
     justify-content: flex-end;
     padding: clamp(16px, 2vw, 24px);
+    padding-bottom: 0;          /* nothing under the text box, so bottom is its gap */
     /* Fully transparent now — no glass card, no shadow. Only the text box (which
        carries its own background) stays visible over the white background. */
     background: transparent;
@@ -100,8 +102,10 @@ body.left-bar-animating .chat-container-wrapper {
     padding-bottom: calc(var(--pad-y) + var(--orb) + var(--tools-gap));
     /* Opaque fill (no backdrop-filter: it flickers in WebView2/Chromium while
        the top-left globe/shell animations run — same reasoning as the old .chat-input).
-       White, the page colour: its soft shadow and glow mark the edge. */
+       White, the page colour: the thin grey line (the zones' line) marks its
+       edge, with its soft shadow and glow. */
     background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(0, 0, 0, 0.08);
     border-radius: clamp(16px, 1.8vw, 22px);
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
     overflow: visible;

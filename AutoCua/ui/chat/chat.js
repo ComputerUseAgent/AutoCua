@@ -4,9 +4,9 @@
 //   • New chat  -> drop the active session (window.currentSessionId = null),
 //     reset the screen, ready for a fresh start.
 //   • History   -> GET /api/chats; click a row to reopen that session (adopts
-//     its id so the next send CONTINUES it, and shows its last request and
-//     reply like the live view after a run: window.showUserMessage /
-//     window.showRunReply).
+//     its id so the next send CONTINUES it, and shows its last request,
+//     reply and video like the live view after a run: window.showUserMessage /
+//     window.showRunReply / window.showRunVideo).
 //   • Delete    -> DELETE /api/chats/<id>.
 // All persistence lives in the backend (AutoCua/agent_conversation); this file
 // is pure UI. Same self-contained fetch-inject pattern as settings/settings.js.
@@ -110,9 +110,17 @@
         });
     }
 
+    // Each open is stamped: only the latest one paints its answer. A second
+    // click, another row, New chat or a sent task (chat_input.js) make an
+    // earlier one stale.
+    var openSeq = 0;
+    window.chatOpenCancel = function () { openSeq++; };
+
     // Reopen a saved session: adopt its id (so the next send continues it) and
-    // show its last request and reply (the reopen view).
+    // show it like a chat (the reopen view): its earlier turns, then its last
+    // request, video and reply in the live turn.
     function openChat(id, list) {
+        var seq = ++openSeq;
         window.currentSessionId = id;
         var rail = railChats();
         [list, rail].forEach(function (box) {
@@ -121,16 +129,22 @@
                 el.classList.toggle('active', el.dataset.id === id);
             });
         });
+        // A run still going keeps its id on the live turn, so its video finds it.
+        var liveEl = document.getElementById('liveTurn');
+        var running = !!document.querySelector('.chat-input.agent-active');
+        var liveRun = (running && liveEl && liveEl.dataset.run) || '';
         if (window.resetChatUi) window.resetChatUi();   // clear leftover live view
+        if (window.chatScroll) window.chatScroll.clear();   // ...and the last chat's earlier turns
         if (window.hideWelcomeHero) window.hideWelcomeHero();   // reopening != empty state
         // Announce the reopen.
         document.dispatchEvent(new CustomEvent('chat:opened', { detail: { id: id } }));
         fetch('/api/chats/' + encodeURIComponent(id))
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                // Stale response: the user moved on (New chat or another row)
-                // while this fetch was in flight — don't repaint their new view.
-                if (window.currentSessionId !== id) return;
+                // Stale response: the user moved on (New chat, another row, the
+                // same row again, a sent task) while this fetch was in flight —
+                // don't repaint their new view.
+                if (seq !== openSeq || window.currentSessionId !== id) return;
                 if (!data || data.error) return;
                 // Full life of the chat: request/outcome pairs (exchanges.json).
                 var exchanges = Array.isArray(data.exchanges) ? data.exchanges : [];
@@ -145,9 +159,26 @@
                     // server-rendered Markdown (markdown.py). Legacy sessions
                     // saved before exchanges existed have only the last done message.
                     var last = exchanges.length ? exchanges[exchanges.length - 1] : null;
+                    // Its earlier turns above it, each with its video (chat_scroll.js).
+                    if (window.chatScroll) window.chatScroll.addPast(exchanges.slice(0, -1), data.agent_mode);
                     if (last && window.showUserMessage) window.showUserMessage(last.task || '');
                     var reply = last ? (last.done_html || '') : (data.last_done_message_html || '');
                     if (reply && window.showRunReply) window.showRunReply(reply, (last && last.status) || 'success');
+                    // And its video, where it was when the run ended: a Computer
+                    // use run's on its stage (run_bot.js). The backend sends
+                    // video_url only while that run's video is on disk.
+                    if (window.chatScroll) {
+                        window.chatScroll.setLive(liveRun, (last && last.recording) || '');
+                        // Nothing for its screen (Mobile use, or its video is gone): no
+                        // empty box, like its earlier turns.
+                        window.chatScroll.setLiveScreen(running || !!(last && last.video_url));
+                    }
+                    if (last && last.video_url && window.showRunVideo) {
+                        if (data.agent_mode === 'computer' && window.screenStageOn) window.screenStageOn();
+                        window.showRunVideo(last.video_url, id);
+                    }
+                    // It opens on its last turn, the earlier ones a scroll up.
+                    if (window.chatScroll) window.chatScroll.toLive(null, true);
                 }
                 // Restore the memory bar to this chat's last context size + cap and
                 // show it (the bar hides only for a brand-new chat).
@@ -280,6 +311,8 @@
         // agentComplete; clear it here so a mid-run New chat can't leave old text.
         if (window.trackingProgress) window.trackingProgress.start();
         if (window.resetChatUi) window.resetChatUi();
+        if (window.chatScroll) window.chatScroll.clear();       // no earlier turns
+        openSeq++;                                              // and no late reopen
         if (window.resetMemoryBar) window.resetMemoryBar();     // empty the memory bar
         if (window.hideMemoryBar) window.hideMemoryBar();       // hide it (only new chat hides)
         if (window.showWelcomeHero) window.showWelcomeHero();   // bring back the hero

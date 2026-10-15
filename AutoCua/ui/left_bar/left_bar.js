@@ -42,46 +42,24 @@
         reveal(bar);
     }
 
-    // GitHub star pill: live stargazer count (refreshed every 5 minutes), and
-    // click-through to the repo. The click POSTs /api/open-github rather than
-    // using a plain <a href>, because a link would navigate the pywebview
+    // GitHub button: opens the repo. The click POSTs /api/open-github rather
+    // than using a plain <a href>, because a link would navigate the pywebview
     // window itself instead of opening the system browser; the URL is fixed
-    // server-side (service.py open_github) — keep the two in sync.
-    // Every pill is wired: the footer's and its copy in the Settings cover
-    // (cornerCopy).
-    var GH_REPO = 'AutoCua/AutoCua';
-    function wireGithubPill() {
-        var pills = document.querySelectorAll('.gh-star-pill');
-        if (!pills.length) return;
-        function fmt(n) {
-            if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k';
-            return String(n);
-        }
-        function refresh() {
-            fetch('https://api.github.com/repos/' + GH_REPO)
-                .then(function (r) { return r.json(); })
-                .then(function (d) {
-                    if (d && typeof d.stargazers_count === 'number') {
-                        var text = fmt(d.stargazers_count);
-                        document.querySelectorAll('.gh-star-count').forEach(function (el) { el.textContent = text; });
-                    }
-                })
-                .catch(function () { /* keep last value */ });
-        }
-        pills.forEach(function (pill) {
-            pill.addEventListener('click', function () {
+    // server-side (service.py open_github). Every copy is wired: the footer's
+    // and its copy in the Settings cover (cornerCopy).
+    function wireGithubLink() {
+        document.querySelectorAll('.gh-link').forEach(function (link) {
+            link.addEventListener('click', function () {
                 fetch('/api/open-github', { method: 'POST' })
                     .catch(function () { /* non-fatal: the browser just doesn't open */ });
             });
         });
-        refresh();
-        setInterval(refresh, 5 * 60 * 1000);
     }
 
     // Settings covers the whole window and hides the bar under it
     // (left_bar.css), so the bar's header stands in the cover's top corners: a
     // copy without the ids, laid out at the same spot, logo left, plus a copy
-    // of the footer's GitHub pill on the right.
+    // of the footer's GitHub button on the right.
     function cornerCopy(bar) {
         var cover = document.getElementById('settingsOverlay');
         var header = bar.querySelector('#leftBarHeader');
@@ -89,8 +67,8 @@
         var copy = header.cloneNode(true);
         copy.removeAttribute('id');
         copy.className = 'settings-corners';
-        var pill = bar.querySelector('#ghStarPill');
-        if (pill) copy.appendChild(pill.cloneNode(true));
+        var gh = bar.querySelector('#ghLink');
+        if (gh) copy.appendChild(gh.cloneNode(true));
         copy.querySelectorAll('[id]').forEach(function (el) { el.removeAttribute('id'); });
         cover.insertBefore(copy, cover.firstChild);
     }
@@ -114,7 +92,7 @@
                 // the bar now that it exists in the DOM.
                 document.dispatchEvent(new CustomEvent('leftbar:ready', { detail: { bar: bar } }));
                 cornerCopy(bar);
-                wireGithubPill();
+                wireGithubLink();
                 revealWhenReady(bar);
             })
             .catch(function () { /* non-fatal: the bar simply won't render */ });

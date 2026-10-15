@@ -589,7 +589,7 @@
             '<div class="cc-chain-flow"><div class="cc-chain"></div></div>';
         var toolsCountEl = chainEl.querySelector('.cc-tools-count');
         // UNIVERSAL tool counter: the coder card continues the SAME running total as the main
-        // agent (bottom_left's #toolUsedCount). Coder AND minion tools bump it in real time, so the
+        // agent (agent.js's #toolUsedCount). Coder AND minion tools bump it in real time, so the
         // card shows main-agent + coder + minion tools, and because it's the same element, the
         // total rolls back up to the main agent when the cli stage closes. Falls back to a local
         // count when the main-agent counter isn't present (e.g. the standalone test harness).
@@ -654,7 +654,7 @@
             });
         }
 
-        // Opening-phase flow, ported from the main agent's tool-flow (bottom_left): the wait for
+        // Opening-phase flow, ported from the main agent's tool-flow (agent.js): the wait for
         // each packet is told in beats — "communicating with llm service", then the composing
         // sash ("thinking") holds for THINK_MS no matter what, then the loader ("synthesizing")
         // spins until the packet lands and ticks over to "synthesizing complete". This step's
@@ -663,7 +663,7 @@
         // remaining beats fast-forward at CATCHUP_MS so the chain catches the real speed instead
         // of lagging behind it — then the next opening runs at normal pace again.
         var STEP_GAP_MS = 850;     // beat before the thinking sash appears
-        var THINK_MS = 5000;       // the sash's MAX hold — a packet landing sooner fast-forwards it (same as bottom_left)
+        var THINK_MS = 5000;       // the sash's MAX hold — a packet landing sooner fast-forwards it (same as agent.js)
         var CATCHUP_MS = 300;      // opening pace once the packet has already landed
         var TOOL_GAP_MS = 340;     // fast cadence between this step's tools
         var thinkingStep = null, openTimer = null, toolsRevealed = false;

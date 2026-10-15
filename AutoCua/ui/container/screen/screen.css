@@ -3,11 +3,10 @@
    user's message (main grid row 3), as wide as the screen it shows. The
    live screenshot <img> shows in it once frames arrive
    (window.updateAgentImage), and the run's video once the run is over
-   (window.showRunVideo, top_left.js). Replaces the old floating
+   (window.showRunVideo, screen.js). Replaces the old floating
    .image-stream-container; reuses #imageStreamContainer / .stream-image.
-   (The folder keeps its old name, top_left.)
    ===================================================================== */
-.screenshot-zone {
+.screen-container {
     grid-column: 1 / -1;
     grid-row: 3;             /* main grid: message | gap | screen | gap | tools */
     /* On the left, only as wide as the screen it shows: the row's height at

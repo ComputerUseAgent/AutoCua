@@ -1,6 +1,6 @@
 // =====================================================================
-// Message container — the user's message for this run, top right of the main
-// grid like a chat. Mounts top_right.html into #mainGrid (row 1) and exposes
+// User container — the user's message for this run, top right of the main
+// grid like a chat. Mounts user.html into #liveTurn (row 1) and exposes
 // window.showUserMessage(text): the send path (chat_input.js) shows the
 // message the moment it is sent; '' hides the box again (resetChatUi, on a
 // new run and on New chat).
@@ -11,7 +11,7 @@
     var pending = null;   // a message shown before the box was mounted
 
     window.showUserMessage = function (text) {
-        var zone = document.getElementById('zoneTopRight');
+        var zone = document.getElementById('userContainer');
         var textEl = document.getElementById('userMessageText');
         var t = String(text == null ? '' : text).trim();
         if (!zone || !textEl) { pending = t; return; }
@@ -21,15 +21,15 @@
     };
 
     function mount() {
-        var grid = document.getElementById('mainGrid');
-        if (!grid || grid.querySelector('.top-right-zone')) return;
-        fetch('container/top_right/top_right.html')
+        var grid = document.getElementById('liveTurn');
+        if (!grid || grid.querySelector('.user-container')) return;
+        fetch('container/user/user.html')
             .then(function (r) { return r.text(); })
             .then(function (html) {
-                if (grid.querySelector('.top-right-zone')) return; // guard race
+                if (grid.querySelector('.user-container')) return; // guard race
                 var holder = document.createElement('div');
                 holder.innerHTML = html.trim();
-                var zone = holder.querySelector('.top-right-zone');
+                var zone = holder.querySelector('.user-container');
                 if (!zone) return;
                 grid.appendChild(zone);
                 if (pending) window.showUserMessage(pending);

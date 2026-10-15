@@ -1,7 +1,7 @@
 // =====================================================================
 // Run reply — the run's done message in the bottom container once it ends,
 // like a chat reply under the user's message and the screen. It takes the
-// place of the tool-response chain and tracking progress (bottom_left.html)
+// place of the tool-response chain and tracking progress (agent.html)
 // until the next run.
 //   window.showRunReply(html, status) — html is server-rendered Markdown
 //     (ui/markdown.py, already escaped). status 'success' shows it as the
@@ -13,7 +13,7 @@
 (function () {
     'use strict';
 
-    function zone() { return document.getElementById('zoneBottomLeft'); }
+    function zone() { return document.getElementById('agentContainer'); }
 
     window.showRunReply = function (html, status) {
         var z = zone();
@@ -21,7 +21,6 @@
         if (!el) return;
         el.innerHTML = String(html == null ? '' : html);
         el.classList.toggle('is-ended', status !== 'success');
-        el.scrollTop = 0;
         z.classList.add('show-reply');
     };
 

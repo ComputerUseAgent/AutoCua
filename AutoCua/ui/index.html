@@ -9,12 +9,14 @@
     <!-- New Chat button component (markup injected into the left bar body) -->
     <link rel="stylesheet" href="chat/chat.css">
     <!-- Main content T-grid zone components (container/ holds all three) -->
-    <link rel="stylesheet" href="container/top_left/top_left.css">
-    <link rel="stylesheet" href="container/top_left/globe_shell.css">
-    <link rel="stylesheet" href="container/top_right/top_right.css">
-    <link rel="stylesheet" href="container/bottom_left/bottom_left.css">
-    <link rel="stylesheet" href="container/bottom_left/tracking_progress.css">
-    <link rel="stylesheet" href="container/bottom_left/run_reply.css">
+    <link rel="stylesheet" href="container/screen/screen.css">
+    <link rel="stylesheet" href="container/screen/globe_shell.css">
+    <link rel="stylesheet" href="container/screen/run_bot.css">
+    <link rel="stylesheet" href="container/user/user.css">
+    <link rel="stylesheet" href="container/agent/agent.css">
+    <link rel="stylesheet" href="container/agent/tracking_progress.css">
+    <link rel="stylesheet" href="container/agent/run_reply.css">
+    <link rel="stylesheet" href="container/chat_scroll/chat_scroll.css">
     <!-- Big center — the main container, always on: the frame around the
          zones (Skills mounts into it) -->
     <link rel="stylesheet" href="container/big_center_container/big_center_container.css">
@@ -45,8 +47,8 @@
 
     <!-- The agent screenshot (#imageStreamContainer) and the shell terminal
          (#shellTerminalContainer) now live INSIDE the T-grid container components:
-           • container/top_left/  → screenshot       (col 1, row 1)
-           • container/top_right/ → tracking progress (col 2, row 1)
+           • container/screen/  → screenshot       (col 1, row 1)
+           • container/user/ → tracking progress (col 2, row 1)
          They keep the same ids/classes so the script.js engine code is unchanged. -->
 
     <!-- Template cloned by script.js for each CLI subprocess pill -->
@@ -185,12 +187,15 @@
 
     <!-- Right side is intentionally transparent now: the glass card layers were
          removed so only the text box shows over the white background. -->
-    <!-- Main content grid, one chat turn top to bottom: the user's message (top
-         right), the screen (the run's video once it ends), then one container:
-         tool-response chain (left half) | tracking progress (right half), swapped
-         for the run's reply once it ends. (The old bottom-right todo list and the
-         Agent Notes stage are parked in container/dead/.) big_center frames them
-         all. Zones are injected by their components. -->
+    <!-- Main content: the chat, inside big_center's frame. #chatScroll scrolls
+         it like a chat (container/chat_scroll): the chat's earlier turns
+         (#chatPast), then the live one (#liveTurn), each top to bottom: the
+         user's message (right), the screen (the run's video once it ends),
+         then one container: tool-response chain (left half) | tracking
+         progress (right half), swapped for the run's reply once it ends. The
+         live turn's zones are injected by their components. (The old
+         bottom-right todo list and the Agent Notes stage are parked in
+         container/dead/.) -->
     <!-- Transient top-center notification (driven by window.showToast) -->
     <div id="appToast" class="app-toast" role="status" aria-live="polite"></div>
 
@@ -202,7 +207,12 @@
         <div class="welcome-hero-title">Made to do...</div>
     </div>
 
-    <div class="main-grid" id="mainGrid"></div>
+    <div class="main-grid" id="mainGrid">
+        <div class="chat-scroll" id="chatScroll">
+            <div class="chat-past" id="chatPast"></div>
+            <div class="chat-turn live" id="liveTurn"></div>
+        </div>
+    </div>
 
     <!-- Chat input (the bottom text box) is a component now — markup lives in
          chat_input/chat_input.html and is injected here by chat_input.js, which
@@ -490,16 +500,20 @@
     <script src="settings/settings.js"></script>
     <!-- New Chat button component (mounts into the left bar body) -->
     <script src="chat/chat.js"></script>
-    <!-- Main content T-grid zone components (mount into #mainGrid) -->
-    <script src="container/top_left/top_left.js"></script>
-    <!-- Top-left screen overlays: web globe + shell terminal swap over the screenshot -->
-    <script src="container/top_left/globe_shell.js"></script>
-    <script src="container/top_right/top_right.js"></script>
-    <script src="container/bottom_left/bottom_left.js"></script>
+    <!-- The live turn's zone components (mount into #liveTurn) -->
+    <script src="container/screen/screen.js"></script>
+    <!-- Screen container overlays: web globe + shell terminal swap over the screenshot -->
+    <script src="container/screen/globe_shell.js"></script>
+    <!-- Computer use stage: the moving background and the bot in the screen box -->
+    <script src="container/screen/run_bot.js"></script>
+    <script src="container/user/user.js"></script>
+    <script src="container/agent/agent.js"></script>
     <!-- Tracking progress: the scratchpad stream in the bottom container's right half -->
-    <script src="container/bottom_left/tracking_progress.js"></script>
+    <script src="container/agent/tracking_progress.js"></script>
     <!-- Run reply: the done message in the bottom container once a run ends -->
-    <script src="container/bottom_left/run_reply.js"></script>
+    <script src="container/agent/run_reply.js"></script>
+    <!-- The chat's scroll: earlier turns, the edge fades, the glide to a new turn -->
+    <script src="container/chat_scroll/chat_scroll.js"></script>
     <!-- Big center: injects the main container (the frame) into #mainGrid -->
     <script src="container/big_center_container/big_center_container.js"></script>
     <!-- Chat input (bottom text box): injects into #chatWrapper, fires 'chatinput:ready' -->

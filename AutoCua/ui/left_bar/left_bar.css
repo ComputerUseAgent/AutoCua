@@ -117,7 +117,7 @@
     overflow-y: auto;
 }
 
-/* Footer — settings cog pinned bottom-left, GitHub star pill beside it. */
+/* Footer — settings cog pinned bottom-left, GitHub button beside it. */
 .left-bar .left-bar-footer {
     flex: 0 0 auto;
     display: flex;
@@ -127,37 +127,32 @@
     padding-top: clamp(8px, 1vw, 12px);
 }
 
-/* GitHub star pill: a rounded square beside the settings cog, flat like it:
-   the same height and the same thin outline, no fill. Same font as the
-   New-chat button, and a slight grow on hover. Live count wired by
-   left_bar.js; click opens the repo in the system browser via
-   /api/open-github. */
-.gh-star-pill {
+/* GitHub button: a rounded square beside the settings cog, flat like it:
+   the cog's size and the same thin outline, no fill, the GitHub mark in the
+   middle, and a slight grow on hover. Click opens the repo in the system
+   browser via /api/open-github (left_bar.js). */
+.gh-link {
     flex-shrink: 0;                    /* never squeeze — it clips the GitHub mark */
     display: flex;
     align-items: center;
-    gap: clamp(5px, 0.7vw, 7px);
+    justify-content: center;
     box-sizing: border-box;
-    height: clamp(30px, 3vw, 36px);    /* the cog's size (settings.css) */
-    padding: 0 clamp(8px, 1vw, 10px);
+    width: clamp(30px, 3vw, 36px);     /* the cog's size (settings.css) */
+    height: clamp(30px, 3vw, 36px);
+    padding: 0;
     border: 1px solid rgba(0, 0, 0, 0.08);
     border-radius: clamp(8px, 1vw, 10px);
     background: transparent;
     color: rgba(80, 80, 80, 0.9);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: clamp(11px, 1.1vw, 13px);
-    font-weight: 600;
     cursor: pointer;
     transition: transform 0.15s ease;
     -webkit-user-select: none;
     user-select: none;
 }
-.gh-star-pill:hover {
+.gh-link:hover {
     transform: scale(1.05);
 }
-.gh-mark { width: clamp(13px, 1.4vw, 15px); height: clamp(13px, 1.4vw, 15px); flex-shrink: 0; }
-.gh-star { width: clamp(11px, 1.2vw, 13px); height: clamp(11px, 1.2vw, 13px); flex-shrink: 0; color: #e3a008; }
-.gh-star-count { line-height: 1; }
+.gh-mark { width: clamp(15px, 1.6vw, 18px); height: clamp(15px, 1.6vw, 18px); flex-shrink: 0; }
 
 /* ---- Collapse toggle + collapsed rail --------------------------------------
    The toggle is a small flat circle centred on the bar's right edge, level
@@ -212,7 +207,7 @@ body.left-bar-collapsed {
        cog's size): the logo and the cog do not move, the icons sit centred. */
     --left-bar-w: calc(clamp(5px, 0.7vw, 9px) + 2 * clamp(12px, 1.5vw, 18px) + clamp(30px, 3vw, 36px));
 }
-body.left-bar-collapsed .left-bar .gh-star-pill {
+body.left-bar-collapsed .left-bar .gh-link {
     display: none;
 }
 
@@ -240,7 +235,7 @@ body.left-bar-collapsed .left-bar .left-bar-rail::-webkit-scrollbar {
     display: none;
 }
 body.left-bar-animating:not(.left-bar-collapsed) .left-bar .left-bar-body,
-body.left-bar-animating:not(.left-bar-collapsed) .left-bar .gh-star-pill {
+body.left-bar-animating:not(.left-bar-collapsed) .left-bar .gh-link {
     animation: left-bar-fade-in 0.25s ease 0.12s both;
 }
 @keyframes left-bar-fade-in {
@@ -253,10 +248,10 @@ body.left-bar-animating:not(.left-bar-collapsed) .left-bar .gh-star-pill {
    bar stays where it is under it, untouched: once the cover has faded in the
    bar is hidden, so nothing of it takes a click or a Tab, and it is back the
    moment Settings starts to close (the base rule has no visibility
-   transition). Its logo and GitHub pill stand in the cover's top corners
+   transition). Its logo and GitHub button stand in the cover's top corners
    meanwhile: a copy of the header (left_bar.js) laid out at exactly the same
-   spot, so the logo never moves, plus a copy of the footer's pill on the
-   right. */
+   spot, so the logo never moves, plus a copy of the footer's GitHub button
+   on the right. */
 body.settings-open .left-bar {
     visibility: hidden;
     transition: opacity 0.6s cubic-bezier(0.25, 0.8, 0.25, 1),
@@ -281,8 +276,8 @@ body.settings-open .left-bar-toggle {
     pointer-events: none;
 }
 
-/* In the cover the pill still stands in the top-right corner. */
-.settings-corners .gh-star-pill {
+/* In the cover the GitHub button still stands in the top-right corner. */
+.settings-corners .gh-link {
     margin-left: auto;
     pointer-events: auto;
 }

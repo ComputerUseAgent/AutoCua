@@ -834,13 +834,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Function to update the image stream (called from Python)
     window.updateAgentImage = (base64Image) => {
-        const imgElement = document.querySelector('.stream-image');
+        // The live turn's screen: the chat's earlier turns have one too.
+        const imgElement = document.querySelector('#screenContainer .stream-image');
         if (imgElement && base64Image) {
+            // ...and its box, if a reopened turn had hidden it (chat_scroll.js).
+            if (window.chatScroll) window.chatScroll.setLiveScreen(true);
             // The screen box is only as wide as the frame: its width follows
-            // the frame's aspect ratio (--screen-ar, top_left.css).
+            // the frame's aspect ratio (--screen-ar, screen.css).
             imgElement.onload = () => {
-                const zone = document.getElementById('zoneTopLeft');
-                if (zone && imgElement.naturalHeight) {
+                const zone = document.getElementById('screenContainer');
+                // Held while the Computer use bot comes in (run_bot.js sets it once docked).
+                if (zone && imgElement.naturalHeight && !zone.classList.contains('cu-intro')) {
                     zone.style.setProperty('--screen-ar', String(imgElement.naturalWidth / imgElement.naturalHeight));
                 }
             };
@@ -857,7 +861,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // resetting the main view between chats/runs so a new chat never shows the
     // previous run's screen.
     window.clearAgentImage = () => {
-        const imgElement = document.querySelector('.stream-image');
+        const imgElement = document.querySelector('#screenContainer .stream-image');
         if (imgElement) {
             imgElement.removeAttribute('src');
             imgElement.style.display = 'none';
@@ -866,7 +870,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Scratchpad/milestone streaming — the backend calls this once per entry
     // (~every 1s). It feeds the LIVE "tracking progress" stream in the bottom
-    // container's right half (container/bottom_left/tracking_progress.js), which
+    // container's right half (container/agent/tracking_progress.js), which
     // types each entry on a circle-bullet line and fades away when the run ends.
     // (The old #milestoneStream node was orphaned/hidden; this is the visible
     // home now.)
@@ -1037,7 +1041,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window.agentComplete();
     };
 
-    // Web globe + shell terminal now live in container/top_left/globe_shell.js —
+    // Web globe + shell terminal now live in container/screen/globe_shell.js —
     // they swap in over the screenshot while their tool runs. The backend hooks
     // window.webSearchStart/End and window.shellStart/Result/End are defined there.
 
@@ -1068,7 +1072,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (telegramTaskOrb) telegramOrbPost('pcbtn:hide');
     };
 
-    // (shell terminal moved to container/top_left/globe_shell.js — swaps over the screenshot)
+    // (shell terminal moved to container/screen/globe_shell.js — swaps over the screenshot)
 
     // =====================================================================
     // CLI streaming UI — pills for parallel CLI subprocesses during cli_await.

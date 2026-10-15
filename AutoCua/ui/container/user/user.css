@@ -1,11 +1,11 @@
 /* =====================================================================
-   Message container — the user's message for this run, top right of the
+   User container — the user's message for this run, top right of the
    main grid like a chat: a light grey box, only as tall as its text, with
    the screen and the tool rows below it. Hidden (and its gap closed) until
-   a message is sent; top_right.js fills it. Injected into #mainGrid (row 1).
-   (The folder keeps its old name, top_right.)
+   a message is sent; user.js fills it. Injected into #liveTurn (row 1);
+   the chat's earlier turns reuse these classes (chat_scroll.js).
    ===================================================================== */
-.top-right-zone {
+.user-container {
     grid-column: 1 / -1;
     grid-row: 1;
     justify-self: end;                      /* right-aligned, as tall as its text */
@@ -33,12 +33,13 @@
 }
 .user-message-text::-webkit-scrollbar { display: none; }
 
-/* No message yet (idle, new chat): no box, and no gap above the screen. */
-.top-right-zone.is-empty { display: none; }
-.main-grid:has(> .top-right-zone.is-empty) { --msg-gap: 0px; }
+/* No message yet (idle, new chat): no box, and no gap above the screen;
+   the screen's height counts no message either (chat_scroll.css). */
+.user-container.is-empty { display: none; }
+.chat-turn:has(> .user-container.is-empty) { --msg-gap: 0px; --turn-msg-h: 0px; }
 
 /* While the big-center stage covers the grid (run done / stopped / old chat
    reopened) the box hides, like the other zones: the stage is transparent. */
-.main-grid:has(.big-center-zone.active) .top-right-zone {
+.main-grid:has(.big-center-zone.active) .user-container {
     visibility: hidden;
 }

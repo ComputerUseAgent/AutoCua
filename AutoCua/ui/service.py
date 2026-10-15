@@ -990,9 +990,16 @@ def get_provider_api_key(provider):
 webview_window = None
 active_agent_stop_event = None
 active_agent_session_id = None
+# The newest run's id. Unlike active_agent_session_id, Stop and New chat leave
+# it alone: an older run's late video must never land on a newer run's turn.
+_latest_run_id = None
 # Live recordings by run id, so Stop and New chat can end the retired run's
 # video at the click instead of when its thread finally unwinds.
 _run_recorders = {}
+# Recording folders whose screen.mp4 is being compressed right now. A reopened
+# chat does not load that raw file (on Windows a file being read cannot be
+# deleted, so it would stay); the video comes to its turn once it is done.
+_compressing = set()
 
 
 def _stop_run_recording(run_id, tail=0.0):
@@ -1004,31 +1011,45 @@ def _stop_run_recording(run_id, tail=0.0):
 def _recording_done(run_id, chat_id):
     """The recorder's finish callback for one run (it runs on the recorder's
     thread): compress screen.mp4 into screen_1080p.mp4 (utils/video_compress.py),
-    which replaces it, then show the video in the screen box where the
-    screenshots were. Skipped when a newer run has the screen by then; the page
-    also drops it if the user has moved to another chat."""
+    which replaces it, then show the video in the run's turn, where its
+    screenshots were. While it compresses the page shows "Preparing video"
+    (run_bot.js). That and "no video" are for the latest run only: once a
+    newer run has started, even one stopped since, the live screen box is its.
+    The video itself goes out with the run's id either way: a run whose turn
+    became an earlier one in the chat (the next task was sent meanwhile) gets
+    it there (chat_scroll.js). The page drops a push for a chat the user has
+    left."""
     def done(folder):
-        if not folder:
-            return
-        video = folder / "screen.mp4"
-        try:
-            # Its ffmpeg: the system one, else imageio-ffmpeg's. Without either,
-            # the uncompressed video is shown and kept.
-            if shutil.which("ffmpeg") or importlib.util.find_spec("imageio_ffmpeg"):
-                small = video_compress.compress(str(video), str(folder / "screen_1080p.mp4"))
-                if small:
-                    video.unlink()
-                    video = Path(small)
-        except Exception:
-            debug_exception("compress recording")
-        if not webview_window or active_agent_session_id not in (None, run_id) or not video.exists():
-            return
-        try:
-            url = f"/api/recordings/{folder.name}/{video.name}"
-            webview_window.evaluate_js(
-                f"window.showRunVideo && window.showRunVideo('{_js_escape(url)}', '{_js_escape(chat_id)}')")
-        except Exception:
-            debug_exception("show run video")
+        def push(js, any_run=False):
+            if webview_window and (any_run or run_id == _latest_run_id):
+                try:
+                    webview_window.evaluate_js(js)
+                except Exception:
+                    debug_exception("run video push")
+        chat = _js_escape(chat_id)
+        video = folder / "screen.mp4" if folder else None
+        if video and video.exists():
+            push(f"window.runVideoPreparing && window.runVideoPreparing('{chat}')")
+            _compressing.add(folder.name)
+            try:
+                # Its ffmpeg: the system one, else imageio-ffmpeg's. Without
+                # either, the uncompressed video is shown and kept.
+                if shutil.which("ffmpeg") or importlib.util.find_spec("imageio_ffmpeg"):
+                    small = video_compress.compress(str(video), str(folder / "screen_1080p.mp4"))
+                    if small:
+                        video.unlink()
+                        video = Path(small)
+            except Exception:
+                debug_exception("compress recording")
+            finally:
+                _compressing.discard(folder.name)
+        if video and video.exists():
+            url = _js_escape(f"/api/recordings/{folder.name}/{video.name}")
+            run = _js_escape(run_id)
+            push(f"window.showRunVideo && window.showRunVideo('{url}', '{chat}', '{run}')", any_run=True)
+        else:
+            # Nothing to show: the page stops waiting for it.
+            push(f"window.runVideoFailed && window.runVideoFailed('{chat}')")
     return done
 
 
@@ -1223,6 +1244,7 @@ MIME_TYPES = {
     '.jpeg': 'image/jpeg',
     '.gif': 'image/gif',
     '.webp': 'image/webp',
+    '.mp4': 'video/mp4',
     '.ico': 'image/x-icon',
     '.svg': 'image/svg+xml',
     '.woff': 'font/woff',
@@ -1337,6 +1359,19 @@ def serve_logo():
             return response
         return "Logo not found", 404
     return send_from_directory(str(get_AutoCua_path() / 'logo'), 'logo.png')
+
+
+@app.route('/simulation_background.mp4')
+def serve_simulation_background():
+    """The moving background of the screen box during a Computer use run
+    (container/screen/run_bot.js), from AutoCua/logo/."""
+    if IS_COMPILED:
+        response = serve_embedded_file('AutoCua/logo/simulation_background.mp4')
+        if response:
+            return response
+        return "Not found", 404
+    return send_from_directory(str(get_AutoCua_path() / 'logo'), 'simulation_background.mp4',
+                               mimetype='video/mp4')
 
 
 # =============================================================================
@@ -1743,6 +1778,26 @@ def _render_exchange_html(exchanges):
     return exchanges or []
 
 
+def _exchange_videos(exchanges):
+    """Add video_url to each exchange row whose run was recorded (`recording`,
+    its folder in AutoCua_data/recordings) while that video is still on disk:
+    the reopen view (chat.js) shows it in the screen box again. screen.mp4 if
+    it is still there (it could not be compressed, or the app closed while it
+    was), else the compressed screen_1080p.mp4 (_recording_done). None while
+    it is being compressed: it is pushed to its turn when done."""
+    for x in (exchanges or []):
+        name = str(x.get('recording') or '') if isinstance(x, dict) else ''
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', name):    # a folder name, nothing else
+            continue
+        if name in _compressing:            # its video is pushed to the turn when done
+            continue
+        for file in ('screen.mp4', 'screen_1080p.mp4'):
+            if (data_root() / 'recordings' / name / file).is_file():
+                x['video_url'] = f"/api/recordings/{name}/{file}"
+                break
+    return exchanges or []
+
+
 def send_web_status_to_frontend(status):
     global webview_window
     if webview_window:
@@ -1886,7 +1941,7 @@ def send_flow_to_frontend(event, payload=None):
 # =============================================================================
 @app.route('/api/recordings/<path:name>')
 def recording_video(name):
-    """A run's video for the screen box (showRunVideo in container/top_left).
+    """A run's video for the screen box (showRunVideo in container/screen).
     send_from_directory keeps the path inside the recordings folder and answers
     range requests, so the player can seek."""
     return send_from_directory(str(data_root() / 'recordings'), name, mimetype='video/mp4')
@@ -1896,7 +1951,7 @@ def recording_video(name):
 def start_agent():
     """Start the agent with the provided provider, model, and task"""
     from flask import request
-    global active_agent_stop_event, active_agent_session_id
+    global active_agent_stop_event, active_agent_session_id, _latest_run_id
 
     try:
         data = request.get_json()
@@ -1964,6 +2019,7 @@ def start_agent():
 
         active_agent_stop_event = threading.Event()
         active_agent_session_id = str(time.time())   # per-RUN guard
+        _latest_run_id = active_agent_session_id
         current_session_id = active_agent_session_id
 
         def run_agent():
@@ -2077,6 +2133,10 @@ def start_agent():
                         on_done=_recording_done(current_session_id, chat_session_id))
                     if recorder:
                         _run_recorders[current_session_id] = recorder
+                        # Stop or New chat came before the recorder was up:
+                        # end its video at the click, as they do once it is.
+                        if not run_is_current():
+                            _stop_run_recording(current_session_id, tail=1.0)
                 # Desktop says an agent is driving: lavender cursor + edge glow.
                 # Computer use only — web and iOS runs don't drive this desktop.
                 # Inside the try, so the finally below always takes it back —
@@ -2154,6 +2214,7 @@ def start_agent():
                         run_pkg=run_pkg,                        # which agent produced this memory
                         agent_mode=agent_mode_for(run_pkg),     # per-chat lock
                         sub_agent_last_id=getattr(agent, "sub_agent_last_id", None),  # ids keep counting
+                        recording=recorder.path.name if recorder else None,  # its video, for reopen
                     )
                 except Exception:
                     debug_exception("persist chat session on finish")
@@ -2201,8 +2262,9 @@ def start_agent():
         thread.daemon = True
         thread.start()
 
-        # Return the chat session id so a brand-new chat's id reaches the frontend.
-        return jsonify({'status': 'started', 'session_id': chat_session_id})
+        # Return the chat session id so a brand-new chat's id reaches the frontend,
+        # and the run's id: its video finds its turn in the chat by it.
+        return jsonify({'status': 'started', 'session_id': chat_session_id, 'run_id': current_session_id})
 
     except Exception as e:
         debug_exception("start_agent API")
@@ -2508,7 +2570,7 @@ def start_shell():
     run so the stop orb (/api/stop-agent) and New chat work unchanged.
     """
     from flask import request
-    global active_agent_stop_event, active_agent_session_id
+    global active_agent_stop_event, active_agent_session_id, _latest_run_id
 
     try:
         data = request.get_json() or {}
@@ -2589,6 +2651,7 @@ def start_shell():
 
         active_agent_stop_event = threading.Event()
         active_agent_session_id = str(time.time())   # per-RUN guard
+        _latest_run_id = active_agent_session_id
         current_session_id = active_agent_session_id
         stop_event = active_agent_stop_event
 
@@ -3514,12 +3577,13 @@ def get_chat(chat_id):
     by ui/markdown.py, same as the live run-end path — so a reopened chat
     reads identically to the notes that were on screen when the run finished.
     The raw `task`/`done_message` stay in the payload for any consumer that
-    wants plain text."""
+    wants plain text. A recorded run's exchange carries its `video_url`."""
     try:
         data = conversation.get_session(chat_id)
         if not data:
             return jsonify({'error': 'Not found'}), 404
         _render_exchange_html(data.get('exchanges'))
+        _exchange_videos(data.get('exchanges'))
         data['last_done_message_html'] = md_render(data.get('last_done_message', ''))
         return jsonify(data)
     except Exception:

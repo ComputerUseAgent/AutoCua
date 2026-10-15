@@ -82,8 +82,8 @@ body {
     overflow: hidden;
 }
 
-/* Screenshot / globe / shell now live in the top-left container
-   (ui/container/top_left/): the globe + shell JS in globe_shell.js and ALL
+/* Screenshot / globe / shell now live in the screen container
+   (ui/container/screen/): the globe + shell JS in globe_shell.js and ALL
    their CSS in globe_shell.css (they swap in over the screenshot). The shared
    .liquidGlass-* layers below stay — the CLI pills use them. */
 
@@ -129,7 +129,7 @@ body {
     justify-content: center;
 }
 
-/* Shell terminal CARD visuals moved to container/top_left/globe_shell.css
+/* Shell terminal CARD visuals moved to container/screen/globe_shell.css
    (kept with the globe + shell code for clean separation). */
 
 /* --------------------------------------------------------------
@@ -525,7 +525,7 @@ body {
     padding-left: calc(var(--left-bar-w) + clamp(10px, 2vw, 30px));
     padding-right: clamp(10px, 2vw, 30px);
     padding-top: clamp(5px, 0.7vw, 9px);
-    padding-bottom: clamp(160px, 15vw, 196px);
+    padding-bottom: clamp(118px, calc(30px + 10.2vw), 159px);
 
     opacity: 0;
     visibility: hidden;
@@ -541,15 +541,16 @@ body {
 
 /* While a Telegram task occupies the machine: fade the app's UI components away.
    The orb + message live in the transparent overlay above. We fade the whole
-   T-grid CELLS (#zoneTopLeft / #zoneTopRight / #zoneBottomLeft) rather than the
-   inner cards — the cell carries the chrome. */
+   T-grid CELLS (#screenContainer / #userContainer / #agentContainer) rather than the
+   inner cards — the cell carries the chrome — and the chat's earlier turns. */
 body.tg-occupied #chatWrapper,
 body.tg-occupied #llmWrapper,
 body.tg-occupied #settingsBtn,
 body.tg-occupied #welcomeHero,
-body.tg-occupied #zoneTopLeft,
-body.tg-occupied #zoneTopRight,
-body.tg-occupied #zoneBottomLeft {
+body.tg-occupied #chatPast,
+body.tg-occupied #screenContainer,
+body.tg-occupied #userContainer,
+body.tg-occupied #agentContainer {
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.4s ease;
@@ -1325,11 +1326,11 @@ body.settings-open #chatWrapper {
 
 /* Chat Container - Big vertical rectangle with equal gaps */
 /* =====================================================================
-   Main content grid — one chat turn, top to bottom, to the right of the left
-   bar and inside the big center container's frame: the user's message (top
-   right, as tall as its text), the live screen (full width), then the tool
-   response | tracking progress row. The zones are injected by the
-   container/top_right, top_left and bottom_left components.
+   Main content box — to the right of the left bar, inside the big center
+   container's frame. One cell, shared by the frame (big_center_container),
+   the chat that scrolls under it (#chatScroll, container/chat_scroll: the
+   turns, each the user's message, the screen and the tool response |
+   tracking progress row) and the Shell use panel (#cliContainer).
    ===================================================================== */
 .main-grid {
     position: fixed;
@@ -1338,20 +1339,15 @@ body.settings-open #chatWrapper {
     /* Same top as the left bar (left_bar.css), so the content starts on the
        bar's top line and gets the full height. */
     top: clamp(5px, 0.7vw, 9px);
-    /* Leave room at the bottom for the chat input (the agent-start text box). */
-    /* Raised so the bottom container clears the "Agent activated" strip that
-       sits just above the chat input. */
-    bottom: clamp(160px, 15vw, 196px);
+    /* Down to the chat input (the agent-start text box): one gap (the
+       frame's inner one) above its top while idle, the tallest it is without
+       a long draft. Running, it is a slim line with the "Agent activated"
+       strip, both lower. The hero and the Telegram overlay share this box. */
+    bottom: clamp(118px, calc(30px + 10.2vw), 159px);
     z-index: 13;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    /* message | gap | screen | gap | tools. The gaps are tracks of their own
-       so the message's can close while there is no message (top_right.css);
-       screen and tools share the rest, screen bigger (tweakable). */
-    --msg-gap: clamp(10px, 1.5vw, 18px);
-    grid-template-rows: auto var(--msg-gap) minmax(0, 1.4fr) clamp(10px, 1.5vw, 18px) minmax(0, 1fr);
-    column-gap: clamp(10px, 1.5vw, 18px);
-    row-gap: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
 }
 
 /* =====================================================================
@@ -1365,7 +1361,7 @@ body.settings-open #chatWrapper {
     left: calc(var(--left-bar-w) + clamp(10px, 2vw, 30px));
     right: clamp(10px, 2vw, 30px);
     top: clamp(5px, 0.7vw, 9px);
-    bottom: clamp(160px, 15vw, 196px);
+    bottom: clamp(118px, calc(30px + 10.2vw), 159px);
     z-index: 12;                /* just under the grid zones; pointer-transparent */
     display: flex;
     flex-direction: column;

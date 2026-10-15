@@ -1,11 +1,11 @@
 /* =====================================================================
-   Bottom-left container — "Tool response" flow. Caption top-left; below it a
+   Agent container — "Tool response" flow. Caption top-left; below it a
    vertical line down the left with the branch logos on it. The steps are BUILT
-   FROM CONFIG in bottom_left.js; the animation is STATE-DRIVEN: bottom_left.js
+   FROM CONFIG in agent.js; the animation is STATE-DRIVEN: agent.js
    adds .line-in (draw the segment) and .icon-in (reveal the logo) per step, types
    the label, and morphs the loader to a tick on the canvas. No @keyframes timeline.
    ===================================================================== */
-.bottom-left-zone {
+.agent-container {
     grid-column: 1 / -1;     /* the whole bottom row, under the screen */
     grid-row: 5;             /* main grid: message | gap | screen | gap | tools */
     min-width: 0;
@@ -35,8 +35,8 @@
 /* While the big-center stage covers the grid (run done / stopped / old chat
    reopened) this cell hides completely — the stage is transparent, and a long
    notes list would clash with the tool-response words behind it. Same
-   treatment as the top-left screenshot; returns on the next run. */
-.main-grid:has(.big-center-zone.active) .bottom-left-zone {
+   treatment as the screen container's screenshot; returns on the next run. */
+.main-grid:has(.big-center-zone.active) .agent-container {
     visibility: hidden;
 }
 
@@ -54,7 +54,7 @@
     opacity: 0;
     transition: opacity 0.35s ease;
 }
-.bottom-left-zone.flow-started .tool-response-label { opacity: 1; }
+.agent-container.flow-started .tool-response-label { opacity: 1; }
 .tool-used-count {
     font-weight: 600;
     color: rgba(40, 40, 40, 0.9);
@@ -68,7 +68,7 @@
     position: relative;
     min-height: 0;
     --tf-line: rgba(0, 0, 0, 0.22);
-    --tf-icon: 24px;                      /* logo size — keep == ICON in bottom_left.js */
+    --tf-icon: 24px;                      /* logo size — keep == ICON in agent.js */
     --tf-fade: clamp(14px, 2.6vh, 20px);  /* top fade band ≈ one logo + connector */
     opacity: 1;
     transition: opacity 0.45s ease;
@@ -159,5 +159,5 @@
     to   { background-position: -25% 0; }
 }
 
-/* The web globe + shell terminal moved to the top-left container
-   (container/top_left/globe_shell.{js,css}) — they swap with the screenshot now. */
+/* The web globe + shell terminal moved to the screen container
+   (container/screen/globe_shell.{js,css}) — they swap with the screenshot now. */

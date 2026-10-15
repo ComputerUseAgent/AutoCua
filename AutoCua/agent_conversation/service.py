@@ -103,6 +103,7 @@ class ConversationService:
         # The reopen-view transcript: one {task, done_message, status} per run
         # ending, appended by save_run — separate from conversation.json (which
         # is REWRITTEN each run) so the full request/outcome history survives.
+        # A recorded run's row also names its video (`recording`).
         return self._session_dir(session_id) / "exchanges.json"
 
     # ── one-time migration: chats out of the install folder ────────────────
@@ -379,17 +380,22 @@ class ConversationService:
                 logger.exception("read exchanges %s", session_id)
         return []
 
-    def _append_exchange(self, session_id, task, done_message, status) -> None:
+    def _append_exchange(self, session_id, task, done_message, status, recording=None) -> None:
         """Append this run's (user request, terminal message) pair. Every run
         ending records one — completion, user stop, error alike — so a reopened
-        chat can replay '1. request / outcome' for its whole life."""
+        chat can replay '1. request / outcome' for its whole life. `recording`
+        is the run's video folder in AutoCua_data/recordings, if it was
+        recorded: the reopened chat shows that video again."""
         items = self._read_exchanges(session_id)
-        items.append({
+        item = {
             "task": str(task or ""),
             "done_message": str(done_message or ""),
             "status": str(status or ""),
             "at": int(time.time()),
-        })
+        }
+        if recording:
+            item["recording"] = str(recording)
+        items.append(item)
         f = self._exchanges_file(session_id)
         try:
             f.parent.mkdir(parents=True, exist_ok=True)
@@ -558,7 +564,7 @@ class ConversationService:
     def save_run(self, session_id, assistant_messages, tool_responses, status,
                  message, task, last_messages=None, context_tokens=None,
                  context_cap=None, run_pkg=None, agent_mode=None,
-                 request_no=None, sub_agent_last_id=None):
+                 request_no=None, sub_agent_last_id=None, recording=None):
         """Persist a finished run + refresh index meta. Writes TWO things:
           - conversation.json  — the lean resume seed (assistant/tool turns).
           - memory_log.txt      — the TRUE debug memory: the exact final payload
@@ -582,8 +588,8 @@ class ConversationService:
             )
             self._write_session(session_id, payload)
             done_message = payload["done_message"]
-            # Reopen-view transcript: this run's request + how it ended.
-            self._append_exchange(session_id, task, done_message, status)
+            # Reopen-view transcript: this run's request + how it ended (+ its video).
+            self._append_exchange(session_id, task, done_message, status, recording)
 
             # TRUE memory log (debug): render the exact payload the model received.
             if last_messages:

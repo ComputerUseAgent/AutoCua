@@ -1,8 +1,8 @@
 // Shared canvas icon engine + action-chain factory for the CLI coder card.
 //
-// Painters are ported from the proven main-agent tool-flow (container/bottom_left/bottom_left.js)
-// and from tool_animation.html (grep/glob/view/replace — which bottom_left dropped). This module
-// is kept SEPARATE from bottom_left.js so the working main chain is never touched.
+// Painters are ported from the proven main-agent tool-flow (container/agent/agent.js)
+// and from tool_animation.html (grep/glob/view/replace — which agent.js dropped). This module
+// is kept SEPARATE from agent.js so the working main chain is never touched.
 //
 // API (window.CliToolIcons):
 //   createChain(treeEl, {orientation})        -> { addAction(tool)->bool, dispose }
@@ -13,7 +13,7 @@
 (function () {
     'use strict';
 
-    var ICON = 24;                       // logo size — same as bottom_left's chain (keep == CSS .cc-chain-icon)
+    var ICON = 24;                       // logo size — same as agent.js's chain (keep == CSS .cc-chain-icon)
     var COLOR = 'rgba(85, 90, 100, 0.92)';
     var VSCALE = (ICON / 2) / 44;        // source coords (~±44) -> ICON-px icon
     var TYPE_MS = 12;                    // per-char typing
@@ -33,7 +33,7 @@
     }
     function vecPainter(fn) { return function (ctx, cx, cy, t, alpha) { vecPaint(ctx, cx, cy, alpha, fn); }; }
 
-    // --- shell terminal (window + ">" + 3 output lines) — from bottom_left vecShell ---
+    // --- shell terminal (window + ">" + 3 output lines) — from agent.js vecShell ---
     function vecShell(ctx) {
         ctx.lineWidth = 3.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         ctx.beginPath();
@@ -47,7 +47,7 @@
         });
     }
 
-    // --- server rack ("communicating with llm service") — from bottom_left vecServer ---
+    // --- server rack ("communicating with llm service") — from agent.js vecServer ---
     function vecServer(ctx) {
         ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         ctx.beginPath();
@@ -127,8 +127,8 @@
         ctx.restore();
     }
 
-    // --- web globe — bottom_left's "searching" orb: a dotted lat/long sphere with a
-    //     scan meridian sweeping it (same constants; see bottom_left.js for the tuning
+    // --- web globe — agent.js's "searching" orb: a dotted lat/long sphere with a
+    //     scan meridian sweeping it (same constants; see agent.js for the tuning
     //     notes). Each dot's ink drives its ALPHA over the chain grey, so the near/far
     //     depth read survives in one colour. ---
     var ORB_RGB = '85, 90, 100';                 // == COLOR, minus its alpha
@@ -180,8 +180,8 @@
         };
     }
 
-    // --- composing — bottom_left's "thinking" orb: an undulating multi-band dotted sash
-    //     over a faint fibonacci scaffold (same constants; see bottom_left.js for the
+    // --- composing — agent.js's "thinking" orb: an undulating multi-band dotted sash
+    //     over a faint fibonacci scaffold (same constants; see agent.js for the
     //     tuning notes). The opening phase shows it for the thinking beat. ---
     var C_SPEED = 3.12, C_LANES = 12, C_SEGS = 44, C_GHOST = 38;
     var C_RBASE = 0.94, C_RDEPTH = 1.45, C_RMIN = 0.3;
@@ -329,7 +329,7 @@
         ctx.restore();
     }
 
-    // --- agent mascot head (blinking) — from bottom_left agentPainter ---
+    // --- agent mascot head (blinking) — from agent.js agentPainter ---
     // opts.glow: () => bool. When it returns true the head wears the stop orb's soft
     // colours — used to show the agent is WORKING. A live getter, not a flag, so the
     // same painter instance can be switched at runtime. The chain's small `agent`
@@ -391,7 +391,7 @@
         };
     }
 
-    // --- pen writing (write/insert) — from bottom_left penPainter ---
+    // --- pen writing (write/insert) — from agent.js penPainter ---
     var PEN_LINE_REST = -26;
     function drawPenShape(ctx, lineLeftX) {
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -412,7 +412,7 @@
         };
     }
 
-    // --- open book / scratchpad (page turns) — from bottom_left bookPainter ---
+    // --- open book / scratchpad (page turns) — from agent.js bookPainter ---
     var BOOK_LINES = [[5, -11, 19, -10], [5, -4, 26, -3], [6, 3, 31, 4], [6, 10, 35, 11]];
     function drawBookPage(ctx, m) {
         ctx.beginPath();
@@ -453,7 +453,7 @@
         };
     }
 
-    // --- spinner loader (fallback / wait) — from bottom_left loaderPainter ---
+    // --- spinner loader (fallback / wait) — from agent.js loaderPainter ---
     var L_OUTER = 12, L_INNER = 8, L_PER = 14;
     function genLoader() {
         var d = [], i, j, t;
@@ -510,7 +510,7 @@
     // elsewhere in the card (right tracker / not shown) and so are skipped. `minion` IS shown
     // here now (the three-head logo) since the user wants the dispatch represented in the chain.
 
-    // "done" ✓ badge — filled circle + white check (from bottom_left drawTick)
+    // "done" ✓ badge — filled circle + white check (from agent.js drawTick)
     function drawTick(ctx, cx, cy, alpha) {
         var R = ICON / 2 - 1.5;
         ctx.save(); ctx.translate(cx, cy); ctx.globalAlpha = alpha;
