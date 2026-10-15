@@ -2,9 +2,8 @@
    Big center container — the main container, ALWAYS ON: one thin grey frame
    around the whole grid, with the zones inside it. It spans every cell and
    reaches out over the grid's padding to the grid's edge, so the zones sit
-   one gap inside its line. It also holds the full-size stages (notes_stage/
-   mounts Agent Notes, skills/ the Skills page): they fill the frame and show
-   only while it is .active (run end, stop-button, saved-chat reopen, Skills).
+   one gap inside its line. It also holds the full-size Skills stage
+   (skills/): it fills the frame and shows only while it is .active.
    ===================================================================== */
 .main-grid {
     --main-pad: clamp(10px, 1.5vw, 18px);   /* the zones' gap */

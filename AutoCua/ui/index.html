@@ -14,10 +14,12 @@
     <link rel="stylesheet" href="container/top_right/top_right.css">
     <link rel="stylesheet" href="container/bottom_left/bottom_left.css">
     <link rel="stylesheet" href="container/bottom_left/tracking_progress.css">
+    <link rel="stylesheet" href="container/bottom_left/run_reply.css">
     <!-- Big center — the main container, always on: the frame around the
-         zones (notes_stage and Skills mount into it) -->
+         zones (Skills mounts into it) -->
     <link rel="stylesheet" href="container/big_center_container/big_center_container.css">
-    <!-- Notes stage — Agent Notes content (lives inside big_center) -->
+    <!-- The .agent-note* rows (Shell use's notes under the terminal) and the
+         .md Markdown styles every rendered reply uses -->
     <link rel="stylesheet" href="notes_stage/notes_stage.css">
     <!-- Chat input (bottom text box) component -->
     <link rel="stylesheet" href="chat_input/chat_input.css">
@@ -183,11 +185,12 @@
 
     <!-- Right side is intentionally transparent now: the glass card layers were
          removed so only the text box shows over the white background. -->
-    <!-- Main content grid: screenshot (top-left) | empty, kept for the user's message
-         (top-right); the bottom row is one container: tool-response chain (left half)
-         | tracking progress (right half). (The old bottom-right todo list is parked in
-         container/dead/.) big_center frames them all and holds the notes_stage.
-         Zones are injected by their components. -->
+    <!-- Main content grid, one chat turn top to bottom: the user's message (top
+         right), the screen (the run's video once it ends), then one container:
+         tool-response chain (left half) | tracking progress (right half), swapped
+         for the run's reply once it ends. (The old bottom-right todo list and the
+         Agent Notes stage are parked in container/dead/.) big_center frames them
+         all. Zones are injected by their components. -->
     <!-- Transient top-center notification (driven by window.showToast) -->
     <div id="appToast" class="app-toast" role="status" aria-live="polite"></div>
 
@@ -422,22 +425,6 @@
                     </div>
                 </div>
 
-                <!-- Recording — while on, every Computer use / Web use run is recorded
-                     as two videos (the screen and this window) into
-                     AutoCua_data/recordings (utils/run_recorder.py). Hidden until
-                     /api/recording says this machine can record (OpenCV on macOS,
-                     imageio-ffmpeg on Windows and Linux).
-                     Wired by settings/settings.js. -->
-                <div class="settings-view settings-recording-view" id="settingsRecordingView" style="display:none;">
-                    <div class="settings-section-heading">Recording</div>
-                    <div class="remote-row">
-                        <span class="remote-row-label">Record runs</span>
-                        <button class="settings-switch" id="recordRunsSwitch" type="button" role="switch" aria-checked="false" aria-label="Record runs">
-                            <span class="settings-switch-thumb"></span>
-                        </button>
-                    </div>
-                </div>
-
             </div>
             <div class="settings-footer">
                 <button class="settings-cancel-btn" id="settingsCancelBtn" type="button">Cancel</button>
@@ -511,15 +498,15 @@
     <script src="container/bottom_left/bottom_left.js"></script>
     <!-- Tracking progress: the scratchpad stream in the bottom container's right half -->
     <script src="container/bottom_left/tracking_progress.js"></script>
+    <!-- Run reply: the done message in the bottom container once a run ends -->
+    <script src="container/bottom_left/run_reply.js"></script>
     <!-- Big center: injects the main container (the frame) into #mainGrid -->
     <script src="container/big_center_container/big_center_container.js"></script>
-    <!-- Notes stage: mounts Agent Notes into #zoneBigCenter -->
-    <script src="notes_stage/notes_stage.js"></script>
     <!-- Chat input (bottom text box): injects into #chatWrapper, fires 'chatinput:ready' -->
     <script src="chat_input/chat_input.js"></script>
     <!-- Agent mode: injects into .input-area-wrapper on 'chatinput:ready' (design-only for now) -->
     <script src="agent_mode/agent_mode.js"></script>
-    <!-- Skills: scroll icon (into .agent-mode-wrap) + a stage inside #zoneBigCenter, one-at-a-time with Agent Notes (design-only for now) -->
+    <!-- Skills: scroll icon (into .agent-mode-wrap) + a stage inside #zoneBigCenter (design-only for now) -->
     <script src="skills/skills.js"></script>
     <!-- Parked: the proven iOS connect logic (window.iosSession) — attached once the design is final -->
     <script src="agent_mode/ios_session.js"></script>

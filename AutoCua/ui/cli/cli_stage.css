@@ -20,7 +20,7 @@
    cli_await, then it slides up into the center. */
 #cliContainer {
     grid-column: 1 / -1;        /* full width, both columns */
-    grid-row: 1 / 3;            /* span both rows */
+    grid-row: 1 / -1;           /* span every row */
     align-self: stretch;        /* FILL the grid area — a definite height so stacked agents can
                                    flex-fill it and spread down the whole panel (a percentage
                                    height here didn't resolve, collapsing the panel to content). */

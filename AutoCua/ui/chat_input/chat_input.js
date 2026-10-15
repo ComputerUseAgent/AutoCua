@@ -101,6 +101,8 @@
                 if (window.trackingProgress) window.trackingProgress.start();
                 resetChatUi();
             }
+            // The sent message, top right of the main area like a chat.
+            if (window.showUserMessage) window.showUserMessage(message);
 
             // Shell use bypasses the main agent: the task goes STRAIGHT to the
             // coder agent (backend: run_shell_task in service.py) and the CLI
@@ -184,14 +186,21 @@
         // Expose so script.js's agentComplete() can morph back on natural completion.
         window.chatInputRestoreIdle = restoreIdle;
 
-        // Clear the previous run's visual outputs (milestones, todo card, agent
-        // notes). Shared by the send path AND the New-chat button (chat.js) so a
+        // Clear the previous run's visual outputs (milestones, video, reply).
+        // Shared by the send path AND the New-chat button (chat.js) so a
         // fresh chat and a fresh run reset identically. Idempotent / guarded.
         function resetChatUi() {
             const milestoneStream = document.getElementById('milestoneStream');
             if (milestoneStream) milestoneStream.innerHTML = '';
-            // Drop the previous run's "Agent Notes" so the screenshot area is live again.
-            if (window.hideAgentNotes) window.hideAgentNotes();
+            // The previous message box goes; the send path shows the new one.
+            if (window.showUserMessage) window.showUserMessage('');
+            // Drop the previous run's video and reply, so the screen box and the
+            // bottom container are live again.
+            if (window.hideRunVideo) window.hideRunVideo();
+            if (window.hideRunReply) window.hideRunReply();
+            // A full-size stage (Skills) gives the grid back; skills.js drops its own panel.
+            const bigCenter = document.getElementById('zoneBigCenter');
+            if (bigCenter) bigCenter.classList.remove('active');
             // Clear the previous run's screenshot + tool-response chain (and any
             // web/shell overlay) so a fresh chat / new run starts on a clean canvas
             // — no stale screen or "Tool response" steps bleeding into the next chat.
@@ -232,27 +241,6 @@
                 labelTimer = setTimeout(() => flipToggle.classList.remove('show-label'), 1200);
             });
         }
-
-        // Recording dot — the backend calls this: on=true once a run's recorder
-        // has started (Settings -> Recording), on=false once its videos are
-        // stored. The run id keeps a finished recording from hiding the dot of
-        // a newer one that started during its last second.
-        const recIndicator = (root || document).querySelector('#recIndicator');
-        let recRun = null, recTimer = null;
-        window.recordingIndicator = (on, runId) => {
-            if (!recIndicator) return;
-            if (on) {
-                recRun = runId;
-                clearTimeout(recTimer);
-                recIndicator.classList.remove('leaving');
-                recIndicator.classList.add('on');
-            } else if (runId === recRun) {
-                recRun = null;
-                recIndicator.classList.remove('on');
-                recIndicator.classList.add('leaving');
-                recTimer = setTimeout(() => recIndicator.classList.remove('leaving'), 600);
-            }
-        };
 
         // Enter (without Shift) starts the agent; Shift+Enter inserts a newline.
         chatInput.addEventListener('keydown', (e) => {
@@ -297,6 +285,11 @@
                 window.toolFlow.onFlow('error', JSON.stringify({ text: 'agent interrupted' }));
                 window.toolFlow.onFlow('run_end');
             }
+            // The run's reply, like a chat: a retired run never sends its own.
+            // A full-size stage (Skills) gives the grid back so it shows.
+            if (window.showRunReply) window.showRunReply('Stopped.', 'stopped');
+            const bigCenter = document.getElementById('zoneBigCenter');
+            if (bigCenter) bigCenter.classList.remove('active');
 
             fetch('/api/stop-agent', { method: 'POST' })
                 .then(res => res.json())

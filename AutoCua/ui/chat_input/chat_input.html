@@ -37,14 +37,6 @@
         <textarea class="chat-input" placeholder="Select a model in Settings to start..." rows="1" disabled></textarea>
 
         <div class="input-toolbar">
-            <!-- Recording dot: exists only while a run is being recorded (turned on
-                 in Settings → Recording). The backend shows it once the recorder
-                 starts and fades it out once the videos are stored
-                 (window.recordingIndicator in chat_input.js). -->
-            <span class="rec-indicator" id="recIndicator" role="status" aria-label="Recording">
-                <span class="rec-dot"></span>
-            </span>
-
             <!-- Fast / Quality flip — UI-ONLY toggle (future feature slot, nothing
                  wired behind it yet). Amber bolt = Fast, purple sparkles = Quality;
                  the white thumb spring-bounces across and a small label floats up

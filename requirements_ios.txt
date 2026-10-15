@@ -22,6 +22,9 @@ pynput
 # Image Processing
 Pillow
 opencv-python
+# Each run's recording is compressed by its bundled ffmpeg
+# (AutoCua/utils/video_compress.py)
+imageio-ffmpeg
 numpy
 scipy
 ocrmac

@@ -6,8 +6,8 @@
    the label, and morphs the loader to a tick on the canvas. No @keyframes timeline.
    ===================================================================== */
 .bottom-left-zone {
-    grid-column: 1 / -1;     /* the whole bottom row, under both top cells */
-    grid-row: 2;
+    grid-column: 1 / -1;     /* the whole bottom row, under the screen */
+    grid-row: 5;             /* main grid: message | gap | screen | gap | tools */
     min-width: 0;
     min-height: 0;
     position: relative;

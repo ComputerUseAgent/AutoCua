@@ -1325,11 +1325,11 @@ body.settings-open #chatWrapper {
 
 /* Chat Container - Big vertical rectangle with equal gaps */
 /* =====================================================================
-   Main content 2x2 grid — three component zones (top-left screenshot /
-   top-right, empty, kept for the user's message / the bottom row: tool
-   response | tracking progress) fill the area to the right of the left bar,
-   inside the big center container's frame. The zones are injected by the
-   container/top_left, top_right and bottom_left components.
+   Main content grid — one chat turn, top to bottom, to the right of the left
+   bar and inside the big center container's frame: the user's message (top
+   right, as tall as its text), the live screen (full width), then the tool
+   response | tracking progress row. The zones are injected by the
+   container/top_right, top_left and bottom_left components.
    ===================================================================== */
 .main-grid {
     position: fixed;
@@ -1345,8 +1345,13 @@ body.settings-open #chatWrapper {
     z-index: 13;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1.4fr 1fr;          /* top row bigger; tweakable */
-    gap: clamp(10px, 1.5vw, 18px);
+    /* message | gap | screen | gap | tools. The gaps are tracks of their own
+       so the message's can close while there is no message (top_right.css);
+       screen and tools share the rest, screen bigger (tweakable). */
+    --msg-gap: clamp(10px, 1.5vw, 18px);
+    grid-template-rows: auto var(--msg-gap) minmax(0, 1.4fr) clamp(10px, 1.5vw, 18px) minmax(0, 1fr);
+    column-gap: clamp(10px, 1.5vw, 18px);
+    row-gap: 0;
 }
 
 /* =====================================================================

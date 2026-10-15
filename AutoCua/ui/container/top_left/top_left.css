@@ -1,12 +1,23 @@
 /* =====================================================================
-   Top-left container — agent screenshot. Frosted-glass cell filling the
-   top-left slot of the main T-grid. The live screenshot <img> covers it once
-   frames arrive (window.updateAgentImage). Replaces the old floating
+   Screen container — the agent's live screenshot, on the left under the
+   user's message (main grid row 3), as wide as the screen it shows. The
+   live screenshot <img> shows in it once frames arrive
+   (window.updateAgentImage), and the run's video once the run is over
+   (window.showRunVideo, top_left.js). Replaces the old floating
    .image-stream-container; reuses #imageStreamContainer / .stream-image.
+   (The folder keeps its old name, top_left.)
    ===================================================================== */
 .screenshot-zone {
-    grid-column: 1;
-    grid-row: 1;
+    grid-column: 1 / -1;
+    grid-row: 3;             /* main grid: message | gap | screen | gap | tools */
+    /* On the left, only as wide as the screen it shows: the row's height at
+       the screen's own aspect ratio (--screen-ar, set per frame by
+       updateAgentImage in script.js; 16:10 until the first frame). */
+    justify-self: start;
+    box-sizing: border-box;
+    height: 100%;
+    aspect-ratio: var(--screen-ar, 16 / 10);
+    max-width: 100%;
     min-width: 0;
     min-height: 0;
     position: relative;
@@ -26,33 +37,28 @@
     justify-content: center;
 }
 
-/* The live frame fills the cell once data arrives (display toggled by JS). */
-.screenshot-frame .stream-image {
+/* The live frame, once data arrives (display toggled by JS), and the run's
+   video after it. The box takes their own shape, so they fill it; contain
+   still shows the whole screen if the box is ever narrower (a very narrow
+   window). */
+.screenshot-frame .stream-image,
+.screenshot-frame .run-video {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
     object-position: center;
 }
-
-/* Portrait (phone) frames: the full HEIGHT must fit — contain keeps the whole
-   screen visible. Parked on the LEFT of the cell (centered looked lost in the
-   wide box), indented by the same clamp as .bottom-left-zone's horizontal
-   padding so the phone lines up with the "Tool response" label below.
-   Landscape desktop frames keep the cover crop above. Toggled per-frame by
-   updateAgentImage(). */
-.screenshot-frame .stream-image.portrait {
-    object-fit: contain;
-    object-position: clamp(12px, 1.4vw, 16px) center;
+.screenshot-frame .run-video {
+    outline: none;
 }
 
-/* While the big-center stage covers the grid (run ended / stopped / old chat
-   reopened) the last screenshot must be GONE — the stage is transparent, so a
-   stale frame would sit behind and clash with the notes. Purely CSS-synced to
-   the stage's .active: it returns on the next run (clearAgentImage has wiped
-   the stale frame by then anyway). */
+
+/* While a big-center stage (Skills) covers the grid the screen must be GONE,
+   or it would show through the transparent zone. Purely CSS-synced to the
+   stage's .active. */
 .main-grid:has(.big-center-zone.active) .screenshot-frame {
     display: none;
 }
 
-/* The Agent Notes styles used to live here; they moved with the notes to
-   notes_stage/ (content) inside container/big_center_container/ (shell). */
+/* The Agent Notes styles used to live here; they moved to notes_stage/
+   (the stage itself is parked in container/dead/notes_stage/). */

@@ -1,11 +1,24 @@
 // =====================================================================
-// Top-right container — EMPTY for now, kept for the user's message. Mounts
-// top_right.html (the empty zone with its thin grey line) into #mainGrid
-// (column 2, row 1). Its tracking-progress stream moved to the bottom
-// container (container/bottom_left/tracking_progress.js).
+// Message container — the user's message for this run, top right of the main
+// grid like a chat. Mounts top_right.html into #mainGrid (row 1) and exposes
+// window.showUserMessage(text): the send path (chat_input.js) shows the
+// message the moment it is sent; '' hides the box again (resetChatUi, on a
+// new run and on New chat).
 // =====================================================================
 (function () {
     'use strict';
+
+    var pending = null;   // a message shown before the box was mounted
+
+    window.showUserMessage = function (text) {
+        var zone = document.getElementById('zoneTopRight');
+        var textEl = document.getElementById('userMessageText');
+        var t = String(text == null ? '' : text).trim();
+        if (!zone || !textEl) { pending = t; return; }
+        textEl.textContent = t;
+        textEl.scrollTop = 0;
+        zone.classList.toggle('is-empty', !t);
+    };
 
     function mount() {
         var grid = document.getElementById('mainGrid');
@@ -17,7 +30,10 @@
                 var holder = document.createElement('div');
                 holder.innerHTML = html.trim();
                 var zone = holder.querySelector('.top-right-zone');
-                if (zone) grid.appendChild(zone);
+                if (!zone) return;
+                grid.appendChild(zone);
+                if (pending) window.showUserMessage(pending);
+                pending = null;
             })
             .catch(function () { /* non-fatal */ });
     }

@@ -1,6 +1,7 @@
 <!-- Bottom container — the whole bottom row: the tool-response flow (chain) on
      the left, the live "tracking progress" stream on the right
-     (tracking_progress.js). The flow steps (logos + labels + line) are BUILT
+     (tracking_progress.js); once the run ends, its reply takes both their
+     places, like a chat (run_reply.js). The flow steps (logos + labels + line) are BUILT
      FROM CONFIG in bottom_left.js (STEPS / SHAPES), so the backend can map its
      tool events to steps. Injected into #mainGrid (row 2, both columns) by
      bottom_left.js. -->
@@ -22,4 +23,7 @@
             <div class="br-tree" id="brTree"></div>
         </div>
     </div>
+
+    <!-- The run's reply (window.showRunReply), shown once the run ends -->
+    <div class="bl-panel reply-panel md" id="runReply" aria-live="polite"></div>
 </div>

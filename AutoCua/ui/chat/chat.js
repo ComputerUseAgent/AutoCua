@@ -4,8 +4,9 @@
 //   • New chat  -> drop the active session (window.currentSessionId = null),
 //     reset the screen, ready for a fresh start.
 //   • History   -> GET /api/chats; click a row to reopen that session (adopts
-//     its id so the next send CONTINUES it, and shows its last "done" message
-//     on the full-grid notes stage via window.showAgentNotes).
+//     its id so the next send CONTINUES it, and shows its last request and
+//     reply like the live view after a run: window.showUserMessage /
+//     window.showRunReply).
 //   • Delete    -> DELETE /api/chats/<id>.
 // All persistence lives in the backend (AutoCua/agent_conversation); this file
 // is pure UI. Same self-contained fetch-inject pattern as settings/settings.js.
@@ -110,7 +111,7 @@
     }
 
     // Reopen a saved session: adopt its id (so the next send continues it) and
-    // show ONLY its last done message in the top-left container (the reopen view).
+    // show its last request and reply (the reopen view).
     function openChat(id, list) {
         window.currentSessionId = id;
         var rail = railChats();
@@ -122,7 +123,7 @@
         });
         if (window.resetChatUi) window.resetChatUi();   // clear leftover live view
         if (window.hideWelcomeHero) window.hideWelcomeHero();   // reopening != empty state
-        // Announce the reopen (the notes stage shows itself on this).
+        // Announce the reopen.
         document.dispatchEvent(new CustomEvent('chat:opened', { detail: { id: id } }));
         fetch('/api/chats/' + encodeURIComponent(id))
             .then(function (r) { return r.json(); })
@@ -131,26 +132,22 @@
                 // while this fetch was in flight — don't repaint their new view.
                 if (window.currentSessionId !== id) return;
                 if (!data || data.error) return;
-                // Full life of the chat: numbered request/outcome pairs
-                // (exchanges.json). Legacy sessions saved before exchanges
-                // existed fall back to the old single last-done-message note.
+                // Full life of the chat: request/outcome pairs (exchanges.json).
                 var exchanges = Array.isArray(data.exchanges) ? data.exchanges : [];
                 // A SHELL chat renders its history in the CLI stage's own notes
-                // row under the terminal — the notes-stage overlay sits BEHIND
-                // the pinned panel (z 5 vs 6), so it would be invisible there.
+                // row under the terminal.
                 var isShell = (data.agent_mode === 'shell');   // single read point of the backend marker
                 if (isShell) {
                     if (window.cliShellHistory) window.cliShellHistory(exchanges);
-                    // drop the hidden stage content 'chat:opened' just revealed
-                    if (window.hideAgentNotes) window.hideAgentNotes();
-                } else if (exchanges.length && window.showAgentHistory) {
-                    window.showAgentHistory(exchanges);
-                } else if (window.showAgentNotes) {
-                    // showAgentNotes renders as HTML, so hand it the server-rendered
-                    // Markdown (markdown.py) — never the raw text. A single-element
-                    // array shows the last done message as note "1.".
-                    var msg = data.last_done_message_html || '';
-                    window.showAgentNotes(JSON.stringify(msg ? [msg] : []));
+                } else {
+                    // Its last turn, like the live view after a run: the request
+                    // top right, the reply in the bottom container. The reply is
+                    // server-rendered Markdown (markdown.py). Legacy sessions
+                    // saved before exchanges existed have only the last done message.
+                    var last = exchanges.length ? exchanges[exchanges.length - 1] : null;
+                    if (last && window.showUserMessage) window.showUserMessage(last.task || '');
+                    var reply = last ? (last.done_html || '') : (data.last_done_message_html || '');
+                    if (reply && window.showRunReply) window.showRunReply(reply, (last && last.status) || 'success');
                 }
                 // Restore the memory bar to this chat's last context size + cap and
                 // show it (the bar hides only for a brand-new chat).
@@ -288,7 +285,7 @@
         if (window.showWelcomeHero) window.showWelcomeHero();   // bring back the hero
         var input = document.querySelector('.chat-input');
         if (input) { input.disabled = false; input.focus(); }
-        // Announce the fresh start (the notes stage hides itself on this).
+        // Announce the fresh start.
         document.dispatchEvent(new CustomEvent('chat:new'));
         document.dispatchEvent(new CustomEvent('chats:refresh'));   // clears highlight
     }

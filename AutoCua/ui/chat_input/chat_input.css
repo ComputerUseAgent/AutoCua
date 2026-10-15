@@ -442,42 +442,6 @@ body.left-bar-animating .chat-container-wrapper {
     pointer-events: none;
 }
 
-/* ---------- Recording dot: left of the Fast/Quality pill, and only while a run
-   is being recorded (Settings -> Recording). Not there at all otherwise, so the
-   box stays clean. The backend adds .on once the recorder starts (the dot fades
-   in and blinks), then .leaving once the videos are stored (it fades away and
-   JS drops it after). See window.recordingIndicator in chat_input.js. */
-.rec-indicator {
-    display: none;
-    align-items: center;
-    justify-content: center;
-    width: clamp(20px, 2.1vw, 24px);
-    height: clamp(20px, 2.1vw, 24px);
-    flex-shrink: 0;
-}
-.rec-indicator.on,
-.rec-indicator.leaving {
-    display: flex;
-}
-.rec-indicator.on { animation: recIn 0.35s ease both; }
-.rec-indicator.leaving { animation: recOut 0.6s ease both; }
-.rec-dot {
-    width: 42%;
-    height: 42%;
-    border-radius: 999px;
-    background: #ef4444;
-    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.18);
-}
-.rec-indicator.on .rec-dot { animation: recBlink 1.2s ease-in-out infinite; }
-@keyframes recIn    { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
-@keyframes recOut   { from { opacity: 1; transform: scale(1); }   to { opacity: 0; transform: scale(0.6); } }
-@keyframes recBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
-/* The slim running row reserves room on the right for the toolbar; the dot
-   needs a little more of it, only while it shows. */
-.input-area-wrapper:has(.rec-indicator.on):has(.chat-input.agent-active) .chat-input {
-    padding-right: clamp(184px, 23.5vw, 244px);
-}
-
 /* Transparent trigger so it BLENDS into the box (one tone, not a 2nd pill). */
 .chat-model-dropdown .model-dropdown-trigger {
     width: 100%;

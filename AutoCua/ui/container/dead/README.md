@@ -27,3 +27,24 @@ nothing defines that function, so the call does nothing.
 
 To bring it back, move the folder back to `container/`, then restore the lines
 above. Git history has them exactly.
+
+## notes_stage/: the Agent Notes stage
+
+`notes_stage.js` and `notes_stage.html` filled the main container
+(`#zoneBigCenter`) with the agent's scratchpad notes when a run ended, on
+Stop, and when a saved chat was reopened, until 2026-10-15. Now the run's
+video shows in the screen box and its reply in the bottom container. These
+connections were removed:
+
+- `index.html`: the `notes_stage/notes_stage.js` script.
+  `notes_stage/notes_stage.css` is still loaded: Shell use's notes rows and the
+  shared `.md` Markdown styles use it.
+- `ui/service.py`: `send_agent_notes()`, called at run end. It pushed
+  `window.showAgentNotes` (the scratchpad) or `window.showAgentHistory`.
+- `chat/chat.js`, `openChat()`: `showAgentHistory` / `showAgentNotes` for a
+  reopened chat, now `showUserMessage` + `showRunReply`.
+- `chat_input/chat_input.js`, `resetChatUi()`: `hideAgentNotes()`. It also
+  switched the big center off; `resetChatUi()` now does that itself.
+
+`skills/skills.js` still looks for `#agentNotes` and wraps `showAgentNotes`;
+both are null-safe, so it works as before without the stage.

@@ -1,20 +1,44 @@
 /* =====================================================================
-   Top-right container — EMPTY for now, kept for the user's message: just the
-   thin grey line. (Its tracking-progress stream moved to the bottom container:
-   container/bottom_left/tracking_progress.css.) Injected into #mainGrid
-   (column 2, row 1).
+   Message container — the user's message for this run, top right of the
+   main grid like a chat: a light grey box, only as tall as its text, with
+   the screen and the tool rows below it. Hidden (and its gap closed) until
+   a message is sent; top_right.js fills it. Injected into #mainGrid (row 1).
+   (The folder keeps its old name, top_right.)
    ===================================================================== */
 .top-right-zone {
-    grid-column: 2;
+    grid-column: 1 / -1;
     grid-row: 1;
+    justify-self: end;                      /* right-aligned, as tall as its text */
+    max-width: min(70%, 640px);
     min-width: 0;
-    min-height: 0;
     position: relative;
-    border: 1px solid rgba(0, 0, 0, 0.08);      /* the one thin grey line, also while empty */
+    border: 1px solid rgba(0, 0, 0, 0.08);  /* the containers' thin grey line */
     border-radius: var(--glass-radius);
+    background: #F2F2F4;                    /* the light grey message box */
     box-sizing: border-box;
-    overflow: hidden;
-    padding: clamp(8px, 1vw, 12px) clamp(12px, 1.4vw, 16px);
-    display: flex;
-    flex-direction: column;
+    padding: clamp(7px, 0.8vw, 10px) clamp(12px, 1.3vw, 16px);
+    /* the chat input's type, so a sent message reads the same up here */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(13px, 1.3vw, 15px);
+    font-weight: 500;
+    line-height: 1.4;
+    color: rgba(60, 60, 60, 0.95);
+}
+.user-message-text {
+    white-space: pre-wrap;                  /* keep the user's line breaks */
+    overflow-wrap: anywhere;
+    max-height: 5.6em;                      /* 4 lines; a longer message scrolls */
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+.user-message-text::-webkit-scrollbar { display: none; }
+
+/* No message yet (idle, new chat): no box, and no gap above the screen. */
+.top-right-zone.is-empty { display: none; }
+.main-grid:has(> .top-right-zone.is-empty) { --msg-gap: 0px; }
+
+/* While the big-center stage covers the grid (run done / stopped / old chat
+   reopened) the box hides, like the other zones: the stage is transparent. */
+.main-grid:has(.big-center-zone.active) .top-right-zone {
+    visibility: hidden;
 }

@@ -1,5 +1,6 @@
-<!-- Top-right container — EMPTY for now, kept for the user's message. (Its
-     tracking-progress stream moved to the bottom container.) Injected into
-     #mainGrid (column 2, row 1) by top_right.js. -->
-<div class="container-zone top-right-zone" id="zoneTopRight" aria-label="User message">
+<!-- Message container — the user's message for this run, top right of the main
+     grid like a chat (top_right.js fills it). Empty and hidden until a message
+     is sent. Injected into #mainGrid (row 1) by top_right.js. -->
+<div class="container-zone top-right-zone is-empty" id="zoneTopRight" aria-label="Your message">
+    <div class="user-message-text" id="userMessageText"></div>
 </div>

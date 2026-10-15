@@ -836,10 +836,13 @@ document.addEventListener('DOMContentLoaded', () => {
     window.updateAgentImage = (base64Image) => {
         const imgElement = document.querySelector('.stream-image');
         if (imgElement && base64Image) {
-            // Tall (phone) frames fit by height via .portrait (object-fit:
-            // contain); landscape desktop frames keep the cover crop.
+            // The screen box is only as wide as the frame: its width follows
+            // the frame's aspect ratio (--screen-ar, top_left.css).
             imgElement.onload = () => {
-                imgElement.classList.toggle('portrait', imgElement.naturalHeight > imgElement.naturalWidth);
+                const zone = document.getElementById('zoneTopLeft');
+                if (zone && imgElement.naturalHeight) {
+                    zone.style.setProperty('--screen-ar', String(imgElement.naturalWidth / imgElement.naturalHeight));
+                }
             };
             // This element receives two different formats: the plain preview is
             // JPEG, but in DEBUG mode it gets the annotated PNG instead. Sniff the

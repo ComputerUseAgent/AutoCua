@@ -1,10 +1,13 @@
-<!-- Top-left container — the live agent screenshot. Injected into #mainGrid
-     (column 1, row 1) by top_left.js. Keeps id="imageStreamContainer" and the
-     .stream-image <img> so the existing window.updateAgentImage() hook in
-     script.js keeps working unchanged. -->
+<!-- Top-left container — the live agent screenshot, then the run's video once
+     the run is over. Injected into #mainGrid (column 1, row 1) by top_left.js.
+     Keeps id="imageStreamContainer" and the .stream-image <img> so the existing
+     window.updateAgentImage() hook in script.js keeps working unchanged. -->
 <div class="container-zone screenshot-zone" id="zoneTopLeft" aria-label="Screenshot">
     <div class="screenshot-frame" id="imageStreamContainer">
         <img class="stream-image" src="" alt="Agent screen" style="display: none;">
+        <!-- The run's recording, in place of the screenshot once the run is over
+             (window.showRunVideo in top_left.js). -->
+        <video class="run-video" controls playsinline preload="auto" style="display: none;"></video>
     </div>
 
     <!-- Shell terminal — swaps in over the screenshot while a shell command runs
@@ -29,6 +32,6 @@
         </div>
     </div>
 
-    <!-- The Agent Notes used to live here; they moved to notes_stage/ inside
-         container/big_center_container/ — window.show/hideAgentNotes are owned there. -->
+    <!-- The Agent Notes used to live here; that stage is parked in
+         container/dead/notes_stage/. -->
 </div>

@@ -26,6 +26,7 @@ import logging
 import signal
 import platform
 import importlib
+import importlib.util
 import threading
 import queue
 import time
@@ -61,10 +62,11 @@ from AutoCua.ui.markdown import render as md_render, render_notes as md_render_n
 # Windows, the glow alone on macOS. Paired to the start/finally of every agent
 # run below; a no-op on Linux.
 from AutoCua.utils import agent_glow
-# Settings -> Recording: while it is on, each Computer / Web use run is recorded
-# (the screen and this window, as two videos) into AutoCua_data/recordings, on
-# every machine run_recorder.supported() says can.
+# Every Computer / Web use run is recorded (the main screen) into
+# AutoCua_data/recordings, on every machine run_recorder.supported() says can;
+# when it ends the video is compressed and shown in the screen box.
 from AutoCua.utils import run_recorder
+from AutoCua.utils import video_compress
 # Electron for the Chromium desktop shell when no `npm install` put one in
 # AutoCua/desktop (every pip install): fetched once the person says yes.
 from AutoCua.utils import electron
@@ -999,27 +1001,34 @@ def _stop_run_recording(run_id, tail=0.0):
         rec.stop(tail=tail)
 
 
-def _recording_indicator(run_id, on):
-    """Show (on) or fade out the chat box's red recording dot for this run."""
-    if webview_window:
+def _recording_done(run_id, chat_id):
+    """The recorder's finish callback for one run (it runs on the recorder's
+    thread): compress screen.mp4 into screen_1080p.mp4 (utils/video_compress.py),
+    which replaces it, then show the video in the screen box where the
+    screenshots were. Skipped when a newer run has the screen by then; the page
+    also drops it if the user has moved to another chat."""
+    def done(folder):
+        if not folder:
+            return
+        video = folder / "screen.mp4"
         try:
-            webview_window.evaluate_js(
-                f"window.recordingIndicator && window.recordingIndicator("
-                f"{'true' if on else 'false'}, '{_js_escape(run_id)}')")
+            # Its ffmpeg: the system one, else imageio-ffmpeg's. Without either,
+            # the uncompressed video is shown and kept.
+            if shutil.which("ffmpeg") or importlib.util.find_spec("imageio_ffmpeg"):
+                small = video_compress.compress(str(video), str(folder / "screen_1080p.mp4"))
+                if small:
+                    video.unlink()
+                    video = Path(small)
         except Exception:
-            debug_exception("recording indicator")
-
-
-def _recording_done(run_id):
-    """The recorder's finish callback for one run: the dot fades away and,
-    when the videos were written, a short toast says so."""
-    def done(path):
-        _recording_indicator(run_id, False)
-        if path and webview_window:
-            try:
-                webview_window.evaluate_js("window.showToast && window.showToast('Recording stored', 4000)")
-            except Exception:
-                debug_exception("recording stored toast")
+            debug_exception("compress recording")
+        if not webview_window or active_agent_session_id not in (None, run_id) or not video.exists():
+            return
+        try:
+            url = f"/api/recordings/{folder.name}/{video.name}"
+            webview_window.evaluate_js(
+                f"window.showRunVideo && window.showRunVideo('{_js_escape(url)}', '{_js_escape(chat_id)}')")
+        except Exception:
+            debug_exception("show run video")
     return done
 
 
@@ -1725,61 +1734,13 @@ def send_todo_to_frontend(payload):
 
 def _render_exchange_html(exchanges):
     """Add task_html/done_html (rendered Markdown) to each exchange row, in
-    place. The shape showAgentHistory / cliShellHistory consume."""
+    place. The shape the reopen view (chat.js -> showRunReply) and
+    cliShellHistory consume."""
     for x in (exchanges or []):
         if isinstance(x, dict):
             x['task_html'] = md_render(x.get('task', ''))
             x['done_html'] = md_render(x.get('done_message', ''))
     return exchanges or []
-
-
-def send_agent_notes(content, session_id=None):
-    """Show the agent's scratchpad as 'Agent Notes' on the notes stage (called
-    when a run ends — completed or stopped).
-
-    Entries arrive as rendered HTML — ui/markdown.py turns each note's
-    Markdown into real bold/code/links/line breaks and escapes everything else,
-    so showAgentNotes can assign it with innerHTML.
-
-    Empty-scratchpad fallback: a run that never wrote a note would leave the
-    stage on a bare "No notes". Instead we push the chat's full request/outcome
-    transcript — the SAME view reopening the chat gives, and it already
-    includes the run that just ended, because save_run() appends this run's
-    exchange before we get here. Platform-agnostic: every agent (macOS /
-    Windows / iOS) ends through this one call."""
-    global webview_window
-    if not webview_window:
-        return
-    try:
-        entries = md_render_notes(content)
-        if entries:
-            escaped = _js_escape(json.dumps(entries))
-            webview_window.evaluate_js(
-                f"window.showAgentNotes && window.showAgentNotes('{escaped}')"
-            )
-            return
-
-        rows = []
-        if session_id:
-            try:
-                data = conversation.get_session(session_id) or {}
-                rows = _render_exchange_html(data.get('exchanges'))
-            except Exception:
-                debug_exception("send_agent_notes exchanges")
-        if rows:
-            escaped = _js_escape(json.dumps(rows))
-            webview_window.evaluate_js(
-                f"window.showAgentHistory && window.showAgentHistory('{escaped}')"
-            )
-            return
-
-        # Nothing written AND no transcript yet — still swap the stage on so it
-        # replaces the screenshot; the empty state is correct here.
-        webview_window.evaluate_js(
-            "window.showAgentNotes && window.showAgentNotes('[]')"
-        )
-    except Exception:
-        debug_exception("send_agent_notes")
 
 
 def send_web_status_to_frontend(status):
@@ -1923,17 +1884,12 @@ def send_flow_to_frontend(event, payload=None):
 # =============================================================================
 # Agent run
 # =============================================================================
-@app.route('/api/recording', methods=['GET', 'POST'])
-def recording_setting():
-    """Settings -> Recording. GET: {supported, on}; POST {on}: save it. Kept in
-    settings.json and read when a run starts, so it survives a restart."""
-    from flask import request
-    if request.method == 'POST':
-        on = bool((request.get_json(silent=True) or {}).get('on'))
-        write_settings({'record_runs': on})
-        return jsonify({'on': on})
-    return jsonify({'supported': run_recorder.supported(),
-                    'on': bool(read_settings().get('record_runs'))})
+@app.route('/api/recordings/<path:name>')
+def recording_video(name):
+    """A run's video for the screen box (showRunVideo in container/top_left).
+    send_from_directory keeps the path inside the recordings folder and answers
+    range requests, so the player can seek."""
+    return send_from_directory(str(data_root() / 'recordings'), name, mimetype='video/mp4')
 
 
 @app.route('/api/start-agent', methods=['POST'])
@@ -1959,9 +1915,8 @@ def start_agent():
         run_pkg = ('ios' if (agent_mode == 'mobile' and device_os == 'ios')
                    else 'web' if agent_mode == 'web'
                    else PLATFORM_PKG)
-        # Settings -> Recording: Computer use and Web use only, on a machine that can.
-        record = (bool(read_settings().get('record_runs')) and agent_mode in ('computer', 'web')
-                  and run_recorder.supported())
+        # Every Computer use and Web use run is recorded, on a machine that can.
+        record = agent_mode in ('computer', 'web') and run_recorder.supported()
         # The run's package folder — the todo/milestone watchers and resets below
         # must follow the agent that actually runs, not the host desktop package.
         run_pkg_path = get_platform_path(run_pkg)
@@ -2114,15 +2069,14 @@ def start_agent():
             agent = None  # bound below; kept defined so the finally save is safe
             recorder = None
             try:
-                # Settings -> Recording: from the moment the task is sent. Inside the
+                # The recording: from the moment the task is sent. Inside the
                 # try, so the finally below always ends the video.
                 if record:
                     recorder = run_recorder.start(
                         webview_window, 'web' if run_pkg == 'web' else 'computer',
-                        on_done=_recording_done(current_session_id))
+                        on_done=_recording_done(current_session_id, chat_session_id))
                     if recorder:
                         _run_recorders[current_session_id] = recorder
-                        _recording_indicator(current_session_id, True)
                 # Desktop says an agent is driving: lavender cursor + edge glow.
                 # Computer use only — web and iOS runs don't drive this desktop.
                 # Inside the try, so the finally below always takes it back —
@@ -2220,19 +2174,24 @@ def start_agent():
                     except Exception:
                         debug_exception("signaling agent completion")
 
-                    # Replace the screenshot with the "Agent Notes" view now the run
-                    # has ended (completed OR stopped) — ALWAYS, even if empty.
+                    # The run's reply in the bottom container, like a chat: the
+                    # done message, or why the run ended. It takes the place of
+                    # the tool chain and tracking progress until the next run.
                     try:
-                        notes_path = run_pkg_path / "scratchpad" / "milestone" / "milestone.md"
-                        content = notes_path.read_text(encoding='utf-8') if notes_path.exists() else ""
-                        # session id: lets an empty scratchpad fall back to this
-                        # chat's done-message transcript instead of "No notes".
-                        send_agent_notes(content, chat_session_id)
+                        status = run_outcome.get("status", "success")
+                        message = run_outcome.get("message", "") or ""
+                        if status == "success":
+                            reply = message or "Done."
+                        else:
+                            reply = ("Error: " if status == "error" else "Stopped without completing: ") + message
+                        webview_window.evaluate_js(
+                            f"window.showRunReply && window.showRunReply("
+                            f"'{_js_escape(md_render(reply))}', '{_js_escape(status)}')")
                     except Exception:
-                        debug_exception("send agent notes on finish")
+                        debug_exception("show run reply")
 
                 # Last, so the video ends on the run's final UI (the done
-                # message, the notes view); the tail gives it time to paint.
+                # reply); the tail gives it time to paint.
                 # Already stopped if Stop or New chat retired this run.
                 if recorder:
                     _run_recorders.pop(current_session_id, None)
