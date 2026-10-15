@@ -113,8 +113,9 @@
     95.5%, 96.5% { transform: scaleY(0.1); }
 }
 
-/* "Preparing video", under the bot while the video is compressed, with a
-   light glint sweeping across the dark letters. */
+/* "Preparing video", under the bot while the video is compressed: the text
+   shimmer (thinking_orb/shimmer.css), a dark band sweeping across the grey
+   letters, only while it shows. */
 .screen-container .cu-prep-text {
     position: absolute;
     z-index: 4;
@@ -135,21 +136,6 @@
     opacity: 1;
     transition-delay: 0.6s;       /* once the bot is back in the middle */
 }
-.cu-prep-text span {
-    background: linear-gradient(100deg,
-        rgba(38, 42, 52, 0.85) 0%, rgba(38, 42, 52, 0.85) 40%,
-        rgba(255, 255, 255, 0.95) 50%,
-        rgba(38, 42, 52, 0.85) 60%, rgba(38, 42, 52, 0.85) 100%);
-    background-size: 220% 100%;
-    -webkit-background-clip: text;
-            background-clip: text;
-    -webkit-text-fill-color: transparent;
-            color: transparent;
-}
-.screen-container.cu-prep .cu-prep-text span {
-    animation: cuShimmer 1.6s linear infinite;
-}
-@keyframes cuShimmer {
-    from { background-position: 125% 0; }
-    to   { background-position: -25% 0; }
+.screen-container:not(.cu-prep) .cu-prep-text .t-shimmer::before {
+    animation-play-state: paused;
 }

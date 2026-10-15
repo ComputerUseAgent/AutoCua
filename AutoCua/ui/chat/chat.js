@@ -163,7 +163,8 @@
                     if (window.chatScroll) window.chatScroll.addPast(exchanges.slice(0, -1), data.agent_mode);
                     if (last && window.showUserMessage) window.showUserMessage(last.task || '');
                     var reply = last ? (last.done_html || '') : (data.last_done_message_html || '');
-                    if (reply && window.showRunReply) window.showRunReply(reply, (last && last.status) || 'success');
+                    // still: no glide to its end, the view opens on the last turn (below).
+                    if (reply && window.showRunReply) window.showRunReply(reply, (last && last.status) || 'success', true);
                     // And its video, where it was when the run ended: a Computer
                     // use run's on its stage (run_bot.js). The backend sends
                     // video_url only while that run's video is on disk.

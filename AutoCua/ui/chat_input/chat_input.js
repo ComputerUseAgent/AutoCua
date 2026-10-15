@@ -48,6 +48,19 @@
         window.addEventListener('resize', adjustHeight);
         adjustHeight();
 
+        // The agent strip's thinking orb (thinking_orb/thinking_orb.js): it moves
+        // only while the strip shows, and holds still (no frame loop) while hidden.
+        const strip = (root || document).querySelector('#agentResponseStrip');
+        const orbCanvas = strip && strip.querySelector('.agent-orb');
+        if (orbCanvas && window.ThinkingOrb) {
+            const orb = window.ThinkingOrb(orbCanvas, { size: 20, theme: 'light', paused: true });
+            let orbOn = false;
+            new MutationObserver(() => {
+                const on = strip.classList.contains('active');
+                if (on !== orbOn) { orbOn = on; orb.update({ paused: !on }); }
+            }).observe(strip, { attributes: true, attributeFilter: ['class'] });
+        }
+
         // Start the agent. Shared by Enter and the send orb's 'sendbtn:clicked' message.
         // Guard mirrors the old Enter behaviour: needs a message + a live provider/model.
         function startAgent() {
@@ -92,7 +105,7 @@
                 chatInput.disabled = true;
                 chatInput.classList.add('agent-active');   // CSS: box shrinks + orbs crossfade
                 adjustHeight();                            // clear inline height so the collapse is clean
-                agentText.textContent = 'Starting agent...';
+                agentText.textContent = '';                // the strip says "Agent running..."; the agent's live text comes here
 
                 // Morph the orb: fade the grey send orb out, bring the glowing stop orb in.
                 if (sendBtnFrame) sendBtnFrame.contentWindow.postMessage('sendbtn:hide', '*');
@@ -143,7 +156,6 @@
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'started') {
-                    agentText.textContent = 'Agent running...';
                     chatInput.value = '';   // box is collapsed; restored on teardown
                     // Adopt the backend's session id (a brand-new chat is minted
                     // server-side) so the run-end save + future sends target it.

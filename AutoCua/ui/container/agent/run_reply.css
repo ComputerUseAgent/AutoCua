@@ -14,6 +14,14 @@
 .agent-container.show-reply > .tracking-panel {
     display: none;
 }
+/* The container itself, while it holds the reply: a chat reply's width
+   instead of the whole row, so it stops short of the right side (the
+   user's message side). No transition: the chat's glide to the reply's
+   last line (chat_scroll.js toEnd) measures it at once. */
+.agent-container.show-reply {
+    justify-self: start;
+    width: 85%;
+}
 .agent-container.show-reply > .reply-panel {
     display: block;
     grid-column: 1 / -1;

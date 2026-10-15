@@ -20,10 +20,13 @@
         <div class="cli-stream-list" id="cliStreamList"></div>
     </div>
 
-    <!-- Agent Response Strip (Hidden by default) -->
+    <!-- Agent Response Strip (Hidden by default): the thinking orb
+         (thinking_orb/thinking_orb.js, mounted by chat_input.js), "Agent
+         running…" shimmering (thinking_orb/shimmer.css), then the agent's
+         live text. -->
     <div class="agent-response-strip" id="agentResponseStrip">
-        <div class="agent-cursor-icon"></div>
-        <span class="agent-label">Agent activated:</span>
+        <canvas class="agent-orb" width="40" height="40" aria-hidden="true"></canvas>
+        <span class="agent-label t-shimmer" data-text="Agent running…">Agent running…</span>
         <span class="agent-text" id="agentText"></span>
     </div>
 

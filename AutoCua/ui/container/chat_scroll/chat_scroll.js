@@ -8,11 +8,13 @@
 //     they look the same; no ids, so the live hooks never reach them.
 //   • Scrolling: a sent task's turn comes in below the last reply and the
 //     chat glides up to it; a reopened chat opens on its last turn (toLive).
-//     The top and bottom edges fade while there is more chat that way.
+//     A run's reply glides the chat down to its last line (toEnd,
+//     run_reply.js). The top and bottom edges fade while there is more chat
+//     that way.
 //   • A run's video can come after its turn became an earlier one (the next
 //     task was sent while it was being compressed): videoTurn finds its turn
 //     by run id or recording folder, showVideo puts it there (screen.js).
-//   window.chatScroll = { archiveLive, addPast, clear, toLive, setLive,
+//   window.chatScroll = { archiveLive, addPast, clear, toLive, toEnd, setLive,
 //                         setLiveScreen, videoTurn, showVideo }
 // =====================================================================
 (function () {
@@ -43,9 +45,10 @@
     }
 
     // ── The edge fades: on while the chat goes on past that edge ──────────
-    // Also notes whether the view is on the live turn, so a window resize can
-    // keep it there (the turns' screens resize with the frame).
-    var fadeQueued = false, atLive = false;
+    // Also notes whether the view is at the chat's end or on the live turn,
+    // so a window resize can keep it there (the turns' screens resize with
+    // the frame).
+    var fadeQueued = false, atLive = false, atEnd = false;
     function fades() {
         fadeQueued = false;
         var sc = byId('chatScroll'), live = byId('liveTurn');
@@ -53,6 +56,7 @@
         var rest = sc.scrollHeight - sc.clientHeight - sc.scrollTop;
         sc.classList.toggle('fade-top', sc.scrollTop > 1);
         sc.classList.toggle('fade-bottom', rest > 1);
+        atEnd = rest <= 2;
         if (live) atLive = Math.abs(sc.scrollTop - Math.min(liveTop(sc, live), sc.scrollHeight - sc.clientHeight)) <= 2;
     }
     function queueFades() {
@@ -375,6 +379,17 @@
         queueFades();
     }
 
+    // Down to the chat's last line, the live turn's end: a run's reply came
+    // in (run_reply.js), the chat glides down to where it ends.
+    function toEnd(instant) {
+        var sc = byId('chatScroll');
+        if (!sc) return;
+        var target = sc.scrollHeight - sc.clientHeight;
+        if (instant || reduced()) sc.scrollTop = target;
+        else sc.scrollTo({ top: target, behavior: 'smooth' });
+        queueFades();
+    }
+
     function wire() {
         var sc = byId('chatScroll');
         if (!sc) return;
@@ -385,12 +400,18 @@
             ['chatPast', 'liveTurn'].forEach(function (id) { if (byId(id)) ro.observe(byId(id)); });
         }
         // A window resize: the turns' screens resize with the frame, so the view
-        // stays on the live turn if it was there.
+        // stays at the chat's end, or on the live turn, if it was there. Their
+        // message boxes are measured first (their text size follows the
+        // window), so it lands where they leave it.
         if ('ResizeObserver' in window) {
             var size = '';
             new ResizeObserver(function () {
                 var now = sc.clientWidth + 'x' + sc.clientHeight;
-                if (now !== size && size && atLive) toLive(null, true);
+                if (now !== size && size && (atEnd || atLive)) {
+                    sc.querySelectorAll('.chat-turn > .user-container').forEach(fitMsg);
+                    if (atEnd) toEnd(true);
+                    else toLive(null, true);
+                }
                 size = now;
             }).observe(sc);
         }
@@ -412,6 +433,7 @@
         addPast: addPast,
         clear: clear,
         toLive: toLive,
+        toEnd: toEnd,
         setLive: setLive,
         setLiveScreen: setLiveScreen,
         videoTurn: videoTurn,
