@@ -75,9 +75,10 @@
     --row-screen: 0px;
     --row-gap: 0px;
 }
-/* The live turn fills the frame: the bottom container takes the rest of
-   it (the live panels need that height), and grows past it with a long
-   reply. Never below about two thirds of its usual height. */
+/* The live turn fills the frame: the bottom container's row takes the rest
+   of it (the live panels need that height; a reply's box sits at its top,
+   run_reply.css), and grows past it with a long reply. Never below about two
+   thirds of its usual height. */
 .chat-turn.live {
     min-height: 100%;
     grid-template-rows: auto var(--msg-gap) var(--screen-h) var(--turn-gap)
@@ -99,7 +100,7 @@
     margin-bottom: clamp(14px, 2vw, 24px);
 }
 /* An earlier turn's reply was already there: no fade-in when it is built
-   (as specific as run_reply.css's rule that sets it). */
-.chat-past .agent-container.show-reply > .reply-panel {
+   (more specific than run_reply.css's rule that sets it). */
+.chat-past .agent-container.show-reply {
     animation: none;
 }

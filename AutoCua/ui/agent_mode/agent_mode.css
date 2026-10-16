@@ -284,6 +284,32 @@
     .agent-btn, .agent-menu, .agent-opt, .am-chev { transition: none; }
 }
 
+/* ---------- Auto / Manual (Shell use only), right of the picker ----------
+   The picker's own pill and menu (.agent-btn, .agent-menu, .agent-opt); this box
+   only places them. display:none outside Shell use, so the skills icon closes up
+   in the other modes. position:relative so its menu opens above it. */
+.shell-input-wrap {
+    position: relative;
+    display: none;
+    align-items: center;
+    margin-left: clamp(2px, 0.4vw, 6px);
+}
+.agent-mode-wrap[data-mode="shell"] .shell-input-wrap { display: flex; animation: siIn 0.3s ease; }
+@keyframes siIn { from { opacity: 0; } to { opacity: 1; } }
+.shell-input-menu { width: clamp(150px, 16vw, 180px); }
+.si-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    color: rgba(90, 90, 90, 0.8);
+    display: none;
+}
+.agent-mode-wrap[data-shell-input="auto"] .si-auto,
+.agent-mode-wrap[data-shell-input="manual"] .si-manual { display: block; }
+@media (prefers-reduced-motion: reduce) {
+    .agent-mode-wrap[data-mode="shell"] .shell-input-wrap { animation: none; }
+}
+
 /* =====================================================================
    Selection glow — the chat box's INNER edge softly glows in a neon
    two-tone gradient matching the Agent-mode selection (data-sub on the

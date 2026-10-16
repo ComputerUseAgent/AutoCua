@@ -77,6 +77,8 @@
             // Mobile use with no device picked yet (e.g. a reopened mobile chat
             // before re-pairing) — the user must select iOS/Android first.
             if (agentMode === 'mobile' && !agentSub) return;
+            // Shell use on Manual: the terminal is the input, not this box (agent_mode.js).
+            if (agentMode === 'shell' && modeWrap.dataset.shellInput === 'manual') return;
             // Web use needs no sub-option and no gate: service.py routes
             // mode 'web' to run_pkg 'web' (the browser agent) and /api/start-agent
             // below is the right endpoint for it, same as Computer and Mobile.
@@ -136,6 +138,8 @@
             // session_id below. The composer, stop orb and completion teardown
             // are shared between both endpoints.
             const endpoint = (agentMode === 'shell') ? '/api/start-shell' : '/api/start-agent';
+            // Shell use: your command is the terminal's next line at once (cli_stage.js).
+            if (agentMode === 'shell' && window.cliShellSend) window.cliShellSend(message);
 
             fetch(endpoint, {
                 method: 'POST',
@@ -160,6 +164,8 @@
                     // Adopt the backend's session id (a brand-new chat is minted
                     // server-side) so the run-end save + future sends target it.
                     if (data.session_id) window.currentSessionId = data.session_id;
+                    // Shell use: the run is this chat's (a brand-new one only has its id now)
+                    if (agentMode === 'shell' && window.cliShellStarted) window.cliShellStarted(data.session_id);
                     // This run's id: its video finds its turn by it (chat_scroll.js).
                     if (chatGoesOn && data.run_id) window.chatScroll.setLive(data.run_id, '');
                     // Computer use: the bot comes into the screen box (run_bot.js).
@@ -173,12 +179,15 @@
                     document.dispatchEvent(new CustomEvent('chats:refresh'));
                 } else if (data.error) {
                     agentText.textContent = `Error: ${data.error}`;
+                    // Shell use: the strip hides at once, the terminal says why
+                    if (agentMode === 'shell' && window.cliShellNote) window.cliShellNote(`Error: ${data.error}`);
                     restoreIdle();          // roll the orb morph + box back
                 }
             })
             .catch(err => {
                 console.error('Failed to start agent:', err);
                 agentText.textContent = 'Failed to start agent';
+                if (agentMode === 'shell' && window.cliShellNote) window.cliShellNote('Failed to start agent');
                 restoreIdle();
             });
         }
@@ -322,6 +331,8 @@
             // The run's reply, like a chat: a retired run never sends its own.
             // A full-size stage (Skills) gives the grid back so it shows.
             if (window.showRunReply) window.showRunReply('Stopped.', 'stopped');
+            // Shell use: the terminal says so and its prompt is yours again (cli_stage.js).
+            if (window.cliShellStop) window.cliShellStop();
             const bigCenter = document.getElementById('zoneBigCenter');
             if (bigCenter) bigCenter.classList.remove('active');
 

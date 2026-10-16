@@ -185,63 +185,147 @@
 #cliContainer .cc-mchain .cc-chain-item.in::before { transform: scaleX(1); }
 #cliContainer .cc-mchain .cc-chain-word { display: none; }
 
-/* ---- terminal header (.has-head — Shell use only) ----
-   The card stops leading with `>`: a blinking dot + the agent name sit on top,
-   the blinking agent head goes under them, and the `>` prompt below that is
-   where every streamed line comes from. Built by coder_card.js create(desc,
-   {header}); the head itself is the shared mascot from tool_icons.js.
-   The header line and the `>` run a step larger than the card's 10px body text
-   (the streamed output keeps that size). */
-/* --cc-gutter is the dot's lane. The name, the head and the `>` all start at
-   its right edge, so the "A" of AutoCua Code, the head and the prompt sit on
-   one vertical line with only the blinking dot out to their left. */
-.coder-card.has-head { --cc-gutter: 14px; }
-.coder-card .cc-head { display: flex; align-items: center; gap: 0; }
-.coder-card .cc-hdot {
-    width: 6px; height: 6px; flex: 0 0 auto;
-    margin-left: 4px;                       /* nudged off the card's left edge */
-    border-radius: 50%; background: rgba(0, 0, 0, 0.55);
-    animation: cc-blink 1.2s ease-in-out infinite;
+/* ---- the Shell use card (.has-head): a chat with a one-line terminal ----
+   Built by coder_card.js create(desc, {header}). The scrollback holds the chat
+   (cli_stage.js prints your messages as the normal chat's bubbles and the
+   answers in its reply box) and your hand-typed commands with their output;
+   under it ONE live line: the agent head (the shared mascot from tool_icons.js),
+   the `>`, then a new chat's hello, the agent's words while a run goes, or the
+   prompt you type into. No header, box or todo: the run's steps play on the
+   bot's face (cli/shell_bot.js). The minions' tree hangs from the head inside
+   the live line's box (below). The sliding bar lives in that box too and shows
+   only while it is open (you type). */
+.coder-card.has-head .cc-head,
+.coder-card.has-head .cc-progress,
+.coder-card.has-head.has-todo .cc-todo { display: none; }
+#cliContainer .coder-card.has-head { background: none; }
+#cliContainer .coder-card.has-head::after { content: none; }
+.coder-card.has-head .cc-body { padding: 0; }
+.coder-card.has-head .cc-term { display: flex; flex-direction: column; align-items: stretch; }
+.coder-card.has-head .cc-term > .cc-out-text { min-width: 0; }
+
+/* The live line, under the chat (a gap under its last line, as in the chat), in
+   its own thin rounded box like the chat's: as big as what it says (the hello,
+   the prompt), and the answer box's full width while a run's words tick in it,
+   so it holds still. Clicked (you type: body.cli-typing) it opens into a
+   terminal of its own size, your typed commands and their output above its
+   prompt row. It grows and shrinks smoothly (interpolate-size: to and from its
+   content's size). */
+.coder-card.has-head .cc-out {
+    flex-direction: column;
+    align-items: stretch;
+    width: fit-content;
+    max-width: 85%;
+    box-sizing: border-box;
+    padding: clamp(6px, 0.7vw, 8px) clamp(10px, 1.2vw, 14px);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: var(--glass-radius);
+    overflow: hidden;
+    interpolate-size: allow-keywords;
+    transition: width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), height 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
-.coder-card .cc-hname {
-    color: rgba(0, 0, 0, 0.82);
-    font-size: 13px;
-    margin-left: 4px;                       /* 4 + 6 + 4 = the 14px gutter */
+.coder-card.has-head.cc-running .cc-out { width: 85%; }
+.coder-card.has-head.cc-has-out .cc-out { margin-top: clamp(10px, 1.5vw, 18px); }
+body.cli-typing .coder-card.has-head:not(.cc-running) .cc-out {
+    width: 85%;
+    height: clamp(180px, 50cqh, 440px);     /* of the stage (cli_stage.css: a size container) */
 }
-/* head + the reply's prose on ONE line beside it. The `>` terminal below is the
-   agent's ACTIONS; this row is the agent's words, ticking left-to-right and
-   paginating (hold → clear → continue) so it never grows past a single line. */
-.coder-card .cc-brain {
-    display: flex; align-items: center; gap: 10px;
-    margin: 8px 0 10px var(--cc-gutter, 0px);
+.coder-card.has-head .cc-prow { display: flex; align-items: center; flex: 0 0 auto; min-width: 0; }
+/* The terminal's own lines: content-sized, so the prompt row sits right under the
+   last one (a new terminal: the prompt on top); once they fill the box they scroll. */
+.coder-card.has-head .cc-tview { display: none; }
+body.cli-typing .coder-card.has-head:not(.cc-running) .cc-tview {
+    display: block;
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
 }
-.coder-card .cc-mascot { display: block; flex: 0 0 auto; }
-.coder-card .cc-think {
-    flex: 1 1 auto; min-width: 0; overflow: hidden;
-    color: rgba(0, 0, 0, 0.6);
+.coder-card.has-head .cc-tview::-webkit-scrollbar { display: none; }
+.coder-card.has-head .cc-tview .cc-line { white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; line-height: 1.38; }
+.coder-card.has-head .cc-tview .cc-scroll:not(:empty) { margin-bottom: 4px; }
+/* The minions' tree, in the live line's box under its row: the trunk drops from the
+   head's centre (12.5px = half the 26px head canvas, less half the 1px trunk; the
+   head and the tree share the box's inner left edge), an L to each minion's row,
+   one below another, each with that minion's live words and its tools. Only while
+   a minion runs; 194px of rows show (about four with their tools), more slide up
+   (the conveyor). Every part opens and closes smoothly, so the box, and the chat
+   above it, never jump: the empty tree folds to nothing (not display:none), a row
+   opens into place (its tools play on its Minion bot's face, not here). The trunk follows the rows
+   (layoutTrunk on every size change) and ends at the last row that stays. */
+.coder-card.has-head .cc-minions {
+    margin: 2px 0 0 12.5px;
+    transition: margin-top 0.32s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
-/* the gutter now lives on the wrapper, so the prompt row and the output column
-   share one left edge in BOTH directions */
-.coder-card.has-head .cc-term { padding-left: var(--cc-gutter, 0px); }
-/* AI mode geometry: `>` on the left, the agent's output flowing beside it. The first
-   action therefore lands ON the prompt line, and because the text is its own flex
-   column every wrapped line stays indented past the `>` — never drifting under the
-   minion trunk that hangs below it. */
-.coder-card.has-head .cc-term { display: flex; flex-direction: row; align-items: flex-start; }
-.coder-card.has-head .cc-term > .cc-out { flex: 0 0 auto; }
-.coder-card.has-head .cc-term > .cc-out-text { flex: 1 1 auto; min-width: 0; }
-/* nothing to type into while the agent owns the terminal — the `>` stands alone */
-.coder-card.has-head.cc-running .cc-cmd { display: none; }
-/* the minion tree hangs off the `>`, so its trunk shifts by the same gutter
-   (keeping the original 3px offset that tucks it just under the prompt) */
-.coder-card.has-head .cc-minions { margin-left: calc(var(--cc-gutter, 0px) + 3px); }
+.coder-card.has-head .cc-mtree {
+    transition: transform 0.32s cubic-bezier(0.25, 0.8, 0.25, 1), padding 0.32s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.coder-card.has-head .cc-minions:not(:has(.cc-mrow)) { margin-top: 0; }
+.coder-card.has-head .cc-minions:not(:has(.cc-mrow)) .cc-mtree { padding: 0; }
+.coder-card.has-head .cc-mflow { max-height: 194px; }
+.coder-card.has-head .cc-mrow { animation: cc-mrow-in 0.32s cubic-bezier(0.25, 0.8, 0.25, 1) backwards; }
+/* backwards, not both: a held max-height would beat endMinion's inline one; 17px =
+   a row without tools (they slide open after) */
+@keyframes cc-mrow-in { from { opacity: 0; max-height: 0; } to { opacity: 1; max-height: 17px; } }
+/* a minion's tools play on its Minion bot's face (cli/shell_bot.js), not under its row */
+#cliContainer .coder-card.has-head .cc-msub { display: none; }
+/* The open terminal's floor: the sliding bar (the old terminal's baseline), under
+   the prompt row and pinned to the box's bottom. It slides while a command you
+   typed runs (.cc-busy) and rests, its track only, while the prompt waits. */
+body.cli-typing .coder-card.has-head:not(.cc-running) .cc-out .cc-progress {
+    display: block;
+    margin: auto 0 1px;
+}
+body.cli-typing .coder-card.has-head:not(.cc-running) .cc-prow { margin-bottom: 8px; }
+/* a long command you type scrolls inside the prompt (about 7 lines) rather than
+   pushing the box's floor out */
+body.cli-typing .coder-card.has-head:not(.cc-running) .cc-cmd {
+    max-height: 7.7em;
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+body.cli-typing .coder-card.has-head:not(.cc-running) .cc-cmd::-webkit-scrollbar { display: none; }
+#cliContainer .cc-idle .coder-card.has-head.cc-busy .cc-fill {
+    opacity: 1;
+    animation: cc-flow 1.05s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+.coder-card .cc-mascot { display: block; flex: 0 0 auto; margin-right: 8px; }
 .coder-card.has-head .cc-p {
     font-size: 13px; line-height: 1.1;
-    flex: 0 0 auto; white-space: nowrap;   /* holds the path shown while focused */
+    flex: 0 1 auto; white-space: nowrap;   /* holds the path shown while you type */
+    min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
-/* Past prompts in the scrollback keep the LIVE prompt's look — same 0.4 grey, same
-   13px — instead of being rendered as ordinary output text (.cc-body's 0.82 at 10px),
-   which is what made them blend in. Tagged by the terminal via
+.coder-card.has-head .cc-cmd { min-width: 12ch; }
+/* The `>` itself never draws a cursor — one of the rules further down owns it. */
+.coder-card.has-head .cc-p::after { content: none; }
+/* The agent's words while a run goes, or a new chat's hello: ONE line, ticking
+   left-to-right and paginating (hold → clear → continue). The hello leaves room
+   for the prompt's `_` right after it; once the chat has a line of its own (or
+   you type) the line is the prompt's. */
+.coder-card .cc-think {
+    display: none;
+    min-width: 0; overflow: hidden;
+    font-size: 13px; line-height: 1.38;
+}
+.coder-card.has-head:not(.cc-has-out):not(.cc-running) .cc-think {
+    display: block; flex: 0 1 auto;
+    color: rgba(0, 0, 0, 0.82);
+}
+.coder-card.has-head.cc-running .cc-think {
+    display: block; flex: 1 1 auto;
+    color: rgba(0, 0, 0, 0.6);
+}
+body.cli-typing .coder-card.has-head:not(.cc-running) .cc-think { display: none; }
+/* before its first words, a run's line waits with the prompt's blinking `_` */
+.coder-card.has-head.cc-running .cc-think:empty::after {
+    content: "_";
+    color: rgba(0, 0, 0, 0.55);
+    animation: cc-blink 1.2s ease-in-out infinite;
+}
+/* nothing to type into while the agent owns the line */
+.coder-card.has-head.cc-running .cc-cmd { display: none; }
+/* Your typed commands in the scrollback keep the LIVE prompt's look — same 0.4
+   grey, same 13px — instead of the output's. Tagged by the terminal via
    outStream.push(text, 'cc-prompt-line'). */
 .coder-card .cc-line.cc-prompt-line {
     font-size: 13px;
@@ -255,8 +339,6 @@
     color: rgba(0, 0, 0, 0.4);
     -webkit-text-fill-color: rgba(0, 0, 0, 0.4);
 }
-/* The `>` itself never draws a cursor — one of the two rules further down owns it. */
-.coder-card.has-head .cc-p::after { content: none; }
 
 /* The hand-typed prompt. Bare and inheriting the terminal's type so it reads as part
    of the `>` line, and the native caret is hidden — the blinking `_` IS the cursor,
@@ -278,39 +360,19 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
-
-/* ONE cursor, always where text is actually appearing — never two:
-     idle / hand-typing     -> at the prompt, right after what you've typed
-     AI mode (.cc-running)  -> trailing the agent's NEWEST output line, so it sits on
-                               line 1 while there's one line, line 3 once there are
-                               three, and so on.
-   .cc-running is added by begin() when a task is sent and only ever lives on a live
-   card, so the idle terminal always keeps its typing cursor. */
 .coder-card.has-head .cc-cmd::after {
     content: "_";
     color: rgba(0, 0, 0, 0.55);
     animation: cc-blink 1.2s ease-in-out infinite;
 }
 .coder-card.has-head.cc-running .cc-cmd::after { content: none; }
-.coder-card.has-head.cc-running .cc-out-view .cc-line:last-child::after {
-    content: "_";
-    color: rgba(0, 0, 0, 0.55);
-    /* the newest line usually carries .cc-shimmer, which paints its text with a
-       clipped gradient and -webkit-text-fill-color: transparent. Inherited, that
-       makes the cursor invisible — so opt this pseudo-element back out of it. */
-    -webkit-text-fill-color: rgba(0, 0, 0, 0.55);
-    background: none;
-    -webkit-background-clip: border-box;
-            background-clip: border-box;
-    animation: cc-blink 1.2s ease-in-out infinite;
-}
 /* AI mode: the prompt is the agent's, not yours — nothing to click or type into. */
 .coder-card.has-head.cc-running .cc-cmd { pointer-events: none; user-select: none; }
 /* While a command is running there is NO prompt — a terminal doesn't offer one back
    until the command is done. Collapsed with opacity + height rather than display:none
    or visibility:hidden ON PURPOSE: both of those drop focus, and the field has to keep
    it so Ctrl+C still reaches the keydown handler that interrupts the command. */
-body.cli-typing .coder-card.has-head.cc-busy .cc-out {
+body.cli-typing .coder-card.has-head.cc-busy .cc-prow {
     opacity: 0;
     height: 0;
     overflow: hidden;
@@ -318,71 +380,32 @@ body.cli-typing .coder-card.has-head.cc-busy .cc-out {
 }
 
 
-/* Hand-typing: the view keeps its normal size — what changes is that it becomes
-   REALLY scrollable instead of the agent's translateY conveyor, so old output stays
-   reachable by scrolling rather than by growing the terminal. Scrollbar hidden to
+/* ---- the Shell use card's geometry (body.cli-shell) ----
+   The scrollback is REALLY scrollable (native scroll, coder_card.js), not the compact
+   card's translateY conveyor, so the whole chat stays reachable. Scrollbar hidden to
    match the rest of the app; the wheel is driven from JS (see the WKWebView note in
-   coder_card.js). Reverted by begin() the moment a task is sent to the agent. */
-/* ---- hand-typing (body.cli-typing) ----
-   The terminal grows with its output, and its HARD CAP is the panel — which ends
-   just above the composer. Two things make that true:
-
-   1. The agent row stops being auto-sized. `minmax(42vh, auto)` GROWS with content,
-      so a long command pushed the card past the panel and #cliContainer sprouted a
-      scrollbar. `minmax(0, 1fr)` takes the space that's left and no more. Row 2 goes
-      to `auto` — the waiting terminal has no side zones, so it collapses to nothing
-      and the whole panel belongs to the terminal.
-   2. .cc-agent may shrink to the panel (flex-shrink + min-height:0), instead of
-      flex-basis:auto letting its content dictate the height.
-
-   Below that, .coder-card is already a column of .cc-body + .cc-progress, so
-   "everything down to the bar" IS .cc-body's height; the flex chain just hands that
-   space to the output view, which scrolls once it's full. */
-/* .cli-shell.cli-typing, not .cli-typing alone: the Shell-use layout block further
-   down sets grid-template-rows with the SAME specificity, and being later it would
-   win — the typing cap simply never applied. Naming both classes outranks it, and
-   can't be broken by moving rules around. (cli-typing only ever exists in Shell use
-   anyway, so it costs nothing to say so.) */
-body.cli-shell.cli-typing #cliContainer .cc-agent {
-    flex: 1 1 auto;
-    min-height: 0;
-    grid-template-rows: minmax(0, 1fr) auto;
-}
-body.cli-typing .coder-card.has-head .cc-main {
+   coder_card.js). The card fills the stage; the flex chain below hands its height to
+   the scrollback, CONTENT-sized (flex-grow 0) so the live line sits right under the
+   last line, and once the chat is taller than the stage it shrinks and scrolls,
+   which keeps the live line on the bottom. */
+body.cli-shell .coder-card.has-head .cc-body { overflow: hidden; }
+body.cli-shell .coder-card.has-head .cc-main {
     display: flex;
     flex-direction: column;
     min-height: 0;
 }
-/* the fixed furniture never gives up space — only the output view flexes */
-body.cli-typing .coder-card.has-head .cc-head,
-body.cli-typing .coder-card.has-head .cc-brain,
-body.cli-typing .coder-card.has-head .cc-out,
-body.cli-typing .coder-card.has-head .cc-minions { flex: 0 0 auto; }
-/* Typing flips the wrapper to a column AND puts the live prompt LAST, the way a real
-   terminal works: executed lines pile up above and scroll away, while `<path> > _`
-   stays pinned on the bottom line. (order, not DOM order — AI mode needs the prompt
-   first so the output can sit beside it.) */
-body.cli-typing .coder-card.has-head .cc-term {
-    flex-direction: column;
-    flex: 1 1 auto;
+body.cli-shell .coder-card.has-head .cc-out { flex: 0 0 auto; }
+body.cli-shell .coder-card.has-head .cc-term {
+    flex: 0 1 auto;
     min-height: 0;
 }
-/* Gated on .cc-has-out: with an EMPTY terminal the prompt stays on top, so clicking
-   into it doesn't fling `<path> >_` to the bottom of a tall empty box. The first
-   command's echo sets the class and the prompt drops to the last line for good. */
-body.cli-typing .coder-card.has-head.cc-has-out .cc-term > .cc-out-text { order: 1; }
-body.cli-typing .coder-card.has-head.cc-has-out .cc-term > .cc-out      { order: 2; }
-/* flex-GROW 0: the output is CONTENT-sized, so the prompt sits immediately under the
-   last line rather than being pushed to the floor of the terminal. Once the output is
-   long enough to fill the space it shrinks (flex-shrink 1) and scrolls, which puts the
-   prompt at the bottom naturally — exactly how a real terminal ends up there. */
-body.cli-typing .coder-card.has-head .cc-out-text {
+body.cli-shell .coder-card.has-head .cc-out-text {
     display: flex;
     flex-direction: column;
     flex: 0 1 auto;
     min-height: 0;
 }
-body.cli-typing .coder-card.has-head .cc-out-view {
+body.cli-shell .coder-card.has-head .cc-out-view {
     flex: 0 1 auto;
     min-height: 0;
     height: auto;                /* the flex line above sets it, not --cc-max-lines */
@@ -390,7 +413,18 @@ body.cli-typing .coder-card.has-head .cc-out-view {
     scrollbar-width: none;
     -ms-overflow-style: none;
 }
-body.cli-typing .coder-card.has-head .cc-out-view::-webkit-scrollbar { display: none; }
+body.cli-shell .coder-card.has-head .cc-out-view::-webkit-scrollbar { display: none; }
+/* Its edges fade where there is more chat that way (== chat_scroll.css; the card
+   toggles the two classes, coder_card.js). */
+body.cli-shell .coder-card.has-head .cc-out-view {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top),
+                                        #000 calc(100% - var(--fade-bottom)), transparent 100%);
+            mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top),
+                                        #000 calc(100% - var(--fade-bottom)), transparent 100%);
+    transition: --fade-top 0.25s ease, --fade-bottom 0.25s ease;
+}
+body.cli-shell .coder-card.has-head .cc-out-view.cc-fade-top { --fade-top: clamp(16px, 2.2vw, 28px); }
+body.cli-shell .coder-card.has-head .cc-out-view.cc-fade-bottom { --fade-bottom: clamp(16px, 2.2vw, 28px); }
 
 /* ---- todo column (.has-todo — Shell use only) ----
    The card's body is a ROW: .cc-main (head + brain + terminal + minions) with a
@@ -448,7 +482,7 @@ body.cli-typing .coder-card.has-head .cc-out-view::-webkit-scrollbar { display: 
 /* SINGLE-LINE page (minion rows) — letter-by-letter, holds → clears → continues on overflow. */
 .coder-card .cc-line { white-space: nowrap; overflow: hidden; }
 /* MULTILINE terminal line (the `>` output) — real word-wrap across multiple visual rows. */
-.coder-card .cc-out-text .cc-line { white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; line-height: 1.38; }
+.coder-card .cc-out-text .cc-scroll > .cc-line { white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; line-height: 1.38; }
 /* a finished line shimmers (loading shine) until the next line replaces it / the step ends */
 .coder-card .cc-line.cc-shimmer {
     background: linear-gradient(100deg, rgba(35,38,44,0.92) 0%, rgba(35,38,44,0.92) 40%, rgba(155,159,167,1) 50%, rgba(35,38,44,0.92) 60%, rgba(35,38,44,0.92) 100%);
@@ -542,126 +576,111 @@ body.cli-typing .coder-card.has-head .cc-out-view::-webkit-scrollbar { display: 
 
 /* ---- SHELL USE layout ----
    Shell use is a terminal-first mode, so the card stops being a narrow column
-   between two side rails and becomes the surface: the terminal spans the panel
-   end to end and runs down to roughly the middle of the window, with "Tool
-   response" and "tracking progress" moved BELOW it, side by side. A 2-column
-   grid does the whole rearrangement — the DOM order (chain, terminal, track)
-   is untouched, grid-area just places them. body.cli-shell is toggled by
+   between two side rails and becomes the surface: the terminal on the Shell use
+   stage, with the CoderUse bot on the chat box below it (cli/shell_bot.css,
+   cli_stage.css). It is the chat's whole terminal: your commands, the run's lines
+   and its answers stay in it. There are no side zones here: the run's tool chain
+   plays on the bot's face. body.cli-shell is toggled by
    cli/cli_stage.js; every other mode keeps the left | center | right columns. */
 body.cli-shell #cliContainer .cc-agent {
     /* FIT the panel, never push past it: the panel doesn't scroll, so the unit must
-       shrink to it (same fix the cli-typing block below already applies). */
+       shrink to it. */
     flex: 1 1 auto;
     min-height: 0;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    /* Row 1: the terminal — whatever's left after the tools row, so the grid ALWAYS
-       fits the panel. (It used to be minmax(42vh, auto); auto grew with content and
-       pushed the tool-response row past the panel's clipped edge.) The progress bar
-       stays pinned to this row's bottom. Row 2 needs a DEFINITE height, not auto:
-       .cc-chain / .cc-track-tree are position:absolute, so their flow parents have
-       zero content height and would collapse in an auto row — icons present but
-       clipped to nothing. 166px ≈ caption + exactly 4 chain links (12 pad + 4×24 +
-       3×12 gap); the 5th pushes the conveyor up — the intended "only 4 at a time". */
-    grid-template-rows: minmax(0, 1fr) minmax(166px, auto);
-    grid-template-areas:
-        "term  term"
-        "tools track";
+    /* One row: the card, the whole stage tall. */
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: "term  term";
+    /* a Computer use run's card, still going when a shell chat opened, keeps its
+       chain + tracking zones' row (auto-placed under the terminal) */
+    grid-auto-rows: minmax(166px, auto);
     align-content: start;
     column-gap: 14px;
 }
-/* stretch (not flex-start) so the card fills the whole terminal row: .cc-body
-   grows and pins .cc-progress to the row's bottom edge, where it reads as the
-   terminal's baseline just above the Tool response row. Content-height would let
-   the bar float up under the text wherever the output happened to end. */
+/* stretch (not flex-start) so the card fills the whole row: its chat view and the
+   live line below it get the stage's height to share (the chat scrolls, the line
+   stays on the bottom once the chat is long). The sliding bar now lives in the
+   live line's box (it shows only while that box is open). */
 body.cli-shell #cliContainer .cc-card-wrap {
     grid-area: term;
     align-items: stretch;
 }
-body.cli-shell #cliContainer .cc-actions { grid-area: tools; }
-body.cli-shell #cliContainer .cc-track   { grid-area: track; }
 /* Shell use only: the terminal goes full-bleed (normally capped at 340px + centred). */
 body.cli-shell #cliContainer .coder-card { width: 100%; }
+/* A big terminal: its text a step up from the compact card's 10px. */
+body.cli-shell .coder-card.has-head .cc-body { font-size: 12px; }
 
-/* Shell use: BOUND the card's content to the card.
-   Everywhere else .coder-card is content-height, so .cc-main can be a plain block and the
-   minion tree is free to set the card's height. Here the card is STRETCHED to grid row 1
-   (.cc-card-wrap align-items:stretch) — a fixed height — and nothing inside was holding the
-   content to it, so past ~3 minions the tree ran out through the outlined bottom, over the
-   progress bar and across the "Tool response" caption, until .cc-agent's overflow:hidden cut
-   it off mid-row.
-   The column below hands every FIXED part (name, head, terminal) its natural height and
-   gives everything left to .cc-minions, whose conveyor then keeps the newest minions in
-   view however many are dispatched.
-   :not(.cli-typing) because the hand-typing block above assigns the same properties the
-   other way round (terminal flexes, minions fixed) at the same class count — this way the
-   two can't fight, whichever ends up later in the file. */
-body.cli-shell:not(.cli-typing) .coder-card.has-head .cc-body { overflow: hidden; }
-body.cli-shell:not(.cli-typing) .coder-card.has-head .cc-main {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-}
-body.cli-shell:not(.cli-typing) .coder-card.has-head .cc-head,
-body.cli-shell:not(.cli-typing) .coder-card.has-head .cc-brain,
-body.cli-shell:not(.cli-typing) .coder-card.has-head .cc-term { flex: 0 0 auto; }
-body.cli-shell:not(.cli-typing) .coder-card.has-head .cc-minions { flex: 1 1 auto; min-height: 0; }
+/* A Shell run still going after you opened another mode's chat: only its live line
+   shows over that chat, not the Shell chat's own lines. */
+body:not(.cli-shell) .coder-card.has-head .cc-out-text { display: none; }
 
-/* ---- Agent Notes (Shell use) — the finished run's scratchpad + done message, shown
-   in the free row UNDER the idle terminal (cli_stage.js renderNotes). Reuses the main
-   stage's global .agent-note* classes (notes_stage.css) so the look is identical —
-   pen header, numbered rows, drifting accent — just compacted to terminal scale.
-   Capped + internally scrolling (scrollbar hidden, inherited from .agent-notes-list)
-   so it can never push the panel past its clipped edge. Cleared on the next send. */
-body.cli-shell #cliContainer .cc-notes {
-    grid-row: 2;
-    grid-column: 1 / -1;
-    min-height: 0;
-    max-height: 34vh;
-    display: flex;
-    flex-direction: column;
+/* The chat's own lines (cli_stage.js), the normal chat's look. Your message: its
+   bubble on the right (container/user/user.css); its text (.cc-user-text) four
+   lines tall at most, then it scrolls inside the bubble's padding. */
+.coder-card.has-head .cc-out-text .cc-line.cc-user {
+    width: fit-content;
+    max-width: min(70%, 640px);
+    margin: clamp(14px, 2vw, 24px) 0 0 auto;
     box-sizing: border-box;
-    padding: 10px 6px 2px;
-    overflow: hidden;
-    opacity: 0;
-    transform: translateY(12px);
-    transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
-                max-height 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), padding 0.4s ease;
+    padding: clamp(7px, 0.8vw, 10px) clamp(12px, 1.3vw, 16px);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: var(--glass-radius);
+    background: #F2F2F4;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(13px, 1.3vw, 15px);
+    font-weight: 500;
+    line-height: 1.4;
+    color: rgba(60, 60, 60, 0.95);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
-body.cli-shell #cliContainer .cc-notes.in { opacity: 1; transform: translateY(0); }
-/* Clicking into the terminal (hand-typing mode) hands the whole panel to the prompt:
-   the notes COLLAPSE (max-height 0, so the typing grid's auto row really frees the
-   space) instead of just fading in place. They never need to reappear — cli-typing
-   only ever drops via begin() (a new run, which clears the notes anyway) or by
-   leaving Shell use (which also clears them). */
-body.cli-shell.cli-typing #cliContainer .cc-notes {
-    max-height: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    opacity: 0;
-    transform: translateY(12px);
+.coder-card.has-head .cc-user-text {
+    max-height: 5.6em;
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+.coder-card.has-head .cc-user-text::-webkit-scrollbar { display: none; }
+/* The run's answer: the reply box (container/agent/agent.css, run_reply.css), as big
+   as what it says, its markdown the chat's (.md, notes_stage.css), the AutoCua bot
+   on its left. An ended run's answer (stopped, an error) in grey. A new one fades
+   in like the chat's, the bot with it. */
+.coder-card.has-head .cc-out-text .cc-line.cc-answer {
+    position: relative;
+    width: fit-content;
+    max-width: calc(85% - var(--reply-bot-w) - var(--reply-bot-gap));
+    margin: clamp(10px, 1.5vw, 18px) 0 0 calc(var(--reply-bot-w) + var(--reply-bot-gap));
+    box-sizing: border-box;
+    padding: clamp(8px, 1vw, 12px) clamp(12px, 1.4vw, 16px);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: var(--glass-radius);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(13px, 1.3vw, 15px);
+    line-height: 1.5;
+    color: rgba(40, 40, 40, 0.92);
+    overflow-wrap: anywhere;
+}
+/* the bot, as on Computer use's reply (run_reply.css): still, its top on the box's top */
+.coder-card.has-head .cc-out-text .cc-line.cc-answer::before {
+    content: "";
+    position: absolute;
+    top: -1px;
+    right: calc(100% + 1px + var(--reply-bot-gap));
+    width: var(--reply-bot-w);
+    height: var(--reply-bot-h);
+    background: url("../../bots/autocua.webp") center / contain no-repeat;
     pointer-events: none;
 }
-/* header sits on the terminal's left edge instead of stage-centred */
-body.cli-shell #cliContainer .cc-notes .agent-notes-header {
-    justify-content: flex-start;
-    margin-bottom: 8px;
-    font-size: 12px;
-}
-/* full-width reading column at card scale — drop the main stage's centred
-   700px column and its -40px optical nudge */
-body.cli-shell #cliContainer .cc-notes .agent-notes-list {
-    width: 100%;
-    align-self: stretch;
-    left: 0;
-    font-size: 11px;
-}
-/* A done message with no notes above it (cli_stage.js .solo): no number column
-   to indent under, and it is the whole message, so it takes the notes' colour
-   instead of the dimmed reply grey. */
-body.cli-shell #cliContainer .cc-notes .agent-note-reply.solo {
-    margin-left: 0;
-    color: inherit;
+.coder-card.has-head .cc-out-text .cc-line.cc-answer.md { white-space: normal; }
+.coder-card.has-head .cc-out-text .cc-line.cc-answer.is-ended { color: rgba(110, 110, 110, 0.9); }
+.coder-card.has-head .cc-out-text .cc-line.cc-answer.cc-fresh { animation: runReplyIn 0.35s ease both; }
+.coder-card.has-head .cc-out-text .cc-line.cc-user:first-child,
+.coder-card.has-head .cc-out-text .cc-line.cc-answer:first-child { margin-top: 0; }
+.coder-card .cc-line.cc-user.cc-shimmer,
+.coder-card .cc-line.cc-answer.cc-shimmer {
+    background: none;
+    animation: none;
+    -webkit-text-fill-color: currentColor;
 }
 
 /* The faintest grey wash + a thin outline that's solid along the bottom and fades
@@ -694,25 +713,9 @@ body.cli-shell #cliContainer .cc-notes .agent-note-reply.solo {
    is parked. */
 #cliContainer .cc-idle .cc-fill { animation: none; opacity: 0; }
 
-/* Shell use: the tracking-progress bullets take the TODO tick's colour instead of
-   grey — cc-dotColor is the same #9292d8 palette on the same 4s loop as the tick's
-   tw-tickColor (end of this file), but animating background-color, which is what a
-   filled dot needs; tw-tickGlow (end of this file) adds the tick's soft pulse. */
-body.cli-shell #cliContainer .cc-track-dot::after {
-    background: #9292d8;
-    animation: cc-dotColor 4s linear infinite, tw-tickGlow 3s ease-in-out infinite;
-}
-@keyframes cc-dotColor {
-    0%, 100% { background-color: #9292d8; }
-    20% { background-color: #a875ad; }   /* red   */
-    40% { background-color: #88a8c6; }   /* green */
-    60% { background-color: #7e99e0; }   /* blue  */
-    80% { background-color: #a789e0; }   /* pink  */
-}
-
 /* ---- todo rows (.todo-list / .todo-item / .todo-check / .todo-spinner / .todo-text) ----
-   The rows setTodo() builds in the Shell-use todo column, and tw-tickGlow for the
-   tracking dots above. They came from the main agent's todo list
+   The rows setTodo() builds in the Shell-use todo column, and tw-tickGlow for their
+   tick. They came from the main agent's todo list
    (container/bottom_right/), which is parked in container/dead/ now. */
 .todo-list {
     width: 100%;

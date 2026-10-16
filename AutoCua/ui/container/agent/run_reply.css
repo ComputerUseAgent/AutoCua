@@ -14,29 +14,57 @@
 .agent-container.show-reply > .tracking-panel {
     display: none;
 }
-/* The container itself, while it holds the reply: a chat reply's width
-   instead of the whole row, so it stops short of the right side (the
-   user's message side). No transition: the chat's glide to the reply's
-   last line (chat_scroll.js toEnd) measures it at once. */
+/* The AutoCua bot beside the AI's final message (bots/autocua.webp, from the
+   owner's autocua-helmet.html), here and in Shell use's chat (coder_card.css):
+   as tall as a one-line reply's box (its padding, a 1.5 line, its line), a
+   gap from it. */
+:root {
+    --reply-bot-h: calc(2 * clamp(8px, 1vw, 12px) + 1.5 * clamp(13px, 1.3vw, 15px) + 2px);
+    --reply-bot-w: calc(var(--reply-bot-h) * 520 / 720);
+    --reply-bot-gap: clamp(6px, 0.8vw, 10px);
+}
+/* The container itself, while it holds the reply: just as big as the reply
+   (the live turn's row keeps its height, the box sits at its top), at most a
+   chat reply's width, so it stops short of the right side (the user's
+   message side). The bot stands on its left. The box and the bot fade in
+   together, a pure fade (runReplyIn). No transition: the chat's glide to the
+   reply's last line (chat_scroll.js toEnd) measures it at once. */
 .agent-container.show-reply {
+    display: block;
     justify-self: start;
-    width: 85%;
+    align-self: start;
+    width: fit-content;
+    max-width: calc(85% - var(--reply-bot-w) - var(--reply-bot-gap));
+    margin-left: calc(var(--reply-bot-w) + var(--reply-bot-gap));
+    overflow: visible;
+    animation: runReplyIn 0.35s ease;
+}
+/* The bot: still, its top on the box's top. */
+.agent-container.show-reply::before {
+    content: "";
+    position: absolute;
+    top: -1px;
+    right: calc(100% + 1px + var(--reply-bot-gap));
+    width: var(--reply-bot-w);
+    height: var(--reply-bot-h);
+    background: url("../../bots/autocua.webp") center / contain no-repeat;
+    pointer-events: none;
 }
 .agent-container.show-reply > .reply-panel {
     display: block;
-    grid-column: 1 / -1;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: clamp(13px, 1.3vw, 15px);
     line-height: 1.5;
     color: rgba(40, 40, 40, 0.92);
     overflow-wrap: anywhere;
-    animation: runReplyIn 0.35s ease both;
 }
 /* Stopped / incomplete / error: why the run ended, muted. */
 .reply-panel.is-ended {
     color: rgba(110, 110, 110, 0.9);
 }
+/* The fade is a filter, not opacity: a Telegram task fades the box's own
+   opacity away (style.css), and an opacity animation on it would cut that
+   fade short if the task starts while the reply is still coming in. */
 @keyframes runReplyIn {
-    from { opacity: 0; transform: translateY(4px); }
-    to   { opacity: 1; transform: none; }
+    from { filter: opacity(0); }
 }

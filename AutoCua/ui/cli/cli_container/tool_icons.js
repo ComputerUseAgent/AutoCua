@@ -5,16 +5,27 @@
 // is kept SEPARATE from agent.js so the working main chain is never touched.
 //
 // API (window.CliToolIcons):
-//   createChain(treeEl, {orientation})        -> { addAction(tool)->bool, dispose }
+//   createChain(treeEl, {orientation})        -> { addStep(spec), addAction(tool)->bool, dispose }
 //   createTracker(treeEl, flowEl, zoneEl)     -> { push(text), dispose }  (scratchpad stream)
-//   createMascot(canvas, size)                -> { dispose }  (the blinking agent head, big)
-// where `tool` = { name: <action type>, arg: <label param> }. Unmapped names (todo/minion/
+//   createMascot(canvas, size)                -> { setGlow(on), dispose }  (the blinking agent head, big)
+//   createFaceIcon(canvas, {color, size})     -> { show, clear, dispose, addStep, addAction }
+//                                                (the chain one icon at a time, one colour: the
+//                                                 Shell use bot's visor, cli/shell_bot.js)
+// where `tool` = { name: <action type>, arg: <label param> }. Unmapped names (todo/
 // scratchpad/exit) are skipped by the chain — they're shown elsewhere.
 (function () {
     'use strict';
 
     var ICON = 24;                       // logo size — same as agent.js's chain (keep == CSS .cc-chain-icon)
     var COLOR = 'rgba(85, 90, 100, 0.92)';
+    // Face mode (createFaceIcon): the white bits (head eyes, the tick's check) are cut OUT
+    // of the shape, so the visor shows through and the icon stays one solid colour.
+    var KNOCK = false;
+    function knock(ctx, white) {
+        if (!KNOCK) return white;
+        ctx.globalCompositeOperation = 'destination-out';
+        return '#000';
+    }
     var VSCALE = (ICON / 2) / 44;        // source coords (~±44) -> ICON-px icon
     var TYPE_MS = 12;                    // per-char typing
     var TICK_MS = 400;
@@ -350,7 +361,7 @@
             var bt = t % 1800, sy = 1;
             if (bt > 1620) sy = bt < 1710 ? 1 - ((bt - 1620) / 90) * 0.92 : 0.08 + ((bt - 1710) / 90) * 0.92;
             var eh = 14 * sy, ey = -5 - eh / 2, er = Math.min(4, eh / 2);
-            ctx.globalAlpha = alpha; ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = alpha; ctx.fillStyle = knock(ctx, '#ffffff');
             ctx.beginPath();
             if (ctx.roundRect) { ctx.roundRect(-12, ey, 8, eh, er); ctx.roundRect(4, ey, 8, eh, er); }
             else { ctx.rect(-12, ey, 8, eh); ctx.rect(4, ey, 8, eh); }
@@ -371,11 +382,12 @@
         var bt = t % 1800, sy = 1;
         if (bt > 1620) sy = bt < 1710 ? 1 - ((bt - 1620) / 90) * 0.92 : 0.08 + ((bt - 1710) / 90) * 0.92;
         var eyeH = 14 * k * sy, eyeY = cy + (-5 * k) - eyeH / 2, eyeR = Math.min(4 * k, eyeH / 2);
-        ctx.globalAlpha = alpha; ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = alpha; ctx.fillStyle = knock(ctx, '#ffffff');
         ctx.beginPath();
         if (ctx.roundRect) { ctx.roundRect(cx - 12 * k, eyeY, 8 * k, eyeH, eyeR); ctx.roundRect(cx + 4 * k, eyeY, 8 * k, eyeH, eyeR); }
         else { ctx.rect(cx - 12 * k, eyeY, 8 * k, eyeH); ctx.rect(cx + 4 * k, eyeY, 8 * k, eyeH); }
         ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
     }
     function minionPainter() {
         return function (ctx, cx, cy, t, alpha) {
@@ -515,7 +527,7 @@
         var R = ICON / 2 - 1.5;
         ctx.save(); ctx.translate(cx, cy); ctx.globalAlpha = alpha;
         ctx.fillStyle = COLOR; ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.strokeStyle = knock(ctx, 'rgba(255, 255, 255, 0.95)');
         ctx.lineWidth = 1.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         ctx.beginPath(); ctx.moveTo(-R * 0.42, 0); ctx.lineTo(-R * 0.12, R * 0.32); ctx.lineTo(R * 0.46, -R * 0.32); ctx.stroke();
         ctx.restore();
@@ -535,6 +547,18 @@
     // Each step renders inside try/catch so one bad painter can never blank the whole chain.
     var liveSteps = [];
     var rafId = null;
+    // One step at time t, centred on (c, c): its painter, or, once a `tick` step is done,
+    // the crossfade into the tick. Shared by the chain and the face icon.
+    function paintStep(ctx, s, c, t) {
+        if (s.tick && s.state === 'done') {
+            var k = Math.min(1, (t - s._doneAt) / TICK_MS);
+            if (k < 1) { s._painter(ctx, c, c, t, 1 - k); drawTick(ctx, c, c, k); }
+            else { drawTick(ctx, c, c, 1); }
+        } else {
+            s._painter(ctx, c, c, t, 1);
+        }
+        ctx.globalAlpha = 1;
+    }
     function frame(t) {
         rafId = null;
         for (var i = 0; i < liveSteps.length; i++) {
@@ -543,15 +567,7 @@
                 if (s._render) { s._render(t); continue; }
                 var ctx = s._ctx; if (!ctx) continue;
                 ctx.clearRect(0, 0, ICON, ICON);
-                if (s.tick && s.state === 'done') {
-                    // crossfade the painter into a ✓ tick (e.g. "thinking" -> "packet received")
-                    var k = Math.min(1, (t - s._doneAt) / TICK_MS);
-                    if (k < 1) { s._painter(ctx, ICON / 2, ICON / 2, t, 1 - k); drawTick(ctx, ICON / 2, ICON / 2, k); }
-                    else { drawTick(ctx, ICON / 2, ICON / 2, 1); }
-                } else {
-                    s._painter(ctx, ICON / 2, ICON / 2, t, 1);
-                }
-                ctx.globalAlpha = 1;
+                paintStep(ctx, s, ICON / 2, t);
             } catch (e) { /* keep the loop alive */ }
         }
         if (liveSteps.length) rafId = requestAnimationFrame(frame);
@@ -593,6 +609,95 @@
         return {
             setGlow: function (on) { glowOn = !!on; },
             dispose: function () { dropStep(step); }
+        };
+    }
+
+    // ONE chain icon at a time, at any size, in one solid colour: the CoderUse bot's visor.
+    // The canvas is laid out by CSS and the backing store follows its box (ResizeObserver),
+    // unless opts.size pins it. Rides the shared rAF loop like createMascot and paints with
+    // the chain's own painters: COLOR / ORB_RGB are swapped to the face colour only for the
+    // length of its own paint. show(nameOrShape, {tick}) takes a tool name (CODER_TOOL_MAP)
+    // or a shape (SHAPES); names with no icon (todo_list, update_todo, scratchpad, exit)
+    // return null. A done tick stays up for its crossfade before the next icon replaces it.
+    var FACE_MIN_MS = 250, FACE_TICK_HOLD = 300;
+    function createFaceIcon(canvas, opts) {
+        opts = opts || {};
+        var rgb = String(opts.color || 'rgb(80, 44, 40)').replace(/^rgba?\(|\)$/g, '').split(',').slice(0, 3).join(',');
+        var ink = 'rgb(' + rgb + ')';
+        var ctx = canvas.getContext('2d');
+        var w = 0, h = 0, ro = null;
+        function fit(cw, ch) {
+            var dpr = window.devicePixelRatio || 1;
+            w = cw; h = ch;
+            canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        if (opts.size) {
+            canvas.style.width = opts.size + 'px'; canvas.style.height = opts.size + 'px';
+            fit(opts.size, opts.size);
+        } else {
+            fit(canvas.clientWidth, canvas.clientHeight);
+            if (window.ResizeObserver) {
+                ro = new ResizeObserver(function () { fit(canvas.clientWidth, canvas.clientHeight); });
+                ro.observe(canvas);
+            }
+        }
+        var cur = null, queue = [], pumpTimer = null;
+        var step = {
+            _render: function (t) {
+                ctx.clearRect(0, 0, w, h);
+                if (!cur || !w || !h) return;
+                var k = Math.min(w, h) / ICON;
+                var c0 = COLOR, r0 = ORB_RGB, k0 = KNOCK;
+                COLOR = ink; ORB_RGB = rgb; KNOCK = true;
+                ctx.save();
+                try {
+                    ctx.translate(w / 2, h / 2); ctx.scale(k, k);
+                    paintStep(ctx, cur, 0, t);
+                } finally {
+                    ctx.restore();
+                    COLOR = c0; ORB_RGB = r0; KNOCK = k0;
+                }
+            }
+        };
+        function holdMs() {
+            if (!cur) return 0;
+            var until = cur._shownAt + FACE_MIN_MS;
+            if (cur.tick && cur.state === 'done') until = Math.max(until, cur._doneAt + TICK_MS + FACE_TICK_HOLD);
+            return Math.max(0, until - now());
+        }
+        function pump() {
+            pumpTimer = null;
+            if (!queue.length) return;
+            var wait = holdMs();
+            if (wait > 0) { pumpTimer = setTimeout(pump, wait); return; }
+            cur = queue.shift(); cur._shownAt = now();
+            if (liveSteps.indexOf(step) < 0) liveSteps.push(step);
+            startEngine();
+            if (queue.length) pumpTimer = setTimeout(pump, FACE_MIN_MS);
+        }
+        function show(nameOrShape, o) {
+            var map = CODER_TOOL_MAP[nameOrShape];
+            var shape = map ? map.shape : (SHAPES[nameOrShape] ? nameOrShape : null);
+            if (!shape) return null;
+            var s = { _painter: SHAPES[shape](), tick: !!(o && o.tick), state: 'active', _doneAt: 0, _shownAt: 0 };
+            queue.push(s);
+            if (!pumpTimer) pump();
+            return { complete: function () { s.state = 'done'; s._doneAt = now(); } };
+        }
+        function clear() {
+            clearTimeout(pumpTimer); pumpTimer = null;
+            queue.length = 0; cur = null;
+            dropStep(step);
+            ctx.clearRect(0, 0, w, h);
+        }
+        return {
+            show: show,
+            clear: clear,
+            dispose: function () { clear(); if (ro) ro.disconnect(); },
+            // drop-in for a createChain() object, so coder_card.js can drive it unchanged
+            addStep: function (spec) { return show(spec.shape, spec) || { complete: function () {} }; },
+            addAction: function (tool) { return !!(tool && CODER_TOOL_MAP[tool.name] && show(tool.name)); }
         };
     }
 
@@ -746,5 +851,5 @@
         return { push: push, dispose: dispose };
     }
 
-    window.CliToolIcons = { createChain: createChain, createTracker: createTracker, createMascot: createMascot };
+    window.CliToolIcons = { createChain: createChain, createTracker: createTracker, createMascot: createMascot, createFaceIcon: createFaceIcon };
 })();

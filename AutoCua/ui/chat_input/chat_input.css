@@ -292,8 +292,12 @@ body.left-bar-animating .chat-container-wrapper {
     -ms-overflow-style: none; /* IE/Edge */
 
     /* Smooth collapse on send: max-height shrinks a multi-line draft back to one line,
-       and padding opens up to clear the toolbar as it moves up beside the text. */
+       and padding opens up to clear the toolbar as it moves up beside the text. The
+       min-height too (one line idle, the orb's height running): left to jump, the box
+       first grew ~6px up before it closed down, a jiggle on every send. All on the
+       box's own 0.34s curve (padding-bottom below), so it only ever moves one way. */
     transition: max-height 0.34s cubic-bezier(0.25, 0.8, 0.25, 1),
+                min-height 0.34s cubic-bezier(0.25, 0.8, 0.25, 1),
                 padding 0.34s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
@@ -375,6 +379,34 @@ body.left-bar-animating .chat-container-wrapper {
    data-agent-mode is mirrored onto .input-area-wrapper by agent_mode.js. */
 .input-area-wrapper[data-agent-mode="shell"] .fast-quality-toggle {
     opacity: 0;
+    pointer-events: none;
+}
+/* Shell use on Manual (the Auto / Manual pill, mirrored by agent_mode.js as
+   data-shell-input): you type in the terminal, so the box hides its text and says
+   so, and the send orb rests. CSS only: the placeholder and disabled have other
+   writers. visibility keeps the row, so nothing jumps; a draft waits for Auto. */
+.input-area-wrapper[data-shell-input="manual"] .chat-input {
+    visibility: hidden;
+    max-height: clamp(30px, 2.9vw, 36px);
+}
+.input-area-wrapper[data-shell-input="manual"]::before {
+    content: "Type your commands in the terminal";
+    position: absolute;
+    top: calc(var(--pad-y) + 4px);
+    left: calc(var(--pad-x) + 4px);
+    right: var(--pad-x);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(13px, 1.3vw, 15px);
+    font-weight: 500;
+    line-height: 1.4;
+    color: rgba(90, 90, 90, 0.6);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+.input-area-wrapper[data-shell-input="manual"] .input-orb-slot {
+    opacity: 0.45;
     pointer-events: none;
 }
 .fq-thumb {
@@ -616,7 +648,9 @@ body.left-bar-animating .chat-container-wrapper {
     margin-right: 8px;
 }
 
-/* Agent Response Strip - Initially hidden, slides up */
+/* Agent Response Strip - Initially hidden; it opens in place as the composer below
+   collapses, filling exactly the room the composer gives up (.active below), so the
+   stack's top edge never moves on send or at the run's end. */
 .agent-response-strip {
     /* Centered and shorter than text box */
     width: 85%;
@@ -640,12 +674,13 @@ body.left-bar-animating .chat-container-wrapper {
     display: flex;
     align-items: center;
     
-    /* Animation handling */
+    /* Animation handling. 0.34s on the composer's own curve: its collapse and this
+       strip's opening cancel out exactly, frame by frame. It fades in where it is (no
+       slide): nothing moves. */
     opacity: 0;
     pointer-events: none;
-    transform: translateY(10px);
     overflow: visible; /* Visible for pseudo-elements */
-    transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+    transition: all 0.34s cubic-bezier(0.25, 0.8, 0.25, 1);
     position: relative; /* For pseudo-elements */
 
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -661,10 +696,11 @@ body.left-bar-animating .chat-container-wrapper {
 .agent-response-strip.active {
     opacity: 1;
     pointer-events: auto;
-    transform: translateY(0);
-    /* Expand to full height when active */
-    height: clamp(28px, 3vw, 34px); /* Reduced height by roughly 1/3 */
-    min-height: clamp(28px, 3vw, 34px);
+    /* Exactly the room the composer gives up as it collapses: its one idle text line
+       (.chat-input min-height) and the tools' gap (--tools-gap), so the stack's top,
+       where the Shell bot stands, stays where it was. Keep the two in step. */
+    height: calc(clamp(30px, 2.9vw, 36px) + clamp(4px, 0.5vw, 7px));
+    min-height: calc(clamp(30px, 2.9vw, 36px) + clamp(4px, 0.5vw, 7px));
     margin-bottom: -18px; /* Only apply negative margin when active */
     /* Adjusted padding to center text in reduced height */
     padding: 0 clamp(16px, 1.5vw, 20px) 16px clamp(16px, 1.5vw, 20px);

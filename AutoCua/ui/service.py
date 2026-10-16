@@ -1767,14 +1767,24 @@ def send_todo_to_frontend(payload):
         debug_exception("send_todo_to_frontend")
 
 
+# The words save_run puts in front of every done message
+# (agent_conversation/service.py _terminal_message). A Shell use terminal shows
+# the answer itself, as it showed it live, without them.
+_DONE_PREFIX = re.compile(r'^(Task completed|Agent stopped before completing|'
+                          r'Agent terminated \(error / provider\)):\s*')
+
+
 def _render_exchange_html(exchanges):
     """Add task_html/done_html (rendered Markdown) to each exchange row, in
-    place. The shape the reopen view (chat.js -> showRunReply) and
-    cliShellHistory consume."""
+    place, plus answer_html: the done message without its saved prefix. The
+    shape the reopen view consumes (chat.js -> showRunReply, and Shell use's
+    terminal through cliShellHistory)."""
     for x in (exchanges or []):
         if isinstance(x, dict):
+            done = x.get('done_message', '') or ''
             x['task_html'] = md_render(x.get('task', ''))
-            x['done_html'] = md_render(x.get('done_message', ''))
+            x['done_html'] = md_render(done)
+            x['answer_html'] = md_render(_DONE_PREFIX.sub('', done))
     return exchanges or []
 
 
@@ -2558,9 +2568,9 @@ def run_shell_task(task, provider, model, api_key, run_pkg,
 def start_shell():
     """Agent mode → Shell use: send the task STRAIGHT to the coder agent.
 
-    Slim next to /api/start-agent — no main agent, no todo/milestone watchers,
-    no Agent Notes overlay (the CLI stage is the whole UI) — but a shell run IS
-    a chat: the session is resolved/minted via the conversation service, the
+    Slim next to /api/start-agent — no main agent, no todo/milestone watchers
+    (the CLI stage, its terminal beside the CoderUse bot, is the whole UI) —
+    but a shell run IS a chat: the session is resolved/minted via the conversation service, the
     coder is seeded with the chat's saved history (--history file channel) and
     tags its task <user_request=N>, its token usage drives the memory bar, and
     every ending is persisted with save_run. The chat locks to Shell use the
@@ -2726,8 +2736,8 @@ def start_shell():
                             message = outcome.get("message", "") or ""
                             reason = prefix + message if message else prefix.strip()
                             # agentError writes to the milestone stream, which lives in a
-                            # zone body.cli-stage hides — so ALSO put it on the terminal,
-                            # the only surface visible in Shell use. The chat id rides
+                            # zone body.cli-stage hides — so ALSO put it on the terminal
+                            # (as the run's answer if it has none). The chat id rides
                             # along: if the user has since opened a DIFFERENT chat, the
                             # frontend drops the note instead of writing this run's
                             # outcome onto that chat's terminal.
@@ -2739,30 +2749,6 @@ def start_shell():
                             )
                     except Exception:
                         debug_exception("signaling shell run completion")
-
-                # The Agent Notes under the terminal show the chat's transcript —
-                # every run's request + how it ended, this one last — the same
-                # view reopening the chat gives, so a finished run never needs a
-                # chat switch to appear. Sent after the completion signal, so the
-                # composer never waits on the render, and for a retired (stopped)
-                # run too: the frontend only takes it for the chat on screen,
-                # between runs. Only a list that ENDS with this run is sent —
-                # save_run swallows a failed append, and the earlier runs alone
-                # would replace the notes + done message the frontend is holding
-                # (left unsent, that hold falls back to showing them).
-                if webview_window:
-                    try:
-                        exchanges = (conversation.get_session(chat_session_id) or {}).get('exchanges') or []
-                        last = exchanges[-1] if exchanges else None
-                        if (isinstance(last, dict) and len(exchanges) >= (request_no or 1)
-                                and str(last.get('task', '')) == str(task or '')):
-                            rows = _render_exchange_html(exchanges)
-                            webview_window.evaluate_js(
-                                "window.cliShellTranscript && window.cliShellTranscript("
-                                f"'{_js_escape(json.dumps(rows))}', '{_js_escape(chat_session_id)}')"
-                            )
-                    except Exception:
-                        debug_exception("push shell transcript")
 
         thread = threading.Thread(target=run_shell)
         thread.daemon = True
