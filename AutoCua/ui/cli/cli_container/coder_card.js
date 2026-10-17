@@ -28,6 +28,17 @@
     var CHAR_FADE = 30;    // ms opacity 0→1 fade per letter
     var PAGE_HOLD = 280;   // ms a full page lingers before clearing for the next page
     var LINE_HOLD = 110;   // ms between distinct lines
+    // The Shell chat's answer types in letter by letter (mode 'type' / 'typehtml'): this
+    // many letters a second, faster for a long one so none takes more than TYPE_MAX_S.
+    var TYPE_CPS = 170;
+    var TYPE_MAX_S = 5;
+    // A command you typed is still running (the app has ONE hand-typed shell, so this is
+    // shared): a terminal made meanwhile (New chat, another chat and back) knows it too.
+    var cmdRunning = false;
+
+    function reduced() {
+        return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    }
 
     // Playful "thinking" lines the head-side line cycles through while the coder's minions
     // are off working (inherited verbatim from remote_connection/banner.py CP_MSGS — same
@@ -156,6 +167,9 @@
         var TICK_MS = opts.stagger || STAGGER;
         var TICK_CHARS = opts.step || STEP;
         var HOLD_MS = (opts.lineHold != null) ? opts.lineHold : LINE_HOLD;
+        // Rows kept in the scrollback (multiline). The Shell use terminal keeps the
+        // whole chat; the compact card only ever shows a few.
+        var KEEP = opts.keepLines || 120;
         // Queue sentinel (identity-compared, never a string): "wipe the screen HERE".
         // Sits between one step's lines and the next's — see reset().
         var CLEAR = {};
@@ -197,6 +211,11 @@
         // out of a fixed window — smooth, but the user can't go back. Native mode (the
         // hand-typed terminal): real scrollTop, so old output stays reachable.
         var nativeScroll = false;
+        // Native mode: is the view at its end right now (the test scrollToEnd makes)?
+        // Asked BEFORE a line goes in, so the line's own height can't say "no".
+        function atEnd() {
+            return nativeScroll && target.scrollHeight - target.scrollTop - target.clientHeight <= 24;
+        }
         function scrollToEnd() {
             if (!scroll) return;
             if (nativeScroll) {
@@ -209,6 +228,94 @@
             var over = Math.max(0, scroll.scrollHeight - target.clientHeight);
             scroll.style.transform = over ? ('translateY(' + (-over) + 'px)') : 'translateY(0)';
             target.classList.toggle('cc-scrolled', over > 0);   // fade the top edge ONLY once it scrolls
+        }
+
+        // The answer being typed (mode 'type' / 'typehtml'), or null: { finish, cancel }.
+        // A copy of the markup grows node by node, so an element (a paragraph, a list
+        // item, a code block) opens only when the typing reaches it, and its text fills
+        // in a few letters a frame. The view follows it down smoothly while you are at the
+        // end; scroll up and it leaves you there. Anything pushed meanwhile finishes it at
+        // once, so a new line never waits.
+        var typing = null;
+        // Gliding to the end (native scroll): a fifth of the way each frame, chasing the
+        // end while it moves (an answer still typing in), until it gets there. Scroll up
+        // while it glides and it stops there (glideLeft) instead of pulling you back. A
+        // drop that lands on the end is not you: the chat got shorter under it (the Shell
+        // box closing back to its three lines after a run).
+        var glideOn = false, glideAt = 0, glideRaf = 0, glideLeft = false;
+        function glide() {
+            if (!nativeScroll || glideOn || glideLeft) return;
+            glideOn = true;
+            glideAt = target.scrollTop;
+            glideRaf = requestAnimationFrame(function step() {
+                var d = target.scrollHeight - target.clientHeight - target.scrollTop;
+                if (target.scrollTop < glideAt - 2 && d > 1) { glideOn = false; glideLeft = true; return; }
+                if (d <= 0.5) { glideOn = false; return; }
+                target.scrollTop += Math.max(1, d * 0.2);
+                glideAt = target.scrollTop;
+                glideRaf = requestAnimationFrame(step);
+            });
+        }
+        function typeInto(line, src, isHtml, follow, done) {
+            var from = document.createElement('div');
+            if (isHtml) from.innerHTML = src; else from.textContent = src;
+            var cps = Math.max(TYPE_CPS, from.textContent.length / TYPE_MAX_S);
+            var stack = [{ src: from, dst: line, i: 0 }];
+            var txt = null, txtSrc = null, shown = 0, raf = 0, ended = false;
+            var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
+            glideLeft = false;
+            function reveal(n) {             // n more letters; false once all is shown
+                while (n > 0 && (txt || stack.length)) {
+                    if (txt) {
+                        var at = txt.data.length, k = Math.min(n, txtSrc.data.length - at);
+                        var hi = txtSrc.data.charCodeAt(at + k - 1);
+                        if (hi >= 0xD800 && hi <= 0xDBFF && at + k < txtSrc.data.length) k++;   // keep a pair whole
+                        txt.data += txtSrc.data.substr(at, k);
+                        n -= k;
+                        if (txt.data.length >= txtSrc.data.length) txt = txtSrc = null;
+                        continue;
+                    }
+                    var top = stack[stack.length - 1];
+                    var node = top.src.childNodes[top.i++];
+                    if (!node) { stack.pop(); continue; }
+                    if (node.nodeType === 3) {
+                        txtSrc = node;
+                        txt = document.createTextNode('');
+                        top.dst.appendChild(txt);
+                    } else if (node.nodeType === 1) {
+                        var copy = node.cloneNode(false);
+                        top.dst.appendChild(copy);
+                        stack.push({ src: node, dst: copy, i: 0 });
+                    }
+                }
+                return !!(txt || stack.length);
+            }
+            function end() {
+                if (ended) return;
+                ended = true;
+                typing = null;
+                done();
+            }
+            function frame(now) {
+                var want = Math.floor((now - t0) / 1000 * cps);
+                if (want > shown) {
+                    var more = reveal(want - shown);
+                    shown = want;
+                    if (follow) glide();     // it catches up with the new end, smoothly
+                    if (!more) { end(); return; }
+                }
+                raf = requestAnimationFrame(frame);
+            }
+            raf = requestAnimationFrame(frame);
+            typing = {
+                finish: function () {
+                    reveal(Infinity);
+                    if (follow) glide();
+                    cancelAnimationFrame(raf);
+                    end();
+                },
+                cancel: function () { cancelAnimationFrame(raf); ended = true; typing = null; }
+            };
         }
 
         // Render text into a single static page (no animation) — used for the initial label so
@@ -234,7 +341,36 @@
             // rendered line tagged (the terminal marks its prompt echoes this way).
             var plain = (typeof item === 'string');
             var text = plain ? item : item.text;
-            var lineCls = plain ? '' : (' ' + item.cls);
+            var lineCls = plain ? '' : (item.cls ? ' ' + item.cls : '');
+            // {mode:'instant'|'html'} (multiline): the line lands whole at once, in its
+            // place in the queue: your command's echo, the run's answer (HTML from
+            // markdown.py), a reopened chat's rows.
+            if (multiline && !plain && (item.mode === 'type' || item.mode === 'typehtml')) {
+                if (activeLine) activeLine.classList.remove('cc-shimmer');
+                var typed = document.createElement('div');
+                typed.className = 'cc-line' + lineCls;
+                var follow = atEnd() || glideOn;
+                scroll.appendChild(typed);
+                activeLine = typed;
+                while (scroll.children.length > KEEP) scroll.removeChild(scroll.firstChild);
+                typeInto(typed, text, item.mode === 'typehtml', follow, function () { running = false; pump(); });
+                return;
+            }
+            if (multiline && !plain && item.mode) {
+                if (activeLine) activeLine.classList.remove('cc-shimmer');
+                var whole = document.createElement('div');
+                whole.className = 'cc-line' + lineCls;
+                if (item.mode === 'html') whole.innerHTML = text;
+                else whole.textContent = text;
+                var stickWhole = atEnd();       // before it goes in: a tall line must not count
+                scroll.appendChild(whole);
+                activeLine = whole;
+                while (scroll.children.length > KEEP) scroll.removeChild(scroll.firstChild);
+                if (stickWhole) target.scrollTop = target.scrollHeight; else scrollToEnd();
+                running = false;
+                pump();
+                return;
+            }
             // Array.from splits by code point so emoji/surrogate pairs stay intact.
             var chars = Array.from(text);
             if (!chars.length) { running = false; pump(); return; }
@@ -245,10 +381,11 @@
                 if (activeLine) activeLine.classList.remove('cc-shimmer');
                 var mline = document.createElement('div');
                 mline.className = 'cc-line' + lineCls;   // pre-wrap (CSS) -> real multi-row wrapping
+                var stickLine = atEnd();
                 scroll.appendChild(mline);
                 activeLine = mline;
-                while (scroll.children.length > 120) scroll.removeChild(scroll.firstChild);   // memory cap (off-screen rows)
-                scrollToEnd();
+                while (scroll.children.length > KEEP) scroll.removeChild(scroll.firstChild);   // memory cap (off-screen rows)
+                if (stickLine) target.scrollTop = target.scrollHeight; else scrollToEnd();
 
                 var mi = 0;
                 (function mtick() {
@@ -258,6 +395,7 @@
                             // (shines until the next line starts / the step ends).
                             mline.textContent = mline.textContent;
                             mline.classList.add('cc-shimmer');
+                            scrollToEnd();               // a short line typed in this very tick
                             timer = setTimeout(function () {
                                 running = false;
                                 // nothing left to play and the caller asked to settle →
@@ -343,12 +481,24 @@
         return {
             // push(text) — a plain line. push(text, cls) — the rendered .cc-line also gets
             // `cls`, so callers can mark specific lines (the terminal tags prompt echoes).
-            push: function (text, cls) {
+            // push(text, cls, mode) — mode 'instant' (whole at once) or 'html' (markup).
+            push: function (text, cls, mode) {
                 if (text == null || !String(text).trim()) return;
+                if (typing) typing.finish();   // a typed answer never holds up what follows
                 settleWanted = false;          // more IS coming again
-                queue.push(cls ? { text: String(text), cls: String(cls) } : String(text));
+                queue.push((cls || mode) ? { text: String(text), cls: String(cls || ''), mode: mode || '' } : String(text));
                 if (queue.length > 600) queue.splice(0, queue.length - 600);   // memory safety only
                 if (!running) pump();
+            },
+            // Wipe everything now, queued lines included (a reopened chat's terminal).
+            clear: function () {
+                if (timer) { clearTimeout(timer); timer = null; }
+                if (typing) typing.cancel();
+                cancelAnimationFrame(glideRaf); glideOn = false; glideLeft = false;
+                queue.length = 0;
+                running = false;
+                settleWanted = false;
+                hardClear();
             },
             // Start a fresh screen for the step that's about to be pushed, so the terminal
             // only ever shows one step at a time.
@@ -385,7 +535,14 @@
                     scrollToEnd();
                 }
             },
-            dispose: function () { if (timer) { clearTimeout(timer); timer = null; } queue.length = 0; running = false; }
+            // Glide to the end (your message just went in).
+            toEnd: function () { glideLeft = false; glide(); },
+            dispose: function () {
+                if (timer) { clearTimeout(timer); timer = null; }
+                if (typing) typing.cancel();
+                cancelAnimationFrame(glideRaf); glideOn = false;
+                queue.length = 0; running = false;
+            }
         };
     }
 
@@ -463,7 +620,8 @@
             case 'web':     return 'web "' + clip(a.value || a.query || '', 160) + '"';
             case 'wait':    return 'wait ' + (a.value || '1') + 's';
             case 'minion':  return 'minion: ' + clip(a.value || a.query || '', 200);
-            case 'exit':    return 'done' + (a.value ? (' — ' + clip(a.value, 240)) : '');
+            // Shell use prints the answer whole under it (cli_stage.js), so just 'done' there.
+            case 'exit':    return 'done' + ((a.value && !all) ? (' — ' + clip(a.value, 240)) : '');
             // Surfaced elsewhere on the compact card, so silent there — but narrated in full
             // on the Shell-use terminal. todo_list's value is the whole markdown list, so it's
             // summarised by item count rather than dumped into a 3-line window.
@@ -474,12 +632,16 @@
         }
     }
 
-    // opts.header: <name> — the Shell-use card. Instead of leading with `>` it splits the
-    //   step in two: a blinking dot + the name on top, then the agent head with the reply's
-    //   PROSE (every JSON key except `action`) ticking beside it ONE line at a time, then
-    //   the `>` terminal below carrying the ACTIONS — 10 lines deep, since Shell use gives
-    //   the card the whole panel. Asked for by cli_stage.js only; dispatched coder cards in
-    //   the other modes are unchanged: no header, actions on a 5-line `> AutoCua Code`.
+    // opts.header: <name> — the Shell-use card: a chat with a terminal box under it.
+    //   The scrollback above holds what cli_stage.js prints (your messages, the answers)
+    //   and your hand-typed commands with their output; under it ONE live box: the agent
+    //   head, the `>`, then the hello (a new chat), the reply's PROSE (every JSON key except
+    //   `action`, a line each, the newest three in sight) while a run goes, or the prompt
+    //   you type into. While a run goes the box is its tool box, as in the other modes: the
+    //   tool chain and the tracking progress on its right, the minions' bots on its bottom
+    //   left. Every line stays, runs follow one another in it. Asked for by cli_stage.js
+    //   only; dispatched coder cards in the other modes are unchanged: no header, actions
+    //   on a 5-line `> AutoCua Code`.
     function create(desc, opts) {
         opts = opts || {};
         var header = opts.header || '';
@@ -490,45 +652,56 @@
         // With a header the body is a ROW: .cc-main holds the terminal, with an (initially
         // empty) todo column to its RIGHT — the wrapper is what lets the two sit side by
         // side without the head/brain/out/minions each becoming their own column.
+        // .cc-minions frames the TRUNK (which reaches up to the `>`, or the Shell card's
+        // head, and so must not be clipped); .cc-mflow is the conveyor window that clips,
+        // and .cc-mtree is the column of rows that slides up inside it. See layoutTrunk().
+        var MINIONS_HTML = '<div class="cc-minions"><span class="cc-trunk"></span>' +
+                               '<div class="cc-mflow"><div class="cc-mtree"></div></div>' +
+                           '</div>';
         var inner =
+            // (the header row stays in the markup, hidden: setName writes to it)
             (header
-                ? '<div class="cc-head"><span class="cc-hdot"></span><span class="cc-hname"></span></div>' +
-                  '<div class="cc-brain"><canvas class="cc-mascot"></canvas><span class="cc-think"></span></div>'
+                ? '<div class="cc-head"><span class="cc-hdot"></span><span class="cc-hname"></span></div>'
                 : '') +
-            // Shell use: the `>` prompt is a REAL input you can click and type into, with the
-            // output view stacked below it — a plain terminal. Compact card: no input, and
-            // .cc-out-name is a PINNED row (its "AutoCua Code" label used to live inside the
-            // scrolling conveyor, so it scrolled away once the output overflowed).
+            // Shell use: the scrollback, then the live line, a box: the commands you typed
+            // there with their output (.cc-tview, shown while you type), then its row: head,
+            // `>`, the agent's words (.cc-think) and the prompt, a REAL input you can click
+            // and type into, the minions' tree and their bots, then the sliding bar (shown
+            // while you type, on the box's floor). The run's tool chain and tracking
+            // progress join it below (create).
+            // Compact card: no input, and .cc-out-name is a PINNED row (its
+            // "AutoCua Code" label used to live inside the scrolling conveyor, so it scrolled
+            // away once the output overflowed).
             (header
-                  // .cc-term wraps the prompt and the output so the two modes differ by
-                  // flex-direction alone: ROW in AI mode (output beside the `>`, wrapped
-                  // lines staying in that column and clear of the minion trunk below it),
-                  // COLUMN while typing (your input on the `>` line, output underneath).
                 ? '<div class="cc-term">' +
-                      '<div class="cc-out"><span class="cc-p">&gt;</span>' +
-                          // contenteditable, not <input>: the blinking `_` is a ::after on
-                          // this element, so it lands immediately after the typed text with
-                          // nothing to measure.
-                          '<span class="cc-cmd" contenteditable="plaintext-only" role="textbox" ' +
-                                'spellcheck="false" aria-label="terminal command"></span>' +
-                      '</div>' +
                       '<div class="cc-out-text"><div class="cc-out-view"></div></div>' +
+                      '<div class="cc-out"><div class="cc-tview"></div>' +
+                          '<div class="cc-prow"><canvas class="cc-mascot"></canvas><span class="cc-p">&gt;</span>' +
+                              '<span class="cc-think"></span>' +
+                              // contenteditable, not <input>: the blinking `_` is a ::after on
+                              // this element, so it lands immediately after the typed text with
+                              // nothing to measure.
+                              '<span class="cc-cmd" contenteditable="plaintext-only" role="textbox" ' +
+                                    'spellcheck="false" aria-label="terminal command"></span>' +
+                          '</div>' +
+                          // the minions' tree, hanging from the head: an L to each minion's row
+                          MINIONS_HTML +
+                          // and their bots, on the box's bottom left
+                          '<div class="cc-mbots"></div>' +
+                          '<div class="cc-progress"><span class="cc-fill"></span></div>' +
+                      '</div>' +
                   '</div>'
                 : '<div class="cc-out"><span class="cc-p">&gt;</span> <span class="cc-out-text">' +
                       '<div class="cc-out-name">AutoCua Code</div>' +
                       '<div class="cc-out-view"></div>' +
                   '</span></div>') +
-            // .cc-minions frames the TRUNK (which reaches up to the `>` and so must not be
-            // clipped); .cc-mflow is the conveyor window that clips, and .cc-mtree is the
-            // column of rows that slides up inside it. See layoutTrunk().
-            '<div class="cc-minions"><span class="cc-trunk"></span>' +
-                '<div class="cc-mflow"><div class="cc-mtree"></div></div>' +
-            '</div>';
+            // the compact card's minion tree, under its `>` (the Shell card's is in its box)
+            (header ? '' : MINIONS_HTML);
         el.innerHTML =
             '<div class="cc-body">' +
                 (header ? '<div class="cc-main">' + inner + '</div><div class="cc-todo"></div>' : inner) +
             '</div>' +
-            '<div class="cc-progress"><span class="cc-fill"></span></div>';
+            (header ? '' : '<div class="cc-progress"><span class="cc-fill"></span></div>');   // Shell use: in its box
         if (header) el.querySelector('.cc-hname').textContent = header;
 
         var outEl = el.querySelector('.cc-out');
@@ -541,21 +714,200 @@
 
         // The `>` terminal shows a clean, multi-line scrolling log of the coder's ACTIONS
         // (synthesized narration, NOT the raw JSON), auto-scrolling once it overflows.
-        // Shell use: a 3-line window, run FAST — each packet wipes it (see reset() below),
-        // so a step of 6 lines has to show its first 3, scroll to the rest and be done
-        // before the next packet lands. The stream starts EMPTY in both variants: the name
-        // lives outside the conveyor now (header row / pinned .cc-out-name), so it can't be
-        // scrolled away by the output.
+        // Shell use: the chat's whole terminal, run FAST, every line kept and really
+        // scrollable (native scroll; the view fills the card, coder_card.css). The stream
+        // starts EMPTY in both variants: the name lives outside the conveyor now (header
+        // row / pinned .cc-out-name), so it can't be scrolled away by the output.
         var outStream = makeLineStreamer(
             outText,
             null,
-            header ? { multiline: true, maxLines: 3, step: 12, lineHold: 45 }
+            header ? { multiline: true, maxLines: 3, step: 12, lineHold: 45, keepLines: 2000 }
                    : { multiline: true, maxLines: 5 }
         );
-        // Shell use only: the agent's own words, ONE line at a time beside the head. A
-        // single-line paginating ticker (same streamer the minion rows use), so a long
-        // field flows left-to-right, holds, clears and continues instead of stacking up.
-        var thinkStream = header ? makeLineStreamer(el.querySelector('.cc-think'), null) : null;
+        // Shell use: the terminal box's lines (your typed commands and their output), kept
+        // apart from the chat; really scrollable like it.
+        var atChatEnd = true, viewH = 0;  // the chat view: at its end? its last height
+        var tview = header ? el.querySelector('.cc-tview') : null;
+        var termStream = tview ? makeLineStreamer(tview, null, { multiline: true, maxLines: 3, step: 12, lineHold: 45, keepLines: 2000 }) : null;
+        if (termStream) termStream.setNativeScroll(true);
+        // Shell use: the live line is the chat's last item, inside its scrolling view (after
+        // the streamer's .cc-scroll), so it scrolls with the chat like any of its lines.
+        var liveBox = header ? el.querySelector('.cc-out') : null;
+        if (liveBox) outText.appendChild(liveBox);
+        // ...and keeps its newest line in sight when it changes height (it opens; the
+        // prompt row comes back after a command) — unless your wheel took it up.
+        var termAtEnd = true, termH = 0, termRo = null;
+        if (tview) {
+            tview.addEventListener('scroll', function () {
+                if (tview.scrollHeight - tview.scrollTop - tview.clientHeight <= 24) termAtEnd = true;
+            }, { passive: true });
+            if (window.ResizeObserver) {
+                termRo = new ResizeObserver(function () {
+                    if (tview.clientHeight === termH) return;
+                    termH = tview.clientHeight;
+                    if (termAtEnd) tview.scrollTop = tview.scrollHeight;
+                });
+                termRo.observe(tview);
+            }
+        }
+        if (header) {
+            outStream.setNativeScroll(true);
+            // Shell use: the chat's edges fade where there is more to scroll to, as in the
+            // main chat (chat_scroll.js); on a scroll, and as the chat or its view resizes.
+            var fades = function () {
+                outText.classList.toggle('cc-fade-top', outText.scrollTop > 1);
+                outText.classList.toggle('cc-fade-bottom', outText.scrollHeight - outText.scrollTop - outText.clientHeight > 1);
+            };
+            // At the end of the chat, it stays there when its view changes height (the
+            // live line opening into the terminal box, or closing): the newest lines
+            // must not slip out of sight under it. Only your wheel takes it off the end
+            // (below); a scroll that lands at the end puts it back. (A scroll event can't
+            // say "left the end": the view may already be shorter again when it arrives.)
+            viewH = outText.clientHeight;
+            outText.addEventListener('scroll', function () {
+                if (outText.scrollHeight - outText.scrollTop - outText.clientHeight <= 24) atChatEnd = true;
+                fades();
+            }, { passive: true });
+            if (window.ResizeObserver) {
+                var liveH = -1;
+                var fadeRo = new ResizeObserver(function () {
+                    // the view got shorter or taller, or the live line at its end grew or
+                    // shrank (minion rows, the terminal opening): at the end, stay there
+                    var lh = liveBox ? liveBox.offsetHeight : 0;
+                    if (outText.clientHeight !== viewH || lh !== liveH) {
+                        viewH = outText.clientHeight;
+                        liveH = lh;
+                        if (atChatEnd) outText.scrollTop = outText.scrollHeight;
+                    }
+                    fades();
+                    rbotPlace();      // the run's bot keeps to the box's top (the lines above rewrapped)
+                });
+                fadeRo.observe(outText);
+                if (outText.firstElementChild) fadeRo.observe(outText.firstElementChild);   // .cc-scroll
+                if (liveBox) fadeRo.observe(liveBox);
+            }
+        }
+
+        // ---- the run's bot (Shell use) ------------------------------------------------
+        // The CoderUse bot beside the live box while a run goes, like Computer use's run bot
+        // beside its tool box (container/agent/chain_bot.js; owner, 2026-10-17): outside the
+        // box on its left, its top on the box's top, the place and size of an answer's bot.
+        // It is in the chat's scrolling view, so it scrolls with the chat; the box makes room
+        // for it (coder_card.css). In a fresh chat the bot standing on the chat box
+        // (chat_input/mode_bot.js) flies up into this place itself, unseen here until it
+        // lands. The run's answer comes in where the box was (the box goes under it), so this
+        // bot is beside the answer already: it stays there while the answer fades in, then
+        // the answer's own bot (its ::before, the same place and size) shows and this one
+        // goes, in one frame: one bot all along.
+        //   botIn()        the run started (or its card did): here, or on its way up
+        //   botOn()        here (or on its way)? the run's answer then waits for it
+        //   botToAnswer()  the run's answer just went in (with .cc-bot-wait)
+        //   botEnd()       the run ended without an answer: it goes
+        var HAND_MS = 400;                              // the answer's fade-in (runReplyIn) and a little
+        var rbot = null, rbotState = '', rbotHand = 0, rbotTimer = null, rbotMove = null;   // state: '' | on | wait | handing
+        if (header && liveBox) {
+            rbot = document.createElement('div');
+            rbot.className = 'cc-rbot';
+            rbot.setAttribute('aria-hidden', 'true');
+            rbot.innerHTML = '<img src="bots/coderuse.webp" alt="">' +
+                             '<img class="cc-rbot-eyes" src="bots/coderuse-eyes.webp" alt="">' +
+                             '<img src="bots/coderuse-shine.webp" alt="">';
+            outText.insertBefore(rbot, liveBox);
+        }
+        // its top on the box's top, in the chat's own coordinates; not once it waits for the
+        // answer (that took the box's old place, the box went under it)
+        function rbotPlace() {
+            if (rbot && (rbotState === 'on' || rbotState === 'wait')) rbot.style.top = liveBox.offsetTop + 'px';
+        }
+        // from where the chat box's bot landed to where its place is now (it moved on the way)
+        function rbotDock(from) {
+            if (rbotMove) rbotMove.cancel();
+            rbotMove = null;
+            var to = rbot.getBoundingClientRect();
+            if (reduced() || !from.height || !to.height) return;
+            if (Math.abs(to.left - from.left) <= 2 && Math.abs(to.top - from.top) <= 2) return;
+            rbotMove = rbot.animate([
+                { transform: 'translate(' + (from.left - to.left) + 'px, ' + (from.top - to.top) + 'px) scale(' + (from.height / to.height) + ')' },
+                { transform: 'none' }
+            ], { duration: 1100, easing: 'cubic-bezier(0.87, 0, 0.13, 1)' });   // == chain_bot.js dock()
+        }
+        function rbotOff() {
+            clearTimeout(rbotTimer); rbotTimer = null;
+            if (rbotMove) rbotMove.cancel();
+            rbotMove = null;
+            rbotHand++;                                    // a flight still on its way lands nowhere
+            rbotState = '';
+            if (!rbot) return;
+            rbot.classList.remove('on', 'wait');
+            rbot.style.removeProperty('top');
+            rbot.querySelector('.cc-rbot-eyes').style.removeProperty('transform');
+            el.classList.remove('cc-rbot-room', 'cc-rbot-handing');
+        }
+        function botIn() {
+            if (!rbot || rbotState === 'on' || rbotState === 'wait') return;
+            if (rbotState === 'handing') rbotOff();        // the last answer's hand-over ends now
+            var mine = ++rbotHand;
+            el.classList.add('cc-rbot-room');
+            rbot.classList.add('on');
+            rbotState = 'on';
+            rbotPlace();
+            if (window.modeBot && window.modeBot.ready('shell')) {
+                rbotState = 'wait';
+                rbot.classList.add('wait');
+                window.modeBot.flyTo(rbot, function (at) {
+                    if (mine !== rbotHand) return;
+                    rbot.classList.remove('wait');
+                    if (rbotState === 'wait') rbotState = 'on';
+                    rbotDock(at);
+                });
+            }
+        }
+        function botOn() { return rbotState === 'on' || rbotState === 'wait'; }
+        function botToAnswer() {
+            if (!botOn()) return;
+            rbotState = 'handing';                         // its place stays: the answer's bot's
+            el.classList.add('cc-rbot-handing');
+            el.classList.remove('cc-rbot-room');           // the box, under the answer now, back to the left
+            var since = performance.now();
+            (function hand() {
+                // still flying up, or gliding on from where it landed: it gets there first
+                // (its place is the answer's)
+                if (rbot.classList.contains('wait') || (rbotMove && rbotMove.playState === 'running')) {
+                    rbotTimer = setTimeout(hand, 60);
+                    return;
+                }
+                var left = HAND_MS - (performance.now() - since);
+                if (left > 0) { rbotTimer = setTimeout(hand, left); return; }
+                rbotOff();                                 // the answer's own bot shows in the same frame
+            })();
+        }
+        function botEnd() {
+            if (!botOn() || !rbot) return;
+            if (reduced() || rbotState === 'wait') return rbotOff();
+            var mine = rbotHand;
+            if (rbotMove) rbotMove.cancel();
+            var out = rbotMove = rbot.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, easing: 'ease', fill: 'forwards' });
+            out.onfinish = function () { if (mine === rbotHand) rbotOff(); };
+            el.classList.remove('cc-rbot-room');
+            rbotState = 'handing';                         // nothing else moves it now
+        }
+        // Shell use only: the agent's own words on the live line (and a new chat's hello),
+        // a line per field, wrapping, three lines in sight (coder_card.css): the newest at
+        // the bottom, older ones go up out of the box (native scroll, so the line sits
+        // under the head and `>` and the box hugs a short hello).
+        var thinkStream = header ? makeLineStreamer(el.querySelector('.cc-think'), null, { multiline: true, maxLines: 3 }) : null;
+        if (thinkStream) thinkStream.setNativeScroll(true);
+        // ...and its window always shows the newest: nobody scrolls it (no scrollbar, the wheel
+        // goes to the chat), so whenever it or its lines change size (they wrap anew after a
+        // resize or the left bar, it was hidden while you were in another mode) it goes back
+        // to the end
+        var thinkRo = null;
+        if (thinkStream && window.ResizeObserver) {
+            var thinkEl = el.querySelector('.cc-think');
+            thinkRo = new ResizeObserver(function () { thinkEl.scrollTop = thinkEl.scrollHeight; });
+            thinkRo.observe(thinkEl);
+            thinkRo.observe(thinkEl.firstElementChild);   // its lines (.cc-scroll)
+        }
         var minionStreams = {};   // minion id -> its line streamer
 
         // While minions are off working the coder says nothing for a long stretch, so the
@@ -570,13 +922,13 @@
             var i = Math.floor(Math.random() * CP_MSGS.length);
             if (CP_MSGS.length > 1 && i === lastFun) i = (i + 1) % CP_MSGS.length;   // no immediate repeat
             lastFun = i;
-            thinkStream.push(CP_MSGS[i]);   // single-line streamer: replaces the old page, types, then shimmers
+            thinkStream.reset();            // the last one goes once it has typed in full
+            thinkStream.push(CP_MSGS[i]);   // types, then shimmers
             funTimer = setTimeout(cycleFun, FUN_HOLD_MS);
         }
         function startFunLines() {
             if (!thinkStream || funTimer) return;
-            thinkStream.reset();            // drop the step's old words beside the head
-            cycleFun();
+            cycleFun();                     // (its reset drops the step's old words beside the head)
         }
         function stopFunLines() { if (funTimer) { clearTimeout(funTimer); funTimer = null; } }
 
@@ -589,7 +941,7 @@
             '<div class="cc-chain-flow"><div class="cc-chain"></div></div>';
         var toolsCountEl = chainEl.querySelector('.cc-tools-count');
         // UNIVERSAL tool counter: the coder card continues the SAME running total as the main
-        // agent (bottom_left's #toolUsedCount). Coder AND minion tools bump it in real time, so the
+        // agent (agent.js's #toolUsedCount). Coder AND minion tools bump it in real time, so the
         // card shows main-agent + coder + minion tools, and because it's the same element, the
         // total rolls back up to the main agent when the cli stage closes. Falls back to a local
         // count when the main-agent counter isn't present (e.g. the standalone test harness).
@@ -605,13 +957,17 @@
         }
         showCount();   // seed the card from the main agent's current count — continue from there
 
-        // RIGHT zone — "tracking progress" (the coder's scratchpad), mirroring the top-right
-        // container: NO logo; each scratchpad entry streams in char-by-char as a dot-bullet line.
+        // RIGHT zone — "tracking progress" (the coder's scratchpad), mirroring the app's
+        // tracking-progress stream: NO logo; each scratchpad entry streams in char-by-char as a dot-bullet line.
         var trackEl = document.createElement('div');
         trackEl.className = 'cc-track';
         trackEl.innerHTML =
             '<div class="cc-track-label">tracking progress</div>' +
             '<div class="cc-track-flow"><div class="cc-track-tree"></div></div>';
+
+        // Shell use: both live in the live box, on its right after the agent's words, while a
+        // run goes (coder_card.css), like the other modes' tool box.
+        if (liveBox) { liveBox.appendChild(chainEl); liveBox.appendChild(trackEl); }
 
         var ICONS = window.CliToolIcons;
         // the header's blinking agent head (same mark as the chain's `agent` icon)
@@ -619,7 +975,22 @@
         // 26px canvas -> a ~20px head; while working it wears the stop orb's colour
         var mascot = (mascotEl && ICONS && ICONS.createMascot) ? ICONS.createMascot(mascotEl, 26) : null;
         var actionChain = ICONS ? ICONS.createChain(chainEl.querySelector('.cc-chain'), { orientation: 'vertical' }) : null;
-        var tracker = ICONS ? ICONS.createTracker(trackEl.querySelector('.cc-track-tree'), trackEl.querySelector('.cc-track-flow'), trackEl) : null;
+        function makeTracker() {
+            return ICONS ? ICONS.createTracker(trackEl.querySelector('.cc-track-tree'), trackEl.querySelector('.cc-track-flow'), trackEl) : null;
+        }
+        var tracker = makeTracker();
+        // Shell use: the chain and the tracking keep their newest in sight when their columns
+        // change size (a resize, the left bar, back in Shell use mid-run: hidden, they
+        // measured nothing)
+        var colRo = null;
+        if (liveBox && window.ResizeObserver) {
+            colRo = new ResizeObserver(function () {
+                if (actionChain && actionChain.fit) actionChain.fit();
+                if (tracker && tracker.fit) tracker.fit();
+            });
+            colRo.observe(chainEl.querySelector('.cc-chain-flow'));
+            colRo.observe(trackEl.querySelector('.cc-track-flow'));
+        }
         var minionChains = {};         // minion id -> its own horizontal chain
         var minionParsers = {};        // minion id -> its action parser
         var noteLog = [];              // every scratchpad note this run — read back at task end
@@ -629,9 +1000,9 @@
                 if (!a || typeof a !== 'object' || !a.type) return;
                 // coder -> stream a clean, terminal-style narration line on the `>` output
                 // (narrationFor returns '' for scratchpad/todo, so those are skipped here).
-                // Shell use narrates EVERY action (all=true) — its terminal is the step's
-                // full record, so nothing may silently produce no line.
-                if (isCoder) { var n = narrationFor(a, !!header); if (n) outStream.push(n); }
+                // Not in Shell use: its chat shows only the agent's words, on the live line;
+                // the steps play on the live box's tool chain.
+                if (isCoder && !header) { var n = narrationFor(a, false); if (n) outStream.push(n); }
                 // scratchpad -> the right "tracking progress" stream (coder only; not minions).
                 // Also LOGGED (noteLog) so the run's notes survive the card: cli_stage.js reads
                 // them via getNotes() at task end and shows them as Agent Notes under the terminal.
@@ -654,7 +1025,7 @@
             });
         }
 
-        // Opening-phase flow, ported from the main agent's tool-flow (bottom_left): the wait for
+        // Opening-phase flow, ported from the main agent's tool-flow (agent.js): the wait for
         // each packet is told in beats — "communicating with llm service", then the composing
         // sash ("thinking") holds for THINK_MS no matter what, then the loader ("synthesizing")
         // spins until the packet lands and ticks over to "synthesizing complete". This step's
@@ -663,7 +1034,7 @@
         // remaining beats fast-forward at CATCHUP_MS so the chain catches the real speed instead
         // of lagging behind it — then the next opening runs at normal pace again.
         var STEP_GAP_MS = 850;     // beat before the thinking sash appears
-        var THINK_MS = 5000;       // the sash's MAX hold — a packet landing sooner fast-forwards it (same as bottom_left)
+        var THINK_MS = 5000;       // the sash's MAX hold — a packet landing sooner fast-forwards it (same as agent.js)
         var CATCHUP_MS = 300;      // opening pace once the packet has already landed
         var TOOL_GAP_MS = 340;     // fast cadence between this step's tools
         var thinkingStep = null, openTimer = null, toolsRevealed = false;
@@ -743,10 +1114,12 @@
         var termBusy = false;
         function setBusy(on) {
             termBusy = !!on;
+            if (header) cmdRunning = termBusy;
             el.classList.toggle('cc-busy', termBusy);
         }
 
         var cmdEl = el.querySelector('.cc-cmd');
+        if (cmdEl && cmdRunning) setBusy(true);   // a typed command still running from before
 
         // Prompt label. Card-scope (not inside the block below) so begin() can clear it
         // too — under 'use strict' a function declared in a block isn't visible outside.
@@ -758,7 +1131,14 @@
         function setName(t) { if (nameEl) nameEl.textContent = t; }
 
         var curPath = '';
-        function showPath(short) { if (short) { curPath = short; pEl.textContent = short + ' >'; } }
+        function showPath(short) {
+            if (!short) return;
+            curPath = short;
+            // the live prompt shows a long folder by its last two folders (the echo keeps it whole)
+            var parts = String(short).split('/');
+            var label = (header && short.length > 28 && parts.length > 2) ? '\u2026/' + parts.slice(-2).join('/') : short;
+            pEl.textContent = label + ' >';
+        }
         function clearPrompt() { curPath = ''; pEl.textContent = '>'; }
         function loadPath() {
             fetch('/api/shell-cwd')
@@ -782,13 +1162,43 @@
             // subtree, and #cliContainer carries a transform — so the view would look
             // scrollable and simply not move. scrollTop DOES work, so drive it from the
             // wheel event ourselves (same fix as the model dropdown in script.js).
-            if (outText) outText.addEventListener('wheel', function (e) {
-                if (outText.scrollHeight <= outText.clientHeight) return;
-                outText.scrollTop += (e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY);
+            // The whole card wheels the chat, over the live line too. Whatever under the
+            // pointer scrolls on its own goes first while it can still move that way: the
+            // terminal box's lines, a long message, a wide code block or table sideways.
+            var canMove = function (v, dy) {
+                return !!v && (dy < 0 ? v.scrollTop > 0 : v.scrollTop + v.clientHeight < v.scrollHeight - 1);
+            };
+            var canSide = function (v, dx) {
+                return dx < 0 ? v.scrollLeft > 0 : v.scrollLeft + v.clientWidth < v.scrollWidth - 1;
+            };
+            var scrolls = function (v, axis) {
+                var o = getComputedStyle(v)[axis];
+                return o === 'auto' || o === 'scroll';
+            };
+            el.addEventListener('wheel', function (e) {
+                var k = (e.deltaMode === 1 ? 16 : 1), dx = e.deltaX * k, dy = e.deltaY * k;
+                var side = Math.abs(dx) > Math.abs(dy);
+                for (var n = e.target; n && n !== el && n !== outText; n = n.parentNode) {
+                    if (n.nodeType !== 1) continue;
+                    if (side ? (scrolls(n, 'overflowX') && canSide(n, dx)) : (scrolls(n, 'overflowY') && canMove(n, dy))) {
+                        if (side) n.scrollLeft += dx; else n.scrollTop += dy;
+                        if (n === tview) termAtEnd = tview.scrollHeight - tview.scrollTop - tview.clientHeight <= 24;
+                        e.preventDefault();
+                        return;
+                    }
+                }
+                if (side || !canMove(outText, dy)) return;
+                outText.scrollTop += dy;
+                atChatEnd = outText.scrollHeight - outText.scrollTop - outText.clientHeight <= 24;
                 e.preventDefault();
             }, { passive: false });
 
             cmdEl.addEventListener('focus', function () {
+                // In Auto the prompt is not yours: a click on it (the browser
+                // focuses an editable line by itself) never switches to Manual,
+                // only the chat box's Auto / Manual pill does (owner, 2026-10-17).
+                var pill = document.getElementById('agentModeWrap');
+                if (!pill || pill.dataset.shellInput !== 'manual') { cmdEl.blur(); return; }
                 // typing gets the full height down to the bar; a sent task puts it back
                 // body-level, not card-level: the hard cap is enforced on the grid row
                 // that holds the card, which a class on the card itself can't reach.
@@ -796,13 +1206,16 @@
                 setName('AutoCua Terminal');       // it's yours now, not the coder's
                 outStream.setNativeScroll(true);   // old output stays reachable
                 loadPath();
+                // typing here IS Manual: the chat box's Auto / Manual pill follows
+                // (agent_mode.js; a no-op when it already says Manual)
+                document.dispatchEvent(new CustomEvent('shellinput:set', { detail: { mode: 'manual' } }));
             });
             // NOTE: no blur handler — the path is not a focus affordance, it belongs to
             // user mode as a whole. Only begin() takes it away.
 
-            // Click anywhere on the card and you're at the prompt, like a real
-            // terminal — except over the todo column, and except while the agent
-            // owns it. On `click` (after mouseup), NOT mousedown: focusing during
+            // In Manual, click anywhere on the card and you're at the prompt,
+            // like a real terminal — except over the todo column, and except
+            // while the agent owns it. On `click` (after mouseup), NOT mousedown: focusing during
             // a mousedown+setTimeout raced the browser's own focus handling
             // (flaky in the WebView) and could destroy a drag-selection mid-drag.
             // A completed drag leaves a non-empty selection, which we respect —
@@ -829,7 +1242,14 @@
             el.addEventListener('mousedown', function (e) { downX = e.clientX; downY = e.clientY; });
             el.addEventListener('click', function (e) {
                 if (el.classList.contains('cc-running')) return;
+                // Only in Manual: a click never switches to it, the chat box's
+                // Auto / Manual pill does (owner, 2026-10-17; agent_mode.js).
+                var pill = document.getElementById('agentModeWrap');
+                if (!pill || pill.dataset.shellInput !== 'manual') return;
                 if (e.target === cmdEl || (e.target.closest && e.target.closest('.cc-todo'))) return;
+                // the chat above it is there to read (select, follow a link): only the live
+                // line hands you the prompt
+                if (!(e.target.closest && e.target.closest('.cc-out'))) return;
                 if (e.detail > 1) return;                                        // dbl/triple click = select
                 if (Math.abs(e.clientX - downX) > 4 || Math.abs(e.clientY - downY) > 4) return;  // drag = select
                 if (document.activeElement === cmdEl) return;
@@ -841,7 +1261,7 @@
                 // whether or not something IS running, so it's never a dead key.
                 if (e.key === 'c' && (e.ctrlKey || e.metaKey) && !window.getSelection().toString()) {
                     e.preventDefault();
-                    outStream.push('^C');
+                    termStream.push('^C');
                     fetch('/api/shell-kill', { method: 'POST' }).catch(function () {});
                     return;
                 }
@@ -856,11 +1276,10 @@
                 // clicking into the terminal never locks anything.
                 document.dispatchEvent(new CustomEvent('agentmode:lock', { detail: { mode: 'shell' } }));
                 cmdEl.textContent = '';
-                // Echo the command stamped with WHERE it ran, so the scrollback reads like
-                // a terminal's — the executed line scrolls up, the live prompt stays last.
-                // tagged so it stands out from output in the scrollback (cc-prompt-line)
-                outStream.push((curPath ? curPath + ' > ' : '$ ') + cmd, 'cc-prompt-line');
-                markOut();                           // prompt drops to the last line now
+                // Echo the command stamped with WHERE it ran, so the terminal box reads like
+                // a terminal — the executed line scrolls up, the live prompt stays last.
+                // tagged so it stands out from output (cc-prompt-line)
+                termStream.push((curPath ? curPath + ' > ' : '$ ') + cmd, 'cc-prompt-line');
                 setBusy(true);
                 fetch('/api/shell-exec', {
                     method: 'POST',
@@ -876,14 +1295,14 @@
                     // command answers 'started' and ends via window.shellTermEnd.
                     if (d.status === 'started') return;
                     var text = String(d.output || '').replace(/\s+$/, '');
-                    if (text) text.split('\n').forEach(function (l) { outStream.push(l); });
-                    else if (d.error) outStream.push(d.error);
-                    outStream.settle();   // inline reply (cd / failure) — nothing more coming
+                    if (text) text.split('\n').forEach(function (l) { termStream.push(l); });
+                    else if (d.error) termStream.push(d.error);
+                    termStream.settle();   // inline reply (cd / failure) — nothing more coming
                     setBusy(false);
                 })
                 .catch(function () {
-                    outStream.push('failed to reach the shell');
-                    outStream.settle();
+                    termStream.push('failed to reach the shell');
+                    termStream.settle();
                     setBusy(false);
                 });
             });
@@ -894,14 +1313,10 @@
             proseLines(obj).forEach(function (t) { stream.push(t); });
         }
 
-        var coderActionParser = makeActionParser(function (obj) {
+        function onCoderPacket(obj) {
             markReceived();                       // this JSON IS the packet -> tick "synthesizing"
             stopFunLines();                       // real output is here — the fun lines yield the spot
             if (thinkStream) streamProse(thinkStream, obj);   // Shell use: words beside the head
-            // Shell use: each packet REPLACES the terminal. The `>` area shows the step that
-            // just arrived and nothing else — no scrollback from the previous step, and no
-            // backlog of its lines still trickling out of the char pump underneath it.
-            if (header) outStream.reset();
             pushActions(actionChain, obj, true);  // actions -> the `>` terminal (+ tool queue/count)
             // Anticipate the next step once this packet's tools finish playing — but NOT after
             // a dispatched minion: the coder is blocked until that minion returns, so the chain
@@ -909,7 +1324,10 @@
             // "dispatched minion" and endMinion() restarts the opening phase.
             anticipateNext = !hasExit(obj) && !hasMinion(obj);
             playTools();   // covers a packet with no chain tools — hand straight to the next opening
-        });
+        }
+        // made again for each run (begin): a run stopped mid-packet must not leave half
+        // a JSON object in front of the next run's first one
+        var coderActionParser = makeActionParser(onCoderPacket);
 
         function setLine(text) {
             // Don't push the raw line to the terminal anymore — it's JSON. The parser reads the
@@ -929,7 +1347,8 @@
         // Gap between the `>` and where the trunk starts. The Shell-use card's prompt is
         // bigger and sits alone atop a wide terminal, so the trunk is cut further back to
         // leave clean air under the glyph; the compact card keeps its almost-touching look.
-        var TRUNK_GAP = header ? 12 : 3;
+        // The Shell card's trunk hangs from its head instead, starting right under it.
+        var TRUNK_GAP = header ? 1 : 3;
         function layoutTrunk() {
             var rows = treeEl.querySelectorAll('.cc-mrow');
             if (!rows.length) {
@@ -949,8 +1368,8 @@
             flowEl.classList.toggle('cc-mscrolled', over > 0);
 
             var mRect = minionsEl.getBoundingClientRect();
-            var pRect = pEl.getBoundingClientRect();   // the `>` glyph, top line of the terminal
-            var topY = (pRect.top + pRect.height / 2) - mRect.top + TRUNK_GAP;   // just below the `>`
+            var aRect = (header && mascotEl ? mascotEl : pEl).getBoundingClientRect();   // the head / the `>` glyph
+            var topY = (header ? aRect.bottom : aRect.top + aRect.height / 2) - mRect.top + TRUNK_GAP;
             // Anchor the bottom to the LAST minion's head centre (the row also holds a
             // sub-chain below it). offsetTop, NOT getBoundingClientRect: offsets are pure
             // layout, so they ignore the conveyor transform set above — which at this exact
@@ -960,7 +1379,11 @@
             // is doing. The chain is .cc-minions > .cc-mflow > (.cc-mtree) > .cc-mrow >
             // .cc-mrow-head — all three offsetParents are position:relative, and the
             // untransformed .cc-mtree is transparent to it.
-            var lastRow = rows[rows.length - 1];
+            // the Shell card's trunk ends at the last row that stays (a leaving one is
+            // already fading away); the compact card keeps its old reach
+            var stay = header ? treeEl.querySelectorAll('.cc-mrow:not(.leaving)') : rows;
+            if (!stay.length) { trunk.style.height = '0'; return; }
+            var lastRow = stay[stay.length - 1];
             var head = lastRow.querySelector('.cc-mrow-head');
             var botY = flowEl.offsetTop + lastRow.offsetTop - over
                      + (head ? head.offsetTop + head.offsetHeight / 2 : lastRow.offsetHeight / 2);
@@ -985,8 +1408,74 @@
             return null;
         }
 
+        // Shell use: each minion's bot (the owner's minion-helmet.html art, ui/bots/minion*.webp)
+        // stands on the live box's bottom left while it works, one beside another
+        // (coder_card.css), four at most; more wait for a place. Its tools play on its visor,
+        // one icon at a time in its eyes' navy (tool_icons.js createFaceIcon), made with its
+        // first tool: the eyes give way to them. It sinks away when its minion ends.
+        var MBOT_PLACES = 4, MBOT_OUT_MS = 320;
+        var mbotsEl = el.querySelector('.cc-mbots');
+        var mbots = {};          // minion id -> { el, fx, face }
+        var mbotQueue = [];      // ids waiting for a place
+        function mbotIn(id) {
+            if (!mbotsEl || mbots[id] || mbotQueue.indexOf(id) >= 0) return;
+            if (Object.keys(mbots).length >= MBOT_PLACES) { mbotQueue.push(id); return; }
+            var m = document.createElement('div');
+            m.className = 'cc-mbot';
+            // its face between the eyes and the shine: the visor's glare stays on top
+            m.innerHTML =
+                '<img src="bots/minion.webp" alt="">' +
+                '<img class="cc-mbot-eyes" src="bots/minion-eyes.webp" alt="">' +
+                '<canvas class="cc-mbot-face"></canvas>' +
+                '<img src="bots/minion-shine.webp" alt="">';
+            mbotsEl.appendChild(m);
+            mbotsEl.classList.add('on');
+            mbots[id] = { el: m, fx: null, face: null };
+        }
+        function mbotsFold() {                       // no bot left and none waiting: the row folds
+            if (mbotsEl && !Object.keys(mbots).length && !mbotQueue.length) mbotsEl.classList.remove('on');
+        }
+        function mbotOut(id) {
+            var w = mbotQueue.indexOf(id);
+            if (w >= 0) { mbotQueue.splice(w, 1); mbotsFold(); return; }
+            var b = mbots[id];
+            if (!b) return;                           // a repeated or stale end
+            delete mbots[id];
+            if (b.fx) b.fx.dispose();
+            b.el.classList.add('leaving');
+            mbotsFold();
+            setTimeout(function () {
+                if (b.el.parentNode) b.el.parentNode.removeChild(b.el);
+                if (mbotQueue.length) mbotIn(mbotQueue.shift());   // the next one takes a place
+            }, reduced() ? 0 : MBOT_OUT_MS);
+        }
+        function mbotsClear() {                      // the run is over: all go at once
+            mbotQueue.length = 0;
+            for (var k in mbots) { if (mbots[k].fx) mbots[k].fx.dispose(); }
+            mbots = {};
+            if (mbotsEl) { mbotsEl.replaceChildren(); mbotsEl.classList.remove('on'); }
+        }
+        // its face (null while it waits for a place): a tool the face can show takes the visor
+        // and the eyes give way to it; a packet without one leaves the eyes
+        function minionFace(id) {
+            var b = mbots[id];
+            if (!b || !ICONS || !ICONS.createFaceIcon) return null;
+            if (!b.face) {
+                b.fx = ICONS.createFaceIcon(b.el.querySelector('.cc-mbot-face'), { color: 'rgb(34, 44, 80)' });
+                b.face = {
+                    addAction: function (tool) {
+                        if (!b.fx.addAction(tool)) return false;
+                        b.el.classList.add('working');
+                        return true;
+                    }
+                };
+            }
+            return b.face;
+        }
+
         function addMinion(id, query) {
             startFunLines();   // a minion is off working — the head-side line cycles fun "thinking" lines
+            if (header) mbotIn(id);
             var row = document.createElement('div');
             row.className = 'cc-mrow';
             row.dataset.id = String(id);
@@ -995,16 +1484,17 @@
                 '<div class="cc-msub"><div class="cc-mchain"></div></div>';
             treeEl.appendChild(row);
             // Each minion streams its live output (initial = query) AND grows its own
-            // horizontal action sub-chain, parsed from the same per-minion JSON.
+            // horizontal action sub-chain, parsed from the same per-minion JSON. Shell use:
+            // no sub-chain under the row; its tools play on its Minion bot's face instead.
             minionStreams[id] = makeLineStreamer(row.querySelector('.mline'), query || 'minion');
-            if (ICONS) minionChains[id] = ICONS.createChain(row.querySelector('.cc-mchain'), { orientation: 'horizontal' });
+            if (ICONS && !header) minionChains[id] = ICONS.createChain(row.querySelector('.cc-mchain'), { orientation: 'horizontal' });
             minionParsers[id] = makeActionParser(function (obj) {
                 // Shell use: same rule as the coder — the minion's row streams its OWN
                 // reply (action excluded) instead of the raw JSON it printed.
                 if (header && minionStreams[id]) streamProse(minionStreams[id], obj);
-                pushActions(minionChains[id], obj, false);
+                pushActions(header ? minionFace(id) : minionChains[id], obj, false);
                 var mc = row.querySelector('.cc-mchain');
-                if (mc && mc.children.length) row.classList.add('has-tools');   // reveal the loader→sub-chain L
+                if (!header && mc && mc.children.length) row.classList.add('has-tools');   // reveal the loader→sub-chain L
                 // a growing sub-chain makes this row taller, pushing later rows down — re-anchor the trunk.
                 if (window.requestAnimationFrame) requestAnimationFrame(layoutTrunk); else layoutTrunk();
             });
@@ -1023,11 +1513,10 @@
         // and every later update re-renders (todo.md is rewritten, not appended).
         // payload is the JSON string service.py sends: {objective, tasks:[{text, done}]}.
         //
-        // Deliberately built with the MAIN agent's todo classes (.todo-list / .todo-item /
-        // .todo-check / .todo-spinner / .todo-text from container/bottom_right/). Those are
-        // unscoped and loaded globally, so this list is pixel-identical to the Computer-use
-        // card — same animated tick colour, same spinner on the current task — with no style
-        // duplicated here. Row states mirror bottom_right.js's renderTodo().
+        // Built with the main agent's todo classes (.todo-list / .todo-item / .todo-check /
+        // .todo-spinner / .todo-text, styled at the end of coder_card.css): the animated tick
+        // colour and the spinner on the current task. Row states mirror renderTodo() of the
+        // main agent's todo list, now parked in container/dead/bottom_right/.
         var todoEl = el.querySelector('.cc-todo');
         function setTodo(payload) {
             if (!header || !todoEl) return;
@@ -1065,15 +1554,17 @@
         function endMinion(id, status) {
             var row = findRow(id);
             if (!row || row.classList.contains('leaving')) return;   // idempotent (cliMinionEnd can repeat)
+            if (header) mbotOut(id);                                 // its bot sinks away now
 
             // stop streaming into a row that's leaving
             if (minionStreams[id]) { minionStreams[id].dispose(); delete minionStreams[id]; }
 
             // pin current height so max-height animates content-height -> 0 (no easing dead-zone)
             row.style.maxHeight = row.offsetHeight + 'px';   // read forces reflow
+            // (the trunk re-lays in the same frame: it ends at the last row that stays)
             if (window.requestAnimationFrame) {
-                requestAnimationFrame(function () { row.classList.add('leaving'); row.style.maxHeight = '0px'; });
-            } else { row.classList.add('leaving'); row.style.maxHeight = '0px'; }
+                requestAnimationFrame(function () { row.classList.add('leaving'); row.style.maxHeight = '0px'; layoutTrunk(); });
+            } else { row.classList.add('leaving'); row.style.maxHeight = '0px'; layoutTrunk(); }
 
             // The chain paused at "dispatched minion" while the coder waited. Once the
             // LAST live minion is back the coder resumes talking to the LLM, so pick the
@@ -1118,11 +1609,18 @@
             toolQ.length = 0; openNext = null; thinkingStep = null;
             if (mascot) mascot.dispose();
             if (thinkStream) thinkStream.dispose();
+            if (termStream) termStream.dispose();
+            if (termRo) termRo.disconnect();
+            if (fadeRo) fadeRo.disconnect();
+            if (thinkRo) thinkRo.disconnect();
+            if (colRo) colRo.disconnect();
             outStream.dispose();
             for (var k in minionStreams) if (minionStreams[k]) minionStreams[k].dispose();
             if (actionChain) actionChain.dispose();
             if (tracker) tracker.dispose();
             for (var m in minionChains) if (minionChains[m]) minionChains[m].dispose();
+            mbotsClear();
+            rbotOff();
         }
 
         return {
@@ -1132,13 +1630,13 @@
             setLine: setLine,
             // Kick off the opening phase for a card created with {idle:true}. Called when
             // cli_stage.js promotes the waiting terminal into a live run: the terminal
-            // becomes the AGENT's, so the hand-typing layout drops (back to the 3-line
-            // window) and the prompt goes read-only — the cursor moves to the agent's
-            // output line, which is where text is actually appearing.
+            // becomes the AGENT's, so hand-typing drops and the prompt goes read-only —
+            // the cursor moves to the agent's output line, which is where text is actually
+            // appearing. What the terminal already shows stays above the run.
             begin: function () {
                 document.body.classList.remove('cli-typing');
                 el.classList.add('cc-running');
-                outStream.setNativeScroll(false);   // back to the agent's sliding window
+                coderActionParser = makeActionParser(onCoderPacket);
                 if (cmdEl) {
                     cmdEl.setAttribute('contenteditable', 'false');
                     cmdEl.textContent = '';                 // drop anything half-typed
@@ -1146,21 +1644,88 @@
                 }
                 setName(header);             // back to "AutoCua Code" — the agent's again
                 if (mascot && mascot.setGlow) mascot.setGlow(true);   // head lights up: working
+                if (thinkStream) thinkStream.clear();                  // the hello is not the agent's words
                 clearPrompt();               // bare `>`, and no stale path on echoed lines
-                el.classList.remove('cc-has-out');
                 startOpening();
+            },
+            // The run is over (its answer is printed): everything still playing for it
+            // stops and the prompt is yours again; the terminal keeps what it showed and
+            // waits for the next run (cli_stage.js, Shell use). Its tool chain, tracking
+            // progress and minions' bots go: the next run's start empty and fade in again.
+            finish: function () {
+                stopFunLines();
+                clearTimeout(openTimer); openTimer = null;
+                clearTimeout(toolTimer); toolTimer = null;
+                toolQ.length = 0; openNext = null; thinkingStep = null;
+                anticipateNext = receivedEarly = fastOpening = openingDone = false;
+                if (actionChain) actionChain.dispose();
+                if (tracker) tracker.dispose();
+                tracker = makeTracker();
+                chainEl.classList.remove('cc-tools-active'); toolsRevealed = false;
+                trackEl.classList.remove('cc-track-active');
+                [chainEl.querySelector('.cc-chain'), trackEl.querySelector('.cc-track-tree')].forEach(function (t) {
+                    if (t) t.style.transform = '';      // back to the top, while hidden (no slide later)
+                });
+                for (var k in minionStreams) { if (minionStreams[k]) minionStreams[k].dispose(); delete minionStreams[k]; }
+                for (var m in minionChains) { if (minionChains[m]) minionChains[m].dispose(); delete minionChains[m]; }
+                mbotsClear();
+                for (var q in minionParsers) delete minionParsers[q];
+                treeEl.replaceChildren();
+                layoutTrunk();
+                if (thinkStream) thinkStream.clear();         // now, not after its queue
+                if (todoEl) todoEl.replaceChildren();          // the run's checklist goes with it
+                el.classList.remove('has-todo');
+                outStream.settle();
+                el.classList.remove('cc-running');
+                if (cmdEl) cmdEl.setAttribute('contenteditable', 'plaintext-only');
+                setName(header);
+                if (mascot && mascot.setGlow) mascot.setGlow(false);
             },
             // raw text straight onto the terminal, bypassing the JSON parser — used for
             // stage-level messages (e.g. a run that failed before it produced any output)
             // and for the live output of a hand-typed command.
-            note: function (t) { outStream.push(t); markOut(); },
+            note: function (t) { if (termStream) termStream.push(t); else { outStream.push(t); markOut(); } },
+            // A line of the chat's own: your message, the run's answer.
+            // mode: '' (types in), 'instant', or 'html' (markup from markdown.py, whole).
+            print: function (text, cls, mode) { outStream.push(text, cls, mode); outStream.settle(); markOut(); },
+            // the chat glides to its end (your message just went in)
+            toEnd: function () { outStream.toEnd(); },
+            // Shell use: a new chat's hello, typed on the live line (it shows there until the
+            // chat has a line of its own; coder_card.css).
+            hello: function (t) {
+                if (!thinkStream) return;
+                thinkStream.clear();
+                thinkStream.push(String(t || ''));
+                thinkStream.settle();
+            },
+            // An empty terminal (a reopened chat's, before its rows).
+            clear: function () {
+                outStream.clear();
+                if (termStream && !termBusy) termStream.clear();   // a command still running keeps its box
+                if (todoEl) todoEl.replaceChildren();
+                el.classList.remove('cc-has-out', 'has-todo');
+            },
+            // Back to Auto: the prompt lets go, the agent's name comes back.
+            leaveTyping: function () {
+                if (cmdEl && document.activeElement === cmdEl) cmdEl.blur();
+                if (cmdEl && !termBusy) cmdEl.textContent = '';   // a half-typed command goes, as at a run's start
+                document.body.classList.remove('cli-typing');
+                setName(header);
+                clearPrompt();
+            },
             // a hand-typed command exited — hand the prompt back
             termEnd: function (code) {
-                if (code) outStream.push('[exit ' + code + ']');
-                outStream.settle();      // the command is done — stop the trailing shimmer
+                var ts = termStream || outStream;
+                if (code) ts.push('[exit ' + code + ']');
+                ts.settle();             // the command is done — stop the trailing shimmer
                 setBusy(false);
             },
             setTodo: setTodo,
+            // Shell use: the run's bot beside the live box (above)
+            botIn: botIn,
+            botOn: botOn,
+            botToAnswer: botToAnswer,
+            botEnd: botEnd,
             addMinion: addMinion,
             setMinionLine: setMinionLine,
             endMinion: endMinion,
@@ -1173,5 +1738,9 @@
         };
     }
 
-    window.CliCoderCard = { create: create };
+    window.CliCoderCard = {
+        create: create,
+        // the typed command ended, whichever terminal (if any) is on screen (cli_stage.js)
+        termIdle: function () { cmdRunning = false; }
+    };
 })();

@@ -1,49 +1,81 @@
 /* =====================================================================
-   Top-left SCREEN OVERLAY — the shell terminal swaps in over the live
-   screenshot while a shell command runs (paired with globe_shell.js). Kept in
-   the top-left folder with its JS for clean separation.
-
-   The screenshot (.screenshot-frame) cross-fades out when the overlay is active;
-   the terminal fades in over the same cell, then swaps back on finish.
+   Shell terminal — while a shell command (or an AppleScript) runs, its lines
+   take the tool chain's place in the agent container (agent.html
+   #shellPanel, paired with globe_shell.js); when it is done the chain is
+   back. The screen container keeps the screenshot. (The file stays in the
+   screen folder, where the terminal used to show.)
+   Coder-card style: a TRANSPARENT `>` command line that streams + shimmers
+   with a dot loader while it runs, then an L-connector down to the output
+   line that comes back. Mirrors the cc-* visuals in
+   cli/cli_container/coder_card.css (shimmer, orbiting loader), scoped sh-*.
    ===================================================================== */
 
-/* cross-fade the live screenshot when an overlay shows */
-.screenshot-frame { transition: opacity 0.4s ease; }
-.screenshot-zone.overlay-active .screenshot-frame { opacity: 0; }
+/* The tool panel's flow area is shared: the chain and the terminal sit in
+   the same cell under the "Tool response" label, one faded out. (As specific
+   as agent.css's .bl-panel flex column, which loads after this file.) */
+.bl-panel.tool-panel {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+}
+.tool-panel > .tool-flow,
+.tool-panel > .sh-panel {
+    grid-row: 2;
+    grid-column: 1;
+}
+.tool-panel:has(> .sh-panel.is-active) > .tool-flow { opacity: 0; }
+/* The chain's column is only its logos wide (agent.css): while it runs, the
+   terminal takes the tracking progress's room too, the tracking fading out
+   meanwhile; nothing moves. */
+.agent-container > .tool-panel { grid-row: 1; grid-column: 1; }
+.agent-container > .tracking-panel {
+    grid-row: 1;
+    grid-column: 2;
+    transition: opacity 0.4s ease;
+}
+.agent-container:has(> .tool-panel > .sh-panel.is-active) > .tool-panel { grid-column: 1 / -1; }
+.agent-container:has(> .tool-panel > .sh-panel.is-active) > .tracking-panel { opacity: 0; }
 
-/* the overlay stacks over the cell; hidden until its tool runs */
-.work-overlay {
-    position: absolute;
-    inset: 0;
+.sh-panel {
+    min-height: 0;
+    /* Sized by its cell, never by its lines: a long command must not make the
+       agent container (and so the live turn) taller, like the chain can't. */
+    contain: size;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    padding-top: clamp(8px, 1vw, 12px);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.4s ease;
 }
-.work-overlay.is-active { opacity: 1; }
+.sh-panel.is-active { opacity: 1; }
 
-/* The shell terminal reads as a real terminal, so anchor it to the TOP-LEFT of
-   the cell (not centred) — the `>` lines align from the top-left. */
-#shellPanel {
-    align-items: flex-start;
-    justify-content: flex-start;
-    padding: 12px 16px;
-}
-
-/* =====================================================================
-   Shell terminal — coder-card style. A TRANSPARENT `>` command line that
-   streams + shimmers with a dot loader while it runs, then an L-connector
-   down to the output line that comes back. Mirrors the cc-* visuals in
-   cli/cli_container/coder_card.css (shimmer, orbiting loader), scoped sh-*.
-   ===================================================================== */
 .shell-term {
-    width: min(360px, 86%);
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 12px;
     line-height: 1.5;
     color: rgba(0, 0, 0, 0.82);
+}
+
+/* The lines, from the top-left like a terminal. A command and output too
+   long for the panel keep their end in view, like a terminal that has
+   scrolled: the body is never taller than the panel, its lines sit at its
+   bottom, and the top fades (.sh-over, globe_shell.js). */
+.sh-body {
+    flex: 0 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    overflow: hidden;
+}
+.sh-lines { flex: none; }
+.shell-term.sh-over .sh-body {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16px);
+            mask-image: linear-gradient(to bottom, transparent 0, #000 16px);
 }
 
 /* the `>` command line — the HEAD: prompt + streamed command + dot loader.

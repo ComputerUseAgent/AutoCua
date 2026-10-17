@@ -179,7 +179,7 @@ quoted code if a line no longer matches.
   - Fix: a token that changes on every launch.
 - **Heavy spots in the page itself** (the same in every window):
   - Agent text is typed one letter at a time, with a layout per letter: [AutoCua/ui/script.js:914](../../AutoCua/ui/script.js#L914).
-  - An animation loop never stops: [AutoCua/ui/container/bottom_left/bottom_left.js:1401](../../AutoCua/ui/container/bottom_left/bottom_left.js#L1401).
+  - An animation loop never stops: [AutoCua/ui/container/agent/agent.js:1401](../../AutoCua/ui/container/agent/agent.js#L1401).
   - 17 CSS animations run while idle.
   - A 0.6–1.5 MB screenshot is pushed into the page every agent step.
 

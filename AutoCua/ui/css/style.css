@@ -4,8 +4,23 @@
     --expanded-height: 130px;
     /* Width of the persistent left bar. The main app components are offset to
        the right by this amount (left-anchored ones by the full width, centered
-       ones by half) so the content always sits to the right of the bar. */
-    --left-bar-w: 240px;
+       ones by half) so the content always sits to the right of the bar.
+       Narrower while the bar is collapsed (left_bar.css). */
+    --left-bar-open-w: 240px;
+    --left-bar-w: var(--left-bar-open-w);
+}
+
+/* Registered as a length so it can animate: while the bar collapses or
+   expands (left_bar.js sets body.left-bar-animating for that moment), the
+   bar and everything placed by --left-bar-w slide along in step. Only then,
+   so a window resize still snaps. */
+@property --left-bar-w {
+    syntax: '<length>';
+    inherits: true;
+    initial-value: 240px;
+}
+body.left-bar-animating {
+    transition: --left-bar-w 0.45s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 /* WebKit click responsiveness — eliminates tap delay and ghost highlights */
@@ -25,9 +40,9 @@ button, input, textarea, select, a, [role="button"],
     width: 100vw;
     height: 100vh;
     z-index: 99999;
-    /* Same off-white as the app background and intro_animation.html, so the
+    /* Same white as the app background and intro_animation.html, so the
        splash blends seamlessly. */
-    background: #FDFCFA;
+    background: #FFFFFF;
     /* 0.999, NOT 1: an opaque overlay lets Chromium occlusion-cull the app
        beneath, so the first fade frame had to rasterise every backdrop-filter
        glass card at once — a burst that jittered the handoff right as the
@@ -56,10 +71,10 @@ button, input, textarea, select, a, [role="button"],
 body {
     margin: 0;
     padding: 0;
-    /* Just off white, the splash's colour (intro_animation.html). Kept in
+    /* Pure white, the splash's colour (intro_animation.html). Kept in
        sync with the title bar (TITLEBAR_COLOR in service.py) so the bar and
        content area read as one unified surface. */
-    background-color: #FDFCFA;
+    background-color: #FFFFFF;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -67,8 +82,8 @@ body {
     overflow: hidden;
 }
 
-/* Screenshot / globe / shell now live in the top-left container
-   (ui/container/top_left/): the globe + shell JS in globe_shell.js and ALL
+/* Screenshot / globe / shell now live in the screen container
+   (ui/container/screen/): the globe + shell JS in globe_shell.js and ALL
    their CSS in globe_shell.css (they swap in over the screenshot). The shared
    .liquidGlass-* layers below stay — the CLI pills use them. */
 
@@ -114,7 +129,7 @@ body {
     justify-content: center;
 }
 
-/* Shell terminal CARD visuals moved to container/top_left/globe_shell.css
+/* Shell terminal CARD visuals moved to container/screen/globe_shell.css
    (kept with the globe + shell code for clean separation). */
 
 /* --------------------------------------------------------------
@@ -438,13 +453,13 @@ body {
     right: 0;
     bottom: 0;
     left: 0;
-    background: #FDFCFA;
+    background: #FFFFFF;
     z-index: 100;
 
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
-    /* Closing: the panel fades out first (below), then the cream, so the
+    /* Closing: the panel fades out first (below), then the white cover, so the
        settings and the page never show through each other. */
     transition: opacity 0.22s ease 0.12s, visibility 0s linear 0.34s;
 }
@@ -455,7 +470,7 @@ body {
     transition: opacity 0.2s ease, visibility 0s;
 }
 
-/* Opening: the panel comes in once the cream has covered the page, so the
+/* Opening: the panel comes in once the white cover has covered the page, so the
    page never shows through the settings. Closing: it goes first. */
 .settings-overlay .settings-panel {
     opacity: 0;
@@ -485,7 +500,7 @@ body {
     pointer-events: auto;
     display: flex;
     flex-direction: column;
-    /* Fully transparent panel — no glass card. The controls float on the cream
+    /* Fully transparent panel — no glass card. The controls float on the white
        background; text is grey (see below). */
     background: transparent;
     box-shadow: none;
@@ -509,8 +524,8 @@ body {
        itself still spans the full window to block interaction. */
     padding-left: calc(var(--left-bar-w) + clamp(10px, 2vw, 30px));
     padding-right: clamp(10px, 2vw, 30px);
-    padding-top: clamp(30px, 4vw, 60px);
-    padding-bottom: clamp(160px, 15vw, 196px);
+    padding-top: clamp(5px, 0.7vw, 9px);
+    padding-bottom: clamp(118px, calc(30px + 10.2vw), 159px);
 
     opacity: 0;
     visibility: hidden;
@@ -526,17 +541,16 @@ body {
 
 /* While a Telegram task occupies the machine: fade the app's UI components away.
    The orb + message live in the transparent overlay above. We fade the whole
-   T-grid CELLS (#zoneTopLeft / #zoneTopRight / #zoneBottomLeft / #zoneBottomRight)
-   rather than the inner cards — the cell carries the frosted-glass chrome, and the
-   right cell's idle TODO card must fade too (not just the globe/shell). */
+   T-grid CELLS (#screenContainer / #userContainer / #agentContainer) rather than the
+   inner cards — the cell carries the chrome — and the chat's earlier turns. */
 body.tg-occupied #chatWrapper,
 body.tg-occupied #llmWrapper,
 body.tg-occupied #settingsBtn,
 body.tg-occupied #welcomeHero,
-body.tg-occupied #zoneTopLeft,
-body.tg-occupied #zoneTopRight,
-body.tg-occupied #zoneBottomLeft,
-body.tg-occupied #zoneBottomRight {
+body.tg-occupied #chatPast,
+body.tg-occupied #screenContainer,
+body.tg-occupied #userContainer,
+body.tg-occupied #agentContainer {
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.4s ease;
@@ -1312,25 +1326,28 @@ body.settings-open #chatWrapper {
 
 /* Chat Container - Big vertical rectangle with equal gaps */
 /* =====================================================================
-   Main content 2x2 grid — four component zones (top-left screenshot /
-   top-right tracking-progress / bottom-left tool-response / bottom-right todo)
-   fill the area to the right of the left bar. The zones are injected by the
-   container/top_left, top_right, bottom_left and bottom_right components.
+   Main content box — to the right of the left bar, inside the big center
+   container's frame. One cell, shared by the frame (big_center_container),
+   the chat that scrolls under it (#chatScroll, container/chat_scroll: the
+   turns, each the user's message, the screen and the tool response |
+   tracking progress row) and the Shell use panel (#cliContainer).
    ===================================================================== */
 .main-grid {
     position: fixed;
     left: calc(var(--left-bar-w) + clamp(10px, 2vw, 30px));
     right: clamp(10px, 2vw, 30px);
-    top: clamp(30px, 4vw, 60px);
-    /* Leave room at the bottom for the chat input (the agent-start text box). */
-    /* Raised so the bottom container clears the "Agent activated" strip that
-       sits just above the chat input. */
-    bottom: clamp(160px, 15vw, 196px);
+    /* Same top as the left bar (left_bar.css), so the content starts on the
+       bar's top line and gets the full height. */
+    top: clamp(5px, 0.7vw, 9px);
+    /* Down to the chat input (the agent-start text box): one gap (the
+       frame's inner one) above its top while idle, the tallest it is without
+       a long draft. Running, it is a slim line with the "Agent activated"
+       strip, both lower. The hero and the Telegram overlay share this box. */
+    bottom: clamp(118px, calc(30px + 10.2vw), 159px);
     z-index: 13;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1.4fr 1fr;          /* top row bigger; tweakable */
-    gap: clamp(10px, 1.5vw, 18px);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
 }
 
 /* =====================================================================
@@ -1343,8 +1360,8 @@ body.settings-open #chatWrapper {
     position: fixed;
     left: calc(var(--left-bar-w) + clamp(10px, 2vw, 30px));
     right: clamp(10px, 2vw, 30px);
-    top: clamp(30px, 4vw, 60px);
-    bottom: clamp(160px, 15vw, 196px);
+    top: clamp(5px, 0.7vw, 9px);
+    bottom: clamp(118px, calc(30px + 10.2vw), 159px);
     z-index: 12;                /* just under the grid zones; pointer-transparent */
     display: flex;
     flex-direction: column;

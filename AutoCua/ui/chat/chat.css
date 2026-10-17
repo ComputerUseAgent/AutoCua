@@ -130,6 +130,41 @@
     color: rgba(40, 40, 40, 0.95);
 }
 
+/* Collapsed left bar: its rail (left_bar.css) shows these circles instead of
+   the rows above. Built by chat.js: New chat first, then one per chat with
+   the chat's mode icon and its name as the tooltip. The settings cog's size
+   and thin outline. */
+.rail-chats {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(6px, 0.8vw, 9px);
+}
+.rail-btn {
+    flex: 0 0 auto;                    /* never squashed when the rail scrolls */
+    width: clamp(30px, 3vw, 36px);
+    height: clamp(30px, 3vw, 36px);
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 50%;
+    background: transparent;
+    color: rgba(80, 80, 80, 0.9);
+    cursor: pointer;
+    transition: border-color 0.18s ease;
+}
+.rail-btn:hover {
+    border-color: rgba(0, 0, 0, 0.14);
+}
+.rail-btn.active {
+    border-color: rgba(0, 0, 0, 0.22);
+}
+.rail-btn.active .chat-mode-icon {
+    opacity: 0.85;
+}
+
 /* Per-chat options popover — appended to <body>, fixed-positioned. */
 .chat-item-menu {
     position: fixed;

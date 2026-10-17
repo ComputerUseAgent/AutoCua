@@ -55,12 +55,13 @@ dependencies = [
     "pyobjc-framework-Vision>=11; sys_platform == 'darwin'",
     "pyobjc-framework-WebKit>=11; sys_platform == 'darwin'",
     "pynput>=1.7; sys_platform == 'darwin'",
-    # Settings -> Recording encodes its videos with OpenCV on macOS and with
+    # Each run's recording is encoded with OpenCV on macOS and with
     # imageio-ffmpeg on Linux and Windows: OpenCV's Linux wheels cannot write
     # H.264, and its Windows wheels only at a fixed ~900 MB a minute
-    # (utils/run_recorder.py)
+    # (utils/run_recorder.py). imageio-ffmpeg's ffmpeg then compresses it on
+    # every OS (utils/video_compress.py).
     "opencv-python>=4.9; sys_platform == 'darwin'",
-    "imageio-ffmpeg>=0.5; sys_platform == 'linux' or sys_platform == 'win32'",
+    "imageio-ffmpeg>=0.5",
     # Linux computer use — OCR fusion (PP-OCRv6 via onnxruntime, see
     # AutoCua/linux/tree/ocr.py); AT-SPI itself comes from the distro's
     # python3-gi, which pip cannot supply (requirements_linux.txt explains).

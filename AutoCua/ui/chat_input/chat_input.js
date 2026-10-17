@@ -8,7 +8,6 @@
 // interface so this file never holds a second copy:
 //   • window.getModelSelection() -> { provider, model }  (live selection)
 //   • window.stopStreaming()                              (cancel agent-text stream)
-//   • window.setWorkState(state)                          (reset the work-state cell)
 // Every one of those is only called at user-event time (Enter / send / stop click),
 // long after script.js has defined them — so injection order doesn't matter.
 //
@@ -49,6 +48,19 @@
         window.addEventListener('resize', adjustHeight);
         adjustHeight();
 
+        // The agent strip's thinking orb (thinking_orb/thinking_orb.js): it moves
+        // only while the strip shows, and holds still (no frame loop) while hidden.
+        const strip = (root || document).querySelector('#agentResponseStrip');
+        const orbCanvas = strip && strip.querySelector('.agent-orb');
+        if (orbCanvas && window.ThinkingOrb) {
+            const orb = window.ThinkingOrb(orbCanvas, { size: 20, theme: 'light', paused: true });
+            let orbOn = false;
+            new MutationObserver(() => {
+                const on = strip.classList.contains('active');
+                if (on !== orbOn) { orbOn = on; orb.update({ paused: !on }); }
+            }).observe(strip, { attributes: true, attributeFilter: ['class'] });
+        }
+
         // Start the agent. Shared by Enter and the send orb's 'sendbtn:clicked' message.
         // Guard mirrors the old Enter behaviour: needs a message + a live provider/model.
         function startAgent() {
@@ -65,14 +77,38 @@
             // Mobile use with no device picked yet (e.g. a reopened mobile chat
             // before re-pairing) — the user must select iOS/Android first.
             if (agentMode === 'mobile' && !agentSub) return;
+            // Shell use on Manual: the terminal is the input, not this box (agent_mode.js).
+            if (agentMode === 'shell' && modeWrap.dataset.shellInput === 'manual') return;
+            // The run's own bot: beside the bottom container while it works
+            // (chain_bot.js), then beside its reply (run_reply.css). Computer use's, Web use's, or
+            // Mobile use's on iOS. Android runs on the desktop agent (and is saved
+            // as a Computer use chat): no bot on its chain, Computer use's by its
+            // reply.
+            const runBot = (agentMode === 'computer' || agentMode === 'web') ? agentMode
+                : (agentMode === 'mobile' && agentSub === 'ios') ? 'mobile' : '';
+            const replyBot = runBot || (agentMode === 'mobile' ? 'computer' : '');
             // Web use needs no sub-option and no gate: service.py routes
             // mode 'web' to run_pkg 'web' (the browser agent) and /api/start-agent
             // below is the right endpoint for it, same as Computer and Mobile.
 
-            // The moment a task is sent, drop the empty-state hero.
+            // The moment a task is sent, drop the empty-state hero, and the mode's
+            // bot from the chat box: unless it is this run's bot, then it goes over
+            // to the bottom container itself once the run starts (chain_bot.js;
+            // Shell use: beside its terminal box, cli_stage.js).
             if (window.hideWelcomeHero) window.hideWelcomeHero();
+            const standBot = runBot || (agentMode === 'shell' ? 'shell' : '');
+            if (window.modeBot && !window.modeBot.ready(standBot)) window.modeBot.hide();
             // ...and reveal the memory ring (stays shown until a new chat).
             if (window.showMemoryBar) window.showMemoryBar();
+
+            // Like a chat: the turn on screen (message, video, reply) stays,
+            // as an earlier turn above this task's (chat_scroll.js), before
+            // the live zones are cleared for it below. Not Shell use: it keeps
+            // its own transcript under the terminal.
+            const chatGoesOn = agentMode !== 'shell' && !!window.chatScroll;
+            // A reopen still loading must not paint over this task's turn.
+            if (window.chatOpenCancel) window.chatOpenCancel();
+            const lastTurn = chatGoesOn ? window.chatScroll.archiveLive() : null;
 
             const agentStrip = document.getElementById('agentResponseStrip');
             const agentText = document.getElementById('agentText');
@@ -84,7 +120,7 @@
                 chatInput.disabled = true;
                 chatInput.classList.add('agent-active');   // CSS: box shrinks + orbs crossfade
                 adjustHeight();                            // clear inline height so the collapse is clean
-                agentText.textContent = 'Starting agent...';
+                agentText.textContent = '';                // the strip says "Agent running..."; the agent's live text comes here
 
                 // Morph the orb: fade the grey send orb out, bring the glowing stop orb in.
                 if (sendBtnFrame) sendBtnFrame.contentWindow.postMessage('sendbtn:hide', '*');
@@ -97,11 +133,19 @@
                 const welcomeEl = document.getElementById('welcomeOverlay');
                 if (welcomeEl) welcomeEl.classList.add('eyes-hidden');
 
-                // Start the live tracking-progress stream (top-right), then clear the
+                // Start the live tracking-progress stream (bottom container), then clear the
                 // previous run's visual outputs (shared with the New-chat button).
                 if (window.trackingProgress) window.trackingProgress.start();
                 resetChatUi();
             }
+            // The sent message, top right of the main area like a chat.
+            if (window.showUserMessage) window.showUserMessage(message);
+            // Its reply will have the mode's bot beside it (chat_scroll.js); the
+            // run's bot will stand there while it runs, its room made now.
+            if (chatGoesOn) window.chatScroll.setLiveBot(replyBot);
+            if (runBot && window.chainBot) window.chainBot.reserve();
+            // ...right below the last reply: the chat glides up to this turn.
+            if (chatGoesOn) window.chatScroll.toLive(lastTurn);
 
             // Shell use bypasses the main agent: the task goes STRAIGHT to the
             // coder agent (backend: run_shell_task in service.py) and the CLI
@@ -111,6 +155,8 @@
             // session_id below. The composer, stop orb and completion teardown
             // are shared between both endpoints.
             const endpoint = (agentMode === 'shell') ? '/api/start-shell' : '/api/start-agent';
+            // Shell use: your command is the terminal's next line at once (cli_stage.js).
+            if (agentMode === 'shell' && window.cliShellSend) window.cliShellSend(message);
 
             fetch(endpoint, {
                 method: 'POST',
@@ -131,11 +177,21 @@
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'started') {
-                    agentText.textContent = 'Agent running...';
                     chatInput.value = '';   // box is collapsed; restored on teardown
                     // Adopt the backend's session id (a brand-new chat is minted
                     // server-side) so the run-end save + future sends target it.
                     if (data.session_id) window.currentSessionId = data.session_id;
+                    // Shell use: the run is this chat's (a brand-new one only has its id now)
+                    if (agentMode === 'shell' && window.cliShellStarted) window.cliShellStarted(data.session_id);
+                    // This run's id: its video finds its turn by it (chat_scroll.js).
+                    if (chatGoesOn && data.run_id) window.chatScroll.setLive(data.run_id, '');
+                    // Computer use, Web use, iOS: the moving background behind the
+                    // screen (run_bot.js), and the run's bot comes in at the bottom container.
+                    // Not when Stop came first (its reply is already up).
+                    if (runBot && !document.querySelector('#agentContainer.show-reply')) {
+                        if (window.screenStageStart) window.screenStageStart();
+                        if (window.chainBot) window.chainBot.enter(runBot);
+                    }
                     // First run commits the chat to this mode — lock the picker.
                     // Shell included: the lock fires only on a STARTED run (this
                     // branch), so merely toggling to Shell use never locks — using
@@ -145,13 +201,20 @@
                     document.dispatchEvent(new CustomEvent('chats:refresh'));
                 } else if (data.error) {
                     agentText.textContent = `Error: ${data.error}`;
+                    // Shell use: the strip hides at once, the terminal says why
+                    if (agentMode === 'shell' && window.cliShellNote) window.cliShellNote(`Error: ${data.error}`);
                     restoreIdle();          // roll the orb morph + box back
                 }
             })
             .catch(err => {
                 console.error('Failed to start agent:', err);
                 agentText.textContent = 'Failed to start agent';
+                if (agentMode === 'shell' && window.cliShellNote) window.cliShellNote('Failed to start agent');
                 restoreIdle();
+            })
+            .finally(() => {
+                // Not on its way over (the run never started): the mode's bot goes.
+                if (window.modeBot) window.modeBot.drop();
             });
         }
 
@@ -185,16 +248,29 @@
         // Expose so script.js's agentComplete() can morph back on natural completion.
         window.chatInputRestoreIdle = restoreIdle;
 
-        // Clear the previous run's visual outputs (milestones, todo card, agent
-        // notes). Shared by the send path AND the New-chat button (chat.js) so a
+        // Clear the previous run's visual outputs (milestones, video, reply).
+        // Shared by the send path AND the New-chat button (chat.js) so a
         // fresh chat and a fresh run reset identically. Idempotent / guarded.
         function resetChatUi() {
             const milestoneStream = document.getElementById('milestoneStream');
             if (milestoneStream) milestoneStream.innerHTML = '';
-            if (window.updateTodoList) window.updateTodoList({ objective: '', tasks: [] });
-            if (window.setWorkState) window.setWorkState('todo');
-            // Drop the previous run's "Agent Notes" so the screenshot area is live again.
-            if (window.hideAgentNotes) window.hideAgentNotes();
+            // The previous message box goes; the send path shows the new one.
+            if (window.showUserMessage) window.showUserMessage('');
+            // Drop the previous run's video, bot and reply, so the screen box and
+            // the bottom container are live again.
+            if (window.hideRunVideo) window.hideRunVideo();
+            if (window.screenStageOff) window.screenStageOff();
+            if (window.chainBot) window.chainBot.stop();
+            if (window.hideRunReply) window.hideRunReply();
+            // The live turn shows no run or saved recording any more, and has
+            // its screen box again.
+            if (window.chatScroll) {
+                window.chatScroll.setLive('', '');
+                window.chatScroll.setLiveScreen(true);
+            }
+            // A full-size stage (Skills) gives the grid back; skills.js drops its own panel.
+            const bigCenter = document.getElementById('zoneBigCenter');
+            if (bigCenter) bigCenter.classList.remove('active');
             // Clear the previous run's screenshot + tool-response chain (and any
             // web/shell overlay) so a fresh chat / new run starts on a clean canvas
             // — no stale screen or "Tool response" steps bleeding into the next chat.
@@ -235,27 +311,6 @@
                 labelTimer = setTimeout(() => flipToggle.classList.remove('show-label'), 1200);
             });
         }
-
-        // Recording dot — the backend calls this: on=true once a run's recorder
-        // has started (Settings -> Recording), on=false once its videos are
-        // stored. The run id keeps a finished recording from hiding the dot of
-        // a newer one that started during its last second.
-        const recIndicator = (root || document).querySelector('#recIndicator');
-        let recRun = null, recTimer = null;
-        window.recordingIndicator = (on, runId) => {
-            if (!recIndicator) return;
-            if (on) {
-                recRun = runId;
-                clearTimeout(recTimer);
-                recIndicator.classList.remove('leaving');
-                recIndicator.classList.add('on');
-            } else if (runId === recRun) {
-                recRun = null;
-                recIndicator.classList.remove('on');
-                recIndicator.classList.add('leaving');
-                recTimer = setTimeout(() => recIndicator.classList.remove('leaving'), 600);
-            }
-        };
 
         // Enter (without Shift) starts the agent; Shift+Enter inserts a newline.
         chatInput.addEventListener('keydown', (e) => {
@@ -300,6 +355,16 @@
                 window.toolFlow.onFlow('error', JSON.stringify({ text: 'agent interrupted' }));
                 window.toolFlow.onFlow('run_end');
             }
+            // The run's reply, like a chat: a retired run never sends its own.
+            // A full-size stage (Skills) gives the grid back so it shows.
+            if (window.showRunReply) window.showRunReply('Stopped.', 'stopped');
+            // The mode's bot kept on the chat box for this run goes now (on its
+            // way over already, it lands as the run's bot beside the reply).
+            if (window.modeBot) window.modeBot.drop();
+            // Shell use: the terminal says so and its prompt is yours again (cli_stage.js).
+            if (window.cliShellStop) window.cliShellStop();
+            const bigCenter = document.getElementById('zoneBigCenter');
+            if (bigCenter) bigCenter.classList.remove('active');
 
             fetch('/api/stop-agent', { method: 'POST' })
                 .then(res => res.json())

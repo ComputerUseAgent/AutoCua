@@ -1,28 +1,49 @@
 /* =====================================================================
-   Big center container — full-grid overlay (grid-column / grid-row 1 / -1 =
-   the combined size of all four zones + their gaps). Empty shell; notes_stage/
-   mounts Agent Notes into it. Hidden by default; consumers add .active to
-   show (run end, stop-button, saved-chat reopen). Fully transparent —
-   only the injected content shows (the judging-phase grey border is retired).
+   Big center container — the main container, ALWAYS ON: one thin grey frame
+   around the whole grid, with the zones inside it. It spans every cell and
+   reaches out over the grid's padding to the grid's edge, so the zones sit
+   one gap inside its line. It also holds the full-size Skills stage
+   (skills/): it fills the frame and shows only while it is .active.
    ===================================================================== */
+.main-grid {
+    --main-pad: clamp(10px, 1.5vw, 18px);   /* the zones' gap */
+    padding: var(--main-pad);
+}
 .big-center-zone {
     grid-column: 1 / -1;
     grid-row: 1 / -1;
+    margin: calc(-1 * var(--main-pad));      /* out to the grid's edge */
     min-width: 0;
     min-height: 0;
     position: relative;
-    z-index: 5;                 /* above the four zones it covers (mount order varies) */
+    z-index: 5;                 /* above the zones it frames (mount order varies) */
     box-sizing: border-box;
-    border: 1.5px solid transparent;   /* judging border retired; keeps the geometry */
+    border: 1px solid transparent;           /* no line (owner, 2026-10-17: clean); kept 1px so nothing moves */
     border-radius: var(--glass-radius);
+    /* A stage filled edge to edge (Skills is opaque white) would paint over
+       the rounded corners of the line; this keeps it inside. */
+    overflow: hidden;
     background: transparent;
-    pointer-events: none;
+    pointer-events: none;       /* the zones inside it stay live */
+}
+.big-center-zone.active {
+    pointer-events: auto;       /* content scrolls; the zones behind are stale here */
+}
+
+/* The frame always shows; its stage only while .active. */
+.big-center-zone > * {
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.35s ease, visibility 0.35s ease;
 }
-.big-center-zone.active {
+.big-center-zone.active > * {
     opacity: 1;
     visibility: visible;
-    pointer-events: auto;       /* content scrolls; the zones behind are stale here */
+}
+
+/* While the stage fills the frame, the zones' own lines hide: they would run
+   through it. */
+.main-grid:has(.big-center-zone.active) .container-zone:not(.big-center-zone) {
+    border-color: transparent;
+    box-shadow: none;
 }

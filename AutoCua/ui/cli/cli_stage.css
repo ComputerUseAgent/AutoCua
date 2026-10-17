@@ -1,17 +1,19 @@
 /* =====================================================================
    CLI container (step 1) — a single full-width panel that slides UP from the bottom
-   when the agent enters cli_await. It takes the bottom-row slot (spanning bottom-left
-   + bottom-right, full width, same height as the bottom row) and pushes the grid up so
-   the top two zones scroll out of view. EMPTY for now — its content will live in
-   cli/cli_container/ later. Toggled by body.cli-stage (cli/cli_stage.js).
+   when the agent enters cli_await. It takes the bottom-row slot (full width, same
+   height as the bottom row) and pushes the grid up so the zones scroll out of view.
+   EMPTY for now — its content will live in cli/cli_container/ later. Toggled by
+   body.cli-stage (cli/cli_stage.js).
    ===================================================================== */
 
 /* Clip the grid so the zones scrolling up + the panel sliding in stay inside its box. */
-#mainGrid { overflow: hidden; transition: top 0.5s cubic-bezier(0.25, 0.8, 0.25, 1); }
+#mainGrid { overflow: hidden; }
 
-/* Smooth the zones' push-up / restore. */
-#zoneTopLeft, #zoneTopRight, #zoneBottomLeft, #zoneBottomRight {
-    transition: transform 0.55s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.4s ease;
+/* Smooth the chat's push-up / restore (and keep chat_scroll.css's edge fades
+   easing: one transition list per element). */
+#chatScroll {
+    transition: transform 0.55s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.4s ease,
+                --fade-top 0.25s ease, --fade-bottom 0.25s ease;
 }
 
 /* The panel: a full-width container CENTERED vertically (straddling the lower half of
@@ -20,7 +22,7 @@
    cli_await, then it slides up into the center. */
 #cliContainer {
     grid-column: 1 / -1;        /* full width, both columns */
-    grid-row: 1 / 3;            /* span both rows */
+    grid-row: 1 / -1;           /* span every row */
     align-self: stretch;        /* FILL the grid area — a definite height so stacked agents can
                                    flex-fill it and spread down the whole panel (a percentage
                                    height here didn't resolve, collapsing the panel to content). */
@@ -34,8 +36,8 @@
     transition: transform 0.55s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.4s ease;
 }
 
-/* cli_await ON: panel slides up into the bottom row; ALL four zones push up & fade out
-   (so the panel has the cleared space to itself).
+/* cli_await ON: panel slides up into the bottom row; the whole chat (#chatScroll,
+   every turn) pushes up & fades out (so the panel has the cleared space to itself).
    translateY(0), NOT 2%: the old shift pushed the panel's bottom 2% under #mainGrid's
    clip, cutting off the tool-response row. The top gap the 2% gave is padding now, so
    it stays INSIDE the box. And the panel NEVER scrolls — the agent unit sizes itself
@@ -45,10 +47,32 @@ body.cli-stage #cliContainer {
     padding-top: clamp(16px, 2.4vh, 30px);
     overflow: hidden;
 }
-body.cli-stage #zoneTopLeft,
-body.cli-stage #zoneTopRight,
-body.cli-stage #zoneBottomLeft,
-body.cli-stage #zoneBottomRight { transform: translateY(-130%); opacity: 0; }
-/* the four zones are hidden during cli_await, so raise the whole grid (and thus the panel)
-   up into the freed header space — the terminal sits much higher. */
-body.cli-stage #mainGrid { top: clamp(10px, 1.4vw, 22px); }
+body.cli-stage #chatScroll { transform: translateY(-100%); opacity: 0; pointer-events: none; }
+
+/* =====================================================================
+   Shell use: a chat with a terminal box (#cliContainer, the Shell card,
+   cli_container/coder_card.css) filling the frame. Nothing else in the
+   frame (picked in a fresh chat, the CoderUse bot comes in over it first and
+   then stands on the chat box: chat_input/mode_bot.js). The chat box's
+   Auto / Manual pill only says whose the prompt is.
+   ===================================================================== */
+body.cli-shell #cliContainer {
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+    align-self: start;
+    box-sizing: border-box;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+}
+/* a size container: the terminal box opens to a share of it (coder_card.css) */
+body.cli-stage.cli-shell #cliContainer { padding: 0; position: relative; container-type: size; }
+body.cli-shell #cliContainer .cc-agent {
+    position: absolute;
+    inset: 0;
+}
+/* While the CoderUse bot comes in (chat_input/mode_bot.js), the chat waits. */
+body.mode-intro.cli-shell #cliContainer .cc-agent {
+    opacity: 0;
+    transform: scale(0.96);
+}

@@ -1,21 +1,56 @@
 /* =====================================================================
-   Bottom-left container — "Tool response" flow. Caption top-left; below it a
+   Agent container — "Tool response" flow. Caption top-left; below it a
    vertical line down the left with the branch logos on it. The steps are BUILT
-   FROM CONFIG in bottom_left.js; the animation is STATE-DRIVEN: bottom_left.js
+   FROM CONFIG in agent.js; the animation is STATE-DRIVEN: agent.js
    adds .line-in (draw the segment) and .icon-in (reveal the logo) per step, types
    the label, and morphs the loader to a tick on the canvas. No @keyframes timeline.
    ===================================================================== */
-.bottom-left-zone {
-    grid-column: 1;          /* bottom-LEFT cell now (was full-width); bottom-right is a separate container */
-    grid-row: 2;
+/* Its metrics, on the turn: the screen inside it on its right (screen.css) is
+   three tool steps tall (chat_scroll.css --screen-h). */
+.chat-turn {
+    --bl-pad-x: clamp(12px, 1.4vw, 16px);
+    --bl-pad-y: clamp(8px, 1vw, 12px);
+    --bl-cut: 15%;                           /* it stops short of the right side (the user's message side) */
+    --tf-icon: 24px;                         /* logo size — keep == ICON in agent.js */
+    --tf-gap: clamp(10px, 1.9vh, 13px);      /* line-segment length / space between logos */
+    --tr-label-h: calc(clamp(9.5px, 0.95vw, 11.5px) * 1.2);   /* the "Tool response" line */
+}
+.agent-container {
+    grid-column: 1 / -1;     /* the bottom row, the screen inside it on the right */
+    grid-row: 5;             /* main grid: message | gap | - | - | tools */
     min-width: 0;
     min-height: 0;
+    margin-right: var(--bl-cut);
     position: relative;
-    border: 1px solid transparent;           /* no visible box — blends in (the bottom-right cell is borderless too) */
+    border: 1px solid transparent;              /* no line while it holds the tool chain (owner, 2026-10-17); kept 1px so nothing moves */
     border-radius: var(--glass-radius);
-    padding: clamp(8px, 1vw, 12px) clamp(12px, 1.4vw, 16px);
+    padding: var(--bl-pad-y) var(--bl-pad-x);
     box-sizing: border-box;
     overflow: hidden;
+    /* After the screen (screen.css): the tool chain, its logos only, then the
+       tracking progress right beside it (tracking_progress.css; owner,
+       2026-10-17). */
+    display: grid;
+    grid-template-columns: calc(var(--tf-icon) + 4px) 1fr;
+    column-gap: var(--bl-pad-x);
+}
+/* No words in the tool chain: the logos and their line only. */
+.tool-response-label,
+.tool-flow-word {
+    display: none;
+}
+/* While it holds the tool chain: three steps tall (the screen's height), and
+   with a screen its panels start a gap after it (owner, 2026-10-17: the
+   screen on the left, the newest three steps are enough, the box lower). */
+.agent-container:not(.show-reply) {
+    min-height: calc(var(--screen-h) + 2 * var(--bl-pad-y) + 2px);
+}
+.chat-turn:not(.no-screen) > .agent-container:not(.show-reply) {
+    padding-left: calc(2 * var(--bl-pad-x) + var(--screen-w));     /* eases with the turn's --screen-ar */
+}
+.bl-panel {
+    min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
 }
@@ -23,8 +58,8 @@
 /* While the big-center stage covers the grid (run done / stopped / old chat
    reopened) this cell hides completely — the stage is transparent, and a long
    notes list would clash with the tool-response words behind it. Same
-   treatment as the top-left screenshot; returns on the next run. */
-.main-grid:has(.big-center-zone.active) .bottom-left-zone {
+   treatment as the screen container's screenshot; returns on the next run. */
+.main-grid:has(.big-center-zone.active) .agent-container {
     visibility: hidden;
 }
 
@@ -35,6 +70,7 @@
     font-family: Georgia, 'Times New Roman', 'Iowan Old Style', serif;
     font-style: italic;
     font-size: clamp(9.5px, 0.95vw, 11.5px);
+    line-height: 1.2;                     /* == the turn's --tr-label-h */
     font-weight: 400;
     letter-spacing: 0.01em;
     color: rgba(60, 60, 60, 0.8);
@@ -42,7 +78,7 @@
     opacity: 0;
     transition: opacity 0.35s ease;
 }
-.bottom-left-zone.flow-started .tool-response-label { opacity: 1; }
+.agent-container.flow-started .tool-response-label { opacity: 1; }
 .tool-used-count {
     font-weight: 600;
     color: rgba(40, 40, 40, 0.9);
@@ -56,7 +92,6 @@
     position: relative;
     min-height: 0;
     --tf-line: rgba(0, 0, 0, 0.22);
-    --tf-icon: 24px;                      /* logo size — keep == ICON in bottom_left.js */
     --tf-fade: clamp(14px, 2.6vh, 20px);  /* top fade band ≈ one logo + connector */
     opacity: 1;
     transition: opacity 0.45s ease;
@@ -71,7 +106,6 @@
     position: absolute;
     left: 2px;
     top: 2px;
-    --tf-gap: clamp(10px, 1.9vh, 13px);  /* line-segment length / space between logos (fits 5 on short windows) */
     display: flex;
     flex-direction: column;
     padding-top: var(--tf-gap);         /* room for the first segment (label -> logo 1) */
@@ -147,5 +181,5 @@
     to   { background-position: -25% 0; }
 }
 
-/* The web globe + shell terminal moved to the top-left container
-   (container/top_left/globe_shell.{js,css}) — they swap with the screenshot now. */
+/* The web globe + shell terminal moved to the screen container
+   (container/screen/globe_shell.{js,css}) — they swap with the screenshot now. */

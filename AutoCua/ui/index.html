@@ -2,6 +2,8 @@
 <html>
 <head>
     <link rel="stylesheet" href="css/style.css">
+    <!-- Text shimmer (the thinking orb pill's): agent strip, "Preparing video" -->
+    <link rel="stylesheet" href="thinking_orb/shimmer.css">
     <!-- Left bar component styles (markup injected by left_bar/left_bar.js) -->
     <link rel="stylesheet" href="left_bar/left_bar.css">
     <!-- Settings button component (markup injected into the left bar footer) -->
@@ -9,17 +11,24 @@
     <!-- New Chat button component (markup injected into the left bar body) -->
     <link rel="stylesheet" href="chat/chat.css">
     <!-- Main content T-grid zone components (container/ holds all three) -->
-    <link rel="stylesheet" href="container/top_left/top_left.css">
-    <link rel="stylesheet" href="container/top_left/globe_shell.css">
-    <link rel="stylesheet" href="container/top_right/top_right.css">
-    <link rel="stylesheet" href="container/bottom_left/bottom_left.css">
-    <link rel="stylesheet" href="container/bottom_right/bottom_right.css">
-    <!-- Big center — full-grid 5th zone shell (notes_stage mounts into it) -->
+    <link rel="stylesheet" href="container/screen/screen.css">
+    <link rel="stylesheet" href="container/screen/globe_shell.css">
+    <link rel="stylesheet" href="container/screen/run_bot.css">
+    <link rel="stylesheet" href="container/user/user.css">
+    <link rel="stylesheet" href="container/agent/agent.css">
+    <link rel="stylesheet" href="container/agent/tracking_progress.css">
+    <link rel="stylesheet" href="container/agent/run_reply.css">
+    <link rel="stylesheet" href="container/agent/chain_bot.css">
+    <link rel="stylesheet" href="container/chat_scroll/chat_scroll.css">
+    <!-- Big center — the main container, always on: the frame around the
+         zones (Skills mounts into it) -->
     <link rel="stylesheet" href="container/big_center_container/big_center_container.css">
-    <!-- Notes stage — Agent Notes content (lives inside big_center) -->
+    <!-- The .agent-note* rows (Shell use's notes under the terminal) and the
+         .md Markdown styles every rendered reply uses -->
     <link rel="stylesheet" href="notes_stage/notes_stage.css">
     <!-- Chat input (bottom text box) component -->
     <link rel="stylesheet" href="chat_input/chat_input.css">
+    <link rel="stylesheet" href="chat_input/mode_bot.css">
     <!-- Agent mode — pill + floating menu at the composer's bottom-left -->
     <link rel="stylesheet" href="agent_mode/agent_mode.css">
     <!-- Skills — scroll icon just right of the Computer/Mobile use picker -->
@@ -42,8 +51,8 @@
 
     <!-- The agent screenshot (#imageStreamContainer) and the shell terminal
          (#shellTerminalContainer) now live INSIDE the T-grid container components:
-           • container/top_left/  → screenshot       (col 1, row 1)
-           • container/top_right/ → tracking progress (col 2, row 1)
+           • container/screen/  → screenshot       (col 1, row 1)
+           • container/user/ → tracking progress (col 2, row 1)
          They keep the same ids/classes so the script.js engine code is unchanged. -->
 
     <!-- Template cloned by script.js for each CLI subprocess pill -->
@@ -181,10 +190,16 @@
          Settings → Model Selection (two dropdowns). -->
 
     <!-- Right side is intentionally transparent now: the glass card layers were
-         removed so only the text box shows over the cream background. -->
-    <!-- Main content 2x2 grid: screenshot (top-left) | tracking progress (top-right) |
-         tool-response chain (bottom-left) | todo list (bottom-right), plus big_center
-         (full-grid overlay for notes_stage). Zones are injected by their components. -->
+         removed so only the text box shows over the white background. -->
+    <!-- Main content: the chat, inside big_center's frame. #chatScroll scrolls
+         it like a chat (container/chat_scroll): the chat's earlier turns
+         (#chatPast), then the live one (#liveTurn), each top to bottom: the
+         user's message (right), the screen (the run's video once it ends),
+         then one container: tool-response chain (left half) | tracking
+         progress (right half), swapped for the run's reply once it ends. The
+         live turn's zones are injected by their components. (The old
+         bottom-right todo list and the Agent Notes stage are parked in
+         container/dead/.) -->
     <!-- Transient top-center notification (driven by window.showToast) -->
     <div id="appToast" class="app-toast" role="status" aria-live="polite"></div>
 
@@ -196,7 +211,12 @@
         <div class="welcome-hero-title">Made to do...</div>
     </div>
 
-    <div class="main-grid" id="mainGrid"></div>
+    <div class="main-grid" id="mainGrid">
+        <div class="chat-scroll" id="chatScroll">
+            <div class="chat-past" id="chatPast"></div>
+            <div class="chat-turn live" id="liveTurn"></div>
+        </div>
+    </div>
 
     <!-- Chat input (the bottom text box) is a component now — markup lives in
          chat_input/chat_input.html and is injected here by chat_input.js, which
@@ -419,22 +439,6 @@
                     </div>
                 </div>
 
-                <!-- Recording — while on, every Computer use / Web use run is recorded
-                     as two videos (the screen and this window) into
-                     AutoCua_data/recordings (utils/run_recorder.py). Hidden until
-                     /api/recording says this machine can record (OpenCV on macOS,
-                     imageio-ffmpeg on Windows and Linux).
-                     Wired by settings/settings.js. -->
-                <div class="settings-view settings-recording-view" id="settingsRecordingView" style="display:none;">
-                    <div class="settings-section-heading">Recording</div>
-                    <div class="remote-row">
-                        <span class="remote-row-label">Record runs</span>
-                        <button class="settings-switch" id="recordRunsSwitch" type="button" role="switch" aria-checked="false" aria-label="Record runs">
-                            <span class="settings-switch-thumb"></span>
-                        </button>
-                    </div>
-                </div>
-
             </div>
             <div class="settings-footer">
                 <button class="settings-cancel-btn" id="settingsCancelBtn" type="button">Cancel</button>
@@ -500,22 +504,35 @@
     <script src="settings/settings.js"></script>
     <!-- New Chat button component (mounts into the left bar body) -->
     <script src="chat/chat.js"></script>
-    <!-- Main content T-grid zone components (mount into #mainGrid) -->
-    <script src="container/top_left/top_left.js"></script>
-    <!-- Top-left screen overlays: web globe + shell terminal swap over the screenshot -->
-    <script src="container/top_left/globe_shell.js"></script>
-    <script src="container/top_right/top_right.js"></script>
-    <script src="container/bottom_left/bottom_left.js"></script>
-    <script src="container/bottom_right/bottom_right.js"></script>
-    <!-- Big center: injects the full-grid 5th zone into #mainGrid -->
+    <!-- The live turn's zone components (mount into #liveTurn) -->
+    <script src="container/screen/screen.js"></script>
+    <!-- Screen container overlays: web globe + shell terminal swap over the screenshot -->
+    <script src="container/screen/globe_shell.js"></script>
+    <!-- The run's screen stage: the moving background behind its screenshots -->
+    <script src="container/screen/run_bot.js"></script>
+    <script src="container/user/user.js"></script>
+    <script src="container/agent/agent.js"></script>
+    <!-- Tracking progress: the scratchpad stream in the bottom container's right half -->
+    <script src="container/agent/tracking_progress.js"></script>
+    <!-- Run reply: the done message in the bottom container once a run ends -->
+    <script src="container/agent/run_reply.js"></script>
+    <!-- The run's bot: comes in big in the bottom container, then stands at its left -->
+    <script src="container/agent/chain_bot.js"></script>
+    <!-- The small bots (the run's, by the done message, Shell use's answers) blink like the bot pages -->
+    <script src="container/agent/bot_blink.js"></script>
+    <!-- The chat's scroll: earlier turns, the edge fades, the glide to a new turn -->
+    <script src="container/chat_scroll/chat_scroll.js"></script>
+    <!-- Big center: injects the main container (the frame) into #mainGrid -->
     <script src="container/big_center_container/big_center_container.js"></script>
-    <!-- Notes stage: mounts Agent Notes into #zoneBigCenter -->
-    <script src="notes_stage/notes_stage.js"></script>
+    <!-- Thinking orb engine (window.ThinkingOrb): the agent strip's orb -->
+    <script src="thinking_orb/thinking_orb.js"></script>
     <!-- Chat input (bottom text box): injects into #chatWrapper, fires 'chatinput:ready' -->
     <script src="chat_input/chat_input.js"></script>
+    <!-- The mode's bot: comes in big when a mode is picked, stays on the chat box in a fresh chat -->
+    <script src="chat_input/mode_bot.js"></script>
     <!-- Agent mode: injects into .input-area-wrapper on 'chatinput:ready' (design-only for now) -->
     <script src="agent_mode/agent_mode.js"></script>
-    <!-- Skills: scroll icon (into .agent-mode-wrap) + a stage inside #zoneBigCenter, one-at-a-time with Agent Notes (design-only for now) -->
+    <!-- Skills: scroll icon (into .agent-mode-wrap) + a stage inside #zoneBigCenter (design-only for now) -->
     <script src="skills/skills.js"></script>
     <!-- Parked: the proven iOS connect logic (window.iosSession) — attached once the design is final -->
     <script src="agent_mode/ios_session.js"></script>

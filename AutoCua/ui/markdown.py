@@ -6,10 +6,10 @@ HTML instead of broken plain text. Real line breaks for `\n`, real `<a>` for
 links, real lists / headings / code blocks instead of literal `-`, `#` and
 backticks.
 
-Both Agent-Notes paths render through here, so live and reopened chats look
-identical:
-  • live run end  — service.send_agent_notes() -> window.showAgentNotes
-  • reopened chat — /api/chats/<id> exchanges  -> window.showAgentHistory
+The run's reply renders through here on both paths, so live and reopened
+chats look identical:
+  • live run end  — service.py run end         -> window.showRunReply
+  • reopened chat — /api/chats/<id> exchanges  -> window.showRunReply
                                               -> window.cliShellHistory (shell)
 
 Safety. The input is LLM output and the frontend assigns it with innerHTML, so

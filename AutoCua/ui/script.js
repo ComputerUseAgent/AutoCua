@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // Splash screen: intro_animation.html handles macOS vs Windows rendering
-    // internally and posts 'splashDone' back to us when finished.
+    // Splash screen: intro_animation.html plays the intro and posts
+    // 'splashDone' back to us when finished.
+    let pendingToast = null;   // a toast asked for under the splash (showToast)
     const splash = document.getElementById('splashOverlay');
     if (splash) {
         const splashFrame = document.getElementById('splashFrame');
@@ -11,7 +12,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (e.data === 'splashDone') {
                 splash.style.pointerEvents = 'none';
                 splash.classList.add('fade-out');
-                splash.addEventListener('transitionend', () => splash.remove());
+                splash.addEventListener('transitionend', () => {
+                    splash.remove();
+                    if (pendingToast) {
+                        const [message, ms] = pendingToast;
+                        pendingToast = null;
+                        window.showToast(message, ms);
+                    }
+                });
             }
         });
     }
@@ -52,10 +60,16 @@ document.addEventListener('DOMContentLoaded', () => {
     window.getModelSelection = () => ({ provider: selectedProvider, model: selectedModel });
 
     // Small transient top-center notification (e.g. "Please set the provider in Settings").
+    // Under the splash it would expire unseen, so the latest one waits until
+    // the splash is gone (see the splash code at the top).
     let _toastTimer = null;
     window.showToast = (message, ms = 4000) => {
         const el = document.getElementById('appToast');
         if (!el || !message) return;
+        if (document.getElementById('splashOverlay')) {
+            pendingToast = [message, ms];
+            return;
+        }
         el.textContent = message;
         el.classList.add('active');
         clearTimeout(_toastTimer);
@@ -820,12 +834,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Function to update the image stream (called from Python)
     window.updateAgentImage = (base64Image) => {
-        const imgElement = document.querySelector('.stream-image');
+        // The live turn's screen: the chat's earlier turns have one too.
+        const imgElement = document.querySelector('#screenContainer .stream-image');
         if (imgElement && base64Image) {
-            // Tall (phone) frames fit by height via .portrait (object-fit:
-            // contain); landscape desktop frames keep the cover crop.
+            // A Web use or iOS turn has no screen once its run is over (it is not
+            // recorded, run_reply.js): a late frame does not bring it back, also
+            // one that lands after Stop showed the reply but before the stop
+            // request has answered.
+            const live = document.getElementById('liveTurn');
+            const input = document.querySelector('.chat-input');
+            const reply = document.querySelector('#agentContainer.show-reply');
+            if (live && (live.dataset.bot === 'web' || live.dataset.bot === 'mobile')
+                    && (reply || (input && !input.classList.contains('agent-active')))) return;
+            // ...and its box, if a reopened turn had hidden it (chat_scroll.js).
+            if (window.chatScroll) window.chatScroll.setLiveScreen(true);
+            // The screen box is only as wide as the frame: its width follows
+            // the frame's aspect ratio (--screen-ar on its turn, so the tool
+            // box it sits in makes room for it: chat_scroll.css, screen.css).
             imgElement.onload = () => {
-                imgElement.classList.toggle('portrait', imgElement.naturalHeight > imgElement.naturalWidth);
+                const zone = document.getElementById('screenContainer');
+                if (zone && imgElement.naturalHeight) {
+                    (zone.closest('.chat-turn') || zone).style.setProperty('--screen-ar', String(imgElement.naturalWidth / imgElement.naturalHeight));
+                }
             };
             // This element receives two different formats: the plain preview is
             // JPEG, but in DEBUG mode it gets the annotated PNG instead. Sniff the
@@ -840,7 +870,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // resetting the main view between chats/runs so a new chat never shows the
     // previous run's screen.
     window.clearAgentImage = () => {
-        const imgElement = document.querySelector('.stream-image');
+        const imgElement = document.querySelector('#screenContainer .stream-image');
         if (imgElement) {
             imgElement.removeAttribute('src');
             imgElement.style.display = 'none';
@@ -848,10 +878,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     // Scratchpad/milestone streaming — the backend calls this once per entry
-    // (~every 1s). It feeds the LIVE "tracking progress" stream in the top-right
-    // cell (container/top_right), which types each entry on a circle-bullet line
-    // and fades away when the run ends. (The old #milestoneStream node was
-    // orphaned/hidden; this is the visible home now.)
+    // (~every 1s). It feeds the LIVE "tracking progress" stream in the bottom
+    // container's right half (container/agent/tracking_progress.js), which
+    // types each entry on a circle-bullet line and fades away when the run ends.
+    // (The old #milestoneStream node was orphaned/hidden; this is the visible
+    // home now.)
     window.streamMilestone = (text) => {
         if (window.trackingProgress) window.trackingProgress.push(text);
     };
@@ -1019,24 +1050,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window.agentComplete();
     };
 
-    // ============================================
-    // BOTTOM-RIGHT WORK STATE — todo only. (The old web globe / shell states were
-    // removed; the globe + shell now live in container/top_left/globe_shell.*.)
-    // setWorkState keeps the todo list as the single state of this cell; it's still
-    // used on run reset.
-    // ============================================
-    const setWorkState = (state) => {
-        const map = { todo: 'todoState' };
-        Object.keys(map).forEach((k) => {
-            const el = document.getElementById(map[k]);
-            if (el) el.classList.toggle('is-active', k === state);
-        });
-    };
-    // Exposed so the chat-input wiring (chat_input/chat_input.js) can reset this
-    // cell to 'todo' when a run starts.
-    window.setWorkState = setWorkState;
-
-    // Web globe + shell terminal now live in container/top_left/globe_shell.js —
+    // Web globe + shell terminal now live in container/screen/globe_shell.js —
     // they swap in over the screenshot while their tool runs. The backend hooks
     // window.webSearchStart/End and window.shellStart/Result/End are defined there.
 
@@ -1067,7 +1081,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (telegramTaskOrb) telegramOrbPost('pcbtn:hide');
     };
 
-    // (shell terminal moved to container/top_left/globe_shell.js — swaps over the screenshot)
+    // (shell terminal moved to container/screen/globe_shell.js — swaps over the screenshot)
 
     // =====================================================================
     // CLI streaming UI — pills for parallel CLI subprocesses during cli_await.
