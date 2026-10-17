@@ -1,0 +1,66 @@
+/* =====================================================================
+   The mode's bot (mode_bot.js): Computer use's, Web use's or Mobile use's,
+   standing on top of the chat box in its middle in a fresh chat, like Shell
+   use's bot (cli/shell_bot.css): the same size and place, a small item of
+   the chat box's column, just above the "Agent running..." strip. While it
+   comes in it is held big in the middle of the frame by a transform (the
+   script), and the welcome words wait. When its chat's run starts it flies
+   over to the run's bot's place (container/agent/chain_bot.js). Only
+   transform / opacity animate (and the entrance's blur).
+   ===================================================================== */
+#modeBot {
+    --mb-h: clamp(64px, 8vw, 96px);          /* == Shell use's bot */
+    position: relative;
+    z-index: 1;
+    flex: 0 0 auto;
+    align-self: center;
+    height: var(--mb-h);
+    width: calc(var(--mb-h) * 884 / 1224);   /* the bot images' shape */
+    /* Its waist, the sweater's hem (--mb-hem rows under it, of the images'
+       1224: only the hands below), right on the box's top edge (the idle
+       strip's 2px between them taken back too). */
+    margin-bottom: calc(-1 * (var(--mb-h) * var(--mb-hem, 65) / 1224 + 2px));
+    pointer-events: none;
+    display: none;
+}
+#modeBot.on { display: block; }
+/* Never in Shell use (its own bot stands there), nor over Skills. */
+body.cli-shell #modeBot { display: none; }
+body.skills-open #modeBot { visibility: hidden; }
+
+/* The bot in its place: its moves are transforms on it. */
+.mb-bot {
+    position: absolute;
+    inset: 0;
+    transform-origin: 0 100%;     /* the corner it moves by */
+}
+.mb-bot-body {
+    position: absolute;
+    inset: 0;
+    transform-origin: 50% 100%;
+}
+.mb-bot img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    -webkit-user-select: none;
+    user-select: none;
+}
+/* The eyes open and blink around their own line (the bots' eye line, 24.7%
+   from the top); once on the chat box bot_blink.js blinks them. */
+.mb-eyes {
+    opacity: 0;
+    transform-origin: 50% 24.7%;
+}
+.mb-bot.home .mb-eyes { opacity: 1; }
+
+/* While it comes in big over the frame, the welcome words wait. */
+body.mode-intro #welcomeHero { opacity: 0; }
+/* While it is over the frame (coming in big, gliding down, flying over to the
+   run's bot's place, or fading from there: body.mode-front, mode_bot.js) the
+   chat box's layer is in front of the frame (z 13), so it is in front of the
+   chat's turns. Not over Skills. :where() keeps this weaker than the box's
+   own lifts to 40. */
+body:where(.mode-front:not(.skills-open)) .chat-container-wrapper { z-index: 14; }

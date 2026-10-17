@@ -28,6 +28,7 @@
     <link rel="stylesheet" href="notes_stage/notes_stage.css">
     <!-- Chat input (bottom text box) component -->
     <link rel="stylesheet" href="chat_input/chat_input.css">
+    <link rel="stylesheet" href="chat_input/mode_bot.css">
     <!-- Agent mode — pill + floating menu at the composer's bottom-left -->
     <link rel="stylesheet" href="agent_mode/agent_mode.css">
     <!-- Skills — scroll icon just right of the Computer/Mobile use picker -->
@@ -529,6 +530,8 @@
     <script src="thinking_orb/thinking_orb.js"></script>
     <!-- Chat input (bottom text box): injects into #chatWrapper, fires 'chatinput:ready' -->
     <script src="chat_input/chat_input.js"></script>
+    <!-- The mode's bot: comes in big when a mode is picked, stays on the chat box in a fresh chat -->
+    <script src="chat_input/mode_bot.js"></script>
     <!-- Agent mode: injects into .input-area-wrapper on 'chatinput:ready' (design-only for now) -->
     <script src="agent_mode/agent_mode.js"></script>
     <!-- Skills: scroll icon (into .agent-mode-wrap) + a stage inside #zoneBigCenter (design-only for now) -->

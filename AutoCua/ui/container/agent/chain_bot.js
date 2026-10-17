@@ -10,9 +10,12 @@
 // the reply's bot (run_reply.css), so when the run ends it stays and its
 // reply comes in beside it. It blinks now and then like the bot pages
 // (bot_blink.js). The container makes room on its left from the moment the
-// task is sent (reserve), so nothing jumps.
+// task is sent (reserve), so nothing jumps. In a fresh chat this bot already
+// stands on the chat box (chat_input/mode_bot.js): then it comes over to its
+// place from there itself, no entrance.
 //   window.chainBot.reserve()     a run's task was sent: room on the left
 //   window.chainBot.enter(kind)   the run started: 'computer', 'web', 'mobile'
+//   window.chainBot.toReply()     the run ended: to its place beside the reply
 //   window.chainBot.stop()        back to the plain container (resetChatUi)
 // =====================================================================
 (function () {
@@ -28,7 +31,8 @@
     var EASE_EXPO = 'cubic-bezier(0.87, 0, 0.13, 1)';    // and "inOutExpo"
     var EASE_OUT = 'cubic-bezier(0.33, 1, 0.68, 1)';     // and "outCubic"
 
-    var anims = [], timer = null;
+    var anims = [], timer = null, flight = null;
+    var hand = 0;                 // each run's own: a stopped run's bot never takes over
 
     function parts() {
         var turn = document.getElementById('liveTurn');
@@ -77,16 +81,17 @@
     }
 
     // From the middle out to the container's left by transform alone: take
-    // the docked layout, then play the move from where the bot was into it.
-    function dock() {
+    // the docked layout, then play the move from where the bot was (from, or
+    // where it is now) into it.
+    function dock(from) {
         var p = parts();
         if (!p) return;
         if (reduced()) return docked(p);
-        var from = p.bot.getBoundingClientRect();
+        from = from || p.bot.getBoundingClientRect();
         p.bot.classList.add('docked');
         var to = p.bot.getBoundingClientRect();
         if (!from.height || !to.height) return docked(p);
-        var move = p.bot.animate([
+        var move = flight = p.bot.animate([
             { transform: 'translate(' + (from.left - to.left) + 'px, ' + (from.top - to.top) + 'px) scale(' + (from.height / to.height) + ')' },
             { transform: 'none' }
         ], { duration: DOCK, easing: EASE_EXPO });
@@ -102,7 +107,11 @@
         enter: function (kind) {
             var p = parts();
             if (!p) return;
+            // The chat box's bot is on its way here already (a second start
+            // answer, a stopped run's late one): it lands as this run's bot.
+            if (p.bot.classList.contains('cb-wait')) return;
             clear();
+            var mine = ++hand;
             var img = BOTS[kind] || BOTS.computer;
             var files = [img, img + '-eyes', img + '-shine'];
             var imgs = p.bot.querySelectorAll('img');
@@ -112,6 +121,23 @@
             }
             p.eyes.style.removeProperty('transform');
             p.bot.classList.remove('docked');
+            // It stands on the chat box already: it comes over itself. Its
+            // place is laid out now, unseen until it lands there; then it is
+            // here (and goes on from there if the place moved meanwhile).
+            if (window.modeBot && window.modeBot.ready(kind)) {
+                p.turn.classList.add('cb-room', 'cb-on');
+                p.bot.classList.add('docked', 'cb-wait');
+                window.modeBot.flyTo(p.bot, function (at) {
+                    if (mine !== hand) return;
+                    p.bot.classList.remove('cb-wait');
+                    var now = p.bot.getBoundingClientRect();
+                    if (Math.abs(now.left - at.left) > 2 || Math.abs(now.top - at.top) > 2) {
+                        if (flight) flight.cancel();
+                        dock(at);
+                    }
+                });
+                return;
+            }
             p.turn.classList.add('cb-room', 'cb-on', 'cb-intro');
             if (reduced()) return docked(p);
             // The splash's hero: fades in, grows from 0.85x out of a blur, wakes.
@@ -121,14 +147,40 @@
             anims.push(p.body.animate([{ filter: 'blur(6px)' }, { filter: 'blur(0px)' }],
                                       { duration: GROW, easing: EASE_SETTLE, fill: 'both' }));
             anims.push(wake(p.eyes));
-            timer = setTimeout(dock, DOCK_AT);
+            timer = setTimeout(function () { dock(); }, DOCK_AT);
+        },
+        // The run ended (run_reply.js): called before its reply comes in (and
+        // a Web use or iOS turn's screen box goes, so the container moves up),
+        // the function it gives back after (with how far the chat is about to
+        // glide up to the reply's end). The bot goes from where it was to its
+        // place beside the reply, out of the middle at once if it was still
+        // coming in: one bot, nothing jumps.
+        toReply: function () {
+            var turn = document.getElementById('liveTurn');
+            if (!turn || !turn.classList.contains('cb-on')) return null;
+            var p = parts(), from = p.bot.getBoundingClientRect();
+            return function (by) {
+                var now = p.bot.getBoundingClientRect();
+                // The chat box's bot is still on its way here: on to where this
+                // place will be once the chat has glided up by `by` to the reply.
+                if (p.bot.classList.contains('cb-wait')) {
+                    if (window.modeBot) window.modeBot.retarget(now, by || 0);
+                    return;
+                }
+                if (p.bot.classList.contains('docked') && Math.abs(now.top - from.top) < 0.5
+                    && Math.abs(now.left - from.left) < 0.5) return;      // it stays put
+                clearTimeout(timer);
+                if (flight) flight.cancel();
+                dock(from);
+            };
         },
         stop: function () {
             var p = parts();
             clear();
+            hand++;
             if (!p) return;
             p.turn.classList.remove('cb-room', 'cb-on', 'cb-intro');
-            p.bot.classList.remove('docked');
+            p.bot.classList.remove('docked', 'cb-wait');
             p.eyes.style.removeProperty('transform');
         }
     };

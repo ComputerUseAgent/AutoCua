@@ -20,6 +20,7 @@
         var z = zone();
         var el = z && z.querySelector('.reply-panel');
         if (!el) return;
+        var bot = window.chainBot ? window.chainBot.toReply() : null;   // the run's bot goes beside it
         el.innerHTML = String(html == null ? '' : html);
         el.classList.toggle('is-ended', status !== 'success');
         z.classList.add('show-reply');
@@ -30,6 +31,11 @@
             if (window.screenStageOff) window.screenStageOff();
             if (window.chatScroll) window.chatScroll.setLiveScreen(false);
         }
+        // The chat glides down to its last line (toEnd): by this much. A run's
+        // bot still flying over to its place aims where that place will be.
+        var sc = document.getElementById('chatScroll');
+        var by = (!still && sc) ? Math.max(0, sc.scrollHeight - sc.clientHeight - sc.scrollTop) : 0;
+        if (bot) bot(by);
         if (!still && window.chatScroll) window.chatScroll.toEnd();   // its last line in view
     };
 

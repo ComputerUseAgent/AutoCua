@@ -91,8 +91,11 @@
             // mode 'web' to run_pkg 'web' (the browser agent) and /api/start-agent
             // below is the right endpoint for it, same as Computer and Mobile.
 
-            // The moment a task is sent, drop the empty-state hero.
+            // The moment a task is sent, drop the empty-state hero, and the mode's
+            // bot from the chat box: unless it is this run's bot, then it goes over
+            // to the bottom container itself once the run starts (chain_bot.js).
             if (window.hideWelcomeHero) window.hideWelcomeHero();
+            if (window.modeBot && !window.modeBot.ready(runBot)) window.modeBot.hide();
             // ...and reveal the memory ring (stays shown until a new chat).
             if (window.showMemoryBar) window.showMemoryBar();
 
@@ -206,6 +209,10 @@
                 agentText.textContent = 'Failed to start agent';
                 if (agentMode === 'shell' && window.cliShellNote) window.cliShellNote('Failed to start agent');
                 restoreIdle();
+            })
+            .finally(() => {
+                // Not on its way over (the run never started): the mode's bot goes.
+                if (window.modeBot) window.modeBot.drop();
             });
         }
 
@@ -349,6 +356,9 @@
             // The run's reply, like a chat: a retired run never sends its own.
             // A full-size stage (Skills) gives the grid back so it shows.
             if (window.showRunReply) window.showRunReply('Stopped.', 'stopped');
+            // The mode's bot kept on the chat box for this run goes now (on its
+            // way over already, it lands as the run's bot beside the reply).
+            if (window.modeBot) window.modeBot.drop();
             // Shell use: the terminal says so and its prompt is yours again (cli_stage.js).
             if (window.cliShellStop) window.cliShellStop();
             const bigCenter = document.getElementById('zoneBigCenter');

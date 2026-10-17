@@ -1,20 +1,22 @@
 // =====================================================================
 // The small bots' blink: the bot beside the AI's final message
-// (run_reply.css; Shell use's answers, coder_card.css) and the run's bot
-// beside the bottom container while it runs (chain_bot.css). They blink the
+// (run_reply.css; Shell use's answers, coder_card.css), the run's bot
+// beside the bottom container while it runs (chain_bot.css) and the mode's
+// bot on a fresh chat's box (chat_input/mode_bot.css). They blink the
 // way the owner's bot pages do (logo/*.html, autocua-helmet.html): a 0.78 s
 // blink (their data-blink) that closes on a smootherstep, rests shut for a
 // beat and opens; the next one 3 to 5.4 s later, and about one time in four
 // a second blink 0.2 s after it. Each bot on its own time. A reply bot's eyes are a layer of its
 // box's ::before: their height goes on the box as --reply-eyes. The run's
-// bot's eyes are an image: they squeeze by transform. Between blinks
-// nothing changes.
+// and the mode's bots' eyes are an image: they squeeze by transform. Between blinks
+// nothing changes. The mode's bot starts none while it flies over to be the
+// run's bot (a blink on then ends before it lands; no second one).
 // =====================================================================
 (function () {
     'use strict';
 
     var SEL = '.agent-container.show-reply, .coder-card.has-head .cc-out-text .cc-line.cc-answer, ' +
-              '.chat-turn.live.cb-on > .chain-bot.docked .eyes';
+              '.chat-turn.live.cb-on > .chain-bot.docked .eyes, #modeBot.on .mb-bot.home:not(.flying) .mb-eyes';
     var BLINK = 0.78;                 // s, the pages' data-blink
     var bots = new WeakMap();         // box or eyes -> { next, at, dbl, seen }
     var blinking = [];                // ones mid-blink (or waiting for a second one)
@@ -56,7 +58,7 @@
                 return true;
             }
             rest(el);
-            if (b.dbl) { b.dbl = false; b.at = t + 0.20; return true; }    // the second blink
+            if (b.dbl && el.matches(SEL)) { b.dbl = false; b.at = t + 0.20; return true; }    // the second blink
             b.at = -1;
             b.next = t + rnd(3.0, 5.4);
             b.dbl = Math.random() < 0.28;

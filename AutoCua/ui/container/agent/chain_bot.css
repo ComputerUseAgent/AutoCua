@@ -24,6 +24,8 @@
     pointer-events: none;
 }
 .chat-turn.live.cb-on > .chain-bot { display: block; }
+/* Unseen in its place while the chat box's bot comes over onto it (mode_bot.js). */
+.chat-turn.live > .chain-bot.cb-wait { visibility: hidden; }
 /* Docked: outside the container on its left, its top on the container's top. */
 .chat-turn.live > .chain-bot.docked {
     justify-self: start;
