@@ -37,7 +37,7 @@ const readline = require('node:readline');
 // backend runs from ROOT, so `-m AutoCua...` loads this same copy of AutoCua.
 const PACKAGE = path.resolve(__dirname, '..');
 const ROOT = path.dirname(PACKAGE);
-const BACKGROUND = '#FDFCFA';   // TITLEBAR_COLOR in AutoCua/ui/service.py
+const BACKGROUND = '#FFFFFF';   // TITLEBAR_COLOR in AutoCua/ui/service.py
 const LOGO = path.join(PACKAGE, 'logo', 'logo.png');
 // Windows and Linux: the strip that stands in for the title bar, and the
 // colour of the window's buttons drawn on it (macOS sizes its strip to the
@@ -264,7 +264,7 @@ async function createWindow() {
     show: false,
     acceptFirstMouse: true,   // macOS: the click that focuses the window lands too
     // No system bar: it can't take the app's colour (on Windows it follows
-    // dark mode, black above the off-white app). titleBar below stands in
+    // dark mode, black above the white app). titleBar below stands in
     // for it. On macOS the traffic lights stay where they were; on Windows
     // and Linux the window's own buttons are drawn on the strip, in its
     // colour, and the window takes the logo (the taskbar showed Electron's).
@@ -345,7 +345,8 @@ async function createWindow() {
 function smokeCheck() {
   if (smokeCheck.started) return;
   smokeCheck.started = true;
-  // The splash hands off at 4 s and fades out over 0.9 s.
+  // The splash hands off about 5.9 s in (up to 7.4 s if its images are slow
+  // to decode) and fades out over 0.9 s.
   setTimeout(() => {
     handle({ type: 'js', code: "document.title = 'AutoCua (pushed script ran)'" });
     setTimeout(async () => {
@@ -369,7 +370,7 @@ function smokeCheck() {
       }
       app.quit();
     }, 500);
-  }, 5500);
+  }, 8500);
 }
 
 if (!app.requestSingleInstanceLock()) {

@@ -1,26 +1,19 @@
 // =====================================================================
-// Top-left SCREEN OVERLAY — the shell terminal SWAPS IN over the live screenshot
-// while a shell command runs (the screenshot fades out, the terminal fades in; on
-// finish it swaps back). Self-contained here. Driven by the backend's existing
-// pywebview hooks:
+// Shell terminal — while a shell command (or an AppleScript) runs, its lines take
+// the tool chain's place in the agent container; when it is done the chain is
+// back. The screen keeps the screenshot. Self-contained here. Driven by the
+// backend's existing pywebview hooks:
 //     window.shellStart() / window.shellResult() / window.shellEnd()  — shell terminal
 //     window.webSearchStart() / window.webSearchEnd()                 — no-ops, see below
 // A Three.js earth used to swap in here for web searches; it was removed — a web
 // search now just leaves the live screenshot up. The two hooks stay defined (and
 // do nothing) because service.py / script.js / chat_input.js still call them.
-// DOM lives in container/top_left/top_left.html (#shellPanel/#shellTerminalContainer);
-// globe_shell.css cross-fades it with the screenshot. Elements are resolved lazily
-// (top_left.html is fetch-injected), so this file's load order doesn't matter.
+// DOM lives in container/agent/agent.html (#shellPanel/#shellTerminalContainer);
+// globe_shell.css lays it over the chain. Elements are resolved lazily
+// (agent.html is fetch-injected), so this file's load order doesn't matter.
 // =====================================================================
 (function () {
     'use strict';
-
-    // Fade the live screenshot out while the shell overlay is showing, and back
-    // in when it's gone (.overlay-active on the top-left zone).
-    const fadeScreenshot = (hide) => {
-        const z = document.getElementById('zoneTopLeft');
-        if (z) z.classList.toggle('overlay-active', hide);
-    };
 
     /* ============================================================
        WEB SEARCH  (no visual — the screenshot stays up)
@@ -35,7 +28,7 @@
        SHELL TERMINAL  (coder-card style — transparent `>` cmd + dot loader,
        then an L-connector down to the output that comes back)
        ============================================================ */
-    // Resolved lazily (top_left.html is fetch-injected) — re-query on each event.
+    // Resolved lazily (agent.html is fetch-injected) — re-query on each event.
     let shellTerminalContainer = null;
     let shellCmdText = null;
     let shellCmdLine = null;
@@ -110,7 +103,22 @@
         if (shellProgress) { shellProgress.classList.remove('show'); }
     };
 
-    // Swap the shell terminal in/out over the screenshot (#shellPanel overlay).
+    // A command and output taller than the panel: their end shows and the top
+    // fades (.sh-over, globe_shell.css), like a terminal that has scrolled.
+    let overRO = null;
+    const watchOverflow = () => {
+        const term = document.getElementById('shellTerminalContainer');
+        const body = term && term.querySelector('.sh-body');
+        const lines = body && body.querySelector('.sh-lines');
+        if (overRO || !lines || !('ResizeObserver' in window)) return;
+        overRO = new ResizeObserver(() => {
+            term.classList.toggle('sh-over', lines.offsetHeight > body.clientHeight + 1);
+        });
+        overRO.observe(lines);
+        overRO.observe(body);
+    };
+
+    // Fade the terminal in over the tool chain, and out again (#shellPanel).
     const setShellPanel = (on) => {
         const p = document.getElementById('shellPanel');
         if (p) p.classList.toggle('is-active', on);
@@ -119,8 +127,8 @@
     window.shellStart = (command, label) => {
         resetShellTerminal();
         if (!shellTerminalContainer) return;
+        watchOverflow();
 
-        fadeScreenshot(true);
         setShellPanel(true);
 
         // Small coder spinner sits at the HEAD (right after `>`) the whole time the
@@ -165,7 +173,6 @@
     window.shellEnd = () => {
         resolveShellEls();
         setShellPanel(false);
-        fadeScreenshot(false);
         setTimeout(resetShellTerminal, 700);
     };
 })();

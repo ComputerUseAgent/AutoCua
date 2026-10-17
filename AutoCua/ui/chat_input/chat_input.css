@@ -1,10 +1,11 @@
 /* =====================================================================
    Chat input component — the bottom text box: the agent-start input bar
    (textarea + the embedded stop-agent orb), the welcome/milestone output
-   area, the "Agent activated:" strip, and the CLI streaming pills that take
-   over the box during cli_await. Markup lives in chat_input.html (injected
-   into #chatWrapper by chat_input.js); the agent-lifecycle wiring lives in
-   chat_input.js (wireChatInput, run right after injection).
+   area, the agent strip ("Agent running…" and the agent's live text), and
+   the CLI streaming pills that take over the box during cli_await. Markup
+   lives in chat_input.html (injected into #chatWrapper by chat_input.js);
+   the agent-lifecycle wiring lives in chat_input.js (wireChatInput, run
+   right after injection).
 
    These rules are the component's own styling — add styling for NEW
    input-bar pieces here. A few shared things they lean on stay GLOBAL in
@@ -36,7 +37,8 @@
     width: clamp(600px, 65vw, 1000px);
     transform: translateX(-50%);
 
-    bottom: clamp(30px, 4vw, 50px);
+    /* How far the text box's bottom edge sits above the window's bottom. */
+    bottom: clamp(20px, 2.7vw, 36px);
     top: clamp(30px, 4vw, 60px);
     border-radius: var(--glass-radius);
     z-index: 12;
@@ -45,8 +47,9 @@
     flex-direction: column;
     justify-content: flex-end;
     padding: clamp(16px, 2vw, 24px);
+    padding-bottom: 0;          /* nothing under the text box, so bottom is its gap */
     /* Fully transparent now — no glass card, no shadow. Only the text box (which
-       carries its own background) stays visible over the cream background. */
+       carries its own background) stays visible over the white background. */
     background: transparent;
     box-shadow: none;
 
@@ -54,6 +57,13 @@
                 right 0.5s cubic-bezier(0.25, 0.8, 0.25, 1),
                 width 0.5s cubic-bezier(0.25, 0.8, 0.25, 1),
                 transform 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* While the left bar collapses or expands, --left-bar-w itself animates
+   (css/style.css): the box follows it frame by frame instead of easing
+   after it a second time. */
+body.left-bar-animating .chat-container-wrapper {
+    transition: none;
 }
 
 .chat-container-wrapper.split-layout {
@@ -93,10 +103,10 @@
     padding-bottom: calc(var(--pad-y) + var(--orb) + var(--tools-gap));
     /* Opaque fill (no backdrop-filter: it flickers in WebView2/Chromium while
        the top-left globe/shell animations run — same reasoning as the old .chat-input).
-       A light warm cream: the old page cream #F9F1EC lifted ~65% toward white,
-       keeping its warm R>G>B ordering. Left as it was when the page moved to
-       the splash's off-white #FDFCFA. */
-    background: rgba(253, 250, 248, 0.96);
+       White, the page colour: the thin grey line (the zones' line) marks its
+       edge, with its soft shadow and glow. */
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(0, 0, 0, 0.08);
     border-radius: clamp(16px, 1.8vw, 22px);
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
     overflow: visible;
@@ -282,8 +292,12 @@
     -ms-overflow-style: none; /* IE/Edge */
 
     /* Smooth collapse on send: max-height shrinks a multi-line draft back to one line,
-       and padding opens up to clear the toolbar as it moves up beside the text. */
+       and padding opens up to clear the toolbar as it moves up beside the text. The
+       min-height too (one line idle, the orb's height running): left to jump, the box
+       first grew ~6px up before it closed down, a jiggle on every send. All on the
+       box's own 0.34s curve (padding-bottom below), so it only ever moves one way. */
     transition: max-height 0.34s cubic-bezier(0.25, 0.8, 0.25, 1),
+                min-height 0.34s cubic-bezier(0.25, 0.8, 0.25, 1),
                 padding 0.34s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
@@ -367,6 +381,34 @@
     opacity: 0;
     pointer-events: none;
 }
+/* Shell use on Manual (the Auto / Manual pill, mirrored by agent_mode.js as
+   data-shell-input): you type in the terminal, so the box hides its text and says
+   so, and the send orb rests. CSS only: the placeholder and disabled have other
+   writers. visibility keeps the row, so nothing jumps; a draft waits for Auto. */
+.input-area-wrapper[data-shell-input="manual"] .chat-input {
+    visibility: hidden;
+    max-height: clamp(30px, 2.9vw, 36px);
+}
+.input-area-wrapper[data-shell-input="manual"]::before {
+    content: "Type your commands in the terminal";
+    position: absolute;
+    top: calc(var(--pad-y) + 4px);
+    left: calc(var(--pad-x) + 4px);
+    right: var(--pad-x);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(13px, 1.3vw, 15px);
+    font-weight: 500;
+    line-height: 1.4;
+    color: rgba(90, 90, 90, 0.6);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+.input-area-wrapper[data-shell-input="manual"] .input-orb-slot {
+    opacity: 0.45;
+    pointer-events: none;
+}
 .fq-thumb {
     position: absolute;
     top: 2px;
@@ -435,42 +477,6 @@
 .input-area-wrapper:not([data-agent-mode="shell"]):has(.chat-input.agent-active) .fast-quality-toggle {
     opacity: 0.45;
     pointer-events: none;
-}
-
-/* ---------- Recording dot: left of the Fast/Quality pill, and only while a run
-   is being recorded (Settings -> Recording). Not there at all otherwise, so the
-   box stays clean. The backend adds .on once the recorder starts (the dot fades
-   in and blinks), then .leaving once the videos are stored (it fades away and
-   JS drops it after). See window.recordingIndicator in chat_input.js. */
-.rec-indicator {
-    display: none;
-    align-items: center;
-    justify-content: center;
-    width: clamp(20px, 2.1vw, 24px);
-    height: clamp(20px, 2.1vw, 24px);
-    flex-shrink: 0;
-}
-.rec-indicator.on,
-.rec-indicator.leaving {
-    display: flex;
-}
-.rec-indicator.on { animation: recIn 0.35s ease both; }
-.rec-indicator.leaving { animation: recOut 0.6s ease both; }
-.rec-dot {
-    width: 42%;
-    height: 42%;
-    border-radius: 999px;
-    background: #ef4444;
-    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.18);
-}
-.rec-indicator.on .rec-dot { animation: recBlink 1.2s ease-in-out infinite; }
-@keyframes recIn    { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
-@keyframes recOut   { from { opacity: 1; transform: scale(1); }   to { opacity: 0; transform: scale(0.6); } }
-@keyframes recBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
-/* The slim running row reserves room on the right for the toolbar; the dot
-   needs a little more of it, only while it shows. */
-.input-area-wrapper:has(.rec-indicator.on):has(.chat-input.agent-active) .chat-input {
-    padding-right: clamp(184px, 23.5vw, 244px);
 }
 
 /* Transparent trigger so it BLENDS into the box (one tone, not a 2nd pill). */
@@ -635,44 +641,16 @@
     background-color: rgba(29, 158, 117, 0.13);   /* agent-mode green, tinted */
 }
 
-/* Keyframes for the gradient animation */
-@keyframes gradientFlow {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-}
-
-/* Breathing animation */
-@keyframes cursorBreathing {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(0.85); }
-}
-
-/* Custom cursor icon in agent strip */
-.agent-cursor-icon {
-    width: 14px;
-    height: 14px;
-    margin-right: 8px; /* Space between icon and text */
-    
-    /* Animated Gradient Background */
-    background: linear-gradient(135deg, #c17fef, #9b5dcf, #e18ed6, #7f9cf5, #c17fef);
-    background-size: 250% 250%;
-    animation: gradientFlow 6s ease infinite, cursorBreathing 2s ease-in-out infinite;
-    
-    /* Masking with the SVG shape */
-    mask-image: url('data:image/svg+xml;utf8,<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2,2 L12,22 L22,2 Q12,12 2,2 Z" fill="black" transform="rotate(140 12 12)" /></svg>');
-    -webkit-mask-image: url('data:image/svg+xml;utf8,<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2,2 L12,22 L22,2 Q12,12 2,2 Z" fill="black" transform="rotate(140 12 12)" /></svg>');
-    mask-size: contain;
-    mask-repeat: no-repeat;
-    mask-position: center;
-    -webkit-mask-size: contain;
-    -webkit-mask-repeat: no-repeat;
-    -webkit-mask-position: center;
-    
+/* The thinking orb in the agent strip (thinking_orb.js sets its 20px size;
+   chat_input.js runs it only while the strip shows). */
+.agent-orb {
     flex-shrink: 0;
+    margin-right: 8px;
 }
 
-/* Agent Response Strip - Initially hidden, slides up */
+/* Agent Response Strip - Initially hidden; it opens in place as the composer below
+   collapses, filling exactly the room the composer gives up (.active below), so the
+   stack's top edge never moves on send or at the run's end. */
 .agent-response-strip {
     /* Centered and shorter than text box */
     width: 85%;
@@ -684,11 +662,11 @@
     padding: 0;
     margin-bottom: 0;
     
-    /* Same light cream as the composer below it (.input-area-wrapper), so the
+    /* Same white as the composer below it (.input-area-wrapper), so the
        strip reads as part of that stack rather than a grey band behind it —
        solid fill (no backdrop-filter; the blur flickered in WebView2 while the
        top-left animation ran). Opaque enough to read without the blur. */
-    background: rgba(253, 250, 248, 0.9);
+    background: rgba(255, 255, 255, 0.9);
     
     /* Rounded corners all around */
     border-radius: 16px;
@@ -696,19 +674,21 @@
     display: flex;
     align-items: center;
     
-    /* Animation handling */
+    /* Animation handling. 0.34s on the composer's own curve: its collapse and this
+       strip's opening cancel out exactly, frame by frame. It fades in where it is (no
+       slide): nothing moves. */
     opacity: 0;
     pointer-events: none;
-    transform: translateY(10px);
     overflow: visible; /* Visible for pseudo-elements */
-    transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+    transition: all 0.34s cubic-bezier(0.25, 0.8, 0.25, 1);
     position: relative; /* For pseudo-elements */
 
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: clamp(10px, 1vw, 11px); /* Reduced text size significantly */
     color: rgba(50, 50, 50, 0.95);
 
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    /* The thin grey line, like the chat box below it. */
+    border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 /* Connectors removed as requested */
@@ -716,21 +696,27 @@
 .agent-response-strip.active {
     opacity: 1;
     pointer-events: auto;
-    transform: translateY(0);
-    /* Expand to full height when active */
-    height: clamp(28px, 3vw, 34px); /* Reduced height by roughly 1/3 */
-    min-height: clamp(28px, 3vw, 34px);
+    /* Exactly the room the composer gives up as it collapses: its one idle text line
+       (.chat-input min-height) and the tools' gap (--tools-gap), so the stack's top,
+       where the Shell bot stands, stays where it was. Keep the two in step. */
+    height: calc(clamp(30px, 2.9vw, 36px) + clamp(4px, 0.5vw, 7px));
+    min-height: calc(clamp(30px, 2.9vw, 36px) + clamp(4px, 0.5vw, 7px));
     margin-bottom: -18px; /* Only apply negative margin when active */
     /* Adjusted padding to center text in reduced height */
     padding: 0 clamp(16px, 1.5vw, 20px) 16px clamp(16px, 1.5vw, 20px);
 }
 
+/* "Agent running…", shimmering (thinking_orb/shimmer.css), in the orb
+   pill's type; its shimmer rests while the strip is hidden. */
 .agent-label {
-    font-weight: 600;
-    color: rgba(90, 90, 90, 0.95); /* Simple grey like other text */
+    font-size: clamp(12px, 1.15vw, 13px);
+    font-weight: 500;
     margin-right: 8px;
     white-space: nowrap;
-    /* Removed neon text shadow */
+    flex-shrink: 0;
+}
+.agent-response-strip:not(.active) .agent-label::before {
+    animation-play-state: paused;
 }
 
 .agent-text {
@@ -843,7 +829,7 @@
 }
 
 /* When CLI mode is on, the existing milestone/welcome panel and the
-   "Agent activated:" strip step aside so the pills own the chat box. */
+   agent strip step aside so the pills own the chat box. */
 .chat-container-wrapper.cli-mode .output-stream-area,
 .chat-container-wrapper.cli-mode .agent-response-strip {
     display: none;

@@ -1,9 +1,11 @@
 // =====================================================================
-// Top-right container — LIVE "tracking progress" stream. Mounts top_right.html,
-// then exposes window.trackingProgress { push, start, end }. While the agent runs,
-// each scratchpad entry (fed from window.streamMilestone in script.js) streams in
-// as a circle-bullet line on a connecting line, conveyor-scrolling up as it fills;
-// the content fades out when the run ends. Chain mechanics mirror bottom_left.js.
+// Tracking progress — the LIVE scratchpad stream in the right half of the
+// bottom container (agent.html's .tracking-panel). Exposes
+// window.trackingProgress { push, start, end }. While the agent runs, each
+// scratchpad entry (fed from window.streamMilestone in script.js) streams in
+// as a circle-bullet line on a connecting line, conveyor-scrolling up as it
+// fills; the content fades out when the run ends. Chain mechanics mirror
+// agent.js. (It used to be the top-right container.)
 // =====================================================================
 (function () {
     'use strict';
@@ -11,9 +13,21 @@
     var TYPE_MS = 5;            // delay between typewriter ticks
     var CHARS_PER_TICK = 2;     // chars revealed per tick (TYPE_MS/CHARS_PER_TICK ≈ per-char speed)
 
-    var zoneEl = null, flowEl = null, treeEl = null, frontier = -1;
+    var panelEl = null, flowEl = null, treeEl = null, frontier = -1;
 
-    /* ---------------- blazing-fast typewriter (from bottom_left) ----------------
+    // The panel lives in the bottom container, which agent.js mounts
+    // after a fetch: look it up the first time it is needed.
+    function bind() {
+        if (treeEl && treeEl.isConnected) return true;
+        var panel = document.querySelector('#agentContainer .tracking-panel');
+        if (!panel) return false;
+        panelEl = panel;
+        flowEl = panel.querySelector('.br-flow');
+        treeEl = panel.querySelector('.br-tree');
+        return !!treeEl;
+    }
+
+    /* ---------------- blazing-fast typewriter (from agent.js) ----------------
        Entries arrive as HTML (ui/markdown.py). Typing markup character by
        character would show raw tags mid-animation, so we type the PLAIN text and
        swap the real markup in on the final tick — the line lands formatted. */
@@ -101,7 +115,7 @@
     // Public API — driven by script.js (streamMilestone -> push; start/end on run lifecycle).
     window.trackingProgress = {
         push: function (payload) {                        // one scratchpad entry arrived
-            if (!treeEl) return;
+            if (!bind()) return;
             // payload is rendered Markdown (markdown.py, already number-stripped).
             // stripNum still runs on the PLAIN text — never on the markup, where
             // a '. ' inside the content would slice through a tag.
@@ -109,42 +123,20 @@
             var t = stripNum(htmlToText(markup));
             if (!t) return;
             // reveal (label + stream) only when there's actually something written
-            if (zoneEl && frontier < 0) zoneEl.classList.add('br-active');
+            if (panelEl && frontier < 0) panelEl.classList.add('br-active');
             addEntry(t, markup);
         },
         start: function () {                              // new run: reset; stay hidden until 1st entry
-            if (zoneEl) zoneEl.classList.remove('br-active');
+            bind();
+            if (panelEl) panelEl.classList.remove('br-active');
             clearTree();
         },
         end: function () {                               // run done/stopped: fade content out
-            if (zoneEl) zoneEl.classList.remove('br-active');
+            bind();
+            if (panelEl) panelEl.classList.remove('br-active');
         },
     };
 
-    function mount() {
-        var grid = document.getElementById('mainGrid');
-        if (!grid || grid.querySelector('.top-right-zone')) return;
-        fetch('container/top_right/top_right.html')
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-                if (grid.querySelector('.top-right-zone')) return; // guard race
-                var holder = document.createElement('div');
-                holder.innerHTML = html.trim();
-                var zone = holder.querySelector('.top-right-zone');
-                if (!zone) return;
-                grid.appendChild(zone);
-                zoneEl = zone;
-                flowEl = zone.querySelector('.br-flow');
-                treeEl = zone.querySelector('.br-tree');
-                // re-pin when the window resizes (wrapping changes with width)
-                window.addEventListener('resize', function () { scrollToFrontier(); });
-            })
-            .catch(function () { /* non-fatal */ });
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', mount);
-    } else {
-        mount();
-    }
+    // re-pin when the window resizes (wrapping changes with width)
+    window.addEventListener('resize', function () { scrollToFrontier(); });
 })();

@@ -1,30 +1,17 @@
 /* =====================================================================
-   Top-right container — LIVE "tracking progress" stream. The cell is transparent;
-   its CONTENT (label + bullet stream) fades in while the agent runs and out when it
-   finishes (top_right.js toggles .br-active). The bullet chain reuses the tool-
-   response mechanics (connecting line + conveyor scroll + top fade), with a small
-   filled dot instead of a logo. Injected into #mainGrid (column 2, row 1).
+   Tracking progress — the LIVE scratchpad stream in the right half of the
+   bottom container (agent.html's .tracking-panel). Its CONTENT (label +
+   bullet stream) fades in while the agent runs and out when it finishes
+   (tracking_progress.js toggles .br-active on the panel). The bullet chain
+   reuses the tool-response mechanics (connecting line + conveyor scroll + top
+   fade), with a small filled dot instead of a logo. (It used to be the
+   top-right container.)
    ===================================================================== */
-.top-right-zone {
-    grid-column: 2;
-    grid-row: 1;
-    min-width: 0;
-    min-height: 0;
-    position: relative;
-    border: 1px solid transparent;           /* no visible box — blends in (only the content shows) */
-    border-radius: var(--glass-radius);
-    box-sizing: border-box;
-    overflow: hidden;
-    padding: clamp(8px, 1vw, 12px) clamp(12px, 1.4vw, 16px);
-    display: flex;
-    flex-direction: column;
-}
-
-/* content fades with the run; idle = empty cell. Only shows when something written. */
+/* content fades with the run; idle = empty half. Only shows when something written. */
 .scratchpad-label,
 .br-flow { opacity: 0; transition: opacity 0.45s ease; }
-.top-right-zone.br-active .scratchpad-label,
-.top-right-zone.br-active .br-flow { opacity: 1; }
+.tracking-panel.br-active .scratchpad-label,
+.tracking-panel.br-active .br-flow { opacity: 1; }
 
 /* caption, mirroring the tool-response label */
 .scratchpad-label {
@@ -81,7 +68,7 @@
      ::after  = BELOW segment — from just below the dot down to the entry's
                 bottom (alongside wrapped text), meeting the next entry's ABOVE
                 segment. So segments connect dot→dot but never cross a dot.
-   Both draw when top_right.js adds .line-in (scaleY = line "coming down"). */
+   Both draw when tracking_progress.js adds .line-in (scaleY = line "coming down"). */
 .br-item::before,
 .br-item::after {
     content: "";

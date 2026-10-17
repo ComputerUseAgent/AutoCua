@@ -1,0 +1,22 @@
+<!-- Screen container — the live agent screenshot, then the run's video once
+     the run is over. Injected into #liveTurn (row 3) by screen.js.
+     Keeps id="imageStreamContainer" and the .stream-image <img> so the existing
+     window.updateAgentImage() hook in script.js keeps working unchanged. -->
+<div class="container-zone screen-container" id="screenContainer" aria-label="Screenshot">
+    <!-- Computer use, Web use, iOS: the moving background behind the screenshot (run_bot.js) -->
+    <video class="cu-bg" muted loop playsinline preload="none" aria-hidden="true"></video>
+
+    <div class="screenshot-frame" id="imageStreamContainer">
+        <img class="stream-image" src="" alt="Agent screen" style="display: none;">
+        <!-- The run's recording, in place of the screenshot once the run is over
+             (window.showRunVideo in screen.js). -->
+        <video class="run-video" controls playsinline preload="auto" style="display: none;"></video>
+    </div>
+
+    <!-- In the middle while a Computer use run's video is compressed (run_bot.js);
+         the run's bot is beside the bottom container (container/agent/chain_bot.js) -->
+    <div class="cu-prep-text" aria-hidden="true"><span class="t-shimmer" data-text="Preparing video">Preparing video</span></div>
+
+    <!-- The Agent Notes used to live here; that stage is parked in
+         container/dead/notes_stage/. -->
+</div>

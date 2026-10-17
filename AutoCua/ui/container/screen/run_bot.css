@@ -1,0 +1,74 @@
+/* =====================================================================
+   The run's screen stage, in the screen box (run_bot.js): while a Computer
+   use, Web use or iOS run is on, the box shows a moving background
+   (logo/simulation_background.mp4) with the screenshots on it, a little
+   smaller than the box, centred. After a Computer use run, "Preparing video"
+   shows there until the run's video is in. The run's bot is beside the
+   bottom container now (container/agent/chain_bot.css). Only opacity /
+   transform animate (and the text's shimmer).
+   ===================================================================== */
+
+/* The moving background, behind everything in the box. */
+.screen-container .cu-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s ease;
+}
+.screen-container.cu-stage .cu-bg { opacity: 1; }
+
+/* The screenshot (and the run's video after it), a little smaller than the
+   box and centred: 7% of the box on every side. The box has the picture's
+   own shape, so the picture fills this frame exactly; in a box too narrow
+   for that shape the picture sits on the frame's bottom. Sized to the
+   picture itself, so its corners round on the picture. Hidden while
+   "Preparing video" shows. */
+.screen-container.cu-stage .screenshot-frame {
+    inset: 7%;
+    align-items: flex-end;
+    transition: opacity 0.45s ease, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.screen-container.cu-stage .screenshot-frame .stream-image,
+.screen-container.cu-stage .screenshot-frame .run-video {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 8px;
+}
+.screen-container.cu-prep .screenshot-frame {
+    opacity: 0;
+    transform: scale(0.96);
+}
+
+/* "Preparing video", in the middle of the background while the video is
+   compressed: the text shimmer (thinking_orb/shimmer.css), a dark band
+   sweeping across the grey letters, only while it shows. */
+.screen-container .cu-prep-text {
+    position: absolute;
+    z-index: 4;
+    left: 0;
+    right: 0;
+    top: 50%;
+    translate: 0 -50%;
+    text-align: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(12px, 1.25vw, 15px);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+}
+.screen-container.cu-prep .cu-prep-text {
+    opacity: 1;
+    transition-delay: 0.3s;       /* once the last screen has faded */
+}
+.screen-container:not(.cu-prep) .cu-prep-text .t-shimmer::before {
+    animation-play-state: paused;
+}

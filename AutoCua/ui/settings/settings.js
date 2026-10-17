@@ -26,42 +26,13 @@
                 holder.innerHTML = html.trim();
                 var btn = holder.querySelector('.settings-btn');
                 if (!btn) return;
-                slot.appendChild(btn);
+                // First in the footer: the cog stays bottom-left, the GitHub
+                // star pill (left_bar.html) sits to its right.
+                slot.insertBefore(btn, slot.firstChild);
                 wire(btn);
             })
             .catch(function () { /* non-fatal: the cog just won't render */ });
     }
-
-    // Settings → Recording switch. The state is kept by the backend
-    // (settings.json), which reads it when a run starts, so it survives a
-    // restart. The section only appears on a machine that can record.
-    function wireRecording() {
-        var view = document.getElementById('settingsRecordingView');
-        var sw = document.getElementById('recordRunsSwitch');
-        if (!view || !sw) return;
-        var paint = function (on) {
-            sw.classList.toggle('on', on);
-            sw.setAttribute('aria-checked', on ? 'true' : 'false');
-        };
-        fetch('/api/recording')
-            .then(function (r) { return r.json(); })
-            .then(function (d) {
-                if (!d || !d.supported) return;
-                paint(!!d.on);
-                view.style.display = '';
-            })
-            .catch(function () { /* non-fatal: the section just stays hidden */ });
-        sw.addEventListener('click', function () {
-            var on = !sw.classList.contains('on');
-            paint(on);
-            fetch('/api/recording', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ on: on })
-            }).catch(function () { paint(!on); });
-        });
-    }
-    wireRecording();
 
     // Mount once the left bar exists: immediately if already injected, otherwise
     // when left_bar.js fires 'leftbar:ready'.

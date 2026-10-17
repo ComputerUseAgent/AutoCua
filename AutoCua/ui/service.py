@@ -26,6 +26,7 @@ import logging
 import signal
 import platform
 import importlib
+import importlib.util
 import threading
 import queue
 import time
@@ -61,10 +62,12 @@ from AutoCua.ui.markdown import render as md_render, render_notes as md_render_n
 # Windows, the glow alone on macOS. Paired to the start/finally of every agent
 # run below; a no-op on Linux.
 from AutoCua.utils import agent_glow
-# Settings -> Recording: while it is on, each Computer / Web use run is recorded
-# (the screen and this window, as two videos) into AutoCua_data/recordings, on
-# every machine run_recorder.supported() says can.
+# Every Computer use run is recorded (the main screen) into
+# AutoCua_data/recordings, on every machine run_recorder.supported() says can;
+# when it ends the video is compressed and shown in the screen box. Web use and
+# iOS runs are not: their screen box goes once the task is done.
 from AutoCua.utils import run_recorder
+from AutoCua.utils import video_compress
 # Electron for the Chromium desktop shell when no `npm install` put one in
 # AutoCua/desktop (every pip install): fetched once the person says yes.
 from AutoCua.utils import electron
@@ -988,9 +991,16 @@ def get_provider_api_key(provider):
 webview_window = None
 active_agent_stop_event = None
 active_agent_session_id = None
+# The newest run's id. Unlike active_agent_session_id, Stop and New chat leave
+# it alone: an older run's late video must never land on a newer run's turn.
+_latest_run_id = None
 # Live recordings by run id, so Stop and New chat can end the retired run's
 # video at the click instead of when its thread finally unwinds.
 _run_recorders = {}
+# Recording folders whose screen.mp4 is being compressed right now. A reopened
+# chat does not load that raw file (on Windows a file being read cannot be
+# deleted, so it would stay); the video comes to its turn once it is done.
+_compressing = set()
 
 
 def _stop_run_recording(run_id, tail=0.0):
@@ -999,27 +1009,48 @@ def _stop_run_recording(run_id, tail=0.0):
         rec.stop(tail=tail)
 
 
-def _recording_indicator(run_id, on):
-    """Show (on) or fade out the chat box's red recording dot for this run."""
-    if webview_window:
-        try:
-            webview_window.evaluate_js(
-                f"window.recordingIndicator && window.recordingIndicator("
-                f"{'true' if on else 'false'}, '{_js_escape(run_id)}')")
-        except Exception:
-            debug_exception("recording indicator")
-
-
-def _recording_done(run_id):
-    """The recorder's finish callback for one run: the dot fades away and,
-    when the videos were written, a short toast says so."""
-    def done(path):
-        _recording_indicator(run_id, False)
-        if path and webview_window:
+def _recording_done(run_id, chat_id):
+    """The recorder's finish callback for one run (it runs on the recorder's
+    thread): compress screen.mp4 into screen_1080p.mp4 (utils/video_compress.py),
+    which replaces it, then show the video in the run's turn, where its
+    screenshots were. While it compresses the page shows "Preparing video"
+    (run_bot.js). That and "no video" are for the latest run only: once a
+    newer run has started, even one stopped since, the live screen box is its.
+    The video itself goes out with the run's id either way: a run whose turn
+    became an earlier one in the chat (the next task was sent meanwhile) gets
+    it there (chat_scroll.js). The page drops a push for a chat the user has
+    left."""
+    def done(folder):
+        def push(js, any_run=False):
+            if webview_window and (any_run or run_id == _latest_run_id):
+                try:
+                    webview_window.evaluate_js(js)
+                except Exception:
+                    debug_exception("run video push")
+        chat = _js_escape(chat_id)
+        video = folder / "screen.mp4" if folder else None
+        if video and video.exists():
+            push(f"window.runVideoPreparing && window.runVideoPreparing('{chat}')")
+            _compressing.add(folder.name)
             try:
-                webview_window.evaluate_js("window.showToast && window.showToast('Recording stored', 4000)")
+                # Its ffmpeg: the system one, else imageio-ffmpeg's. Without
+                # either, the uncompressed video is shown and kept.
+                if shutil.which("ffmpeg") or importlib.util.find_spec("imageio_ffmpeg"):
+                    small = video_compress.compress(str(video), str(folder / "screen_1080p.mp4"))
+                    if small:
+                        video.unlink()
+                        video = Path(small)
             except Exception:
-                debug_exception("recording stored toast")
+                debug_exception("compress recording")
+            finally:
+                _compressing.discard(folder.name)
+        if video and video.exists():
+            url = _js_escape(f"/api/recordings/{folder.name}/{video.name}")
+            run = _js_escape(run_id)
+            push(f"window.showRunVideo && window.showRunVideo('{url}', '{chat}', '{run}')", any_run=True)
+        else:
+            # Nothing to show: the page stops waiting for it.
+            push(f"window.runVideoFailed && window.runVideoFailed('{chat}')")
     return done
 
 
@@ -1213,6 +1244,8 @@ MIME_TYPES = {
     '.jpg': 'image/jpeg',
     '.jpeg': 'image/jpeg',
     '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.mp4': 'video/mp4',
     '.ico': 'image/x-icon',
     '.svg': 'image/svg+xml',
     '.woff': 'font/woff',
@@ -1327,6 +1360,19 @@ def serve_logo():
             return response
         return "Logo not found", 404
     return send_from_directory(str(get_AutoCua_path() / 'logo'), 'logo.png')
+
+
+@app.route('/simulation_background.mp4')
+def serve_simulation_background():
+    """The moving background of the screen box during a Computer use run
+    (container/screen/run_bot.js), from AutoCua/logo/."""
+    if IS_COMPILED:
+        response = serve_embedded_file('AutoCua/logo/simulation_background.mp4')
+        if response:
+            return response
+        return "Not found", 404
+    return send_from_directory(str(get_AutoCua_path() / 'logo'), 'simulation_background.mp4',
+                               mimetype='video/mp4')
 
 
 # =============================================================================
@@ -1722,63 +1768,45 @@ def send_todo_to_frontend(payload):
         debug_exception("send_todo_to_frontend")
 
 
+# The words save_run puts in front of every done message
+# (agent_conversation/service.py _terminal_message). A Shell use terminal shows
+# the answer itself, as it showed it live, without them.
+_DONE_PREFIX = re.compile(r'^(Task completed|Agent stopped before completing|'
+                          r'Agent terminated \(error / provider\)):\s*')
+
+
 def _render_exchange_html(exchanges):
     """Add task_html/done_html (rendered Markdown) to each exchange row, in
-    place. The shape showAgentHistory / cliShellHistory consume."""
+    place, plus answer_html: the done message without its saved prefix. The
+    shape the reopen view consumes (chat.js -> showRunReply, and Shell use's
+    terminal through cliShellHistory)."""
     for x in (exchanges or []):
         if isinstance(x, dict):
+            done = x.get('done_message', '') or ''
             x['task_html'] = md_render(x.get('task', ''))
-            x['done_html'] = md_render(x.get('done_message', ''))
+            x['done_html'] = md_render(done)
+            x['answer_html'] = md_render(_DONE_PREFIX.sub('', done))
     return exchanges or []
 
 
-def send_agent_notes(content, session_id=None):
-    """Show the agent's scratchpad as 'Agent Notes' on the notes stage (called
-    when a run ends — completed or stopped).
-
-    Entries arrive as rendered HTML — ui/markdown.py turns each note's
-    Markdown into real bold/code/links/line breaks and escapes everything else,
-    so showAgentNotes can assign it with innerHTML.
-
-    Empty-scratchpad fallback: a run that never wrote a note would leave the
-    stage on a bare "No notes". Instead we push the chat's full request/outcome
-    transcript — the SAME view reopening the chat gives, and it already
-    includes the run that just ended, because save_run() appends this run's
-    exchange before we get here. Platform-agnostic: every agent (macOS /
-    Windows / iOS) ends through this one call."""
-    global webview_window
-    if not webview_window:
-        return
-    try:
-        entries = md_render_notes(content)
-        if entries:
-            escaped = _js_escape(json.dumps(entries))
-            webview_window.evaluate_js(
-                f"window.showAgentNotes && window.showAgentNotes('{escaped}')"
-            )
-            return
-
-        rows = []
-        if session_id:
-            try:
-                data = conversation.get_session(session_id) or {}
-                rows = _render_exchange_html(data.get('exchanges'))
-            except Exception:
-                debug_exception("send_agent_notes exchanges")
-        if rows:
-            escaped = _js_escape(json.dumps(rows))
-            webview_window.evaluate_js(
-                f"window.showAgentHistory && window.showAgentHistory('{escaped}')"
-            )
-            return
-
-        # Nothing written AND no transcript yet — still swap the stage on so it
-        # replaces the screenshot; the empty state is correct here.
-        webview_window.evaluate_js(
-            "window.showAgentNotes && window.showAgentNotes('[]')"
-        )
-    except Exception:
-        debug_exception("send_agent_notes")
+def _exchange_videos(exchanges):
+    """Add video_url to each exchange row whose run was recorded (`recording`,
+    its folder in AutoCua_data/recordings) while that video is still on disk:
+    the reopen view (chat.js) shows it in the screen box again. screen.mp4 if
+    it is still there (it could not be compressed, or the app closed while it
+    was), else the compressed screen_1080p.mp4 (_recording_done). None while
+    it is being compressed: it is pushed to its turn when done."""
+    for x in (exchanges or []):
+        name = str(x.get('recording') or '') if isinstance(x, dict) else ''
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', name):    # a folder name, nothing else
+            continue
+        if name in _compressing:            # its video is pushed to the turn when done
+            continue
+        for file in ('screen.mp4', 'screen_1080p.mp4'):
+            if (data_root() / 'recordings' / name / file).is_file():
+                x['video_url'] = f"/api/recordings/{name}/{file}"
+                break
+    return exchanges or []
 
 
 def send_web_status_to_frontend(status):
@@ -1922,24 +1950,19 @@ def send_flow_to_frontend(event, payload=None):
 # =============================================================================
 # Agent run
 # =============================================================================
-@app.route('/api/recording', methods=['GET', 'POST'])
-def recording_setting():
-    """Settings -> Recording. GET: {supported, on}; POST {on}: save it. Kept in
-    settings.json and read when a run starts, so it survives a restart."""
-    from flask import request
-    if request.method == 'POST':
-        on = bool((request.get_json(silent=True) or {}).get('on'))
-        write_settings({'record_runs': on})
-        return jsonify({'on': on})
-    return jsonify({'supported': run_recorder.supported(),
-                    'on': bool(read_settings().get('record_runs'))})
+@app.route('/api/recordings/<path:name>')
+def recording_video(name):
+    """A run's video for the screen box (showRunVideo in container/screen).
+    send_from_directory keeps the path inside the recordings folder and answers
+    range requests, so the player can seek."""
+    return send_from_directory(str(data_root() / 'recordings'), name, mimetype='video/mp4')
 
 
 @app.route('/api/start-agent', methods=['POST'])
 def start_agent():
     """Start the agent with the provided provider, model, and task"""
     from flask import request
-    global active_agent_stop_event, active_agent_session_id
+    global active_agent_stop_event, active_agent_session_id, _latest_run_id
 
     try:
         data = request.get_json()
@@ -1958,9 +1981,9 @@ def start_agent():
         run_pkg = ('ios' if (agent_mode == 'mobile' and device_os == 'ios')
                    else 'web' if agent_mode == 'web'
                    else PLATFORM_PKG)
-        # Settings -> Recording: Computer use and Web use only, on a machine that can.
-        record = (bool(read_settings().get('record_runs')) and agent_mode in ('computer', 'web')
-                  and run_recorder.supported())
+        # Every Computer use run is recorded, on a machine that can (not Web use
+        # or iOS: their screen box goes once the task is done).
+        record = agent_mode == 'computer' and run_recorder.supported()
         # The run's package folder — the todo/milestone watchers and resets below
         # must follow the agent that actually runs, not the host desktop package.
         run_pkg_path = get_platform_path(run_pkg)
@@ -2008,6 +2031,7 @@ def start_agent():
 
         active_agent_stop_event = threading.Event()
         active_agent_session_id = str(time.time())   # per-RUN guard
+        _latest_run_id = active_agent_session_id
         current_session_id = active_agent_session_id
 
         def run_agent():
@@ -2113,15 +2137,18 @@ def start_agent():
             agent = None  # bound below; kept defined so the finally save is safe
             recorder = None
             try:
-                # Settings -> Recording: from the moment the task is sent. Inside the
+                # The recording: from the moment the task is sent. Inside the
                 # try, so the finally below always ends the video.
                 if record:
                     recorder = run_recorder.start(
                         webview_window, 'web' if run_pkg == 'web' else 'computer',
-                        on_done=_recording_done(current_session_id))
+                        on_done=_recording_done(current_session_id, chat_session_id))
                     if recorder:
                         _run_recorders[current_session_id] = recorder
-                        _recording_indicator(current_session_id, True)
+                        # Stop or New chat came before the recorder was up:
+                        # end its video at the click, as they do once it is.
+                        if not run_is_current():
+                            _stop_run_recording(current_session_id, tail=1.0)
                 # Desktop says an agent is driving: lavender cursor + edge glow.
                 # Computer use only — web and iOS runs don't drive this desktop.
                 # Inside the try, so the finally below always takes it back —
@@ -2199,6 +2226,7 @@ def start_agent():
                         run_pkg=run_pkg,                        # which agent produced this memory
                         agent_mode=agent_mode_for(run_pkg),     # per-chat lock
                         sub_agent_last_id=getattr(agent, "sub_agent_last_id", None),  # ids keep counting
+                        recording=recorder.path.name if recorder else None,  # its video, for reopen
                     )
                 except Exception:
                     debug_exception("persist chat session on finish")
@@ -2219,19 +2247,24 @@ def start_agent():
                     except Exception:
                         debug_exception("signaling agent completion")
 
-                    # Replace the screenshot with the "Agent Notes" view now the run
-                    # has ended (completed OR stopped) — ALWAYS, even if empty.
+                    # The run's reply in the bottom container, like a chat: the
+                    # done message, or why the run ended. It takes the place of
+                    # the tool chain and tracking progress until the next run.
                     try:
-                        notes_path = run_pkg_path / "scratchpad" / "milestone" / "milestone.md"
-                        content = notes_path.read_text(encoding='utf-8') if notes_path.exists() else ""
-                        # session id: lets an empty scratchpad fall back to this
-                        # chat's done-message transcript instead of "No notes".
-                        send_agent_notes(content, chat_session_id)
+                        status = run_outcome.get("status", "success")
+                        message = run_outcome.get("message", "") or ""
+                        if status == "success":
+                            reply = message or "Done."
+                        else:
+                            reply = ("Error: " if status == "error" else "Stopped without completing: ") + message
+                        webview_window.evaluate_js(
+                            f"window.showRunReply && window.showRunReply("
+                            f"'{_js_escape(md_render(reply))}', '{_js_escape(status)}')")
                     except Exception:
-                        debug_exception("send agent notes on finish")
+                        debug_exception("show run reply")
 
                 # Last, so the video ends on the run's final UI (the done
-                # message, the notes view); the tail gives it time to paint.
+                # reply); the tail gives it time to paint.
                 # Already stopped if Stop or New chat retired this run.
                 if recorder:
                     _run_recorders.pop(current_session_id, None)
@@ -2241,8 +2274,9 @@ def start_agent():
         thread.daemon = True
         thread.start()
 
-        # Return the chat session id so a brand-new chat's id reaches the frontend.
-        return jsonify({'status': 'started', 'session_id': chat_session_id})
+        # Return the chat session id so a brand-new chat's id reaches the frontend,
+        # and the run's id: its video finds its turn in the chat by it.
+        return jsonify({'status': 'started', 'session_id': chat_session_id, 'run_id': current_session_id})
 
     except Exception as e:
         debug_exception("start_agent API")
@@ -2536,9 +2570,9 @@ def run_shell_task(task, provider, model, api_key, run_pkg,
 def start_shell():
     """Agent mode → Shell use: send the task STRAIGHT to the coder agent.
 
-    Slim next to /api/start-agent — no main agent, no todo/milestone watchers,
-    no Agent Notes overlay (the CLI stage is the whole UI) — but a shell run IS
-    a chat: the session is resolved/minted via the conversation service, the
+    Slim next to /api/start-agent — no main agent, no todo/milestone watchers
+    (the CLI stage, its terminal beside the CoderUse bot, is the whole UI) —
+    but a shell run IS a chat: the session is resolved/minted via the conversation service, the
     coder is seeded with the chat's saved history (--history file channel) and
     tags its task <user_request=N>, its token usage drives the memory bar, and
     every ending is persisted with save_run. The chat locks to Shell use the
@@ -2548,7 +2582,7 @@ def start_shell():
     run so the stop orb (/api/stop-agent) and New chat work unchanged.
     """
     from flask import request
-    global active_agent_stop_event, active_agent_session_id
+    global active_agent_stop_event, active_agent_session_id, _latest_run_id
 
     try:
         data = request.get_json() or {}
@@ -2629,6 +2663,7 @@ def start_shell():
 
         active_agent_stop_event = threading.Event()
         active_agent_session_id = str(time.time())   # per-RUN guard
+        _latest_run_id = active_agent_session_id
         current_session_id = active_agent_session_id
         stop_event = active_agent_stop_event
 
@@ -2703,8 +2738,8 @@ def start_shell():
                             message = outcome.get("message", "") or ""
                             reason = prefix + message if message else prefix.strip()
                             # agentError writes to the milestone stream, which lives in a
-                            # zone body.cli-stage hides — so ALSO put it on the terminal,
-                            # the only surface visible in Shell use. The chat id rides
+                            # zone body.cli-stage hides — so ALSO put it on the terminal
+                            # (as the run's answer if it has none). The chat id rides
                             # along: if the user has since opened a DIFFERENT chat, the
                             # frontend drops the note instead of writing this run's
                             # outcome onto that chat's terminal.
@@ -2716,30 +2751,6 @@ def start_shell():
                             )
                     except Exception:
                         debug_exception("signaling shell run completion")
-
-                # The Agent Notes under the terminal show the chat's transcript —
-                # every run's request + how it ended, this one last — the same
-                # view reopening the chat gives, so a finished run never needs a
-                # chat switch to appear. Sent after the completion signal, so the
-                # composer never waits on the render, and for a retired (stopped)
-                # run too: the frontend only takes it for the chat on screen,
-                # between runs. Only a list that ENDS with this run is sent —
-                # save_run swallows a failed append, and the earlier runs alone
-                # would replace the notes + done message the frontend is holding
-                # (left unsent, that hold falls back to showing them).
-                if webview_window:
-                    try:
-                        exchanges = (conversation.get_session(chat_session_id) or {}).get('exchanges') or []
-                        last = exchanges[-1] if exchanges else None
-                        if (isinstance(last, dict) and len(exchanges) >= (request_no or 1)
-                                and str(last.get('task', '')) == str(task or '')):
-                            rows = _render_exchange_html(exchanges)
-                            webview_window.evaluate_js(
-                                "window.cliShellTranscript && window.cliShellTranscript("
-                                f"'{_js_escape(json.dumps(rows))}', '{_js_escape(chat_session_id)}')"
-                            )
-                    except Exception:
-                        debug_exception("push shell transcript")
 
         thread = threading.Thread(target=run_shell)
         thread.daemon = True
@@ -3554,12 +3565,13 @@ def get_chat(chat_id):
     by ui/markdown.py, same as the live run-end path — so a reopened chat
     reads identically to the notes that were on screen when the run finished.
     The raw `task`/`done_message` stay in the payload for any consumer that
-    wants plain text."""
+    wants plain text. A recorded run's exchange carries its `video_url`."""
     try:
         data = conversation.get_session(chat_id)
         if not data:
             return jsonify({'error': 'Not found'}), 404
         _render_exchange_html(data.get('exchanges'))
+        _exchange_videos(data.get('exchanges'))
         data['last_done_message_html'] = md_render(data.get('last_done_message', ''))
         return jsonify(data)
     except Exception:
@@ -3706,21 +3718,23 @@ if IS_COMPILED:
 # Native window styling + centering (the "critical bit")
 # =============================================================================
 
-# Just off white, used to tint the native title bar (pywebview) on macOS,
+# Pure white, used to colour the native title bar (pywebview) on macOS,
 # Windows and Linux; the Chromium shell draws its own bar in it
 # (AutoCua/desktop/main.js BACKGROUND). KEEP IN SYNC with the app/splash
-# background in ui/ (style.css `body` + `.splash-overlay`, left_bar.css,
-# skills.css, setup.css and intro_animation.html) so the bar and content read
-# as one unified surface.
-TITLEBAR_COLOR = "#FDFCFA"
+# background in ui/ (style.css `body` + `.splash-overlay` + `.settings-overlay`,
+# left_bar.css, skills.css, setup.css and intro_animation.html) so the bar and
+# content read as one unified surface. Six-digit hex only: the macOS and
+# Windows hooks below parse it in pairs ("white" or "#FFF" silently skip the
+# tint).
+TITLEBAR_COLOR = "#FFFFFF"
 
 
 def _style_macos_titlebar():
-    """Tint the native macOS window titlebar cream instead of stark white.
+    """Paint the native macOS window titlebar the app's white, not the system grey.
 
     The bright bar at the top of the window is the native NSWindow titlebar
     (pywebview exposes it as `window.native`). We make it transparent so the
-    window's own background color shows through, set to a warm cream. macOS-only.
+    window's own background color shows through, set to the app colour. macOS-only.
     """
     win = get_window()
     nswindow = getattr(win, 'native', None) if win is not None else None
@@ -3741,12 +3755,13 @@ def _style_macos_titlebar():
             nswindow.setBackgroundColor_(color)
             nswindow.setTitlebarAppearsTransparent_(True)
             # Pin the titlebar to Aqua so title text + traffic lights stay dark on
-            # the cream bar even in Dark Mode.
+            # the white bar even in Dark Mode.
             nswindow.setAppearance_(
                 NSAppearance.appearanceNamed_(NSAppearanceNameAqua)
             )
-            # pywebview pins the titlebar's own background view to white at window
-            # creation; recolor that exact view (NSTitlebarContainerView).
+            # pywebview paints the titlebar's own background view in the system
+            # window colour (NSColor.windowBackgroundColor, a grey, not white) at
+            # window creation; recolor that exact view (NSTitlebarContainerView).
             try:
                 titlebar_view = nswindow.contentView().superview().subviews().lastObject()
                 titlebar_view.setBackgroundColor_(color)
@@ -3761,11 +3776,11 @@ def _style_macos_titlebar():
 
 
 def _style_linux_titlebar():
-    """Tint the GTK titlebar to the same cream as macOS / Windows.
+    """Paint the GTK titlebar the same white as macOS / Windows.
 
     On GNOME the window is decorated by GTK itself — a header bar drawn from
     the desktop theme — so under a dark theme (prefer-dark with Yaru-dark,
-    the user's setup) the bar came out black over the cream app. A CSS
+    the user's setup) the bar came out black over the white app. A CSS
     provider at application priority outranks the theme: it pins the bar's
     background, the title text and the window-control icons, focused and
     backdrop alike. Mirrors `_style_macos_titlebar`.
@@ -3786,7 +3801,7 @@ def _style_linux_titlebar():
     headerbar.titlebar, headerbar.titlebar:backdrop {{
         background: {TITLEBAR_COLOR};
         color: #3b3532;
-        border-color: #e6ddd7;
+        border-color: #ebebeb;
         box-shadow: none;
         text-shadow: none;
     }}
@@ -3813,7 +3828,7 @@ def _style_linux_titlebar():
 
 
 def _style_windows_titlebar():
-    """Tint the native Windows title bar (caption) to the same cream as macOS.
+    """Paint the native Windows title bar (caption) the same white as macOS.
 
     Windows 11 (build 22000+) exposes DWM attributes to set the caption background
     and title-text colors; on Windows 10 these are unsupported and the calls
@@ -3850,7 +3865,7 @@ def _style_windows_titlebar():
             dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), ctypes.sizeof(v))
 
         # Force light-mode caption (dark glyphs) so they stay readable on the
-        # cream bar even in Dark Mode, then set the caption + title-text colors.
+        # white bar even in Dark Mode, then set the caption + title-text colors.
         _set(DWMWA_USE_IMMERSIVE_DARK_MODE, 0)
         _set(DWMWA_CAPTION_COLOR, _colorref(TITLEBAR_COLOR))
         _set(DWMWA_TEXT_COLOR, _colorref("#2A2A2A"))
@@ -4210,9 +4225,9 @@ def main():
             f'http://127.0.0.1:{_app_port}{start_path}',
             width=win_w,
             height=win_h,
-            # What the webview paints BEFORE the page loads. pywebview defaults this
-            # to '#FFFFFF', which flashed stark white for a beat at every launch
-            # before the cream splash painted over it. Pin it to the app colour.
+            # What the webview paints BEFORE the page loads: the app colour, so
+            # nothing flashes before the splash paints. Pinned to TITLEBAR_COLOR
+            # so it follows the app colour if that ever changes.
             background_color=TITLEBAR_COLOR,
         )
     set_window(win)

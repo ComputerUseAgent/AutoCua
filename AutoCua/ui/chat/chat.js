@@ -4,8 +4,9 @@
 //   • New chat  -> drop the active session (window.currentSessionId = null),
 //     reset the screen, ready for a fresh start.
 //   • History   -> GET /api/chats; click a row to reopen that session (adopts
-//     its id so the next send CONTINUES it, and shows its last "done" message
-//     on the full-grid notes stage via window.showAgentNotes).
+//     its id so the next send CONTINUES it, and shows its last request,
+//     reply and video like the live view after a run: window.showUserMessage /
+//     window.showRunReply / window.showRunVideo).
 //   • Delete    -> DELETE /api/chats/<id>.
 // All persistence lives in the backend (AutoCua/agent_conversation); this file
 // is pure UI. Same self-contained fetch-inject pattern as settings/settings.js.
@@ -55,8 +56,29 @@
         return svg;
     }
 
+    // The collapsed left bar's rail (left_bar.html) shows a circle per chat
+    // instead of the rows: same mode icon, same click, name as the tooltip.
+    function railChats() {
+        return document.querySelector('#leftBarRail .rail-chats');
+    }
+
+    function railDot(row, list) {
+        var dot = document.createElement('button');
+        dot.type = 'button';
+        dot.className = 'rail-btn';
+        if (row.id === window.currentSessionId) dot.classList.add('active');
+        dot.dataset.id = row.id;
+        dot.title = escapeAttr(row.name);
+        dot.setAttribute('aria-label', row.name || 'New chat');
+        dot.appendChild(chatModeIcon(row));
+        dot.addEventListener('click', function () { openChat(row.id, list); });
+        return dot;
+    }
+
     function renderChats(list, rows) {
         list.innerHTML = '';
+        var rail = railChats();
+        if (rail) rail.innerHTML = '';
         rows.forEach(function (row) {
             var item = document.createElement('div');
             item.className = 'chat-history-item';
@@ -84,47 +106,88 @@
 
             item.addEventListener('click', function () { openChat(row.id, list); });
             list.appendChild(item);
+            if (rail) rail.appendChild(railDot(row, list));
         });
     }
 
+    // Each open is stamped: only the latest one paints its answer. A second
+    // click, another row, New chat or a sent task (chat_input.js) make an
+    // earlier one stale.
+    var openSeq = 0;
+    window.chatOpenCancel = function () { openSeq++; };
+
     // Reopen a saved session: adopt its id (so the next send continues it) and
-    // show ONLY its last done message in the top-left container (the reopen view).
+    // show it like a chat (the reopen view): its earlier turns, then its last
+    // request, video and reply in the live turn.
     function openChat(id, list) {
+        var seq = ++openSeq;
         window.currentSessionId = id;
-        Array.prototype.forEach.call(list.children, function (el) {
-            el.classList.toggle('active', el.dataset.id === id);
+        var rail = railChats();
+        [list, rail].forEach(function (box) {
+            if (!box) return;
+            Array.prototype.forEach.call(box.children, function (el) {
+                el.classList.toggle('active', el.dataset.id === id);
+            });
         });
+        // A run still going keeps its id on the live turn, so its video finds it.
+        var liveEl = document.getElementById('liveTurn');
+        var running = !!document.querySelector('.chat-input.agent-active');
+        var liveRun = (running && liveEl && liveEl.dataset.run) || '';
         if (window.resetChatUi) window.resetChatUi();   // clear leftover live view
+        if (window.chatScroll) window.chatScroll.clear();   // ...and the last chat's earlier turns
         if (window.hideWelcomeHero) window.hideWelcomeHero();   // reopening != empty state
-        // Announce the reopen (the notes stage shows itself on this).
+        // Announce the reopen.
         document.dispatchEvent(new CustomEvent('chat:opened', { detail: { id: id } }));
         fetch('/api/chats/' + encodeURIComponent(id))
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                // Stale response: the user moved on (New chat or another row)
-                // while this fetch was in flight — don't repaint their new view.
-                if (window.currentSessionId !== id) return;
+                // Stale response: the user moved on (New chat, another row, the
+                // same row again, a sent task) while this fetch was in flight —
+                // don't repaint their new view.
+                if (seq !== openSeq || window.currentSessionId !== id) return;
                 if (!data || data.error) return;
-                // Full life of the chat: numbered request/outcome pairs
-                // (exchanges.json). Legacy sessions saved before exchanges
-                // existed fall back to the old single last-done-message note.
+                // Full life of the chat: request/outcome pairs (exchanges.json).
                 var exchanges = Array.isArray(data.exchanges) ? data.exchanges : [];
                 // A SHELL chat renders its history in the CLI stage's own notes
-                // row under the terminal — the notes-stage overlay sits BEHIND
-                // the pinned panel (z 5 vs 6), so it would be invisible there.
+                // row under the terminal.
                 var isShell = (data.agent_mode === 'shell');   // single read point of the backend marker
                 if (isShell) {
                     if (window.cliShellHistory) window.cliShellHistory(exchanges);
-                    // drop the hidden stage content 'chat:opened' just revealed
-                    if (window.hideAgentNotes) window.hideAgentNotes();
-                } else if (exchanges.length && window.showAgentHistory) {
-                    window.showAgentHistory(exchanges);
-                } else if (window.showAgentNotes) {
-                    // showAgentNotes renders as HTML, so hand it the server-rendered
-                    // Markdown (markdown.py) — never the raw text. A single-element
-                    // array shows the last done message as note "1.".
-                    var msg = data.last_done_message_html || '';
-                    window.showAgentNotes(JSON.stringify(msg ? [msg] : []));
+                } else {
+                    // Its last turn, like the live view after a run: the request
+                    // top right, the reply in the bottom container. The reply is
+                    // server-rendered Markdown (markdown.py). Legacy sessions
+                    // saved before exchanges existed have only the last done message.
+                    var last = exchanges.length ? exchanges[exchanges.length - 1] : null;
+                    // Its earlier turns above it, each with its video (chat_scroll.js),
+                    // and its mode's bot beside the replies, the last one's too.
+                    if (window.chatScroll) {
+                        window.chatScroll.addPast(exchanges.slice(0, -1), data.agent_mode);
+                        window.chatScroll.setLiveBot(data.agent_mode);
+                    }
+                    if (last && window.showUserMessage) window.showUserMessage(last.task || '');
+                    var reply = last ? (last.done_html || '') : (data.last_done_message_html || '');
+                    // still: no glide to its end, the view opens on the last turn (below).
+                    if (reply && window.showRunReply) window.showRunReply(reply, (last && last.status) || 'success', true);
+                    // And its video, where it was when the run ended: a Computer
+                    // use run's on its stage (run_bot.js). The backend sends
+                    // video_url only while that run's video is on disk. Web use and
+                    // iOS keep no screen once a run is over (not even an older Web
+                    // use recording).
+                    var noVideo = data.agent_mode === 'web' || data.agent_mode === 'mobile';
+                    var video = (last && !noVideo && last.video_url) || '';
+                    if (window.chatScroll) {
+                        window.chatScroll.setLive(liveRun, (last && last.recording) || '');
+                        // Nothing for its screen (Web use, iOS, or its video is gone):
+                        // no empty box, like its earlier turns.
+                        window.chatScroll.setLiveScreen(running || !!video);
+                    }
+                    if (video && window.showRunVideo) {
+                        if (data.agent_mode === 'computer' && window.screenStageOn) window.screenStageOn();
+                        window.showRunVideo(video, id);
+                    }
+                    // It opens on its last turn, the earlier ones a scroll up.
+                    if (window.chatScroll) window.chatScroll.toLive(null, true);
                 }
                 // Restore the memory bar to this chat's last context size + cap and
                 // show it (the bar hides only for a brand-new chat).
@@ -253,16 +316,18 @@
         // Roll a run-active composer back to idle (orbs/strip/box) — idempotent,
         // and agentComplete won't do it for us now that its push is invalidated.
         if (window.chatInputRestoreIdle) window.chatInputRestoreIdle();
-        // Same reason for the top-right stream: its fade normally comes from
+        // Same reason for the tracking-progress stream: its fade normally comes from
         // agentComplete; clear it here so a mid-run New chat can't leave old text.
         if (window.trackingProgress) window.trackingProgress.start();
         if (window.resetChatUi) window.resetChatUi();
+        if (window.chatScroll) window.chatScroll.clear();       // no earlier turns
+        openSeq++;                                              // and no late reopen
         if (window.resetMemoryBar) window.resetMemoryBar();     // empty the memory bar
         if (window.hideMemoryBar) window.hideMemoryBar();       // hide it (only new chat hides)
         if (window.showWelcomeHero) window.showWelcomeHero();   // bring back the hero
         var input = document.querySelector('.chat-input');
         if (input) { input.disabled = false; input.focus(); }
-        // Announce the fresh start (the notes stage hides itself on this).
+        // Announce the fresh start.
         document.dispatchEvent(new CustomEvent('chat:new'));
         document.dispatchEvent(new CustomEvent('chats:refresh'));   // clears highlight
     }
@@ -288,6 +353,23 @@
                     list = document.createElement('div');
                     list.className = 'chat-history-list';
                     body.insertBefore(list, btn.nextSibling);
+                }
+
+                // The collapsed bar's rail: New chat as a circle, then the
+                // chats' circles (filled by renderChats).
+                var rail = bar.querySelector('#leftBarRail');
+                if (rail && !rail.querySelector('.rail-chats')) {
+                    var dot = document.createElement('button');
+                    dot.type = 'button';
+                    dot.className = 'rail-btn';
+                    dot.title = 'New chat';
+                    dot.setAttribute('aria-label', 'New chat');
+                    dot.appendChild(btn.querySelector('.new-chat-icon').cloneNode(true));
+                    dot.addEventListener('click', startNewChat);
+                    var chats = document.createElement('div');
+                    chats.className = 'rail-chats';
+                    rail.appendChild(dot);
+                    rail.appendChild(chats);
                 }
                 loadChats(list);
             })

@@ -1,0 +1,101 @@
+/* =====================================================================
+   The chat — scrolls inside the main frame like a chat (chat_scroll.js).
+   #chatScroll holds the chat's earlier turns (#chatPast, built by
+   chat_scroll.js) and then the live one (#liveTurn, whose zones the
+   user, screen and agent containers' components inject). Every turn reads
+   top to bottom: the user's message (right), then the bottom container
+   (screen | tool response | tracking progress, then the reply). A turn is
+   only as tall as it is: a reply grows with its text instead of scrolling
+   inside its box, and the chat scrolls. A new task's turn comes in below the
+   last reply; the chat glides only as far as it has to (owner, 2026-10-17:
+   no jump to the top with room below). Where the chat runs on under the
+   frame's top or bottom line, it fades out there.
+   ===================================================================== */
+
+/* How much of each edge fades: 0 until there is more chat that way. */
+@property --fade-top {
+    syntax: '<length>';
+    inherits: false;
+    initial-value: 0px;
+}
+/* The shape a turn's screen shows (set on the turn by script.js, screen.js,
+   chat_scroll.js). It eases (.chat-turn below), so the screen's width and
+   height, the room the bottom container makes for it and a reply under it
+   all move together, no jerk (owner, 2026-10-17). */
+@property --screen-ar {
+    syntax: '<number>';
+    inherits: true;
+    initial-value: 1.6;
+}
+@property --fade-bottom {
+    syntax: '<length>';
+    inherits: false;
+    initial-value: 0px;
+}
+
+.chat-scroll {
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+    /* Out to the frame's line (the box's padding is the gap inside it), so
+       the chat fades right at the line and rests one gap inside it. */
+    margin: calc(-1 * var(--main-pad));
+    padding: var(--main-pad);
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    box-sizing: border-box;
+    border-radius: var(--glass-radius);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    /* The turns size their screens from its height (cqh). */
+    container-type: size;
+    --fade-len: clamp(16px, 2.2vw, 28px);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top),
+                                        #000 calc(100% - var(--fade-bottom)), transparent 100%);
+            mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top),
+                                        #000 calc(100% - var(--fade-bottom)), transparent 100%);
+    transition: --fade-top 0.25s ease, --fade-bottom 0.25s ease;
+}
+.chat-scroll::-webkit-scrollbar { display: none; }
+.chat-scroll.fade-top { --fade-top: var(--fade-len); }
+.chat-scroll.fade-bottom { --fade-bottom: var(--fade-len); }
+
+/* A turn: message | gap | (two empty tracks) | bottom container. The gaps
+   are tracks of their own, so the message's can close while there is none
+   (user.css). The screen is inside the bottom container's row, on its
+   right (owner, 2026-10-17: up under the message, in the tool box; it was a
+   row of its own above it), as tall as three tool steps (agent.css), so the
+   box shows the newest three. The shape the screen shows (--screen-ar) is
+   set on the turn (script.js, chat_scroll.js), so the bottom container can
+   make room for it: --screen-w, never wider than 16:10 (a browser's wide
+   window keeps its shape, a little lower). */
+.chat-turn {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    --msg-gap: clamp(10px, 1.5vw, 18px);
+    --turn-gap: clamp(10px, 1.5vw, 18px);
+    /* user.css's message box with one line: its padding, a 1.4 line, its line */
+    --turn-msg-h: calc(2 * clamp(7px, 0.8vw, 10px) + 1.4 * clamp(13px, 1.3vw, 15px) + 2px);
+    --screen-h: calc(var(--tr-label-h) + 2.5px + 3 * (var(--tf-icon) + var(--tf-gap)));
+    --screen-w: min(calc(var(--screen-h) * var(--screen-ar, 1.6)), calc(var(--screen-h) * 1.6));
+    grid-template-rows: auto var(--msg-gap) 0 0 auto;
+    transition: --screen-ar 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+/* A turn with nothing for its screen (Web use and iOS once done, a video
+   gone): the reply alone (chat_scroll.js setLiveScreen). */
+.chat-turn.no-screen > .screen-container {
+    display: none;
+}
+
+/* Earlier turns, one above the other, a gap more than inside a turn apart,
+   and the live turn after them. */
+.chat-past > .chat-turn {
+    margin-bottom: clamp(14px, 2vw, 24px);
+}
+/* An earlier turn's reply was already there: no fade-in when it is built
+   (more specific than run_reply.css's rule that sets it). */
+.chat-past .agent-container.show-reply {
+    animation: none;
+}

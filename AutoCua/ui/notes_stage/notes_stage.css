@@ -1,10 +1,11 @@
 /* =====================================================================
-   Agent Notes — the scratchpad (13px to match the todo list). Lives inside
-   #zoneBigCenter (container/big_center_container/). Header centred at the
-   top of the stage, numbered notes below in a centred column. Same accent
+   Agent Notes styles (13px to match the todo list). The main container's
+   notes stage is gone (parked in container/dead/notes_stage/); these rules
+   stay for Shell use's notes rows under the terminal (cli_container/
+   coder_card.css builds on them) and for the shared .md Markdown styles
+   every rendered reply uses (run_reply.js, tracking progress). Same accent
    treatment as the todo tick / tracking dots: #9292d8 drifting through the
-   color_test.html hues. Zone show/hide (.active) is owned by big_center_container.css;
-   notes_stage.js toggles it.
+   color_test.html hues.
    ===================================================================== */
 .agent-notes {
     position: absolute;
@@ -111,7 +112,7 @@
 /* =====================================================================
    Rendered Markdown (.md) — the HTML ui/markdown.py produces for
    scratchpad notes, done/exit summaries AND the live "tracking progress"
-   stream (container/top_right). Everything is scoped to .md so plain-text
+   stream (container/agent). Everything is scoped to .md so plain-text
    rows are untouched, and every colour is `inherit` so one rule set works
    on all three surfaces, each of which sets its own grey. Kept tight:
    notes sit in a dense numbered column, so block elements collapse their

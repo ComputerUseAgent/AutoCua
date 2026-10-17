@@ -1,5 +1,6 @@
-// Memory ring component — injects the composer's context gauge into
-// .input-area-wrapper (bottom row, just right of the Skills icon) and keeps the
+// Memory ring component — injects the composer's context gauge into the
+// composer's toolbar (.input-toolbar, just right of the Fast/Quality toggle,
+// before the model picker) and keeps the
 // hooks the old vertical bar exposed, so service.py, chat.js and chat_input.js
 // drive it unchanged:
 //   window.updateMemoryBar(used, cap)  — glide the ring and its centre count to
@@ -94,24 +95,9 @@
         });
     }
 
-    // Idle, the ring sits right after the picker group (#agentModeWrap: the mode
-    // trigger + Skills icon). That group's width changes with the selected
-    // mode's label and when the Skills icon mounts, so track it and hand the
-    // width to the CSS as --mem-am-w.
-    var followed = null;
-    function followPicker() {
-        var wrapper = document.querySelector('.input-area-wrapper');
-        var group = document.getElementById('agentModeWrap');
-        if (!wrapper || !group || group === followed) return;
-        followed = group;
-        function sync() { wrapper.style.setProperty('--mem-am-w', group.offsetWidth + 'px'); }
-        if (window.ResizeObserver) new ResizeObserver(sync).observe(group);
-        sync();
-    }
-
     function mount() {
-        var wrapper = document.querySelector('.input-area-wrapper');
-        if (!wrapper || document.getElementById('memoryRing')) return;
+        var toolbar = document.querySelector('.input-area-wrapper .input-toolbar');
+        if (!toolbar || document.getElementById('memoryRing')) return;
         fetch('memory_bar/memory_bar.html')
             .then(function (r) { return r.text(); })
             .then(function (html) {
@@ -120,11 +106,13 @@
                 holder.innerHTML = html.trim();
                 var el = holder.querySelector('.memory-ring');
                 if (!el) return;
-                wrapper.appendChild(el);
+                // Right after the Fast/Quality toggle, so Shell use (where the
+                // toggle fades out) leaves no gap before the model picker.
+                var toggle = toolbar.querySelector('.fast-quality-toggle');
+                toolbar.insertBefore(el, toggle ? toggle.nextSibling : toolbar.firstChild);
                 ring = el;
                 arc = el.querySelector('.memory-ring-arc');
                 value = el.querySelector('.memory-ring-value');
-                followPicker();
                 paintState();
                 shown = used;           // land on the latest value, no count-up
                 draw(shown);
@@ -149,10 +137,9 @@
     window.showMemoryBar = function () { visible = true; paintState(); };
     window.hideMemoryBar = function () { visible = false; paintState(); };
 
-    // chat_input.html is itself fetch-injected, and the picker mounts after it —
-    // mount on their ready events, with a direct attempt in case those fired.
+    // chat_input.html is itself fetch-injected — mount on its ready event, with
+    // a direct attempt in case that fired.
     document.addEventListener('chatinput:ready', mount);
-    document.addEventListener('agentmode:ready', followPicker);
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', mount);
     } else {
