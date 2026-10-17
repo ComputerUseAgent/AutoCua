@@ -93,9 +93,11 @@
 
             // The moment a task is sent, drop the empty-state hero, and the mode's
             // bot from the chat box: unless it is this run's bot, then it goes over
-            // to the bottom container itself once the run starts (chain_bot.js).
+            // to the bottom container itself once the run starts (chain_bot.js;
+            // Shell use: beside its terminal box, cli_stage.js).
             if (window.hideWelcomeHero) window.hideWelcomeHero();
-            if (window.modeBot && !window.modeBot.ready(runBot)) window.modeBot.hide();
+            const standBot = runBot || (agentMode === 'shell' ? 'shell' : '');
+            if (window.modeBot && !window.modeBot.ready(standBot)) window.modeBot.hide();
             // ...and reveal the memory ring (stays shown until a new chat).
             if (window.showMemoryBar) window.showMemoryBar();
 

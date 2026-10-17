@@ -36,6 +36,10 @@
     // shared): a terminal made meanwhile (New chat, another chat and back) knows it too.
     var cmdRunning = false;
 
+    function reduced() {
+        return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    }
+
     // Playful "thinking" lines the head-side line cycles through while the coder's minions
     // are off working (inherited verbatim from remote_connection/banner.py CP_MSGS — same
     // trick: a backtick template literal avoids escaping the many apostrophes/quotes;
@@ -235,15 +239,17 @@
         var typing = null;
         // Gliding to the end (native scroll): a fifth of the way each frame, chasing the
         // end while it moves (an answer still typing in), until it gets there. Scroll up
-        // while it glides and it stops there (glideLeft) instead of pulling you back.
+        // while it glides and it stops there (glideLeft) instead of pulling you back. A
+        // drop that lands on the end is not you: the chat got shorter under it (the Shell
+        // box closing back to its three lines after a run).
         var glideOn = false, glideAt = 0, glideRaf = 0, glideLeft = false;
         function glide() {
             if (!nativeScroll || glideOn || glideLeft) return;
             glideOn = true;
             glideAt = target.scrollTop;
             glideRaf = requestAnimationFrame(function step() {
-                if (target.scrollTop < glideAt - 2) { glideOn = false; glideLeft = true; return; }
                 var d = target.scrollHeight - target.clientHeight - target.scrollTop;
+                if (target.scrollTop < glideAt - 2 && d > 1) { glideOn = false; glideLeft = true; return; }
                 if (d <= 0.5) { glideOn = false; return; }
                 target.scrollTop += Math.max(1, d * 0.2);
                 glideAt = target.scrollTop;
@@ -626,23 +632,21 @@
         }
     }
 
-    // opts.header: <name> — the Shell-use card: a chat with a one-line terminal under it.
+    // opts.header: <name> — the Shell-use card: a chat with a terminal box under it.
     //   The scrollback above holds what cli_stage.js prints (your messages, the answers)
-    //   and your hand-typed commands with their output; under it ONE live line: the agent
+    //   and your hand-typed commands with their output; under it ONE live box: the agent
     //   head, the `>`, then the hello (a new chat), the reply's PROSE (every JSON key except
-    //   `action`, one line at a time) while a run goes, or the prompt you type into. Every
-    //   line stays, runs follow one another in it. Asked for by cli_stage.js only;
-    //   dispatched coder cards in the other modes are unchanged: no header, actions on a
-    //   5-line `> AutoCua Code`.
-    // opts.faceCanvas: the Shell use bot's face (cli/shell_bot.js). The tool chain plays
-    //   there, one icon at a time in the eyes' colour, in place of the chain list; no
-    //   tracking zone.
+    //   `action`, a line each, the newest three in sight) while a run goes, or the prompt
+    //   you type into. While a run goes the box is its tool box, as in the other modes: the
+    //   tool chain and the tracking progress on its right, the minions' bots on its bottom
+    //   left. Every line stays, runs follow one another in it. Asked for by cli_stage.js
+    //   only; dispatched coder cards in the other modes are unchanged: no header, actions
+    //   on a 5-line `> AutoCua Code`.
     function create(desc, opts) {
         opts = opts || {};
         var header = opts.header || '';
-        var face = opts.faceCanvas || null;
         var el = document.createElement('div');
-        el.className = 'coder-card' + (header ? ' has-head' : '') + (face ? ' has-face' : '');
+        el.className = 'coder-card' + (header ? ' has-head' : '');
         // The terminal card holds ONLY the streamed output + todo + minion output. Nothing else
         // (the action chain and scratchpad live in their own zones beside the card).
         // With a header the body is a ROW: .cc-main holds the terminal, with an (initially
@@ -662,7 +666,9 @@
             // Shell use: the scrollback, then the live line, a box: the commands you typed
             // there with their output (.cc-tview, shown while you type), then its row: head,
             // `>`, the agent's words (.cc-think) and the prompt, a REAL input you can click
-            // and type into, then the sliding bar (shown while you type, on the box's floor).
+            // and type into, the minions' tree and their bots, then the sliding bar (shown
+            // while you type, on the box's floor). The run's tool chain and tracking
+            // progress join it below (create).
             // Compact card: no input, and .cc-out-name is a PINNED row (its
             // "AutoCua Code" label used to live inside the scrolling conveyor, so it scrolled
             // away once the output overflowed).
@@ -680,6 +686,8 @@
                           '</div>' +
                           // the minions' tree, hanging from the head: an L to each minion's row
                           MINIONS_HTML +
+                          // and their bots, on the box's bottom left
+                          '<div class="cc-mbots"></div>' +
                           '<div class="cc-progress"><span class="cc-fill"></span></div>' +
                       '</div>' +
                   '</div>'
@@ -772,17 +780,134 @@
                         if (atChatEnd) outText.scrollTop = outText.scrollHeight;
                     }
                     fades();
+                    rbotPlace();      // the run's bot keeps to the box's top (the lines above rewrapped)
                 });
                 fadeRo.observe(outText);
                 if (outText.firstElementChild) fadeRo.observe(outText.firstElementChild);   // .cc-scroll
                 if (liveBox) fadeRo.observe(liveBox);
             }
         }
-        // Shell use only: the agent's own words, ONE line at a time on the live line (and a
-        // new chat's hello). A single-line paginating ticker (same streamer the minion rows
-        // use), so a long field flows left-to-right, holds, clears and continues instead of
-        // stacking up.
-        var thinkStream = header ? makeLineStreamer(el.querySelector('.cc-think'), null) : null;
+
+        // ---- the run's bot (Shell use) ------------------------------------------------
+        // The CoderUse bot beside the live box while a run goes, like Computer use's run bot
+        // beside its tool box (container/agent/chain_bot.js; owner, 2026-10-17): outside the
+        // box on its left, its top on the box's top, the place and size of an answer's bot.
+        // It is in the chat's scrolling view, so it scrolls with the chat; the box makes room
+        // for it (coder_card.css). In a fresh chat the bot standing on the chat box
+        // (chat_input/mode_bot.js) flies up into this place itself, unseen here until it
+        // lands. The run's answer comes in where the box was (the box goes under it), so this
+        // bot is beside the answer already: it stays there while the answer fades in, then
+        // the answer's own bot (its ::before, the same place and size) shows and this one
+        // goes, in one frame: one bot all along.
+        //   botIn()        the run started (or its card did): here, or on its way up
+        //   botOn()        here (or on its way)? the run's answer then waits for it
+        //   botToAnswer()  the run's answer just went in (with .cc-bot-wait)
+        //   botEnd()       the run ended without an answer: it goes
+        var HAND_MS = 400;                              // the answer's fade-in (runReplyIn) and a little
+        var rbot = null, rbotState = '', rbotHand = 0, rbotTimer = null, rbotMove = null;   // state: '' | on | wait | handing
+        if (header && liveBox) {
+            rbot = document.createElement('div');
+            rbot.className = 'cc-rbot';
+            rbot.setAttribute('aria-hidden', 'true');
+            rbot.innerHTML = '<img src="bots/coderuse.webp" alt="">' +
+                             '<img class="cc-rbot-eyes" src="bots/coderuse-eyes.webp" alt="">' +
+                             '<img src="bots/coderuse-shine.webp" alt="">';
+            outText.insertBefore(rbot, liveBox);
+        }
+        // its top on the box's top, in the chat's own coordinates; not once it waits for the
+        // answer (that took the box's old place, the box went under it)
+        function rbotPlace() {
+            if (rbot && (rbotState === 'on' || rbotState === 'wait')) rbot.style.top = liveBox.offsetTop + 'px';
+        }
+        // from where the chat box's bot landed to where its place is now (it moved on the way)
+        function rbotDock(from) {
+            if (rbotMove) rbotMove.cancel();
+            rbotMove = null;
+            var to = rbot.getBoundingClientRect();
+            if (reduced() || !from.height || !to.height) return;
+            if (Math.abs(to.left - from.left) <= 2 && Math.abs(to.top - from.top) <= 2) return;
+            rbotMove = rbot.animate([
+                { transform: 'translate(' + (from.left - to.left) + 'px, ' + (from.top - to.top) + 'px) scale(' + (from.height / to.height) + ')' },
+                { transform: 'none' }
+            ], { duration: 1100, easing: 'cubic-bezier(0.87, 0, 0.13, 1)' });   // == chain_bot.js dock()
+        }
+        function rbotOff() {
+            clearTimeout(rbotTimer); rbotTimer = null;
+            if (rbotMove) rbotMove.cancel();
+            rbotMove = null;
+            rbotHand++;                                    // a flight still on its way lands nowhere
+            rbotState = '';
+            if (!rbot) return;
+            rbot.classList.remove('on', 'wait');
+            rbot.style.removeProperty('top');
+            rbot.querySelector('.cc-rbot-eyes').style.removeProperty('transform');
+            el.classList.remove('cc-rbot-room', 'cc-rbot-handing');
+        }
+        function botIn() {
+            if (!rbot || rbotState === 'on' || rbotState === 'wait') return;
+            if (rbotState === 'handing') rbotOff();        // the last answer's hand-over ends now
+            var mine = ++rbotHand;
+            el.classList.add('cc-rbot-room');
+            rbot.classList.add('on');
+            rbotState = 'on';
+            rbotPlace();
+            if (window.modeBot && window.modeBot.ready('shell')) {
+                rbotState = 'wait';
+                rbot.classList.add('wait');
+                window.modeBot.flyTo(rbot, function (at) {
+                    if (mine !== rbotHand) return;
+                    rbot.classList.remove('wait');
+                    if (rbotState === 'wait') rbotState = 'on';
+                    rbotDock(at);
+                });
+            }
+        }
+        function botOn() { return rbotState === 'on' || rbotState === 'wait'; }
+        function botToAnswer() {
+            if (!botOn()) return;
+            rbotState = 'handing';                         // its place stays: the answer's bot's
+            el.classList.add('cc-rbot-handing');
+            el.classList.remove('cc-rbot-room');           // the box, under the answer now, back to the left
+            var since = performance.now();
+            (function hand() {
+                // still flying up, or gliding on from where it landed: it gets there first
+                // (its place is the answer's)
+                if (rbot.classList.contains('wait') || (rbotMove && rbotMove.playState === 'running')) {
+                    rbotTimer = setTimeout(hand, 60);
+                    return;
+                }
+                var left = HAND_MS - (performance.now() - since);
+                if (left > 0) { rbotTimer = setTimeout(hand, left); return; }
+                rbotOff();                                 // the answer's own bot shows in the same frame
+            })();
+        }
+        function botEnd() {
+            if (!botOn() || !rbot) return;
+            if (reduced() || rbotState === 'wait') return rbotOff();
+            var mine = rbotHand;
+            if (rbotMove) rbotMove.cancel();
+            var out = rbotMove = rbot.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, easing: 'ease', fill: 'forwards' });
+            out.onfinish = function () { if (mine === rbotHand) rbotOff(); };
+            el.classList.remove('cc-rbot-room');
+            rbotState = 'handing';                         // nothing else moves it now
+        }
+        // Shell use only: the agent's own words on the live line (and a new chat's hello),
+        // a line per field, wrapping, three lines in sight (coder_card.css): the newest at
+        // the bottom, older ones go up out of the box (native scroll, so the line sits
+        // under the head and `>` and the box hugs a short hello).
+        var thinkStream = header ? makeLineStreamer(el.querySelector('.cc-think'), null, { multiline: true, maxLines: 3 }) : null;
+        if (thinkStream) thinkStream.setNativeScroll(true);
+        // ...and its window always shows the newest: nobody scrolls it (no scrollbar, the wheel
+        // goes to the chat), so whenever it or its lines change size (they wrap anew after a
+        // resize or the left bar, it was hidden while you were in another mode) it goes back
+        // to the end
+        var thinkRo = null;
+        if (thinkStream && window.ResizeObserver) {
+            var thinkEl = el.querySelector('.cc-think');
+            thinkRo = new ResizeObserver(function () { thinkEl.scrollTop = thinkEl.scrollHeight; });
+            thinkRo.observe(thinkEl);
+            thinkRo.observe(thinkEl.firstElementChild);   // its lines (.cc-scroll)
+        }
         var minionStreams = {};   // minion id -> its line streamer
 
         // While minions are off working the coder says nothing for a long stretch, so the
@@ -797,13 +922,13 @@
             var i = Math.floor(Math.random() * CP_MSGS.length);
             if (CP_MSGS.length > 1 && i === lastFun) i = (i + 1) % CP_MSGS.length;   // no immediate repeat
             lastFun = i;
-            thinkStream.push(CP_MSGS[i]);   // single-line streamer: replaces the old page, types, then shimmers
+            thinkStream.reset();            // the last one goes once it has typed in full
+            thinkStream.push(CP_MSGS[i]);   // types, then shimmers
             funTimer = setTimeout(cycleFun, FUN_HOLD_MS);
         }
         function startFunLines() {
             if (!thinkStream || funTimer) return;
-            thinkStream.reset();            // drop the step's old words beside the head
-            cycleFun();
+            cycleFun();                     // (its reset drops the step's old words beside the head)
         }
         function stopFunLines() { if (funTimer) { clearTimeout(funTimer); funTimer = null; } }
 
@@ -840,16 +965,32 @@
             '<div class="cc-track-label">tracking progress</div>' +
             '<div class="cc-track-flow"><div class="cc-track-tree"></div></div>';
 
+        // Shell use: both live in the live box, on its right after the agent's words, while a
+        // run goes (coder_card.css), like the other modes' tool box.
+        if (liveBox) { liveBox.appendChild(chainEl); liveBox.appendChild(trackEl); }
+
         var ICONS = window.CliToolIcons;
         // the header's blinking agent head (same mark as the chain's `agent` icon)
         var mascotEl = el.querySelector('.cc-mascot');
         // 26px canvas -> a ~20px head; while working it wears the stop orb's colour
         var mascot = (mascotEl && ICONS && ICONS.createMascot) ? ICONS.createMascot(mascotEl, 26) : null;
-        // the chain: a list beside the terminal, or the bot's face (same API, one icon at a time)
-        var actionChain = !ICONS ? null
-            : (face && ICONS.createFaceIcon) ? ICONS.createFaceIcon(face, { color: 'rgb(80, 44, 40)' })
-            : ICONS.createChain(chainEl.querySelector('.cc-chain'), { orientation: 'vertical' });
-        var tracker = (ICONS && !face) ? ICONS.createTracker(trackEl.querySelector('.cc-track-tree'), trackEl.querySelector('.cc-track-flow'), trackEl) : null;
+        var actionChain = ICONS ? ICONS.createChain(chainEl.querySelector('.cc-chain'), { orientation: 'vertical' }) : null;
+        function makeTracker() {
+            return ICONS ? ICONS.createTracker(trackEl.querySelector('.cc-track-tree'), trackEl.querySelector('.cc-track-flow'), trackEl) : null;
+        }
+        var tracker = makeTracker();
+        // Shell use: the chain and the tracking keep their newest in sight when their columns
+        // change size (a resize, the left bar, back in Shell use mid-run: hidden, they
+        // measured nothing)
+        var colRo = null;
+        if (liveBox && window.ResizeObserver) {
+            colRo = new ResizeObserver(function () {
+                if (actionChain && actionChain.fit) actionChain.fit();
+                if (tracker && tracker.fit) tracker.fit();
+            });
+            colRo.observe(chainEl.querySelector('.cc-chain-flow'));
+            colRo.observe(trackEl.querySelector('.cc-track-flow'));
+        }
         var minionChains = {};         // minion id -> its own horizontal chain
         var minionParsers = {};        // minion id -> its action parser
         var noteLog = [];              // every scratchpad note this run — read back at task end
@@ -860,7 +1001,7 @@
                 // coder -> stream a clean, terminal-style narration line on the `>` output
                 // (narrationFor returns '' for scratchpad/todo, so those are skipped here).
                 // Not in Shell use: its chat shows only the agent's words, on the live line;
-                // the steps play on the bot's face.
+                // the steps play on the live box's tool chain.
                 if (isCoder && !header) { var n = narrationFor(a, false); if (n) outStream.push(n); }
                 // scratchpad -> the right "tracking progress" stream (coder only; not minions).
                 // Also LOGGED (noteLog) so the run's notes survive the card: cli_stage.js reads
@@ -1267,27 +1408,74 @@
             return null;
         }
 
-        // Shell use: a minion's tools play on its Minion bot's visor (cli/shell_bot.js,
-        // given by cli_stage.js as opts.minionFace), one icon at a time in its eyes' navy,
-        // like the CoderUse bot's own face. Made with its first tool, made again if its bot
-        // was made anew (back in Shell use); none while it waits for a place on the chat box.
-        var minionFaces = {};    // minion id -> { cv, fx }
-        function minionFace(id) {
-            var cv = opts.minionFace ? opts.minionFace(id) : null;
-            var f = minionFaces[id];
-            if (f && f.cv === cv) return f.fx;
-            if (f) { f.fx.dispose(); delete minionFaces[id]; }
-            if (!cv || !ICONS || !ICONS.createFaceIcon) return null;
-            f = minionFaces[id] = { cv: cv, fx: ICONS.createFaceIcon(cv, { color: 'rgb(34, 44, 80)' }) };
-            if (opts.minionWork) opts.minionWork(id, true);   // its eyes give way to the tools
-            return f.fx;
+        // Shell use: each minion's bot (the owner's minion-helmet.html art, ui/bots/minion*.webp)
+        // stands on the live box's bottom left while it works, one beside another
+        // (coder_card.css), four at most; more wait for a place. Its tools play on its visor,
+        // one icon at a time in its eyes' navy (tool_icons.js createFaceIcon), made with its
+        // first tool: the eyes give way to them. It sinks away when its minion ends.
+        var MBOT_PLACES = 4, MBOT_OUT_MS = 320;
+        var mbotsEl = el.querySelector('.cc-mbots');
+        var mbots = {};          // minion id -> { el, fx, face }
+        var mbotQueue = [];      // ids waiting for a place
+        function mbotIn(id) {
+            if (!mbotsEl || mbots[id] || mbotQueue.indexOf(id) >= 0) return;
+            if (Object.keys(mbots).length >= MBOT_PLACES) { mbotQueue.push(id); return; }
+            var m = document.createElement('div');
+            m.className = 'cc-mbot';
+            // its face between the eyes and the shine: the visor's glare stays on top
+            m.innerHTML =
+                '<img src="bots/minion.webp" alt="">' +
+                '<img class="cc-mbot-eyes" src="bots/minion-eyes.webp" alt="">' +
+                '<canvas class="cc-mbot-face"></canvas>' +
+                '<img src="bots/minion-shine.webp" alt="">';
+            mbotsEl.appendChild(m);
+            mbotsEl.classList.add('on');
+            mbots[id] = { el: m, fx: null, face: null };
         }
-        function dropMinionFace(id) {
-            if (minionFaces[id]) { minionFaces[id].fx.dispose(); delete minionFaces[id]; }
+        function mbotsFold() {                       // no bot left and none waiting: the row folds
+            if (mbotsEl && !Object.keys(mbots).length && !mbotQueue.length) mbotsEl.classList.remove('on');
+        }
+        function mbotOut(id) {
+            var w = mbotQueue.indexOf(id);
+            if (w >= 0) { mbotQueue.splice(w, 1); mbotsFold(); return; }
+            var b = mbots[id];
+            if (!b) return;                           // a repeated or stale end
+            delete mbots[id];
+            if (b.fx) b.fx.dispose();
+            b.el.classList.add('leaving');
+            mbotsFold();
+            setTimeout(function () {
+                if (b.el.parentNode) b.el.parentNode.removeChild(b.el);
+                if (mbotQueue.length) mbotIn(mbotQueue.shift());   // the next one takes a place
+            }, reduced() ? 0 : MBOT_OUT_MS);
+        }
+        function mbotsClear() {                      // the run is over: all go at once
+            mbotQueue.length = 0;
+            for (var k in mbots) { if (mbots[k].fx) mbots[k].fx.dispose(); }
+            mbots = {};
+            if (mbotsEl) { mbotsEl.replaceChildren(); mbotsEl.classList.remove('on'); }
+        }
+        // its face (null while it waits for a place): a tool the face can show takes the visor
+        // and the eyes give way to it; a packet without one leaves the eyes
+        function minionFace(id) {
+            var b = mbots[id];
+            if (!b || !ICONS || !ICONS.createFaceIcon) return null;
+            if (!b.face) {
+                b.fx = ICONS.createFaceIcon(b.el.querySelector('.cc-mbot-face'), { color: 'rgb(34, 44, 80)' });
+                b.face = {
+                    addAction: function (tool) {
+                        if (!b.fx.addAction(tool)) return false;
+                        b.el.classList.add('working');
+                        return true;
+                    }
+                };
+            }
+            return b.face;
         }
 
         function addMinion(id, query) {
             startFunLines();   // a minion is off working — the head-side line cycles fun "thinking" lines
+            if (header) mbotIn(id);
             var row = document.createElement('div');
             row.className = 'cc-mrow';
             row.dataset.id = String(id);
@@ -1366,6 +1554,7 @@
         function endMinion(id, status) {
             var row = findRow(id);
             if (!row || row.classList.contains('leaving')) return;   // idempotent (cliMinionEnd can repeat)
+            if (header) mbotOut(id);                                 // its bot sinks away now
 
             // stop streaming into a row that's leaving
             if (minionStreams[id]) { minionStreams[id].dispose(); delete minionStreams[id]; }
@@ -1393,7 +1582,6 @@
                 if (done) return; done = true;
                 row.removeEventListener('transitionend', onEnd);
                 if (minionChains[id]) { minionChains[id].dispose(); delete minionChains[id]; }
-                dropMinionFace(id);
                 delete minionParsers[id];
                 if (row.parentNode) row.parentNode.removeChild(row);
                 if (window.requestAnimationFrame) requestAnimationFrame(layoutTrunk); else layoutTrunk();
@@ -1424,12 +1612,15 @@
             if (termStream) termStream.dispose();
             if (termRo) termRo.disconnect();
             if (fadeRo) fadeRo.disconnect();
+            if (thinkRo) thinkRo.disconnect();
+            if (colRo) colRo.disconnect();
             outStream.dispose();
             for (var k in minionStreams) if (minionStreams[k]) minionStreams[k].dispose();
             if (actionChain) actionChain.dispose();
             if (tracker) tracker.dispose();
             for (var m in minionChains) if (minionChains[m]) minionChains[m].dispose();
-            for (var mf in minionFaces) dropMinionFace(mf);
+            mbotsClear();
+            rbotOff();
         }
 
         return {
@@ -1459,17 +1650,25 @@
             },
             // The run is over (its answer is printed): everything still playing for it
             // stops and the prompt is yours again; the terminal keeps what it showed and
-            // waits for the next run (cli_stage.js, Shell use). The face goes blank.
+            // waits for the next run (cli_stage.js, Shell use). Its tool chain, tracking
+            // progress and minions' bots go: the next run's start empty and fade in again.
             finish: function () {
                 stopFunLines();
                 clearTimeout(openTimer); openTimer = null;
                 clearTimeout(toolTimer); toolTimer = null;
                 toolQ.length = 0; openNext = null; thinkingStep = null;
                 anticipateNext = receivedEarly = fastOpening = openingDone = false;
-                if (actionChain && actionChain.clear) actionChain.clear();
+                if (actionChain) actionChain.dispose();
+                if (tracker) tracker.dispose();
+                tracker = makeTracker();
+                chainEl.classList.remove('cc-tools-active'); toolsRevealed = false;
+                trackEl.classList.remove('cc-track-active');
+                [chainEl.querySelector('.cc-chain'), trackEl.querySelector('.cc-track-tree')].forEach(function (t) {
+                    if (t) t.style.transform = '';      // back to the top, while hidden (no slide later)
+                });
                 for (var k in minionStreams) { if (minionStreams[k]) minionStreams[k].dispose(); delete minionStreams[k]; }
                 for (var m in minionChains) { if (minionChains[m]) minionChains[m].dispose(); delete minionChains[m]; }
-                for (var mf in minionFaces) dropMinionFace(mf);
+                mbotsClear();
                 for (var q in minionParsers) delete minionParsers[q];
                 treeEl.replaceChildren();
                 layoutTrunk();
@@ -1522,6 +1721,11 @@
                 setBusy(false);
             },
             setTodo: setTodo,
+            // Shell use: the run's bot beside the live box (above)
+            botIn: botIn,
+            botOn: botOn,
+            botToAnswer: botToAnswer,
+            botEnd: botEnd,
             addMinion: addMinion,
             setMinionLine: setMinionLine,
             endMinion: endMinion,

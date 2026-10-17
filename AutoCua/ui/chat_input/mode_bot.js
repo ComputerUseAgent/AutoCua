@@ -1,18 +1,20 @@
 // =====================================================================
-// The mode's bot when a mode is picked (mode_bot.css): Computer use, Web use
-// and Mobile use, each its own (ui/bots/<bot>*.webp); Shell use has its own
-// (cli/shell_bot.js). It comes in big in the middle of the frame like the
+// The mode's bot when a mode is picked (mode_bot.css): Computer use, Web use,
+// Mobile use and Shell use, each its own (ui/bots/<bot>*.webp; Shell use's is
+// the CoderUse bot). It comes in big in the middle of the frame like the
 // splash's hero (intro_animation.html): it fades in, grows from 0.85x out
-// of a 6px blur, wakes and blinks; the welcome words wait meanwhile. Then,
-// in a fresh chat (nothing sent yet), it shrinks onto the chat box and
-// stands there like Shell use's bot, its waist on the box's top edge,
+// of a 6px blur, wakes and blinks; the welcome words (Shell use: its chat)
+// wait meanwhile. Then, in a fresh chat (nothing sent yet), it shrinks onto
+// the chat box and stands there, its waist on the box's top edge,
 // blinking now and then (bot_blink.js). In a chat with turns it fades away
-// instead. When that chat's run starts it goes over to the bottom container
-// itself and is the run's bot there (chain_bot.js). Any other task sent,
-// New chat, opening a saved chat or picking Shell use takes it away.
-// Its place is in the chat box's column, like Shell use's bot.
-//   window.modeBot.enter(kind)   a mode was picked: 'computer', 'web', 'mobile'
-//   window.modeBot.hide()        away (a task sent, a chat opened, Shell use)
+// instead. When that chat's run starts it goes over to the run's bot's place
+// itself and is the run's bot there (chain_bot.js; Shell use: beside its
+// terminal box, cli_container/coder_card.js). Any other task sent, New chat
+// or opening a saved chat takes it away. It fires 'modebot:intro-end' when
+// its entrance is over (on the chat box, on its way over, or going).
+// Its place is in the chat box's column.
+//   window.modeBot.enter(kind)   a mode was picked: 'computer', 'web', 'mobile', 'shell'
+//   window.modeBot.hide()        away (a task sent, a chat opened)
 //   window.modeBot.ready(kind)   a fresh chat's bot, as kind's?
 //   window.modeBot.flyTo(to, done)  then over to to's place (chain_bot.js)
 //   window.modeBot.retarget(rect, by)  the run ended on the way: on to its place's new spot
@@ -26,9 +28,10 @@
     var BOTS = {
         computer: { img: 'computeruse', hem: 65 },
         web: { img: 'webuse', hem: 44 },
-        mobile: { img: 'mobileuse', hem: 70 }
+        mobile: { img: 'mobileuse', hem: 70 },
+        shell: { img: 'coderuse', hem: 70 }
     };
-    // == shell_bot.js: the splash's hero entrance, then onto the chat box.
+    // The splash's hero entrance (intro_animation.html), then onto the chat box.
     var FADE = 350, GROW = 1000;               // fades in; 0.85x -> 1x, blur 6px -> 0
     var WAKE_AT = 320, WAKE = 600;             // the eyes open
     var BLINK_AT = 1120, BLINK = 300;          // and blink
@@ -64,7 +67,7 @@
     }
 
     // Its place: in the chat box's column (chat_input.html), just above the
-    // "Agent running..." strip, as Shell use's bot. Not in the frame: the
+    // "Agent running..." strip. Not in the frame: the
     // frame clips what leaves it.
     function parts() {
         var p = find();
@@ -93,7 +96,7 @@
     }
 
     // While it comes in: big in the middle of the frame, held there by a
-    // transform over its place on the chat box (== shell_bot.js hold()).
+    // transform over its place on the chat box.
     function hold(p) {
         var grid = document.getElementById('mainGrid');
         p.bot.style.transform = '';
@@ -121,15 +124,23 @@
         ], { delay: WAKE_AT, duration: span, fill: 'both' });
     }
 
-    // On the chat box: the entrance is over, the welcome words come back.
+    // The entrance is over: the welcome words (Shell use: its chat) come back.
+    function introEnd() {
+        if (!document.body.classList.contains('mode-intro')) return;
+        document.body.classList.remove('mode-intro');
+        document.dispatchEvent(new CustomEvent('modebot:intro-end'));
+    }
+
+    // On the chat box: the entrance is over.
     function landed(p) {
         clear();
         p.bot.style.transform = '';
         p.bot.classList.add('settled', 'home');
-        document.body.classList.remove('mode-intro', 'mode-front');
+        introEnd();
+        document.body.classList.remove('mode-front');
     }
 
-    // Onto the chat box by transform alone, from the middle (== shell_bot.js settle()).
+    // Onto the chat box by transform alone, from the middle.
     function settle() {
         var p = find();
         if (!p) return;
@@ -170,7 +181,7 @@
         p.bot.style.transform = '';
         // Its eyes stay open on the way, and no blink starts (bot_blink.js).
         p.bot.classList.add('settled', 'home', 'flying');
-        document.body.classList.remove('mode-intro');
+        introEnd();
         document.body.classList.add('mode-front');
         fly(p, from, to.getBoundingClientRect(), FLY, EASE_EXPO);
     }
@@ -229,7 +240,7 @@
         if (handing) return release();
         if (!p || !p.host.classList.contains('on') || leaving) return;
         leaving = true;
-        document.body.classList.remove('mode-intro');
+        introEnd();
         if (reduced()) return off(p);
         var out = p.bot.animate([{ opacity: 1 }, { opacity: 0 }], { duration: LEAVE, easing: 'ease', fill: 'forwards' });
         anims.push(out);
@@ -243,7 +254,8 @@
         p.bot.classList.remove('settled', 'home', 'flying');
         p.bot.style.transform = '';
         p.eyes.style.removeProperty('transform');
-        document.body.classList.remove('mode-intro', 'mode-front');
+        introEnd();
+        document.body.classList.remove('mode-front');
     }
 
     function use(p, kind) {
@@ -295,9 +307,12 @@
     // A mode picked in the menu (agent_mode.js; every pick, not the silent
     // sets below). On the next frame: leaving Shell use takes its stage away
     // in its own listener first (cli_stage.js), and the bot's place shows only then.
+    // Shell use at once: its chat comes up in the same moment (cli_stage.js) and
+    // waits for the bot from its first frame (cli_stage.css).
     document.addEventListener('agentmode:changed', function (e) {
         var mode = (e.detail || {}).mode;
         if (!BOTS[mode]) return leave();
+        if (mode === 'shell') return enter(mode);
         requestAnimationFrame(function () { enter(mode); });
     });
     // The menu set without a pick (a reopened chat's lock, a failed iPhone

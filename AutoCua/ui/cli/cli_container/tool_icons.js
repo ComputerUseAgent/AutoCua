@@ -5,12 +5,14 @@
 // is kept SEPARATE from agent.js so the working main chain is never touched.
 //
 // API (window.CliToolIcons):
-//   createChain(treeEl, {orientation})        -> { addStep(spec), addAction(tool)->bool, dispose }
-//   createTracker(treeEl, flowEl, zoneEl)     -> { push(text), dispose }  (scratchpad stream)
+//   createChain(treeEl, {orientation})        -> { addStep(spec), addAction(tool)->bool, fit(), dispose }
+//   createTracker(treeEl, flowEl, zoneEl)     -> { push(text), fit(), dispose }  (scratchpad stream)
+//                                                (fit(): the newest back in sight after its box
+//                                                 changed size)
 //   createMascot(canvas, size)                -> { setGlow(on), dispose }  (the blinking agent head, big)
 //   createFaceIcon(canvas, {color, size})     -> { show, clear, dispose, addStep, addAction }
-//                                                (the chain one icon at a time, one colour: the
-//                                                 Shell use bot's visor, cli/shell_bot.js)
+//                                                (the chain one icon at a time, one colour: a
+//                                                 Shell use minion bot's visor, coder_card.js)
 // where `tool` = { name: <action type>, arg: <label param> }. Unmapped names (todo/
 // scratchpad/exit) are skipped by the chain — they're shown elsewhere.
 (function () {
@@ -796,7 +798,7 @@
             steps.length = 0; shimmerWord = null;
         }
 
-        return { addStep: addStep, addAction: addAction, dispose: dispose };
+        return { addStep: addStep, addAction: addAction, fit: scrollToEnd, dispose: dispose };
     }
 
     /* ====== "tracking progress" — scratchpad entries streamed char-by-char (tracking_progress style:
@@ -848,7 +850,7 @@
             items.length = 0;
             if (treeEl) treeEl.innerHTML = '';
         }
-        return { push: push, dispose: dispose };
+        return { push: push, fit: scrollToEnd, dispose: dispose };
     }
 
     window.CliToolIcons = { createChain: createChain, createTracker: createTracker, createMascot: createMascot, createFaceIcon: createFaceIcon };

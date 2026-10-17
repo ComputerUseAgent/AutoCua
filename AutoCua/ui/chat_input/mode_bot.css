@@ -1,15 +1,15 @@
 /* =====================================================================
-   The mode's bot (mode_bot.js): Computer use's, Web use's or Mobile use's,
-   standing on top of the chat box in its middle in a fresh chat, like Shell
-   use's bot (cli/shell_bot.css): the same size and place, a small item of
-   the chat box's column, just above the "Agent running..." strip. While it
-   comes in it is held big in the middle of the frame by a transform (the
-   script), and the welcome words wait. When its chat's run starts it flies
-   over to the run's bot's place (container/agent/chain_bot.js). Only
+   The mode's bot (mode_bot.js): Computer use's, Web use's, Mobile use's or
+   Shell use's, standing on top of the chat box in its middle in a fresh chat:
+   a small item of the chat box's column, just above the "Agent running..." strip.
+   While it comes in it is held big in the middle of the frame by a transform (the
+   script), and the welcome words (Shell use: its chat, cli_stage.css) wait. When
+   its chat's run starts it flies over to the run's bot's place
+   (container/agent/chain_bot.js; Shell use: cli_container/coder_card.js). Only
    transform / opacity animate (and the entrance's blur).
    ===================================================================== */
 #modeBot {
-    --mb-h: clamp(64px, 8vw, 96px);          /* == Shell use's bot */
+    --mb-h: clamp(64px, 8vw, 96px);
     position: relative;
     z-index: 1;
     flex: 0 0 auto;
@@ -24,8 +24,7 @@
     display: none;
 }
 #modeBot.on { display: block; }
-/* Never in Shell use (its own bot stands there), nor over Skills. */
-body.cli-shell #modeBot { display: none; }
+/* Not over Skills. */
 body.skills-open #modeBot { visibility: hidden; }
 
 /* The bot in its place: its moves are transforms on it. */

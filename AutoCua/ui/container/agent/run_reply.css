@@ -15,8 +15,8 @@
     display: none;
 }
 /* A bot beside the AI's final message: the run's own (data-bot, below), or
-   the AutoCua bot (bots/autocua*.webp, from the owner's autocua-helmet.html),
-   also in Shell use's chat (coder_card.css). As tall as a one-line reply's box
+   the AutoCua bot (bots/autocua*.webp, from the owner's autocua-helmet.html);
+   Shell use's chat has the CoderUse bot (coder_card.css). As tall as a one-line reply's box
    (its padding, a 1.5 line, its line), a gap from it; the run's bot stands
    here, this size, while it runs (chain_bot.css). Three layers like the splash's
    bots (body, eyes, shine on one canvas), so its eyes can blink. */

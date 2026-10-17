@@ -50,18 +50,18 @@ body.cli-stage #cliContainer {
 body.cli-stage #chatScroll { transform: translateY(-100%); opacity: 0; pointer-events: none; }
 
 /* =====================================================================
-   Shell use: a chat with a one-line terminal (#cliContainer, the Shell card,
-   cli_container/coder_card.css) filling the frame, down to a gap above the
-   head of the CoderUse bot, which stands on the chat box below it (#shellBot,
-   cli/shell_bot.css; shell_bot.js measures --sb-clear). Nothing else in the
-   frame. The chat box's Auto / Manual pill only says whose the prompt is.
+   Shell use: a chat with a terminal box (#cliContainer, the Shell card,
+   cli_container/coder_card.css) filling the frame. Nothing else in the
+   frame (picked in a fresh chat, the CoderUse bot comes in over it first and
+   then stands on the chat box: chat_input/mode_bot.js). The chat box's
+   Auto / Manual pill only says whose the prompt is.
    ===================================================================== */
 body.cli-shell #cliContainer {
     grid-column: 1 / -1;
     grid-row: 1 / -1;
     align-self: start;
     box-sizing: border-box;
-    height: calc(100% - var(--sb-clear, 0px));
+    height: 100%;
     min-width: 0;
     min-height: 0;
 }
@@ -71,8 +71,8 @@ body.cli-shell #cliContainer .cc-agent {
     position: absolute;
     inset: 0;
 }
-/* While the bot comes in, the chat waits. */
-body.shell-intro #cliContainer .cc-agent {
+/* While the CoderUse bot comes in (chat_input/mode_bot.js), the chat waits. */
+body.mode-intro.cli-shell #cliContainer .cc-agent {
     opacity: 0;
     transform: scale(0.96);
 }

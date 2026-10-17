@@ -9,14 +9,16 @@
 // For now: ONE card, centered in #cliContainer. (Multiple agents → multiple stacked
 // containers is the next step; the registry below already supports N cards.)
 //
-// Shell use: ONE card for the whole chat, the CoderUse bot on the chat box below it
-// (cli/shell_bot.js): a chat with a one-line terminal under it. The line greets ("Hi!
-// How can I help you!"), your messages show as the normal chat's bubbles, the line
-// carries the agent's words while a run goes, and the answer lands in the chat's reply
-// box; it all stays: at a run's end the card goes back to waiting instead of being
-// replaced. The run's tool chain plays on the bot's face. A reopened shell chat fills
-// it with its messages and answers. The chat box's Auto / Manual pill (agent_mode.js)
-// hands the line's prompt to you (Manual) or to the agent.
+// Shell use: ONE card for the whole chat: a chat with a terminal box under it. The box
+// greets ("Hi! How can I help you!"; picked in a fresh chat, once the CoderUse bot has
+// come in and stands on the chat box: chat_input/mode_bot.js), your messages show as the
+// normal chat's bubbles, the box carries the agent's words while a run goes (and the
+// run's tool chain, its tracking progress and its minions' bots: coder_card.js), the
+// run's CoderUse bot stands beside it (flown up from the chat box in a fresh chat), and
+// the answer lands in the chat's reply box, that bot beside it; it all stays: at a run's
+// end the card goes back to waiting instead of being replaced. A reopened shell chat
+// fills it with its messages and answers. The chat box's Auto / Manual pill
+// (agent_mode.js) hands the box's prompt to you (Manual) or to the agent.
 //
 // NOTE: script.js assigns its window.cli* inside a DOMContentLoaded handler, so we install
 // ours on the macrotask AFTER DOMContentLoaded to win the override.
@@ -77,23 +79,17 @@
         runChat = null;
     }
 
-    // Shell use gets the terminal header — blinking dot + name, then the `>` prompt
-    // everything streams from — and its tool chain plays on the bot's face. The other
-    // modes keep the plain `> AutoCua Code` card.
+    // Shell use gets the chat card (coder_card.js, its header): its terminal box holds the
+    // run's tool chain and tracking progress. The other modes keep the plain
+    // `> AutoCua Code` card.
     function cardOpts() {
         if (!shellPinned) return {};
-        return {
-            header: 'AutoCua Code',
-            faceCanvas: window.shellBot ? window.shellBot.face() : null,
-            // its minions' tools play on their own Minion bots' faces
-            minionFace: function (id) { return window.shellBot ? window.shellBot.minionFace(id) : null; },
-            minionWork: function (id, on) { if (window.shellBot) window.shellBot.minionWork(id, on); }
-        };
+        return { header: 'AutoCua Code' };
     }
 
     // One agent row: left tool-chain | center terminal | right scratchpad. In Shell
-    // use the terminal alone (its chain is on the bot's face). Shared by the live
-    // cards and the idle placeholder so they're the same shape.
+    // use the terminal alone (its chain and tracking are in its box). Shared by the
+    // live cards and the idle placeholder so they're the same shape.
     function buildUnit(card) {
         var sides = !shellPinned;
         var unit = document.createElement('div');
@@ -118,9 +114,8 @@
         // Shell use: PROMOTE the waiting terminal rather than swapping it out. It is already
         // the same card, in the same place, with the chat's lines in it — tearing it down
         // and sliding an identical replacement up from 16px is exactly the jitter you see
-        // on send. Promotion just starts the run, so the terminal simply carries on, and the
-        // bot gets to work (its face shows the run's tools). Nothing to animate, nothing to
-        // repaint.
+        // on send. Promotion just starts the run, so the terminal simply carries on (its box
+        // opens into the run's tool box). Nothing to animate, nothing to repaint.
         if (idleCard && !cards.size) {
             var promoted = idleCard;
             var pUnit = promoted._unit;
@@ -129,7 +124,7 @@
             cards.set(taskId, promoted);
             syncLayout();
             if (promoted.begin) promoted.begin();              // opening phase starts NOW
-            if (window.shellBot) { window.shellBot.settle(); window.shellBot.work(true); }
+            if (!runEnded && promoted.botIn) promoted.botIn();  // its bot beside the box
             return;
         }
 
@@ -147,7 +142,7 @@
         syncLayout();
         if (shellPinned && card.begin) {
             card.begin();
-            if (window.shellBot && isShellCard(card)) { window.shellBot.settle(); window.shellBot.work(true); }
+            if (isShellCard(card) && !runEnded && card.botIn) card.botIn();
         }
         // strip .entering next frame so it transitions in (and after the .two height change lands)
         if (window.requestAnimationFrame) requestAnimationFrame(function () { unit.classList.remove('entering'); });
@@ -191,11 +186,11 @@
             if (card._unit && card._unit.parentNode) card._unit.parentNode.removeChild(card._unit);
         }
         // the Shell run is over (not merely another card beside it, e.g. a Computer use
-        // coder's: that would cost the live Shell run its answer, its face and its bots)
+        // coder's: that would cost the live Shell run its answer)
         if (isShellCard(card)) {
             runEnded = true;
             runChat = null;
-            if (window.shellBot) { window.shellBot.work(false); window.shellBot.minionsClear(); }
+            if (card.botEnd) card.botEnd();     // no answer took it over (it was printed: nothing)
         }
         if (shellPinned && !idleCard) mountIdle();
     }
@@ -212,7 +207,7 @@
     // ---- the Shell use terminal's own lines ----------------------------------------
     var GREETING = 'Hi! How can I help you!';
     var pendingHistory = null;    // a reopened chat's rows, waiting for its terminal (cliShellHistory)
-    var pendingGreet = null;      // a fresh terminal whose greeting waits for the bot to land
+    var pendingGreet = null;      // a fresh terminal whose hello waits for the bot's entrance
     var runEnded = true;          // the latest run's ending (answer / stop) is already printed
     var runChat = null;           // the chat a running command was sent in
 
@@ -225,13 +220,28 @@
         card.print('<div class="cc-user-text">' + esc(text) + '</div>', 'cc-user', 'html');
     }
 
-    // A fresh chat says hello on its live line, once the bot has come in (it types where
-    // you can see it).
+    // A fresh chat says hello on its live line, once the bot has come in (mode_bot.js; it
+    // types where you can see it).
     function greet(card) {
         if (!card || !card.hello) return;
-        if (document.body.classList.contains('shell-intro')) { pendingGreet = card; return; }
+        if (document.body.classList.contains('mode-intro')) { pendingGreet = card; return; }
         pendingGreet = null;
         card.hello(GREETING);
+    }
+
+    // The Shell card on screen: the running one, else the waiting one.
+    function liveShellCard() {
+        var found = null;
+        cards.forEach(function (k) { if (!found && isShellCard(k)) found = k; });
+        return found || idleCard;
+    }
+
+    // The run's answer (or why it ended): the run's bot beside the box hands over to it
+    // (coder_card.js botToAnswer), the answer's own bot unseen until then.
+    function printRunAnswer(card, text, cls, mode) {
+        var bot = !!(card.botOn && card.botOn());
+        card.print(text, cls + (bot ? ' cc-bot-wait' : ''), mode);
+        if (bot) card.botToAnswer();
     }
 
     // A reopened chat: each run's request as your message and its done message as the
@@ -257,10 +267,10 @@
         if (!card || !card.print) return;
         var ended = status !== 'complete';
         var cls = 'cc-answer cc-fresh' + (ended ? ' is-ended' : '');
-        if (summaryHtml) card.print(String(summaryHtml), cls + ' md', 'typehtml');
-        else if (summary) card.print(String(summary), cls, 'type');
-        else if (status === 'stopped') card.print('Stopped.', 'cc-answer cc-fresh is-ended', 'type');
-        else if (status === 'complete') card.print('Done.', cls, 'type');
+        if (summaryHtml) printRunAnswer(card, String(summaryHtml), cls + ' md', 'typehtml');
+        else if (summary) printRunAnswer(card, String(summary), cls, 'type');
+        else if (status === 'stopped') printRunAnswer(card, 'Stopped.', 'cc-answer cc-fresh is-ended', 'type');
+        else if (status === 'complete') printRunAnswer(card, 'Done.', cls, 'type');
     }
 
     // The waiting terminal: a normal coder card that's simply never fed any
@@ -299,29 +309,14 @@
 
     function syncShellStage() {
         var wrap = document.getElementById('agentModeWrap');
-        var was = shellPinned;
         shellPinned = !!wrap && wrap.dataset.mode === 'shell';
-        // Shell use re-lays-out the stage: the chat with its one-line terminal filling
-        // the frame and the CoderUse bot on the chat box (shell_bot.css, cli_stage.css,
-        // coder_card.css).
+        // Shell use re-lays-out the stage: the chat with its terminal box filling the
+        // frame (cli_stage.css, coder_card.css).
         // Dispatched-coder runs in the other modes keep the left | center | right columns.
         document.body.classList.toggle('cli-shell', shellPinned);
         if (shellPinned) {
             injectPanel();
             document.body.classList.add('cli-stage');
-            // picked just now: the bot comes in, and the terminal waits for it
-            if (!was && window.shellBot) {
-                window.shellBot.enter();
-                // back while its run still goes: the face shows that run's tools again
-                if (Array.from(cards.values()).some(function (k) { return k.el && k.el.classList.contains('has-face'); })) {
-                    window.shellBot.work(true);
-                }
-                // ...and its minions still running stand beside it again (after it lands)
-                cards.forEach(function (k) {
-                    if (!isShellCard(k) || runEnded) return;
-                    [].forEach.call(k.el.querySelectorAll('.cc-mrow:not(.leaving)'), function (r) { window.shellBot.minionIn(r.dataset.id); });
-                });
-            }
             mountIdle();
             // The terminal IS this mode's empty state, so the "Made to do…" hero has
             // nothing to say and would just sit behind it. Remember whether it was up,
@@ -331,7 +326,6 @@
             heroWasVisible = !!hero && !hero.classList.contains('hidden');
             if (window.hideWelcomeHero) window.hideWelcomeHero();
         } else {
-            if (was && window.shellBot) window.shellBot.stop();
             pendingGreet = null;
             pendingHistory = null;        // the chat they were for is not the one open now
             unmountIdle();
@@ -444,7 +438,6 @@
             minionParent.clear();
             runEnded = true;
             clearTimeout(clearTimer); clearTimer = null;   // no deferred wipe into the new terminal
-            if (window.shellBot) { window.shellBot.work(false); window.shellBot.minionsClear(); }
             document.body.classList.remove('cli-typing');
             unmountIdle();
             if (c) { c.innerHTML = ''; c.classList.remove('n2', 'n3'); }
@@ -501,9 +494,7 @@
             var card = cards.get(parentId);
             if (!card) return;
             minionParent.set(taskId, parentId);
-            card.addMinion(taskId, query);
-            // Shell use: a Minion bot comes to stand beside the CoderUse bot
-            if (shellPinned && isShellCard(card) && !runEnded && window.shellBot) window.shellBot.minionIn(taskId);
+            card.addMinion(taskId, query);            // Shell use: its bot in the box too
         };
         window.cliMinionLine = function (taskId, line, stream) {
             var parent = minionParent.get(taskId);
@@ -514,7 +505,6 @@
             var parent = minionParent.get(taskId);
             var card = (parent != null) ? cards.get(parent) : null;
             if (card) card.endMinion(taskId, status);
-            if (window.shellBot) window.shellBot.minionOut(taskId);   // its bot goes (a stale end: nothing)
         };
 
         // Stage-level message straight onto the terminal. In Shell use the four zones
@@ -539,7 +529,7 @@
                 if (runEnded) return;
                 runEnded = true;
                 var ended = currentCard();
-                if (ended && ended.print) ended.print(String(text || '').replace(/^\W+/, ''), 'cc-answer cc-fresh is-ended', 'type');
+                if (ended && ended.print) printRunAnswer(ended, String(text || '').replace(/^\W+/, ''), 'cc-answer cc-fresh is-ended', 'type');
                 return;
             }
             var card = currentCard();
@@ -586,6 +576,11 @@
         // id now, from the backend: the run is that chat's.
         window.cliShellStarted = function (id) {
             if (runChat == null && !runEnded && id) runChat = id;
+            // the run's bot beside the box now (from the chat box in a fresh chat), whichever
+            // comes first: this or the run's card (mountAgent)
+            if (!shellPinned || runEnded) return;
+            var card = liveShellCard();
+            if (card && card.botIn) card.botIn();
         };
 
         // Shell use: Stop (chat_input.js). The run says so and the terminal is yours
@@ -597,12 +592,12 @@
                 if (runEnded) return;
                 runEnded = true;
                 var waiting = currentCard();
-                if (waiting && waiting.print) waiting.print('Stopped.', 'cc-answer cc-fresh is-ended', 'type');
+                if (waiting && waiting.print) printRunAnswer(waiting, 'Stopped.', 'cc-answer cc-fresh is-ended', 'type');
                 return;
             }
             ids.forEach(function (id) {
                 var card = cards.get(id);
-                if (isShellCard(card)) card.print('Stopped.', 'cc-answer cc-fresh is-ended', 'type');
+                if (isShellCard(card)) printRunAnswer(card, 'Stopped.', 'cc-answer cc-fresh is-ended', 'type');
                 demote(id);
             });
         };
@@ -611,15 +606,14 @@
         // prompt is yours (you type the commands). Auto: the agent's again.
         document.addEventListener('shellinput:changed', function (e) {
             var manual = ((e.detail || {}).mode === 'manual');
-            if (window.shellBot) window.shellBot.manual(manual);
             if (!shellPinned || !idleCard) return;
             if (!manual) { if (idleCard.leaveTyping) idleCard.leaveTyping(); return; }
             var cmd = idleCard.el && idleCard.el.querySelector('.cc-cmd');
             if (idleCard.el && idleCard.el._focusPrompt && document.activeElement !== cmd) idleCard.el._focusPrompt();
         });
 
-        // The bot has come in: a fresh terminal says hello now.
-        document.addEventListener('shellbot:settled', function () {
+        // The bot's entrance is over (mode_bot.js): a fresh terminal says hello now.
+        document.addEventListener('modebot:intro-end', function () {
             var card = pendingGreet;
             pendingGreet = null;
             if (card && card === idleCard && !card.el.classList.contains('cc-has-out')) greet(card);
