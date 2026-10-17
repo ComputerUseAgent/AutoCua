@@ -660,7 +660,8 @@ body:not(.cli-shell) .coder-card.has-head .cc-out-text { display: none; }
     color: rgba(40, 40, 40, 0.92);
     overflow-wrap: anywhere;
 }
-/* the bot, as on Computer use's reply (run_reply.css): still, its top on the box's top */
+/* the bot, as on Computer use's reply (run_reply.css): its top on the box's top, its
+   eyes blinking (bot_blink.js) */
 .coder-card.has-head .cc-out-text .cc-line.cc-answer::before {
     content: "";
     position: absolute;
@@ -668,7 +669,12 @@ body:not(.cli-shell) .coder-card.has-head .cc-out-text { display: none; }
     right: calc(100% + 1px + var(--reply-bot-gap));
     width: var(--reply-bot-w);
     height: var(--reply-bot-h);
-    background: url("../../bots/autocua.webp") center / contain no-repeat;
+    --reply-eye: 25.14%;
+    background-image: url("../../bots/autocua-shine.webp"), url("../../bots/autocua-eyes.webp"),
+                      url("../../bots/autocua.webp");
+    background-size: 100% 100%, 100% calc(var(--reply-eyes, 1) * 100%), 100% 100%;
+    background-position: center, center var(--reply-eye), center;
+    background-repeat: no-repeat;
     pointer-events: none;
 }
 .coder-card.has-head .cc-out-text .cc-line.cc-answer.md { white-space: normal; }

@@ -1,11 +1,11 @@
 /* =====================================================================
-   Computer use stage, in the screen box (run_bot.js). While a Computer use
-   run is on, the box shows a moving background (logo/simulation_background
-   .mp4), the Computer use bot comes in like the splash's hero, then stands
-   small in the bottom-left corner, in front of the screenshots, which show
-   a little smaller than the box, centred. When the run ends it comes back
-   to the middle over "Preparing video" until the run's video is in. Only
-   transform / opacity animate (and the text's shimmer).
+   The run's screen stage, in the screen box (run_bot.js): while a Computer
+   use, Web use or iOS run is on, the box shows a moving background
+   (logo/simulation_background.mp4) with the screenshots on it, a little
+   smaller than the box, centred. After a Computer use run, "Preparing video"
+   shows there until the run's video is in. The run's bot is beside the
+   bottom container now (container/agent/chain_bot.css). Only opacity /
+   transform animate (and the text's shimmer).
    ===================================================================== */
 
 /* The moving background, behind everything in the box. */
@@ -23,11 +23,10 @@
 
 /* The screenshot (and the run's video after it), a little smaller than the
    box and centred: 7% of the box on every side. The box has the picture's
-   own shape, so the picture fills this frame exactly, and its bottom edge is
-   7% above the box's (the bot stands on it). In a box too narrow for that
-   shape the picture sits on the frame's bottom, so the edge stays there.
-   Sized to the picture itself, so its corners round on the picture. Hidden
-   while the bot comes in, and while it waits in the middle for the video. */
+   own shape, so the picture fills this frame exactly; in a box too narrow
+   for that shape the picture sits on the frame's bottom. Sized to the
+   picture itself, so its corners round on the picture. Hidden while
+   "Preparing video" shows. */
 .screen-container.cu-stage .screenshot-frame {
     inset: 7%;
     align-items: flex-end;
@@ -41,87 +40,21 @@
     max-height: 100%;
     border-radius: 8px;
 }
-.screen-container.cu-intro .screenshot-frame,
 .screen-container.cu-prep .screenshot-frame {
     opacity: 0;
     transform: scale(0.96);
 }
 
-/* The bot. Laid out big in the middle of the box while it comes in (the
-   script grows it out of a blur there), then it shrinks into the corner and
-   takes its docked layout. In front of the screenshot and the shell panel. */
-.screen-container .cu-bot {
-    position: absolute;
-    z-index: 4;
-    display: none;
-    height: 78%;
-    aspect-ratio: 884 / 1224;     /* the bot images' shape */
-    left: 50%;
-    bottom: 11%;
-    translate: -50% 0;
-    transform-origin: 0 100%;     /* the corner it moves by */
-    pointer-events: none;
-    transition: opacity 0.35s ease;
-}
-.screen-container.cu-stage .cu-bot { display: block; }
-/* In the corner: its waist, the sweater's hem, on the screenshot's bottom
-   edge, 7% above the box's. The hem is row 1159 of the images' 1224 (below
-   it only the hands and clear pixels), hence the offset. == DOCK_* in
-   run_bot.js. */
-.screen-container .cu-bot.docked {
-    height: 46%;
-    left: 1.5%;
-    bottom: calc(7% - 46% * 65 / 1224);
-    translate: none;
-}
-/* Waiting for the video: back in the middle, a little higher, over the text. */
-.screen-container .cu-bot.preparing {
-    height: 62%;
-    bottom: 24%;
-}
-.screen-container .cu-bot.leaving {
-    opacity: 0;
-}
-
-.cu-bot-body {
-    position: absolute;
-    inset: 0;
-    transform-origin: 50% 100%;
-}
-.cu-bot img {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    display: block;
-    -webkit-user-select: none;
-    user-select: none;
-}
-/* The eyes open and blink around their own centre line (the bot images'
-   eye line, 24.74% from the top). Once in place it blinks now and then. */
-.cu-bot .eyes {
-    opacity: 0;
-    transform-origin: 50% 24.74%;
-}
-.cu-bot.docked .eyes,
-.cu-bot.preparing .eyes {
-    opacity: 1;
-    animation: cuBlink 5.5s ease-in-out 1.5s infinite;
-}
-@keyframes cuBlink {
-    0%, 93%, 100% { transform: scaleY(1); }
-    95.5%, 96.5% { transform: scaleY(0.1); }
-}
-
-/* "Preparing video", under the bot while the video is compressed: the text
-   shimmer (thinking_orb/shimmer.css), a dark band sweeping across the grey
-   letters, only while it shows. */
+/* "Preparing video", in the middle of the background while the video is
+   compressed: the text shimmer (thinking_orb/shimmer.css), a dark band
+   sweeping across the grey letters, only while it shows. */
 .screen-container .cu-prep-text {
     position: absolute;
     z-index: 4;
     left: 0;
     right: 0;
-    bottom: 11%;
+    top: 50%;
+    translate: 0 -50%;
     text-align: center;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: clamp(12px, 1.25vw, 15px);
@@ -134,7 +67,7 @@
 }
 .screen-container.cu-prep .cu-prep-text {
     opacity: 1;
-    transition-delay: 0.6s;       /* once the bot is back in the middle */
+    transition-delay: 0.3s;       /* once the last screen has faded */
 }
 .screen-container:not(.cu-prep) .cu-prep-text .t-shimmer::before {
     animation-play-state: paused;

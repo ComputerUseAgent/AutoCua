@@ -159,24 +159,32 @@
                     // server-rendered Markdown (markdown.py). Legacy sessions
                     // saved before exchanges existed have only the last done message.
                     var last = exchanges.length ? exchanges[exchanges.length - 1] : null;
-                    // Its earlier turns above it, each with its video (chat_scroll.js).
-                    if (window.chatScroll) window.chatScroll.addPast(exchanges.slice(0, -1), data.agent_mode);
+                    // Its earlier turns above it, each with its video (chat_scroll.js),
+                    // and its mode's bot beside the replies, the last one's too.
+                    if (window.chatScroll) {
+                        window.chatScroll.addPast(exchanges.slice(0, -1), data.agent_mode);
+                        window.chatScroll.setLiveBot(data.agent_mode);
+                    }
                     if (last && window.showUserMessage) window.showUserMessage(last.task || '');
                     var reply = last ? (last.done_html || '') : (data.last_done_message_html || '');
                     // still: no glide to its end, the view opens on the last turn (below).
                     if (reply && window.showRunReply) window.showRunReply(reply, (last && last.status) || 'success', true);
                     // And its video, where it was when the run ended: a Computer
                     // use run's on its stage (run_bot.js). The backend sends
-                    // video_url only while that run's video is on disk.
+                    // video_url only while that run's video is on disk. Web use and
+                    // iOS keep no screen once a run is over (not even an older Web
+                    // use recording).
+                    var noVideo = data.agent_mode === 'web' || data.agent_mode === 'mobile';
+                    var video = (last && !noVideo && last.video_url) || '';
                     if (window.chatScroll) {
                         window.chatScroll.setLive(liveRun, (last && last.recording) || '');
-                        // Nothing for its screen (Mobile use, or its video is gone): no
-                        // empty box, like its earlier turns.
-                        window.chatScroll.setLiveScreen(running || !!(last && last.video_url));
+                        // Nothing for its screen (Web use, iOS, or its video is gone):
+                        // no empty box, like its earlier turns.
+                        window.chatScroll.setLiveScreen(running || !!video);
                     }
-                    if (last && last.video_url && window.showRunVideo) {
+                    if (video && window.showRunVideo) {
                         if (data.agent_mode === 'computer' && window.screenStageOn) window.screenStageOn();
-                        window.showRunVideo(last.video_url, id);
+                        window.showRunVideo(video, id);
                     }
                     // It opens on its last turn, the earlier ones a scroll up.
                     if (window.chatScroll) window.chatScroll.toLive(null, true);

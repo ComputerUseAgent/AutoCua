@@ -3,7 +3,7 @@
      Keeps id="imageStreamContainer" and the .stream-image <img> so the existing
      window.updateAgentImage() hook in script.js keeps working unchanged. -->
 <div class="container-zone screen-container" id="screenContainer" aria-label="Screenshot">
-    <!-- Computer use: the moving background behind the screenshot (run_bot.js) -->
+    <!-- Computer use, Web use, iOS: the moving background behind the screenshot (run_bot.js) -->
     <video class="cu-bg" muted loop playsinline preload="none" aria-hidden="true"></video>
 
     <div class="screenshot-frame" id="imageStreamContainer">
@@ -13,15 +13,8 @@
         <video class="run-video" controls playsinline preload="auto" style="display: none;"></video>
     </div>
 
-    <!-- Computer use: the bot, in front of the screenshot (run_bot.js) -->
-    <div class="cu-bot" aria-hidden="true">
-        <div class="cu-bot-body">
-            <img src="bots/computeruse.webp" alt="">
-            <img class="eyes" src="bots/computeruse-eyes.webp" alt="">
-            <img src="bots/computeruse-shine.webp" alt="">
-        </div>
-    </div>
-    <!-- Under the bot while the run's video is compressed (run_bot.js) -->
+    <!-- In the middle while a Computer use run's video is compressed (run_bot.js);
+         the run's bot is beside the bottom container (container/agent/chain_bot.js) -->
     <div class="cu-prep-text" aria-hidden="true"><span class="t-shimmer" data-text="Preparing video">Preparing video</span></div>
 
     <!-- The Agent Notes used to live here; that stage is parked in

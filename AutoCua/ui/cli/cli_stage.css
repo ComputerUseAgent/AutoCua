@@ -71,7 +71,7 @@ body.cli-shell #cliContainer .cc-agent {
     position: absolute;
     inset: 0;
 }
-/* While the bot comes in, the chat waits (== run_bot.css cu-intro). */
+/* While the bot comes in, the chat waits (== chain_bot.css cb-intro). */
 body.shell-intro #cliContainer .cc-agent {
     opacity: 0;
     transform: scale(0.96);

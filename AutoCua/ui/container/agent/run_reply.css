@@ -14,10 +14,12 @@
 .agent-container.show-reply > .tracking-panel {
     display: none;
 }
-/* The AutoCua bot beside the AI's final message (bots/autocua.webp, from the
-   owner's autocua-helmet.html), here and in Shell use's chat (coder_card.css):
-   as tall as a one-line reply's box (its padding, a 1.5 line, its line), a
-   gap from it. */
+/* A bot beside the AI's final message: the run's own (data-bot, below), or
+   the AutoCua bot (bots/autocua*.webp, from the owner's autocua-helmet.html),
+   also in Shell use's chat (coder_card.css). As tall as a one-line reply's box
+   (its padding, a 1.5 line, its line), a gap from it; the run's bot stands
+   here, this size, while it runs (chain_bot.css). Three layers like the splash's
+   bots (body, eyes, shine on one canvas), so its eyes can blink. */
 :root {
     --reply-bot-h: calc(2 * clamp(8px, 1vw, 12px) + 1.5 * clamp(13px, 1.3vw, 15px) + 2px);
     --reply-bot-w: calc(var(--reply-bot-h) * 520 / 720);
@@ -30,6 +32,9 @@
    together, a pure fade (runReplyIn). No transition: the chat's glide to the
    reply's last line (chat_scroll.js toEnd) measures it at once. */
 .agent-container.show-reply {
+    /* The reply has its box, the thin line (like Shell use's answers); the
+       container has no line while it holds the tool chain (agent.css). */
+    border-color: rgba(0, 0, 0, 0.08);
     display: block;
     justify-self: start;
     align-self: start;
@@ -39,7 +44,11 @@
     overflow: visible;
     animation: runReplyIn 0.35s ease;
 }
-/* The bot: still, its top on the box's top. */
+/* The bot: its top on the box's top, its layers stacked shine over eyes over
+   body. It blinks like the owner's bot pages (bot_blink.js sets --reply-eyes
+   on the box, the eyes' height while they blink): the eyes layer squeezes
+   around the eye line, --reply-eye (measured on the layer), so the line
+   stays put. */
 .agent-container.show-reply::before {
     content: "";
     position: absolute;
@@ -47,8 +56,31 @@
     right: calc(100% + 1px + var(--reply-bot-gap));
     width: var(--reply-bot-w);
     height: var(--reply-bot-h);
-    background: url("../../bots/autocua.webp") center / contain no-repeat;
+    --reply-eye: 25.14%;
+    background-image: url("../../bots/autocua-shine.webp"), url("../../bots/autocua-eyes.webp"),
+                      url("../../bots/autocua.webp");
+    background-size: 100% 100%, 100% calc(var(--reply-eyes, 1) * 100%), 100% 100%;
+    background-position: center, center var(--reply-eye), center;
+    background-repeat: no-repeat;
     pointer-events: none;
+}
+/* A Computer use, Web use or Mobile use (iOS) chat's turns (chat_scroll.js
+   data-bot): that mode's own bot instead (the splash's layers), the one that
+   stood here while it ran (chain_bot.css). */
+.chat-turn[data-bot="computer"] > .agent-container.show-reply::before {
+    --reply-eye: 24.71%;
+    background-image: url("../../bots/computeruse-shine.webp"), url("../../bots/computeruse-eyes.webp"),
+                      url("../../bots/computeruse.webp");
+}
+.chat-turn[data-bot="web"] > .agent-container.show-reply::before {
+    --reply-eye: 24.65%;
+    background-image: url("../../bots/webuse-shine.webp"), url("../../bots/webuse-eyes.webp"),
+                      url("../../bots/webuse.webp");
+}
+.chat-turn[data-bot="mobile"] > .agent-container.show-reply::before {
+    --reply-eye: 24.65%;
+    background-image: url("../../bots/mobileuse-shine.webp"), url("../../bots/mobileuse-eyes.webp"),
+                      url("../../bots/mobileuse.webp");
 }
 .agent-container.show-reply > .reply-panel {
     display: block;

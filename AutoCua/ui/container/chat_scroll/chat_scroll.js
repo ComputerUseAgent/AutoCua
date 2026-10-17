@@ -14,13 +14,15 @@
 //   • A run's video can come after its turn became an earlier one (the next
 //     task was sent while it was being compressed): videoTurn finds its turn
 //     by run id or recording folder, showVideo puts it there (screen.js).
+//   • Each turn knows its mode's bot (data-bot: 'computer', 'web', 'mobile'),
+//     the one beside its reply (run_reply.css).
 //   window.chatScroll = { archiveLive, addPast, clear, toLive, toEnd, setLive,
-//                         setLiveScreen, videoTurn, showVideo }
+//                         setLiveScreen, setLiveBot, videoTurn, showVideo }
 // =====================================================================
 (function () {
     'use strict';
 
-    var BG = '/simulation_background.mp4';      // the Computer use stage's background (run_bot.js)
+    var BG = '/simulation_background.mp4';      // the screen stage's background (run_bot.js)
 
     function byId(id) { return document.getElementById(id); }
     function div(cls) {
@@ -197,10 +199,11 @@
         if (!turn.dataset.rec) turn.dataset.rec = recOf(url);
     }
 
-    // t = { text, stage, ar, image, video, cover, reply (html), ended, run, rec, msgH }
+    // t = { text, stage, ar, image, video, cover, reply (html), ended, run, rec, msgH, bot }
     function buildTurn(t) {
         var turn = div('chat-turn');
         if (t.stage) turn.dataset.stage = '1';
+        if (t.bot) turn.dataset.bot = t.bot;
         if (t.run) turn.dataset.run = t.run;
         if (t.rec) turn.dataset.rec = t.rec;
         if (t.msgH) turn.style.setProperty('--turn-msg-h', t.msgH);   // until it is measured in place
@@ -284,13 +287,23 @@
             ended: !!(replyEl && replyEl.classList.contains('is-ended')),
             run: live.dataset.run || '',
             rec: live.dataset.rec || recOf(vsrc),
-            msgH: live.style.getPropertyValue('--turn-msg-h')
+            msgH: live.style.getPropertyValue('--turn-msg-h'),
+            bot: live.dataset.bot || ''
         });
         place(turn);
         return { turn: turn, top: top };
     }
 
-    // A reopened chat's turns before its last one (its exchanges rows).
+    // A chat's mode -> the bot beside its replies (run_reply.css): its own
+    // (only iOS chats are saved as 'mobile'), or none (AutoCua's, a chat from
+    // before modes were saved).
+    function botOf(mode) {
+        return (mode === 'computer' || mode === 'web' || mode === 'mobile') ? mode : '';
+    }
+
+    // A reopened chat's turns before its last one (its exchanges rows). A
+    // Computer use chat's videos on the stage's background; Web use and iOS
+    // turns keep no screen (not even an older Web use recording).
     function addPast(rows, mode) {
         var past = byId('chatPast');
         if (!past) return;
@@ -299,7 +312,8 @@
             place(buildTurn({
                 text: x.task || '',
                 stage: mode === 'computer',
-                video: x.video_url || '',
+                bot: botOf(mode),
+                video: (mode === 'web' || mode === 'mobile') ? '' : (x.video_url || ''),
                 reply: x.done_html || '',
                 ended: (x.status || 'success') !== 'success',
                 rec: x.recording || recOf(x.video_url)
@@ -340,6 +354,17 @@
     function setLiveScreen(on) {
         var live = byId('liveTurn');
         if (live) live.classList.toggle('no-screen', !on);
+    }
+
+    // The bot beside the live turn's reply: a sent task's (chat_input.js:
+    // 'computer', 'web', 'mobile' for iOS) or a reopened chat's (chat.js, its
+    // saved mode).
+    function setLiveBot(bot) {
+        var live = byId('liveTurn');
+        if (!live) return;
+        bot = botOf(bot);
+        if (bot) live.dataset.bot = bot;
+        else delete live.dataset.bot;
     }
 
     // The turn a run's video belongs to: the one with that run id, else the
@@ -436,6 +461,7 @@
         toEnd: toEnd,
         setLive: setLive,
         setLiveScreen: setLiveScreen,
+        setLiveBot: setLiveBot,
         videoTurn: videoTurn,
         showVideo: function (turn, url) { if (turn) showVideo(turn, url); }
     };

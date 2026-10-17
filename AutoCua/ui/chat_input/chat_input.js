@@ -79,6 +79,14 @@
             if (agentMode === 'mobile' && !agentSub) return;
             // Shell use on Manual: the terminal is the input, not this box (agent_mode.js).
             if (agentMode === 'shell' && modeWrap.dataset.shellInput === 'manual') return;
+            // The run's own bot: beside the bottom container while it works
+            // (chain_bot.js), then beside its reply (run_reply.css). Computer use's, Web use's, or
+            // Mobile use's on iOS. Android runs on the desktop agent (and is saved
+            // as a Computer use chat): no bot on its chain, Computer use's by its
+            // reply.
+            const runBot = (agentMode === 'computer' || agentMode === 'web') ? agentMode
+                : (agentMode === 'mobile' && agentSub === 'ios') ? 'mobile' : '';
+            const replyBot = runBot || (agentMode === 'mobile' ? 'computer' : '');
             // Web use needs no sub-option and no gate: service.py routes
             // mode 'web' to run_pkg 'web' (the browser agent) and /api/start-agent
             // below is the right endpoint for it, same as Computer and Mobile.
@@ -127,6 +135,10 @@
             }
             // The sent message, top right of the main area like a chat.
             if (window.showUserMessage) window.showUserMessage(message);
+            // Its reply will have the mode's bot beside it (chat_scroll.js); the
+            // run's bot will stand there while it runs, its room made now.
+            if (chatGoesOn) window.chatScroll.setLiveBot(replyBot);
+            if (runBot && window.chainBot) window.chainBot.reserve();
             // ...right below the last reply: the chat glides up to this turn.
             if (chatGoesOn) window.chatScroll.toLive(lastTurn);
 
@@ -168,8 +180,13 @@
                     if (agentMode === 'shell' && window.cliShellStarted) window.cliShellStarted(data.session_id);
                     // This run's id: its video finds its turn by it (chat_scroll.js).
                     if (chatGoesOn && data.run_id) window.chatScroll.setLive(data.run_id, '');
-                    // Computer use: the bot comes into the screen box (run_bot.js).
-                    if (agentMode === 'computer' && window.startScreenBot) window.startScreenBot();
+                    // Computer use, Web use, iOS: the moving background behind the
+                    // screen (run_bot.js), and the run's bot comes in at the bottom container.
+                    // Not when Stop came first (its reply is already up).
+                    if (runBot && !document.querySelector('#agentContainer.show-reply')) {
+                        if (window.screenStageStart) window.screenStageStart();
+                        if (window.chainBot) window.chainBot.enter(runBot);
+                    }
                     // First run commits the chat to this mode — lock the picker.
                     // Shell included: the lock fires only on a STARTED run (this
                     // branch), so merely toggling to Shell use never locks — using
@@ -233,7 +250,8 @@
             // Drop the previous run's video, bot and reply, so the screen box and
             // the bottom container are live again.
             if (window.hideRunVideo) window.hideRunVideo();
-            if (window.stopScreenBot) window.stopScreenBot();
+            if (window.screenStageOff) window.screenStageOff();
+            if (window.chainBot) window.chainBot.stop();
             if (window.hideRunReply) window.hideRunReply();
             // The live turn shows no run or saved recording any more, and has
             // its screen box again.

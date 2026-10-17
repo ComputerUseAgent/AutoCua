@@ -11,7 +11,7 @@
     min-width: 0;
     min-height: 0;
     position: relative;
-    border: 1px solid rgba(0, 0, 0, 0.08);      /* the one thin grey line, also while empty */
+    border: 1px solid transparent;              /* no line (owner, 2026-10-17: clean); kept 1px so nothing moves */
     border-radius: var(--glass-radius);
     --bl-pad-x: clamp(12px, 1.4vw, 16px);
     padding: clamp(8px, 1vw, 12px) var(--bl-pad-x);

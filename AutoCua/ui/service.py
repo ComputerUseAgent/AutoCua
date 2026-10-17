@@ -62,9 +62,10 @@ from AutoCua.ui.markdown import render as md_render, render_notes as md_render_n
 # Windows, the glow alone on macOS. Paired to the start/finally of every agent
 # run below; a no-op on Linux.
 from AutoCua.utils import agent_glow
-# Every Computer / Web use run is recorded (the main screen) into
+# Every Computer use run is recorded (the main screen) into
 # AutoCua_data/recordings, on every machine run_recorder.supported() says can;
-# when it ends the video is compressed and shown in the screen box.
+# when it ends the video is compressed and shown in the screen box. Web use and
+# iOS runs are not: their screen box goes once the task is done.
 from AutoCua.utils import run_recorder
 from AutoCua.utils import video_compress
 # Electron for the Chromium desktop shell when no `npm install` put one in
@@ -1980,8 +1981,9 @@ def start_agent():
         run_pkg = ('ios' if (agent_mode == 'mobile' and device_os == 'ios')
                    else 'web' if agent_mode == 'web'
                    else PLATFORM_PKG)
-        # Every Computer use and Web use run is recorded, on a machine that can.
-        record = agent_mode in ('computer', 'web') and run_recorder.supported()
+        # Every Computer use run is recorded, on a machine that can (not Web use
+        # or iOS: their screen box goes once the task is done).
+        record = agent_mode == 'computer' and run_recorder.supported()
         # The run's package folder — the todo/milestone watchers and resets below
         # must follow the agent that actually runs, not the host desktop package.
         run_pkg_path = get_platform_path(run_pkg)

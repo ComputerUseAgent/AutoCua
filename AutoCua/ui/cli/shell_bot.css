@@ -62,7 +62,7 @@ body:where(.cli-shell:not(.skills-open)) .chat-container-wrapper { z-index: 14; 
     user-select: none;
 }
 /* The eyes open and blink around their own centre line (24.74% from the top,
-   as in run_bot.css). Once on the chat box it blinks now and then. */
+   the bots' eye line). Once on the chat box it blinks now and then. */
 .sb-eyes {
     opacity: 0;
     transform-origin: 50% 24.74%;

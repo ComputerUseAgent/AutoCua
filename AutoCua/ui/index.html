@@ -18,6 +18,7 @@
     <link rel="stylesheet" href="container/agent/agent.css">
     <link rel="stylesheet" href="container/agent/tracking_progress.css">
     <link rel="stylesheet" href="container/agent/run_reply.css">
+    <link rel="stylesheet" href="container/agent/chain_bot.css">
     <link rel="stylesheet" href="container/chat_scroll/chat_scroll.css">
     <!-- Big center — the main container, always on: the frame around the
          zones (Skills mounts into it) -->
@@ -508,7 +509,7 @@
     <script src="container/screen/screen.js"></script>
     <!-- Screen container overlays: web globe + shell terminal swap over the screenshot -->
     <script src="container/screen/globe_shell.js"></script>
-    <!-- Computer use stage: the moving background and the bot in the screen box -->
+    <!-- The run's screen stage: the moving background behind its screenshots -->
     <script src="container/screen/run_bot.js"></script>
     <script src="container/user/user.js"></script>
     <script src="container/agent/agent.js"></script>
@@ -516,6 +517,10 @@
     <script src="container/agent/tracking_progress.js"></script>
     <!-- Run reply: the done message in the bottom container once a run ends -->
     <script src="container/agent/run_reply.js"></script>
+    <!-- The run's bot: comes in big in the bottom container, then stands at its left -->
+    <script src="container/agent/chain_bot.js"></script>
+    <!-- The small bots (the run's, by the done message, Shell use's answers) blink like the bot pages -->
+    <script src="container/agent/bot_blink.js"></script>
     <!-- The chat's scroll: earlier turns, the edge fades, the glide to a new turn -->
     <script src="container/chat_scroll/chat_scroll.js"></script>
     <!-- Big center: injects the main container (the frame) into #mainGrid -->

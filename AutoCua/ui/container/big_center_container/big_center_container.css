@@ -18,7 +18,7 @@
     position: relative;
     z-index: 5;                 /* above the zones it frames (mount order varies) */
     box-sizing: border-box;
-    border: 1px solid rgba(0, 0, 0, 0.08);   /* the zones' line, same 1px */
+    border: 1px solid transparent;           /* no line (owner, 2026-10-17: clean); kept 1px so nothing moves */
     border-radius: var(--glass-radius);
     /* A stage filled edge to edge (Skills is opaque white) would paint over
        the rounded corners of the line; this keeps it inside. */

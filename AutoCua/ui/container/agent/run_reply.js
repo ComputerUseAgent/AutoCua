@@ -23,6 +23,13 @@
         el.innerHTML = String(html == null ? '' : html);
         el.classList.toggle('is-ended', status !== 'success');
         z.classList.add('show-reply');
+        // A Web use or iOS run is not recorded: once it is over its screen box
+        // goes, the turn is the message and the reply (chat_scroll.js).
+        var live = document.getElementById('liveTurn');
+        if (live && (live.dataset.bot === 'web' || live.dataset.bot === 'mobile')) {
+            if (window.screenStageOff) window.screenStageOff();
+            if (window.chatScroll) window.chatScroll.setLiveScreen(false);
+        }
         if (!still && window.chatScroll) window.chatScroll.toEnd();   // its last line in view
     };
 

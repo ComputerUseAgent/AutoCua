@@ -837,14 +837,22 @@ document.addEventListener('DOMContentLoaded', () => {
         // The live turn's screen: the chat's earlier turns have one too.
         const imgElement = document.querySelector('#screenContainer .stream-image');
         if (imgElement && base64Image) {
+            // A Web use or iOS turn has no screen once its run is over (it is not
+            // recorded, run_reply.js): a late frame does not bring it back, also
+            // one that lands after Stop showed the reply but before the stop
+            // request has answered.
+            const live = document.getElementById('liveTurn');
+            const input = document.querySelector('.chat-input');
+            const reply = document.querySelector('#agentContainer.show-reply');
+            if (live && (live.dataset.bot === 'web' || live.dataset.bot === 'mobile')
+                    && (reply || (input && !input.classList.contains('agent-active')))) return;
             // ...and its box, if a reopened turn had hidden it (chat_scroll.js).
             if (window.chatScroll) window.chatScroll.setLiveScreen(true);
             // The screen box is only as wide as the frame: its width follows
             // the frame's aspect ratio (--screen-ar, screen.css).
             imgElement.onload = () => {
                 const zone = document.getElementById('screenContainer');
-                // Held while the Computer use bot comes in (run_bot.js sets it once docked).
-                if (zone && imgElement.naturalHeight && !zone.classList.contains('cu-intro')) {
+                if (zone && imgElement.naturalHeight) {
                     zone.style.setProperty('--screen-ar', String(imgElement.naturalWidth / imgElement.naturalHeight));
                 }
             };

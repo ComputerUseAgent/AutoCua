@@ -1,10 +1,10 @@
 // =====================================================================
 // Shell use bot (shell_bot.css): the CoderUse bot, small, standing on top
 // of the chat box in its middle, under the chat with its one-line terminal
-// (cli_stage.js) that fills the frame. When Shell use is picked the bot comes in the way
-// the Computer use bot does (container/screen/run_bot.js, itself the
-// splash's hero): big in the middle of the frame it fades in, grows from
-// 0.85x out of a 6px blur, wakes and blinks; then it shrinks down onto the
+// (cli_stage.js) that fills the frame. When Shell use is picked the bot comes in
+// the way the run's bot does at the bottom container (container/agent/chain_bot.js,
+// itself the splash's hero): big in the middle of the frame it fades in, grows
+// from 0.85x out of a 6px blur, wakes and blinks; then it shrinks down onto the
 // chat box. Its place is in the chat box's own column, just above the
 // "Agent running…" strip, so it goes wherever the box goes (a run's slim
 // box and its strip, a long draft, the left bar). While a run goes its
@@ -28,7 +28,7 @@
 (function () {
     'use strict';
 
-    // == run_bot.js: the splash's hero entrance, then the move.
+    // == chain_bot.js: the splash's hero entrance, then the move.
     var FADE = 350, GROW = 1000;               // fades in; 0.85x -> 1x, blur 6px -> 0
     var WAKE_AT = 320, WAKE = 600;             // the eyes open
     var BLINK_AT = 1120, BLINK = 300;          // and blink
@@ -139,7 +139,7 @@
         });
     }
 
-    // == run_bot.js wake(): the eyes open out of a line, then blink once. `at`: when.
+    // == chain_bot.js wake(): the eyes open out of a line, then blink once. `at`: when.
     function wake(eyes, at) {
         var span = BLINK_AT + BLINK - WAKE_AT;
         function key(t, open, easing) {
@@ -154,7 +154,7 @@
     }
 
     // Move by transform alone from where the bot is now (it may be mid-move) to
-    // where `change` lays it out, then keep that layout (== run_bot.js prepare()).
+    // where `change` lays it out, then keep that layout (== chain_bot.js dock()).
     function flip(p, change, duration, done) {
         var from = p.bot.getBoundingClientRect();
         stopOn(p.bot);

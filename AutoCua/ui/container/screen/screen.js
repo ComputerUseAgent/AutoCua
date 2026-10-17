@@ -41,7 +41,7 @@
             }
             video.style.display = 'block';
             if (img) img.style.display = 'none';
-            if (window.screenBotLeave) window.screenBotLeave();   // it would cover the controls
+            if (window.screenStageVideoIn) window.screenStageVideoIn();   // "Preparing video" goes
         }
         video.onloadedmetadata = poster ? null : function () {
             video.onloadedmetadata = null;
