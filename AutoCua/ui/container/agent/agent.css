@@ -22,7 +22,7 @@
     min-height: 0;
     margin-right: var(--bl-cut);
     position: relative;
-    border: 1px solid rgba(0, 0, 0, 0.08);      /* the one thin grey line, also while empty (the main frame has none) */
+    border: 1px solid transparent;              /* no line while it holds the tool chain (owner, 2026-10-17); kept 1px so nothing moves */
     border-radius: var(--glass-radius);
     padding: var(--bl-pad-y) var(--bl-pad-x);
     box-sizing: border-box;

@@ -14,7 +14,7 @@
        the window and collapses into "AutoCua".
 
        The bots are AutoCua/logo/<bot>.html cut out of their backdrop and
-       cropped edge to edge (one crop box for all five, so they share one
+       cropped edge to edge (one crop box for all of them, so they share one
        scale and one helmet line) into three stacked layers each, in
        ui/bots/: the body, the eyes and the glass shine. The eyes are their
        own layer so they can open and blink between body and shine.
@@ -23,8 +23,9 @@
 
        The lineup (Atlas's, a little closer together, in bot widths):
        Computer use in the middle at 1x, Mobile and Coder use at 0.8x, 0.92
-       out, Web and Scraper use at 0.6x, 1.64 out, the middle one in front,
-       all standing on one line and fading out over their lower third.
+       out, Web and Scraper use at 0.6x, 1.64 out, AutoCua's bot (left) and
+       the minion (right) at 0.45x, 2.2 out, the middle one in front, all
+       standing on one line and fading out over their lower third.
 
        Timeline (from the moment the bot images are decoded):
          0.10s           the team fades in (0.35s) at 1.75x, pushed down (at
@@ -79,7 +80,7 @@
     }
 
     /* --- 1. The team: lift (fade + rise) > row (grow and shrink, blur) >
-       side (the four others' fade) > slot (fan-out) > bot. Placed and sized
+       side (the others' fade) > slot (fan-out) > bot. Placed and sized
        by the script below. --- */
     .lift {
       position: fixed;
@@ -93,7 +94,7 @@
       right: 0;
       transform-origin: 50% 100%;   /* Atlas: grows and shrinks from its feet */
     }
-    /* The four side bots fade in as ONE group, behind the lead: while they
+    /* The side bots fade in as ONE group, behind the lead: while they
        still overlap, the inner ones then hide the outer ones like solid
        things, instead of showing through each other and through the lead's
        see-through lower third. */
@@ -239,10 +240,12 @@
   <div class="lift">
     <div class="row">
       <div class="side">
+        <div class="slot"><div class="bot" role="img" aria-label="AutoCua"><img src="bots/autocua.webp" alt=""><img class="eyes" src="bots/autocua-eyes.webp" alt=""><img src="bots/autocua-shine.webp" alt=""></div></div>
         <div class="slot"><div class="bot" role="img" aria-label="Web use"><img src="bots/webuse.webp" alt=""><img class="eyes" src="bots/webuse-eyes.webp" alt=""><img src="bots/webuse-shine.webp" alt=""></div></div>
         <div class="slot"><div class="bot" role="img" aria-label="Mobile use"><img src="bots/mobileuse.webp" alt=""><img class="eyes" src="bots/mobileuse-eyes.webp" alt=""><img src="bots/mobileuse-shine.webp" alt=""></div></div>
         <div class="slot"><div class="bot" role="img" aria-label="Coder use"><img src="bots/coderuse.webp" alt=""><img class="eyes" src="bots/coderuse-eyes.webp" alt=""><img src="bots/coderuse-shine.webp" alt=""></div></div>
         <div class="slot"><div class="bot" role="img" aria-label="Scraper use"><img src="bots/scraperuse.webp" alt=""><img class="eyes" src="bots/scraperuse-eyes.webp" alt=""><img src="bots/scraperuse-shine.webp" alt=""></div></div>
+        <div class="slot"><div class="bot" role="img" aria-label="Minion"><img src="bots/minion.webp" alt=""><img class="eyes" src="bots/minion-eyes.webp" alt=""><img src="bots/minion-shine.webp" alt=""></div></div>
       </div>
       <div class="slot lead"><div class="bot" role="img" aria-label="Computer use"><img src="bots/computeruse.webp" alt=""><img class="eyes" src="bots/computeruse-eyes.webp" alt=""><img src="bots/computeruse-shine.webp" alt=""></div></div>
     </div>
@@ -294,7 +297,7 @@
       // "AutoCua" stays; one shimmer crosses it, the bots blink along with
       // it, left to right, then the hand-off.
       var SHEEN_AT = SLIDE_AT + SLIDE + 200, SHEEN = 1000;
-      var BLINK_AT = SHEEN_AT + 100, BLINK_GAP = 150, BLINK = 300;
+      var BLINK_AT = SHEEN_AT + 100, BLINK_GAP = 100, BLINK = 300;   // seven: the same 0.6 s wave
       var END = SHEEN_AT + SHEEN + 250;
       var DECODE_MAX = 1500;                // the longest wait for the images
       var EASE_SHEEN = 'cubic-bezier(0.4, 0, 0.6, 1)';     // Atlas sheen
@@ -309,9 +312,12 @@
 
       // The lineup, left to right: offset (bot widths), scale, extra delay.
       // Atlas's "Build your AI team" (+-149.4 / +-265.6 of a 142px robot,
-      // so 1.05 / 1.87 bot widths), drawn a little closer together.
-      var TEAM = [[-1.64, 0.6, 50], [-0.92, 0.8, 0], [0, 1, 0], [0.92, 0.8, 0], [1.64, 0.6, 50]];
-      var LEAD = 2;
+      // so 1.05 / 1.87 bot widths), drawn a little closer together, and one
+      // more each end, smaller again (owner, 2026-10-17: AutoCua's bot on the
+      // left, the minion on the right).
+      var TEAM = [[-2.2, 0.45, 100], [-1.64, 0.6, 50], [-0.92, 0.8, 0], [0, 1, 0],
+                  [0.92, 0.8, 0], [1.64, 0.6, 50], [2.2, 0.45, 100]];
+      var LEAD = 3;
 
       // ---- geometry ------------------------------------------------------
       var ASPECT = 520 / 720;     // the cropped bot images, width / height
@@ -320,7 +326,7 @@
       var side = document.querySelector('.side');
       // The slots in TEAM's order, left to right (in the markup the lead
       // comes last, in front of the side group).
-      var slots = ['Web use', 'Mobile use', 'Computer use', 'Coder use', 'Scraper use'].map(function (name) {
+      var slots = ['AutoCua', 'Web use', 'Mobile use', 'Computer use', 'Coder use', 'Scraper use', 'Minion'].map(function (name) {
         return document.querySelector('.bot[aria-label="' + name + '"]').parentNode;
       });
       var title = document.querySelector('.title');
@@ -338,13 +344,14 @@
         // ...and the team standing on the bottom edge (their lower third
         // fades out, so they rise out of it), the lead's head below the title.
         g.feet = H;
-        g.h = Math.min(0.36 * vmin, 0.29 * W, 280, g.feet - clear);  // the lead, at the end
+        g.h = Math.min(0.36 * vmin, 0.23 * W, 280, g.feet - clear);  // the lead, at the end
         g.w = g.h * ASPECT;
         // Atlas: 1.75x while big, pushed down a little, rising into place as
         // it shrinks. Pushed down further where it takes that for the big
         // lead's head to stay below the title. The width needs no check:
         // while big only the lead shows (at most 0.37 W wide), and the lineup
-        // fits (g.h <= 0.29 W keeps it within 0.81 W).
+        // of seven fits (+-2.425 bot widths: g.h <= 0.23 W keeps it within
+        // 0.81 W).
         g.big = 1.75;
         g.drop = Math.max(28, Math.round(H * 0.06), Math.ceil(clear + g.h * g.big - g.feet));
         return g;

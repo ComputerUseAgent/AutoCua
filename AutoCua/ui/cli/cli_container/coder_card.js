@@ -1053,6 +1053,11 @@
             }, { passive: false });
 
             cmdEl.addEventListener('focus', function () {
+                // In Auto the prompt is not yours: a click on it (the browser
+                // focuses an editable line by itself) never switches to Manual,
+                // only the chat box's Auto / Manual pill does (owner, 2026-10-17).
+                var pill = document.getElementById('agentModeWrap');
+                if (!pill || pill.dataset.shellInput !== 'manual') { cmdEl.blur(); return; }
                 // typing gets the full height down to the bar; a sent task puts it back
                 // body-level, not card-level: the hard cap is enforced on the grid row
                 // that holds the card, which a class on the card itself can't reach.
@@ -1067,9 +1072,9 @@
             // NOTE: no blur handler — the path is not a focus affordance, it belongs to
             // user mode as a whole. Only begin() takes it away.
 
-            // Click anywhere on the card and you're at the prompt, like a real
-            // terminal — except over the todo column, and except while the agent
-            // owns it. On `click` (after mouseup), NOT mousedown: focusing during
+            // In Manual, click anywhere on the card and you're at the prompt,
+            // like a real terminal — except over the todo column, and except
+            // while the agent owns it. On `click` (after mouseup), NOT mousedown: focusing during
             // a mousedown+setTimeout raced the browser's own focus handling
             // (flaky in the WebView) and could destroy a drag-selection mid-drag.
             // A completed drag leaves a non-empty selection, which we respect —
@@ -1096,6 +1101,10 @@
             el.addEventListener('mousedown', function (e) { downX = e.clientX; downY = e.clientY; });
             el.addEventListener('click', function (e) {
                 if (el.classList.contains('cc-running')) return;
+                // Only in Manual: a click never switches to it, the chat box's
+                // Auto / Manual pill does (owner, 2026-10-17; agent_mode.js).
+                var pill = document.getElementById('agentModeWrap');
+                if (!pill || pill.dataset.shellInput !== 'manual') return;
                 if (e.target === cmdEl || (e.target.closest && e.target.closest('.cc-todo'))) return;
                 // the chat above it is there to read (select, follow a link): only the live
                 // line hands you the prompt

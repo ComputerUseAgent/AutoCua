@@ -26,11 +26,10 @@
     min-height: 0;
     position: relative;
     z-index: 1;
-    /* Transparent, with the one thin grey line (also while empty; owner,
-       2026-10-17: back on the screen and the tool chain, not the main frame).
-       A border, not an inset shadow: overflow clips the screenshot INSIDE the
-       rounded line, where an inset shadow would sit under the image. */
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    /* Transparent, no line (owner, 2026-10-17: off again). The border stays
+       1px and transparent, so the box and the screenshot inside it keep their
+       sizes; overflow clips the screenshot inside the rounded corners. */
+    border: 1px solid transparent;
     border-radius: var(--glass-radius);
     overflow: hidden;
 }

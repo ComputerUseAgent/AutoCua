@@ -32,6 +32,9 @@
    together, a pure fade (runReplyIn). No transition: the chat's glide to the
    reply's last line (chat_scroll.js toEnd) measures it at once. */
 .agent-container.show-reply {
+    /* The reply has its box, the thin line (like Shell use's answers); the
+       container has no line while it holds the tool chain (agent.css). */
+    border-color: rgba(0, 0, 0, 0.08);
     display: block;
     justify-self: start;
     align-self: start;

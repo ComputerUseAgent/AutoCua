@@ -392,11 +392,12 @@
         // agent_mode's fetch-injected wire(), so a same-tick read would see the
         // STALE dataset.mode; the timeout lets agent_mode's set handler paint first.
         document.addEventListener('agentmode:set', function () { setTimeout(syncShellStage, 0); });
-        // Shell use: the whole PANEL is the terminal — clicking anywhere on it
-        // (the empty space around/below the card included) puts you at the
-        // prompt, not just the thin `>` line. Clicks on the card itself are
-        // handled by the card's own click-to-focus; this covers the rest of the
-        // stage, and focusing the prompt turns the chat box's pill to Manual.
+        // Shell use, in Manual: the whole PANEL is the terminal — clicking
+        // anywhere on it (the empty space around/below the card included) puts
+        // you at the prompt, not just the thin `>` line. Clicks on the card
+        // itself are handled by the card's own click-to-focus; this covers the
+        // rest of the stage. In Auto a click does nothing: only the chat box's
+        // pill turns it to Manual.
         // Guards: user-mode terminal only (idleCard set — never over a running
         // agent), and a completed text selection stays a selection.
         // Same click-vs-drag rule as the card's own handler: pointer travel and
@@ -407,6 +408,9 @@
         document.addEventListener('mousedown', function (e) { stageDownX = e.clientX; stageDownY = e.clientY; });
         document.addEventListener('click', function (e) {
             if (!shellPinned || !idleCard || !idleCard.el) return;
+            // Only in Manual: the pill switches to it, never a click (owner, 2026-10-17).
+            var pill = document.getElementById('agentModeWrap');
+            if (!pill || pill.dataset.shellInput !== 'manual') return;
             var t = e.target;
             if (!t || !t.closest || !t.closest('#cliContainer')) return;
             if (idleCard.el.contains(t)) return;   // the card's own handler owns this click
