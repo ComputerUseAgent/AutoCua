@@ -849,11 +849,12 @@ document.addEventListener('DOMContentLoaded', () => {
             // ...and its box, if a reopened turn had hidden it (chat_scroll.js).
             if (window.chatScroll) window.chatScroll.setLiveScreen(true);
             // The screen box is only as wide as the frame: its width follows
-            // the frame's aspect ratio (--screen-ar, screen.css).
+            // the frame's aspect ratio (--screen-ar on its turn, so the tool
+            // box it sits in makes room for it: chat_scroll.css, screen.css).
             imgElement.onload = () => {
                 const zone = document.getElementById('screenContainer');
                 if (zone && imgElement.naturalHeight) {
-                    zone.style.setProperty('--screen-ar', String(imgElement.naturalWidth / imgElement.naturalHeight));
+                    (zone.closest('.chat-turn') || zone).style.setProperty('--screen-ar', String(imgElement.naturalWidth / imgElement.naturalHeight));
                 }
             };
             // This element receives two different formats: the plain preview is

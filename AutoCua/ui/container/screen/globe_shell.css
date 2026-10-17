@@ -23,6 +23,17 @@
     grid-column: 1;
 }
 .tool-panel:has(> .sh-panel.is-active) > .tool-flow { opacity: 0; }
+/* The chain's column is only its logos wide (agent.css): while it runs, the
+   terminal takes the tracking progress's room too, the tracking fading out
+   meanwhile; nothing moves. */
+.agent-container > .tool-panel { grid-row: 1; grid-column: 1; }
+.agent-container > .tracking-panel {
+    grid-row: 1;
+    grid-column: 2;
+    transition: opacity 0.4s ease;
+}
+.agent-container:has(> .tool-panel > .sh-panel.is-active) > .tool-panel { grid-column: 1 / -1; }
+.agent-container:has(> .tool-panel > .sh-panel.is-active) > .tracking-panel { opacity: 0; }
 
 .sh-panel {
     min-height: 0;

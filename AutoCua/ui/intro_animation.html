@@ -221,6 +221,10 @@
               mask-image: linear-gradient(90deg, transparent calc(50% - 0.7em), #000 50%, transparent calc(50% + 0.7em));
       -webkit-user-select: none;
       user-select: none;
+      /* Unseen until its sweep exists (start()): before that it sits at the
+         page's top with the band on the word's middle, a dark "toC" there
+         while the bots decode. */
+      visibility: hidden;
     }
     .sheen-art {
       display: flex;
@@ -526,6 +530,7 @@
                               { delay: SHEEN_AT, duration: SHEEN, easing: EASE_SHEEN, fill: 'both' });
         still = sheenArt.animate([{ transform: 'translateX(' + k + 'px)' }, { transform: 'translateX(' + (-k) + 'px)' }],
                                  { delay: SHEEN_AT, duration: SHEEN, easing: EASE_SHEEN, fill: 'both' });
+        sheen.style.visibility = 'visible';   // its band is off the word until the sweep
         setTimeout(handOff, END);
         window.addEventListener('resize', layout);
       }

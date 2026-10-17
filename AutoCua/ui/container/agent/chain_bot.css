@@ -1,12 +1,10 @@
 /* =====================================================================
    The run's bot (chain_bot.js): an item of the live turn's grid in the
-   bottom container's row (chat_scroll.css row 5), in front of it. Laid out
-   big in the middle of the container while it comes in (the script grows it
-   out of a blur there; the chain and the tracking wait), then it takes its
-   docked layout outside the container on its left, its top on the
-   container's top: the place and size of the reply's bot (run_reply.css), so
-   after the run it stays and the reply comes in beside it. Only transform /
-   opacity animate (and the entrance's blur).
+   bottom container's row (chat_scroll.css row 5), in front of it: outside
+   the container on its left, its top on the container's top, the place and
+   size of the reply's bot (run_reply.css), so after the run it stays there:
+   beside the reply, or beside a Computer use run's video with the reply
+   under it. Only transform animates (its move over from the chat box).
    ===================================================================== */
 .chat-turn.live > .chain-bot {
     grid-row: 5;
@@ -14,11 +12,9 @@
     position: relative;
     z-index: 3;
     display: none;
-    /* big, in the middle of the container (not of the turn: its room on the left) */
-    justify-self: center;
-    align-self: center;
-    margin-left: calc(var(--reply-bot-w) + var(--reply-bot-gap));
-    height: 78%;
+    justify-self: start;
+    align-self: start;
+    height: var(--reply-bot-h);
     aspect-ratio: 884 / 1224;     /* the bot images' shape */
     transform-origin: 0 0;        /* the corner it moves by */
     pointer-events: none;
@@ -26,13 +22,6 @@
 .chat-turn.live.cb-on > .chain-bot { display: block; }
 /* Unseen in its place while the chat box's bot comes over onto it (mode_bot.js). */
 .chat-turn.live > .chain-bot.cb-wait { visibility: hidden; }
-/* Docked: outside the container on its left, its top on the container's top. */
-.chat-turn.live > .chain-bot.docked {
-    justify-self: start;
-    align-self: start;
-    margin-left: 0;
-    height: var(--reply-bot-h);
-}
 /* Its room: from the moment the task is sent, the container starts a bot and
    a gap in, like the reply's box. */
 .chat-turn.live.cb-room > .agent-container {
@@ -56,7 +45,6 @@ body.tg-occupied #liveTurn > .chain-bot {
 .chain-bot-body {
     position: absolute;
     inset: 0;
-    transform-origin: 50% 100%;
 }
 .chain-bot img {
     position: absolute;
@@ -67,20 +55,8 @@ body.tg-occupied #liveTurn > .chain-bot {
     -webkit-user-select: none;
     user-select: none;
 }
-/* The eyes open and blink around their own line (the bots' eye line, 24.7%
-   from the top: bot_blink.js squeezes them there). */
+/* The eyes blink around their own line (the bots' eye line, 24.7% from the
+   top: bot_blink.js squeezes them there). */
 .chain-bot .eyes {
-    opacity: 0;
     transform-origin: 50% 24.7%;
-}
-.chain-bot.docked .eyes { opacity: 1; }
-
-/* While it comes in, the chain and the tracking wait. */
-.chat-turn.live > .agent-container > .tool-panel,
-.chat-turn.live > .agent-container > .tracking-panel {
-    transition: opacity 0.4s ease;
-}
-.chat-turn.live.cb-intro > .agent-container > .tool-panel,
-.chat-turn.live.cb-intro > .agent-container > .tracking-panel {
-    opacity: 0;
 }

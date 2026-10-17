@@ -36,8 +36,8 @@
         else video.removeAttribute('poster');
         function swapIn() {
             video.onloadeddata = video.onseeked = null;
-            if (video.videoHeight) {
-                zone.style.setProperty('--screen-ar', String(video.videoWidth / video.videoHeight));
+            if (video.videoHeight) {   // on its turn (chat_scroll.css)
+                (zone.closest('.chat-turn') || zone).style.setProperty('--screen-ar', String(video.videoWidth / video.videoHeight));
             }
             video.style.display = 'block';
             if (img) img.style.display = 'none';

@@ -5,25 +5,48 @@
    adds .line-in (draw the segment) and .icon-in (reveal the logo) per step, types
    the label, and morphs the loader to a tick on the canvas. No @keyframes timeline.
    ===================================================================== */
+/* Its metrics, on the turn: the screen inside it on its right (screen.css) is
+   three tool steps tall (chat_scroll.css --screen-h). */
+.chat-turn {
+    --bl-pad-x: clamp(12px, 1.4vw, 16px);
+    --bl-pad-y: clamp(8px, 1vw, 12px);
+    --bl-cut: 15%;                           /* it stops short of the right side (the user's message side) */
+    --tf-icon: 24px;                         /* logo size — keep == ICON in agent.js */
+    --tf-gap: clamp(10px, 1.9vh, 13px);      /* line-segment length / space between logos */
+    --tr-label-h: calc(clamp(9.5px, 0.95vw, 11.5px) * 1.2);   /* the "Tool response" line */
+}
 .agent-container {
-    grid-column: 1 / -1;     /* the whole bottom row, under the screen */
-    grid-row: 5;             /* main grid: message | gap | screen | gap | tools */
+    grid-column: 1 / -1;     /* the bottom row, the screen inside it on the right */
+    grid-row: 5;             /* main grid: message | gap | - | - | tools */
     min-width: 0;
     min-height: 0;
+    margin-right: var(--bl-cut);
     position: relative;
-    border: 1px solid transparent;              /* no line (owner, 2026-10-17: clean); kept 1px so nothing moves */
+    border: 1px solid rgba(0, 0, 0, 0.08);      /* the one thin grey line, also while empty (the main frame has none) */
     border-radius: var(--glass-radius);
-    --bl-pad-x: clamp(12px, 1.4vw, 16px);
-    padding: clamp(8px, 1vw, 12px) var(--bl-pad-x);
+    padding: var(--bl-pad-y) var(--bl-pad-x);
     box-sizing: border-box;
     overflow: hidden;
-    /* Two halves: tool response | tracking progress (tracking_progress.css).
-       The gap between them is the grid's gap plus a cell's border and padding
-       on each side, so each half is exactly as wide as a top cell's content
-       and sits right under it. */
+    /* After the screen (screen.css): the tool chain, its logos only, then the
+       tracking progress right beside it (tracking_progress.css; owner,
+       2026-10-17). */
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    column-gap: calc(var(--main-pad) + 2 * var(--bl-pad-x) + 2px);
+    grid-template-columns: calc(var(--tf-icon) + 4px) 1fr;
+    column-gap: var(--bl-pad-x);
+}
+/* No words in the tool chain: the logos and their line only. */
+.tool-response-label,
+.tool-flow-word {
+    display: none;
+}
+/* While it holds the tool chain: three steps tall (the screen's height), and
+   with a screen its panels start a gap after it (owner, 2026-10-17: the
+   screen on the left, the newest three steps are enough, the box lower). */
+.agent-container:not(.show-reply) {
+    min-height: calc(var(--screen-h) + 2 * var(--bl-pad-y) + 2px);
+}
+.chat-turn:not(.no-screen) > .agent-container:not(.show-reply) {
+    padding-left: calc(2 * var(--bl-pad-x) + var(--screen-w));     /* eases with the turn's --screen-ar */
 }
 .bl-panel {
     min-width: 0;
@@ -47,6 +70,7 @@
     font-family: Georgia, 'Times New Roman', 'Iowan Old Style', serif;
     font-style: italic;
     font-size: clamp(9.5px, 0.95vw, 11.5px);
+    line-height: 1.2;                     /* == the turn's --tr-label-h */
     font-weight: 400;
     letter-spacing: 0.01em;
     color: rgba(60, 60, 60, 0.8);
@@ -68,7 +92,6 @@
     position: relative;
     min-height: 0;
     --tf-line: rgba(0, 0, 0, 0.22);
-    --tf-icon: 24px;                      /* logo size — keep == ICON in agent.js */
     --tf-fade: clamp(14px, 2.6vh, 20px);  /* top fade band ≈ one logo + connector */
     opacity: 1;
     transition: opacity 0.45s ease;
@@ -83,7 +106,6 @@
     position: absolute;
     left: 2px;
     top: 2px;
-    --tf-gap: clamp(10px, 1.9vh, 13px);  /* line-segment length / space between logos (fits 5 on short windows) */
     display: flex;
     flex-direction: column;
     padding-top: var(--tf-gap);         /* room for the first segment (label -> logo 1) */

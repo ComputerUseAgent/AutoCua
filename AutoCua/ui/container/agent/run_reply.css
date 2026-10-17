@@ -26,23 +26,34 @@
     --reply-bot-gap: clamp(6px, 0.8vw, 10px);
 }
 /* The container itself, while it holds the reply: just as big as the reply
-   (the live turn's row keeps its height, the box sits at its top), at most a
-   chat reply's width, so it stops short of the right side (the user's
-   message side). The bot stands on its left. The box and the bot fade in
+   (no longer three tool steps tall, agent.css), at most a chat reply's width,
+   so it stops short of the right side (the user's message side, --bl-cut).
+   The bot stands on its left. The box and the bot fade in
    together, a pure fade (runReplyIn). No transition: the chat's glide to the
    reply's last line (chat_scroll.js toEnd) measures it at once. */
 .agent-container.show-reply {
-    /* The reply has its box, the thin line (like Shell use's answers); the
-       container has no line while it holds the tool chain (agent.css). */
-    border-color: rgba(0, 0, 0, 0.08);
     display: block;
     justify-self: start;
     align-self: start;
     width: fit-content;
-    max-width: calc(85% - var(--reply-bot-w) - var(--reply-bot-gap));
+    max-width: calc(100% - var(--bl-cut) - var(--reply-bot-w) - var(--reply-bot-gap));
     margin-left: calc(var(--reply-bot-w) + var(--reply-bot-gap));
     overflow: visible;
     animation: runReplyIn 0.35s ease;
+}
+/* A Computer use run's video stays where its screen was, at the top left of
+   the row (screen.css): the reply comes right under it, a small gap away,
+   and the bot stays beside the video, at the row's top (owner, 2026-10-17;
+   the live run's bot stays there, chain_bot.css). */
+.chat-turn {
+    --reply-under-screen: calc(var(--bl-pad-y) + 1px + var(--screen-w) / var(--screen-ar, 1.6)
+                               + var(--reply-bot-gap));
+}
+.chat-turn:not(.no-screen) > .agent-container.show-reply {
+    margin-top: var(--reply-under-screen);
+}
+.chat-turn:not(.no-screen) > .agent-container.show-reply::before {
+    top: calc(-1px - var(--reply-under-screen));
 }
 /* The bot: its top on the box's top, its layers stacked shine over eyes over
    body. It blinks like the owner's bot pages (bot_blink.js sets --reply-eyes

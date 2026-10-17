@@ -67,10 +67,10 @@
         requestAnimationFrame(fades);
     }
 
-    // ── Each turn's screen fits its own message ──────────────────────────
-    // The screen's height counts the turn's message box (chat_scroll.css
-    // --turn-msg-h): a longer message, a smaller screen, so the live turn
-    // still fits the frame; earlier turns look as they did live.
+    // ── Each turn's message box height ───────────────────────────────────
+    // On the turn as --turn-msg-h. It sized the screen while the screen had a
+    // row of its own; since the screen sits in the tool box (2026-10-17,
+    // chat_scroll.css) nothing reads it.
     var msgRO = null;
     function fitMsg(box) {
         var turn = box.parentElement;
@@ -173,8 +173,8 @@
         else video.removeAttribute('poster');
         function swapIn() {
             video.onloadeddata = video.onseeked = null;
-            if (video.videoHeight) {
-                zone.style.setProperty('--screen-ar', String(video.videoWidth / video.videoHeight));
+            if (video.videoHeight) {   // on its turn (chat_scroll.css)
+                turn.style.setProperty('--screen-ar', String(video.videoWidth / video.videoHeight));
             }
             video.style.display = '';
             if (img) img.style.display = 'none';
@@ -224,7 +224,7 @@
 
         if (t.image || t.video) {
             var zone = screenZone(turn);
-            if (t.ar) zone.style.setProperty('--screen-ar', t.ar);
+            if (t.ar) turn.style.setProperty('--screen-ar', t.ar);
             if (t.image) {
                 var img = document.createElement('img');
                 img.className = 'stream-image';
@@ -279,7 +279,7 @@
         var turn = buildTurn({
             text: msg.textContent,
             stage: !!(screen && screen.classList.contains('cu-stage')),
-            ar: screen ? screen.style.getPropertyValue('--screen-ar') : '',
+            ar: live.style.getPropertyValue('--screen-ar'),
             image: noScreen ? '' : isrc,
             video: noScreen ? '' : vsrc,
             cover: vsrc ? (video.getAttribute('poster') || frameOf(video)) : '',
@@ -388,9 +388,10 @@
         return live;
     }
 
-    // Bring the live turn into view: its top one gap inside the frame's top
-    // line. After archiveLive, the new earlier turn first takes the old live
-    // turn's place on screen, then the chat glides up to the new one.
+    // Bring the live turn into view: toward its top one gap inside the
+    // frame's top line, as far as the chat goes (the live turn is only as
+    // tall as it is, so with room below it nothing moves). After archiveLive,
+    // the new earlier turn first takes the old live turn's place on screen.
     function toLive(prev, instant) {
         var sc = byId('chatScroll'), live = byId('liveTurn');
         if (!sc || !live) return;
