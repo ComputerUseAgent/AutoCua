@@ -773,7 +773,7 @@ class SimulatorSession:
                 self.mjpeg_port = self.port + 1000
                 if self._port_owner(self.mjpeg_port):
                     with socket.socket() as s:
-                        s.bind(("", 0))
+                        s.bind(("127.0.0.1", 0))
                         self.mjpeg_port = s.getsockname()[1]
                     print(f"📱 Port {self.port + 1000} is taken; the screen stream "
                           f"uses {self.mjpeg_port}")
@@ -797,8 +797,13 @@ class SimulatorSession:
                     # what lets parallel tasks each own a simulator + a port.
                     # MJPEG_SERVER_PORT reaches it the same way (the scheme
                     # maps both) and gives each one its own screen stream.
+                    # USE_IP keeps the control port on this Mac: without it
+                    # WDA listens on every interface, and any device on the
+                    # network could drive the simulator. (The screen stream
+                    # ignores it in WDA v15.1.1.)
                     env={**os.environ, "USE_PORT": str(self.port),
-                         "MJPEG_SERVER_PORT": str(self.mjpeg_port)})
+                         "MJPEG_SERVER_PORT": str(self.mjpeg_port),
+                         "USE_IP": "127.0.0.1"})
             except Exception as e:
                 self._stop_locked()
                 failure = str(e)
