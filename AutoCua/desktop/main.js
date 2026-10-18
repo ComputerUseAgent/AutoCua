@@ -117,16 +117,19 @@ function stopBackend() {
 
 // The backend's events, in the order it posted them: {type: 'js', code} runs
 // in the page once a page is ready for it, {type: 'window', action} is for
-// this window.
-function subscribe(origin) {
+// this window. The app's URL carries this run's token (ui/service.py
+// _start_url), which every /api/ call needs: this one sends it as a header.
+function subscribe(url) {
+  const { origin, searchParams } = new URL(url);
+  const headers = { 'X-AutoCua-Token': searchParams.get('token') || '' };
   let retried = false;
   const retry = () => {
     if (retried) return;
     retried = true;
     eventsConnected = false;
-    if (backend && !quitting && !relaunching) setTimeout(() => subscribe(origin), 500);
+    if (backend && !quitting && !relaunching) setTimeout(() => subscribe(url), 500);
   };
-  const request = http.get(origin + '/api/desktop/events', (response) => {
+  const request = http.get(origin + '/api/desktop/events', { headers }, (response) => {
     if (response.statusCode !== 200) {
       response.resume();
       retry();
@@ -205,13 +208,17 @@ function run(code) {
 async function relaunch() {
   if (relaunching) return;
   relaunching = true;
+  // The old page goes first. No cookie is tied to a port, so a page still on
+  // the old port would send the new run's token there, where another program
+  // may be listening by then.
+  if (win) await page.webContents.loadURL('about:blank').catch(() => {});
   pageReady = false;
   pending.length = 0;
   await stopBackend();
   try {
     const url = await startBackend();
     relaunching = false;
-    subscribe(new URL(url).origin);
+    subscribe(url);
     if (win) load(url);
   } catch (err) {
     console.error('[desktop] relaunch failed:', err.message);
@@ -326,7 +333,7 @@ async function createWindow() {
     }
     win = null;
   });
-  subscribe(new URL(url).origin);
+  subscribe(url);
   load(url);
   if (SMOKE) {
     // Nothing to see: the window is invisible and takes no focus or clicks,

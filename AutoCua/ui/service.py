@@ -21,6 +21,7 @@ import re
 import sys
 import json
 import uuid
+import secrets
 import atexit
 import logging
 import signal
@@ -267,6 +268,16 @@ _app_port = APP_PORT
 _LOCAL_HOSTS = (f'127.0.0.1:{APP_PORT}', f'localhost:{APP_PORT}')
 _LOCAL_ORIGINS = (f'http://127.0.0.1:{APP_PORT}', f'http://localhost:{APP_PORT}')
 
+# This run's secret. Every /api/ call must carry it, so another program or
+# another account on this machine can't drive the app through its port. Made
+# fresh each start and kept in memory only. The window gets it once, in its
+# start URL (_start_url): the answer sets it as a cookie that the page sends
+# with every /api/ call (its videos too). The desktop shell's own event stream
+# sends it as a header (AutoCua/desktop/main.js).
+_API_TOKEN = secrets.token_urlsafe(32)
+_TOKEN_COOKIE = 'autocua_token'
+_TOKEN_HEADER = 'X-AutoCua-Token'
+
 
 def _use_port(port):
     """Serve this run on `port`: the host/origin allow-list follows it, and
@@ -278,19 +289,43 @@ def _use_port(port):
     os.environ[ENV_APP_PORT] = str(port)
 
 
+def _start_url(start_path):
+    """Where the window opens: the app at start_path, with this run's token
+    for the server to hand over as a cookie."""
+    return f'http://127.0.0.1:{_app_port}{start_path}?token={_API_TOKEN}'
+
+
+def _token_ok(value):
+    """Whether value is this run's token (compared in constant time)."""
+    return bool(value) and secrets.compare_digest(value.encode(), _API_TOKEN.encode())
+
+
 @app.before_request
 def _block_foreign_requests():
     """The server is only for this machine's own app window. Refuse any other
-    Host (a DNS-rebinding page) and any /api/ call made from another web
-    origin (some other site's page POSTing to the app's port). Requests with
-    no Origin header (the app's own GETs, the startup probe) pass."""
-    from flask import request
+    Host (a DNS-rebinding page), any /api/ call made from another web origin
+    (some other site's page POSTing to the app's port), and any /api/ call
+    without this run's token (another program or another account on this
+    machine; they send no Origin). The UI's own files stay open: they hold
+    nothing private, and the startup probe and the remote-connection banners
+    load them without the token."""
+    from flask import request, redirect
     if request.host.lower() not in _LOCAL_HOSTS:
         return "Forbidden", 403
+    api = request.path.startswith('/api/')
     origin = request.headers.get('Origin')
-    if origin is not None and request.path.startswith('/api/') \
-            and origin.lower() not in _LOCAL_ORIGINS:
+    if origin is not None and api and origin.lower() not in _LOCAL_ORIGINS:
         return "Forbidden", 403
+    if api and not (_token_ok(request.cookies.get(_TOKEN_COOKIE))
+                    or _token_ok(request.headers.get(_TOKEN_HEADER))):
+        return "Forbidden", 403
+    if not api and _token_ok(request.args.get('token')):
+        # The window's first load: the token becomes its cookie, and the
+        # window goes on to the clean URL, so the token leaves its address.
+        response = redirect(request.path)
+        response.set_cookie(_TOKEN_COOKIE, _API_TOKEN, path='/api',
+                            httponly=True, samesite='Strict')
+        return response
 
 
 # =============================================================================
@@ -4110,7 +4145,7 @@ def _serve_desktop_shell(win, start_path):
             Path(started).write_text("1", encoding="utf-8")
         except OSError:
             debug_exception("desktop shell started marker")
-    print(f"AUTOCUA_DESKTOP_READY http://127.0.0.1:{_app_port}{start_path}", flush=True)
+    print(f"AUTOCUA_DESKTOP_READY {_start_url(start_path)}", flush=True)
 
     if IS_MAC:
         from AppKit import NSApplication
@@ -4280,7 +4315,7 @@ def main():
     else:
         win = webview.create_window(
             'AutoCua',
-            f'http://127.0.0.1:{_app_port}{start_path}',
+            _start_url(start_path),
             width=win_w,
             height=win_h,
             # What the webview paints BEFORE the page loads: the app colour, so

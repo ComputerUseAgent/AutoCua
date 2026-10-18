@@ -172,11 +172,6 @@ quoted code if a line no longer matches.
 
 ## Also open (from the Electron assessment)
 
-- **No lock on the app's local API.**
-  - Any program on the machine can call it, including [`/api/shell-exec`](../../AutoCua/ui/service.py#L3047).
-  - In the Chromium window it can also read [`/api/desktop/events`](../../AutoCua/ui/service.py#L1133), which carries every screenshot.
-  - The only guard checks Host/Origin: [AutoCua/ui/service.py:274](../../AutoCua/ui/service.py#L274).
-  - Fix: a token that changes on every launch.
 - **Heavy spots in the page itself** (the same in every window):
   - Agent text is typed one letter at a time, with a layout per letter: [AutoCua/ui/script.js:914](../../AutoCua/ui/script.js#L914).
   - An animation loop never stops: [AutoCua/ui/container/agent/agent.js:1401](../../AutoCua/ui/container/agent/agent.js#L1401).
@@ -230,3 +225,12 @@ quoted code if a line no longer matches.
   the helper root's, as Cursor's package does. The README's AppArmor profile is
   gone: this Electron runs any app folder, so the profile let every program
   around Ubuntu's restriction.
+- **No lock on the app's local API**: fixed 2026-10-18. Each run makes its own
+  secret token, kept in memory only, and every `/api/` call must carry it
+  (`_block_foreign_requests` in AutoCua/ui/service.py). The window gets it once,
+  in its start URL: the answer sets it as a cookie (HttpOnly, SameSite=Strict,
+  Path=/api, gone when the app closes) and sends the window on to the clean URL.
+  The Chromium shell's event stream sends it as an `X-AutoCua-Token` header. The
+  UI's own files stay open, since the startup probe and the banners load them.
+  No cookie is tied to a port, so a restart blanks the old page first
+  (`relaunch` in AutoCua/desktop/main.js).
