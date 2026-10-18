@@ -92,29 +92,36 @@
 }
 
 /* AutoCua's mark, top-left of the bar: the logo's shape (logo_mark.svg,
-   from logo/logo.html) cut out of a soft silver-grey gradient. A mask, so the
+   from logo/logo.html) cut out of a dark grey gradient. A mask, so the
    colour lives here; its clip-paths keep the edges sharp at any size. */
 .left-bar-logo {
     height: clamp(26px, 3vw, 34px);
     aspect-ratio: 1 / 1;
     flex-shrink: 0;
     display: block;
-    background: linear-gradient(160deg, #BFC3CA 0%, #9499A2 100%);
+    background: linear-gradient(160deg, #5E636B 0%, #2F3237 100%);
     -webkit-mask: url("logo_mark.svg") center / 100% 100% no-repeat;
     mask: url("logo_mark.svg") center / 100% 100% no-repeat;
     -webkit-user-select: none;
     user-select: none;
 }
 
-/* Body — New chat button + future history list. Fills the space so the
-   footer (settings cog) is pushed to the bottom. */
+/* Body — New chat button + the history list. Fills the space so the
+   footer (settings cog) is pushed to the bottom; a column, so the list takes
+   what New chat leaves and scrolls itself (chat/chat.css). */
 .left-bar .left-bar-body {
     flex: 1 1 auto;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
     /* Always its open width: while the bar grows back from the rail the rows
        are revealed (the bar clips the rest), never reflowed. */
     min-width: calc(var(--left-bar-open-w) - clamp(5px, 0.7vw, 9px) - 2 * clamp(12px, 1.5vw, 18px));
     overflow-y: auto;
+    scrollbar-width: none;
+}
+.left-bar .left-bar-body::-webkit-scrollbar {
+    display: none;
 }
 
 /* Footer — settings cog pinned bottom-left, GitHub button beside it. */
