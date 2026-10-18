@@ -755,7 +755,8 @@ fails before the backend is serving (it exits with an error), Flask starts in
 a daemon thread and the pywebview window opens on the main thread. While the
 Chromium window is open, a second launch only brings it to the front. Either way Flask serves on AutoCua's own port,
 27321 (`127.0.0.1` on every OS, never the LAN, and it refuses requests from
-other hostnames or websites); when another program holds that port, the app
+other hostnames or websites, and any `/api/` call without that run's secret
+token, which only the app's window gets); when another program holds that port, the app
 takes a free one for that run and stops nothing. The call returns once the
 window is closed. The import only happens in UI mode, so a terminal run never
 loads Flask or pywebview.
