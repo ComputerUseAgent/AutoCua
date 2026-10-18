@@ -113,8 +113,8 @@
 /* The screen stage, like the run's (container/screen/run_bot.css; owner,
    2026-10-18): the moving background, and on it the screenshot a little
    smaller than the box, 7% of it on every side, sized to the picture so its
-   corners round on it; a wide window sits on the frame's bottom, a phone in
-   its middle (space on its left and right). The
+   corners round on it, in the frame's middle (space above and below a wide
+   window, on the left and right of a phone). The
    background is a canvas the run's own video is drawn into (sub_agents.js),
    in the video's 16:9: as tall as the box, centred, so it covers it (a
    screen is never wider than 16:10). */
@@ -131,7 +131,7 @@
     position: absolute;
     inset: 7%;
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: center;
 }
 .sub-shot > .sub-frame {
