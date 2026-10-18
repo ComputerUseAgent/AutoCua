@@ -1,0 +1,162 @@
+/* =====================================================================
+   The sub-agents' boxes (sub_agents.js). In Computer use every sub-agent
+   the run starts (the browser agent, the iOS agent, a coder) gets its own
+   box in the live turn, under the run's tool box (chat_scroll.css row 6),
+   one under the other in the order they start. Each is a copy of the tool
+   box (agent.css) with its agent's bot outside its left at its top, the
+   place and size of the run's bot (chain_bot.css): the browser's or the
+   phone's screen, then the tool chain (its logos only) and the tracking
+   progress (tracking_progress.css); a coder's box is its box card
+   (cli/cli_container/coder_card.js). A box opens and closes by its slot's
+   height and opacity.
+   ===================================================================== */
+.chat-turn.live > .sub-stack {
+    grid-row: 6;             /* without it the stack lands in the empty row 2 */
+    grid-column: 1 / -1;
+    min-width: 0;
+}
+/* What opens and closes: sub_agents.js sets its height and opacity while it
+   moves. The gap above its box is inside it, so the gap goes with it, and
+   an empty stack has none. */
+.sub-slot {
+    overflow: hidden;
+    transition: height 0.35s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.35s ease;
+}
+/* A gap under the box above it; room on its left for its bot, a bot and a
+   gap like the run's tool box (chain_bot.css), and it stops where that box
+   stops (--bl-cut, agent.css). */
+.sub-box {
+    position: relative;
+    box-sizing: border-box;
+    min-width: 0;
+    margin: var(--turn-gap) var(--bl-cut) 0 calc(var(--reply-bot-w) + var(--reply-bot-gap));
+}
+/* A run that makes no room for a bot of its own (Mobile use on Android, the
+   desktop agent: chat_input.js): its boxes neither, so they line up under its
+   box, and show no bot, like it. */
+.chat-turn.live:not(.cb-room) > .sub-stack .sub-box {
+    margin-left: 0;
+}
+.chat-turn.live:not(.cb-room) > .sub-stack .sub-bot {
+    display: none;
+}
+
+/* Its bot: outside the box on its left, its top on the box's top, the
+   reply bot's size. Three layers (body, eyes, shine) like the run's bot. */
+.sub-bot {
+    position: absolute;
+    top: -1px;
+    right: calc(100% + 1px + var(--reply-bot-gap));
+    width: var(--reply-bot-w);
+    height: var(--reply-bot-h);
+    pointer-events: none;
+}
+/* A coder's box is the card itself (its line is the card's, coder_card.css). */
+.sub-box[data-kind="coder"] > .sub-bot {
+    top: 0;
+    right: calc(100% + var(--reply-bot-gap));
+}
+.sub-bot img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    -webkit-user-select: none;
+    user-select: none;
+}
+/* The eyes blink around their own line (bot_blink.js): the Web use, Mobile
+   use and CoderUse bots' eye line, 24.65% from the top. */
+.sub-bot .eyes {
+    transform-origin: 50% 24.65%;
+}
+
+/* The browser's and the iOS agent's box: like the run's tool box while it
+   runs (agent.css), no line, three tool steps tall: its screen, a gap, the
+   chain's logos, a gap, the tracking progress. */
+.sub-box[data-kind="browser"],
+.sub-box[data-kind="ios"] {
+    border: 1px solid transparent;
+    border-radius: var(--glass-radius);
+    padding: var(--bl-pad-y) var(--bl-pad-x);
+    min-height: calc(var(--screen-h) + 2 * var(--bl-pad-y) + 2px);
+    display: grid;
+    grid-template-columns: var(--screen-w) calc(var(--tf-icon) + 4px) minmax(0, 1fr);
+    column-gap: var(--bl-pad-x);
+}
+/* The screen, at the box's top left (screen.css): the run's own screen's size
+   (the turn's --screen-ar and --screen-w, chat_scroll.css), so its chain and
+   tracking progress line up under the run's (owner, 2026-10-18: a wider
+   browser window pushed them right; the phone's narrow one pulled them left),
+   and its look: the run's screen stage (below). */
+.sub-screen {
+    grid-column: 1;
+    align-self: start;
+    width: var(--screen-w);
+    aspect-ratio: var(--screen-ar);
+    position: relative;
+    border-radius: var(--glass-radius);
+    overflow: hidden;
+}
+.sub-frame {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+.sub-screen.has-frame .sub-frame {
+    opacity: 1;
+}
+/* The screen stage, like the run's (container/screen/run_bot.css; owner,
+   2026-10-18): the moving background, and on it the screenshot a little
+   smaller than the box, 7% of it on every side, sized to the picture so its
+   corners round on it, in the frame's middle (space above and below a wide
+   window, on the left and right of a phone). The
+   background is a canvas the run's own video is drawn into (sub_agents.js),
+   in the video's 16:9: as tall as the box, centred, so it covers it (a
+   screen is never wider than 16:10). */
+.sub-bg {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    height: 100%;
+    width: auto;
+    transform: translateX(-50%);
+    pointer-events: none;
+}
+.sub-shot {
+    position: absolute;
+    inset: 7%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.sub-shot > .sub-frame {
+    position: static;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 8px;
+}
+/* The tool chain (agent.css, globe_shell.css) and the tracking progress
+   (tracking_progress.css), each as tall as the box. */
+.sub-box > .tool-panel {
+    grid-column: 2;
+}
+.sub-box > .tracking-panel {
+    grid-column: 3;
+}
+
+/* They go where the run's tool box goes: under a full-size stage (Skills),
+   and while a Telegram task has the screen (style.css). */
+.main-grid:has(.big-center-zone.active) .sub-stack {
+    visibility: hidden;
+}
+body.tg-occupied #liveTurn > .sub-stack {
+    opacity: 0;
+    transition: opacity 0.4s ease;
+}

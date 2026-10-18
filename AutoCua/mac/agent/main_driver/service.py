@@ -100,6 +100,10 @@ class AgentService:
         # Speed mode: "fast" swaps in fast_system_prompt.md and trims the output
         # schema to memory/next_goal/action.
         self.speed = "fast" if str(speed).lower() == "fast" else "quality"
+        # Show the phone in its own window when ios_agent first works on it. The app
+        # turns this off for the runs it starts (ui/service.py): its page shows the
+        # phone in the iOS agent's box instead. Terminal and Telegram runs keep it.
+        self.phone_window = True
 
         # Initialize LLM Manager with optional runtime API key.
         # The driver speaks NATIVE TOOL CALLING - its action tools ARE the
@@ -561,6 +565,7 @@ class AgentService:
         if not data_extraction.ENABLED:
             from ...controller.tool import ios_agent
             self.controller.phone = ios_agent.PhoneLink.start()
+            self.controller.phone.window = self.phone_window
         try:
             return self._process_request(task)
         finally:

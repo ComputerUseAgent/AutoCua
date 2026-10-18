@@ -1834,8 +1834,17 @@ def _js_escape(text):
     )
 
 
+def _js_id(value):
+    """A sub-agent id as a JS number literal, or null when it is not a number."""
+    try:
+        return str(int(value))
+    except (TypeError, ValueError, OverflowError):
+        return "null"
+
+
 def send_cli_event_to_frontend(event_type, *args):
-    """Forward CLI agent streaming events to the frontend (window.cli*())."""
+    """Forward CLI agent streaming events to the frontend (window.cli*()), and
+    the browser / iOS sub-agents' live view to their boxes (window.subAgents)."""
     global webview_window
     if not webview_window:
         return
@@ -1848,8 +1857,11 @@ def send_cli_event_to_frontend(event_type, *args):
         elif event_type == "task_start":
             task_id = _js_escape(args[0])
             desc = _js_escape(args[1] if len(args) > 1 else "")
+            # The coder's sub-agent id: Computer use shows the coder as a box
+            # in the chat. null for a minion, which has none.
+            agent_id = _js_id(args[2] if len(args) > 2 else None)
             webview_window.evaluate_js(
-                f"window.cliTaskStart && window.cliTaskStart('{task_id}', '{desc}')"
+                f"window.cliTaskStart && window.cliTaskStart('{task_id}', '{desc}', {agent_id})"
             )
         elif event_type == "task_line":
             task_id = _js_escape(args[0])
@@ -1906,6 +1918,44 @@ def send_cli_event_to_frontend(event_type, *args):
             task_id = _js_escape(args[0] if len(args) > 0 else "")
             webview_window.evaluate_js(
                 f"window.cliPillWebLoadingEnd && window.cliPillWebLoadingEnd('{task_id}')"
+            )
+        # A browser / iOS sub-agent's box in the chat, keyed by its sub-agent
+        # id. Its watcher in the controller relays what the child writes.
+        elif event_type == "sub_start":
+            agent_id = _js_id(args[0] if len(args) > 0 else None)
+            kind = _js_escape(args[1] if len(args) > 1 else "")
+            task = _js_escape(args[2] if len(args) > 2 else "")
+            webview_window.evaluate_js(
+                f"window.subAgents && window.subAgents.start({agent_id}, '{kind}', '{task}')"
+            )
+        elif event_type == "sub_flow":
+            agent_id = _js_id(args[0] if len(args) > 0 else None)
+            flow_event = _js_escape(args[1] if len(args) > 1 else "")
+            payload = _js_escape(args[2] if len(args) > 2 else "")
+            webview_window.evaluate_js(
+                f"window.subAgents && window.subAgents.flow({agent_id}, '{flow_event}', '{payload}')"
+            )
+        elif event_type == "sub_frame":
+            agent_id = _js_id(args[0] if len(args) > 0 else None)
+            frame = _js_escape(args[1] if len(args) > 1 else "")
+            webview_window.evaluate_js(
+                f"window.subAgents && window.subAgents.frame({agent_id}, '{frame}')"
+            )
+        elif event_type == "sub_note":
+            # One line of its notes, rendered like the main agent's
+            # (send_milestone_to_frontend)
+            entries = md_render_notes(args[1] if len(args) > 1 else "")
+            if entries:
+                agent_id = _js_id(args[0])
+                note = _js_escape(entries[0])
+                webview_window.evaluate_js(
+                    f"window.subAgents && window.subAgents.note({agent_id}, '{note}')"
+                )
+        elif event_type == "sub_end":
+            agent_id = _js_id(args[0] if len(args) > 0 else None)
+            status = _js_escape(args[1] if len(args) > 1 else "complete")
+            webview_window.evaluate_js(
+                f"window.subAgents && window.subAgents.end({agent_id}, '{status}')"
             )
     except Exception:
         debug_exception(f"send_cli_event_to_frontend({event_type})")
@@ -2068,7 +2118,11 @@ def start_agent():
                 # events CLOSE the coder card and unpin the stage, so they must
                 # land even for a retired run - otherwise the terminal is stuck
                 # mid-run forever. Keyed by task_id, so a stale one is a no-op.
-                if event_type in ("task_end", "await_end", "minion_end") or run_is_current():
+                # A browser / iOS sub-agent's box closes the same way (sub_end),
+                # but its id is a small number a newer run can use again, so it
+                # stops once a newer run is on (sending it cleared the old boxes).
+                if (event_type in ("task_end", "await_end", "minion_end") or run_is_current()
+                        or (event_type == "sub_end" and active_agent_session_id is None)):
                     send_cli_event_to_frontend(event_type, *args)
 
             def monitor_milestones():
@@ -2178,6 +2232,9 @@ def start_agent():
                     prior_history=prior_history,   # None for a fresh chat
                     speed=speed,                   # ⚡ fast / ✨ quality (all platforms)
                 )
+                # The page shows the phone in the iOS agent's box: no phone window
+                if run_pkg == 'mac':
+                    agent.phone_window = False
 
                 # Web use: Chrome came up maximised during the construction
                 # above and took the screen with it. Hand the front back to the
@@ -2634,8 +2691,9 @@ def start_shell():
         # what CLOSES this run's card and unpins the stage. Swallowing them
         # (Stop retires the run, then stop_cli_agent immediately emits task_end)
         # freezes the terminal mid-run forever. They are keyed by task_id, so a
-        # stale one is a no-op for whatever run is on screen now.
-        _CLI_TEARDOWN_EVENTS = ("task_end", "await_end", "minion_end")
+        # stale one is a no-op for whatever run is on screen now. (sub_end, a
+        # sub-agent box's close, is one too; Shell use starts none.)
+        _CLI_TEARDOWN_EVENTS = ("task_end", "await_end", "minion_end", "sub_end")
 
         def shell_cli_callback(event_type, *args):
             # Everything else follows the main agent's rule: once the run is

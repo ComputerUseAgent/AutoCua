@@ -196,6 +196,7 @@ class PhoneLink:
         self._model = ""         # "iPhone" or "iPad", asked from the phone once it answers
         self._window = None      # the phone window (a sim_view process)
         self._window_started = False   # opened on the first delegation, once per request
+        self.window = True       # False: no phone window (the app shows the phone in its page)
 
     @classmethod
     def start(cls) -> "PhoneLink":
@@ -351,7 +352,7 @@ class PhoneLink:
         request: later delegations find it open, and it closes when the
         request lets the phone go."""
         with self._lock:
-            if self._released or self._state != "online" or self._window_started:
+            if not self.window or self._released or self._state != "online" or self._window_started:
                 return
             self._window_started = True
         threading.Thread(target=self._open_window, daemon=True).start()

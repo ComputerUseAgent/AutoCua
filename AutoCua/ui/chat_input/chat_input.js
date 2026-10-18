@@ -143,6 +143,17 @@
             // Its reply will have the mode's bot beside it (chat_scroll.js); the
             // run's bot will stand there while it runs, its room made now.
             if (chatGoesOn) window.chatScroll.setLiveBot(replyBot);
+            // A Computer use (or Android) run's screen box opens in the shape its
+            // screenshots will have, so the first one does not resize it: the
+            // last run's (script.js), else this screen's (the agent's may be
+            // another display: a Mac's built-in one).
+            if (chatGoesOn && replyBot === 'computer') {
+                const ar = window.deskScreenAr || (window.screen.height ? window.screen.width / window.screen.height : 0);
+                if (ar) window.chatScroll.setLiveShape(ar);
+            }
+            // A Web use or iOS run's keeps the box's own 16:10 all along
+            // (chat_scroll.css): its screenshots fit inside it (script.js)
+            if (chatGoesOn && (replyBot === 'web' || replyBot === 'mobile')) window.chatScroll.setLiveShape(1.6);
             if (runBot && window.chainBot) window.chainBot.reserve();
             // ...right below the last reply: the chat glides up to this turn.
             if (chatGoesOn) window.chatScroll.toLive(lastTurn);
@@ -262,6 +273,8 @@
             if (window.screenStageOff) window.screenStageOff();
             if (window.chainBot) window.chainBot.stop();
             if (window.hideRunReply) window.hideRunReply();
+            // ...and the sub-agents' boxes under it, at once (sub_agents.js).
+            if (window.subAgents) window.subAgents.clear();
             // The live turn shows no run or saved recording any more, and has
             // its screen box again.
             if (window.chatScroll) {
@@ -355,14 +368,17 @@
                 window.toolFlow.onFlow('error', JSON.stringify({ text: 'agent interrupted' }));
                 window.toolFlow.onFlow('run_end');
             }
+            // The sub-agents' boxes close, all at once (sub_agents.js).
+            if (window.subAgents) window.subAgents.closeAll();
             // The run's reply, like a chat: a retired run never sends its own.
             // A full-size stage (Skills) gives the grid back so it shows.
             if (window.showRunReply) window.showRunReply('Stopped.', 'stopped');
+            // Shell use: the terminal says so and its prompt is yours again (cli_stage.js);
+            // the chat box's bot kept for this run flies up to that "Stopped." itself.
+            if (window.cliShellStop) window.cliShellStop();
             // The mode's bot kept on the chat box for this run goes now (on its
             // way over already, it lands as the run's bot beside the reply).
             if (window.modeBot) window.modeBot.drop();
-            // Shell use: the terminal says so and its prompt is yours again (cli_stage.js).
-            if (window.cliShellStop) window.cliShellStop();
             const bigCenter = document.getElementById('zoneBigCenter');
             if (bigCenter) bigCenter.classList.remove('active');
 

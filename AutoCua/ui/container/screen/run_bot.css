@@ -22,14 +22,15 @@
 .screen-container.cu-stage .cu-bg { opacity: 1; }
 
 /* The screenshot (and the run's video after it), a little smaller than the
-   box and centred: 7% of the box on every side. The box has the picture's
-   own shape, so the picture fills this frame exactly; in a box too narrow
-   for that shape the picture sits on the frame's bottom. Sized to the
-   picture itself, so its corners round on the picture. Hidden while
-   "Preparing video" shows. */
+   box and centred: 7% of the box on every side. A Computer use box has the
+   picture's own shape, so the picture fills this frame exactly; a Web use
+   or iOS box keeps 16:10, so its picture sits in the frame's middle (space
+   above and below a wide browser window, on the left and right of a phone).
+   Sized to the picture itself, so its corners round on the picture. Hidden
+   while "Preparing video" shows. */
 .screen-container.cu-stage .screenshot-frame {
     inset: 7%;
-    align-items: flex-end;
+    align-items: center;
     transition: opacity 0.45s ease, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .screen-container.cu-stage .screenshot-frame .stream-image,
