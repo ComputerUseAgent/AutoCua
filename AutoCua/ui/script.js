@@ -851,10 +851,19 @@ document.addEventListener('DOMContentLoaded', () => {
             // The screen box is only as wide as the frame: its width follows
             // the frame's aspect ratio (--screen-ar on its turn, so the tool
             // box it sits in makes room for it: chat_scroll.css, screen.css).
+            // Not a Web use or iOS run's: its box keeps the shape it opened in
+            // (chat_input.js), the wide browser window or the phone fits inside
+            // it on the stage, centred (run_bot.css), so it never resizes
+            // (owner, 2026-10-18).
             imgElement.onload = () => {
                 const zone = document.getElementById('screenContainer');
                 if (zone && imgElement.naturalHeight) {
-                    (zone.closest('.chat-turn') || zone).style.setProperty('--screen-ar', String(imgElement.naturalWidth / imgElement.naturalHeight));
+                    const turn = zone.closest('.chat-turn') || zone;
+                    if (turn.dataset.bot === 'web' || turn.dataset.bot === 'mobile') return;
+                    const ar = imgElement.naturalWidth / imgElement.naturalHeight;
+                    turn.style.setProperty('--screen-ar', String(ar));
+                    // A Computer use run's screen: the next one's box opens in its shape (chat_input.js)
+                    if (turn.dataset.bot === 'computer') window.deskScreenAr = ar;
                 }
             };
             // This element receives two different formats: the plain preview is

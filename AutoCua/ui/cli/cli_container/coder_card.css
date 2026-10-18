@@ -70,55 +70,58 @@
     line-height: 1.38;
 }
 
+/* The two zones' rules below, and the Shell card's running box's further down, also
+   serve Computer use's coder box in the chat's sub-agent stack (container/sub_agents):
+   :is(#cliContainer, .sub-stack), as specific as #cliContainer alone. */
 /* ===== LEFT zone: "Tool response: N tools used" + the vertical action-icon chain.
    Pinned to the extreme left of the stage; mirrors the bottom-left card. ===== */
-#cliContainer .cc-actions {
+:is(#cliContainer, .sub-stack) .cc-actions {
     flex: 0 0 clamp(150px, 15vw, 200px); align-self: stretch;
     display: flex; flex-direction: column; min-width: 0; min-height: 0;
 }
 /* italic-serif caption shared by both side zones (matches the app's tool response / tracking progress) */
-#cliContainer .cc-tools-label, #cliContainer .cc-track-label {
+:is(#cliContainer, .sub-stack) .cc-tools-label, :is(#cliContainer, .sub-stack) .cc-track-label {
     flex: 0 0 auto; margin-bottom: 4px;
     font-family: Georgia, 'Times New Roman', 'Iowan Old Style', serif;
     font-style: italic; font-size: clamp(9.5px, 0.95vw, 11.5px); font-weight: 400;
     letter-spacing: 0.01em; color: rgba(60, 60, 60, 0.8); user-select: none;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-#cliContainer .cc-tools-count { font-weight: 600; color: rgba(40, 40, 40, 0.9); }
+:is(#cliContainer, .sub-stack) .cc-tools-count { font-weight: 600; color: rgba(40, 40, 40, 0.9); }
 /* the whole "Tool response" zone reveals only once there's real activity (1st step) */
-#cliContainer .cc-actions .cc-tools-label, #cliContainer .cc-chain-flow { opacity: 0; transition: opacity 0.45s ease; }
-#cliContainer .cc-actions.cc-tools-active .cc-tools-label,
-#cliContainer .cc-actions.cc-tools-active .cc-chain-flow { opacity: 1; }
+:is(#cliContainer, .sub-stack) .cc-actions .cc-tools-label, :is(#cliContainer, .sub-stack) .cc-chain-flow { opacity: 0; transition: opacity 0.45s ease; }
+:is(#cliContainer, .sub-stack) .cc-actions.cc-tools-active .cc-tools-label,
+:is(#cliContainer, .sub-stack) .cc-actions.cc-tools-active .cc-chain-flow { opacity: 1; }
 
 /* conveyor area (top fade; the tree slides up as logos arrive) */
-#cliContainer .cc-chain-flow {
+:is(#cliContainer, .sub-stack) .cc-chain-flow {
     flex: 1 1 auto; position: relative; min-height: 0; overflow: hidden;
     -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
             mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
 }
-#cliContainer .cc-chain {
+:is(#cliContainer, .sub-stack) .cc-chain {
     position: absolute; left: 2px; top: 0; right: 0;
     display: flex; flex-direction: column; gap: 12px; padding-top: 12px;
     will-change: transform; transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 /* one chain link: connector line (drawn on .in) + 24px canvas (same logo size as the main
    agent's bottom-left chain; keep == tool_icons ICON) + typed label. Shared by the
-   chain AND the in-card minion sub-chains, so scoped to #cliContainer (covers both). */
-#cliContainer .cc-chain-item { position: relative; height: 24px; display: flex; align-items: center; gap: 8px; }
-#cliContainer .cc-chain-item::before {
+   chain AND the in-card minion sub-chains, so scoped to the stage (covers both; and the stack, above). */
+:is(#cliContainer, .sub-stack) .cc-chain-item { position: relative; height: 24px; display: flex; align-items: center; gap: 8px; }
+:is(#cliContainer, .sub-stack) .cc-chain-item::before {
     content: ""; position: absolute; left: 11.5px; top: -12px; height: 12px; width: 1px;
     background: rgba(0, 0, 0, 0.22); transform: scaleY(0); transform-origin: top;
     transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
-#cliContainer .cc-chain-item.in::before { transform: scaleY(1); }
-#cliContainer .cc-chain-icon { flex: 0 0 auto; width: 24px; height: 24px; opacity: 0; transition: opacity 0.3s ease; }
-#cliContainer .cc-chain-item.in .cc-chain-icon { opacity: 1; }
-#cliContainer .cc-chain-word {
+:is(#cliContainer, .sub-stack) .cc-chain-item.in::before { transform: scaleY(1); }
+:is(#cliContainer, .sub-stack) .cc-chain-icon { flex: 0 0 auto; width: 24px; height: 24px; opacity: 0; transition: opacity 0.3s ease; }
+:is(#cliContainer, .sub-stack) .cc-chain-item.in .cc-chain-icon { opacity: 1; }
+:is(#cliContainer, .sub-stack) .cc-chain-word {
     flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 10px; color: rgba(60, 60, 60, 0.85);
 }
-#cliContainer .cc-chain-word.shimmer {
+:is(#cliContainer, .sub-stack) .cc-chain-word.shimmer {
     background: linear-gradient(100deg, rgba(70,72,78,0.9) 0%, rgba(70,72,78,0.9) 40%, rgba(175,178,185,0.98) 50%, rgba(70,72,78,0.9) 60%, rgba(70,72,78,0.9) 100%);
     background-size: 220% 100%; -webkit-background-clip: text; background-clip: text;
     -webkit-text-fill-color: transparent; color: transparent; animation: cc-shimmer 1.4s linear infinite;
@@ -127,34 +130,34 @@
 
 /* ===== RIGHT zone: "tracking progress" — the coder's scratchpad streamed char-by-char as a
    dot-bullet chain (NO logo); mirrors the app's tracking-progress stream. Hidden until the 1st entry. ===== */
-#cliContainer .cc-track {
+:is(#cliContainer, .sub-stack) .cc-track {
     flex: 0 0 clamp(180px, 20vw, 260px); align-self: stretch;
     display: flex; flex-direction: column; min-width: 0; min-height: 0;
 }
-#cliContainer .cc-track-label, #cliContainer .cc-track-flow { opacity: 0; transition: opacity 0.45s ease; }
-#cliContainer .cc-track.cc-track-active .cc-track-label,
-#cliContainer .cc-track.cc-track-active .cc-track-flow { opacity: 1; }
-#cliContainer .cc-track-flow {
+:is(#cliContainer, .sub-stack) .cc-track-label, :is(#cliContainer, .sub-stack) .cc-track-flow { opacity: 0; transition: opacity 0.45s ease; }
+:is(#cliContainer, .sub-stack) .cc-track.cc-track-active .cc-track-label,
+:is(#cliContainer, .sub-stack) .cc-track.cc-track-active .cc-track-flow { opacity: 1; }
+:is(#cliContainer, .sub-stack) .cc-track-flow {
     flex: 1 1 auto; position: relative; min-height: 0; overflow: hidden;
     -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
             mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
 }
-#cliContainer .cc-track-tree {
+:is(#cliContainer, .sub-stack) .cc-track-tree {
     position: absolute; left: 2px; top: 0; right: 0;
     display: flex; flex-direction: column; gap: 12px; padding-top: 12px;
     will-change: transform; transition: transform 0.45s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
-#cliContainer .cc-track-item { position: relative; display: flex; align-items: flex-start; gap: 8px; }
-#cliContainer .cc-track-item::before {
+:is(#cliContainer, .sub-stack) .cc-track-item { position: relative; display: flex; align-items: flex-start; gap: 8px; }
+:is(#cliContainer, .sub-stack) .cc-track-item::before {
     content: ""; position: absolute; left: 7.5px; top: -12px; height: 12px; width: 1px;
     background: rgba(0, 0, 0, 0.22); transform: scaleY(0); transform-origin: top;
     transition: transform 0.45s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
-#cliContainer .cc-track-item.line-in::before { transform: scaleY(1); }
-#cliContainer .cc-track-dot { flex: 0 0 auto; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; }
-#cliContainer .cc-track-dot::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: rgba(60, 62, 70, 0.6); }
-#cliContainer .cc-track-item.icon-in .cc-track-dot { opacity: 1; }
-#cliContainer .cc-track-word {
+:is(#cliContainer, .sub-stack) .cc-track-item.line-in::before { transform: scaleY(1); }
+:is(#cliContainer, .sub-stack) .cc-track-dot { flex: 0 0 auto; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; }
+:is(#cliContainer, .sub-stack) .cc-track-dot::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: rgba(60, 62, 70, 0.6); }
+:is(#cliContainer, .sub-stack) .cc-track-item.icon-in .cc-track-dot { opacity: 1; }
+:is(#cliContainer, .sub-stack) .cc-track-word {
     flex: 1 1 auto; min-width: 0;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 10.5px; line-height: 15px; color: rgba(60, 60, 60, 0.85);
@@ -272,6 +275,11 @@
 .coder-card.has-head.cc-rbot-room .cc-out {
     margin-left: calc(var(--reply-bot-w) + var(--reply-bot-gap));
     max-width: calc(85% - var(--reply-bot-w) - var(--reply-bot-gap));
+    /* made at once at the send (like Computer use's room, chain_bot.css), so the bot,
+       which may come a moment later, is never drawn over the box; it slides back
+       smoothly when the run is over (the rule above) */
+    transition: width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), height 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+                min-height 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 .coder-card.has-head.cc-rbot-room.cc-running .cc-out { width: calc(85% - var(--reply-bot-w) - var(--reply-bot-gap)); }
 /* The run's answer takes the box's place beside this bot: its own bot (the same place
@@ -292,33 +300,37 @@
 .coder-card.has-head.cc-running .cc-prow { grid-column: 1; grid-row: 1; }
 .coder-card.has-head.cc-running .cc-minions { grid-column: 1; grid-row: 2; }
 .coder-card.has-head.cc-running .cc-mbots { grid-column: 1; grid-row: 3; align-self: end; }
-#cliContainer .coder-card.has-head .cc-out > .cc-actions,
-#cliContainer .coder-card.has-head .cc-out > .cc-track { display: none; }
-#cliContainer .coder-card.has-head.cc-running .cc-out > .cc-actions,
-#cliContainer .coder-card.has-head.cc-running .cc-out > .cc-track {
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-out > .cc-actions,
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-out > .cc-track { display: none; }
+:is(#cliContainer, .sub-stack) .coder-card.has-head.cc-running .cc-out > .cc-actions,
+:is(#cliContainer, .sub-stack) .coder-card.has-head.cc-running .cc-out > .cc-track {
     display: flex;
     grid-row: 1 / -1;
-    align-self: start;
-    height: var(--cc-steps-h);
+    /* as tall as the box grows (its min-height eases in, so nothing jumps), never
+       more than three steps */
+    align-self: stretch;
+    min-height: 0;
+    max-height: var(--cc-steps-h);
+    overflow: hidden;
 }
-#cliContainer .coder-card.has-head.cc-running .cc-out > .cc-actions { grid-column: 2; }
-#cliContainer .coder-card.has-head.cc-running .cc-out > .cc-track { grid-column: 3; }
+:is(#cliContainer, .sub-stack) .coder-card.has-head.cc-running .cc-out > .cc-actions { grid-column: 2; }
+:is(#cliContainer, .sub-stack) .coder-card.has-head.cc-running .cc-out > .cc-track { grid-column: 3; }
 /* The chain: its logos and their line only, the other modes' steps (agent.css). */
-#cliContainer .coder-card.has-head .cc-tools-label,
-#cliContainer .coder-card.has-head .cc-chain-word { display: none; }
-#cliContainer .coder-card.has-head .cc-chain { padding-top: var(--tf-gap); gap: var(--tf-gap); }
-#cliContainer .coder-card.has-head .cc-chain-item::before { top: calc(-1 * var(--tf-gap)); height: var(--tf-gap); }
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-tools-label,
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-chain-word { display: none; }
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-chain { padding-top: var(--tf-gap); gap: var(--tf-gap); }
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-chain-item::before { top: calc(-1 * var(--tf-gap)); height: var(--tf-gap); }
 /* The tracking progress: the other modes' look (container/agent/tracking_progress.css):
    its dots in their drifting colour, its line from dot to dot (above the dot and down
    beside wrapped text, never through a dot), its words at their size. */
-#cliContainer .coder-card.has-head .cc-track-tree { padding-top: var(--tf-gap); gap: var(--tf-gap); }
-#cliContainer .coder-card.has-head .cc-track-item::before,
-#cliContainer .coder-card.has-head .cc-track-item::after {
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-track-tree { padding-top: var(--tf-gap); gap: var(--tf-gap); }
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-track-item::before,
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-track-item::after {
     left: 8px;
     translate: -50% 0;
 }
-#cliContainer .coder-card.has-head .cc-track-item::before { top: calc(-1 * var(--tf-gap)); height: calc(var(--tf-gap) + 2px); }
-#cliContainer .coder-card.has-head .cc-track-item::after {
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-track-item::before { top: calc(-1 * var(--tf-gap)); height: calc(var(--tf-gap) + 2px); }
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-track-item::after {
     content: "";
     position: absolute;
     top: 14px;
@@ -329,10 +341,10 @@
     transform-origin: top;
     transition: transform 0.45s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
-#cliContainer .coder-card.has-head .cc-track-item.line-in::after { transform: scaleY(1); }
-#cliContainer .coder-card.has-head .cc-track-item:last-child::after { transform: scaleY(0); }
-#cliContainer .coder-card.has-head .cc-track-dot::after { background: #9292d8; animation: tr-dotColor 4s linear infinite; }
-#cliContainer .coder-card.has-head .cc-track-word { font-size: clamp(11px, 1.1vw, 12.5px); line-height: 16px; }
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-track-item.line-in::after { transform: scaleY(1); }
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-track-item:last-child::after { transform: scaleY(0); }
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-track-dot::after { background: #9292d8; animation: tr-dotColor 4s linear infinite; }
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-track-word { font-size: clamp(11px, 1.1vw, 12.5px); line-height: 16px; }
 .coder-card.has-head.cc-has-out .cc-out { margin-top: clamp(10px, 1.5vw, 18px); }
 body.cli-typing .coder-card.has-head:not(.cc-running) .cc-out {
     width: 85%;
@@ -381,7 +393,7 @@ body.cli-typing .coder-card.has-head:not(.cc-running) .cc-tview {
    a row without tools (they slide open after) */
 @keyframes cc-mrow-in { from { opacity: 0; max-height: 0; } to { opacity: 1; max-height: 17px; } }
 /* a minion's tools play on its Minion bot's face (below), not under its row */
-#cliContainer .coder-card.has-head .cc-msub { display: none; }
+:is(#cliContainer, .sub-stack) .coder-card.has-head .cc-msub { display: none; }
 /* The minions' bots (coder_card.js mbotIn): on the live box's bottom left while their
    minions work, one beside another, four at most, the size of the reply's bot
    (run_reply.css). Each pops up into place and sinks away when its minion ends; its
@@ -556,6 +568,34 @@ body.cli-typing .coder-card.has-head.cc-busy .cc-prow {
     pointer-events: none;
 }
 
+/* ---- Computer use's coder box (.cc-box: coder_card.js create(desc, {box: true})) ----
+   A coder the main agent starts gets a box in the chat, under the main agent's box
+   (container/sub_agents: its CoderUse bot outside the box's left, at its top). The card
+   is the running live box above and nothing else: the head, the `>` and the agent's
+   words, the minions' tree and their bots, the tool chain and the tracking progress.
+   As wide as it is given, with Shell use's terminal line around it (owner, 2026-10-18),
+   three tool steps tall; Shell use's type size. Its padding is the main box's, so the
+   two are as tall and their insides start at the same place. */
+.coder-card.cc-box {
+    width: 100%;
+    color: rgba(0, 0, 0, 0.82);
+    font-size: 12px;
+    line-height: 1.38;
+    --cc-pad-x: var(--bl-pad-x);
+    --cc-pad-y: var(--bl-pad-y);
+}
+.coder-card.has-head.cc-box .cc-out {
+    width: 100%;
+    max-width: none;
+}
+/* its words wrap, a line per field (in Shell use the chat's line rule does this) */
+.coder-card.cc-box .cc-think .cc-scroll > .cc-line {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    overflow: visible;
+    line-height: 1.38;
+}
+
 
 /* ---- the Shell use card's geometry (body.cli-shell) ----
    The scrollback is REALLY scrollable (native scroll, coder_card.js), not the compact
@@ -601,6 +641,9 @@ body.cli-shell .coder-card.has-head .cc-out-view {
     transition: --fade-top 0.25s ease, --fade-bottom 0.25s ease;
 }
 body.cli-shell .coder-card.has-head .cc-out-view.cc-fade-top { --fade-top: clamp(16px, 2.2vw, 28px); }
+/* the chat follows its end itself (coder_card.js glide, fadeRo); the browser's own
+   scroll anchoring would move it in steps as an answer types in above the live box */
+body.cli-shell .coder-card.has-head .cc-out-view { overflow-anchor: none; }
 body.cli-shell .coder-card.has-head .cc-out-view.cc-fade-bottom { --fade-bottom: clamp(16px, 2.2vw, 28px); }
 
 /* ---- todo column (.has-todo — Shell use only) ----

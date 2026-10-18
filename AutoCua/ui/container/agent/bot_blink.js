@@ -3,13 +3,14 @@
 // (run_reply.css; Shell use's answers, coder_card.css), the run's bot
 // beside the bottom container while it runs (chain_bot.css), the mode's
 // bot on a fresh chat's box (chat_input/mode_bot.css), Shell use's run bot
-// beside its terminal box and its minions' bots in it (coder_card.css). They blink the
+// beside its terminal box and its minions' bots in it (coder_card.css), and
+// each sub-agent's bot beside its box (container/sub_agents). They blink the
 // way the owner's bot pages do (logo/*.html, autocua-helmet.html): a 0.78 s
 // blink (their data-blink) that closes on a smootherstep, rests shut for a
 // beat and opens; the next one 3 to 5.4 s later, and about one time in four
 // a second blink 0.2 s after it. Each bot on its own time. A reply bot's eyes are a layer of its
 // box's ::before: their height goes on the box as --reply-eyes. The run's,
-// the mode's, Shell's run bot's and the minions' bots' eyes are an image: they squeeze by transform. Between blinks
+// the mode's, Shell's run bot's, the minions' and the sub-agents' bots' eyes are an image: they squeeze by transform. Between blinks
 // nothing changes. The mode's bot starts none while it flies over to be the
 // run's bot (a blink on then ends before it lands; no second one).
 // =====================================================================
@@ -19,7 +20,8 @@
     var SEL = '.agent-container.show-reply, .coder-card.has-head .cc-out-text .cc-line.cc-answer, ' +
               '.chat-turn.live.cb-on > .chain-bot.docked .eyes, #modeBot.on .mb-bot.home:not(.flying) .mb-eyes, ' +
               '.coder-card.has-head .cc-mbot:not(.working):not(.leaving) .cc-mbot-eyes, ' +
-              '.coder-card.has-head .cc-rbot.on:not(.wait) .cc-rbot-eyes';
+              '.coder-card.has-head .cc-rbot.on:not(.wait):not(.handing) .cc-rbot-eyes, ' +
+              '.sub-box .sub-bot .eyes';
     var BLINK = 0.78;                 // s, the pages' data-blink
     var bots = new WeakMap();         // box or eyes -> { next, at, dbl, seen }
     var blinking = [];                // ones mid-blink (or waiting for a second one)
