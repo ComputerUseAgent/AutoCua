@@ -20,6 +20,9 @@
         var z = zone();
         var el = z && z.querySelector('.reply-panel');
         if (!el) return;
+        // The sub-agents' boxes under it go first, at once (sub_agents.js): one
+        // still closing would move the chat after the reply is placed.
+        if (window.subAgents) window.subAgents.clear();
         var bot = window.chainBot ? window.chainBot.toReply() : null;   // the run's bot goes beside it
         el.innerHTML = String(html == null ? '' : html);
         el.classList.toggle('is-ended', status !== 'success');

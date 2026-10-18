@@ -44,6 +44,7 @@
     var EASE_OUT = 'cubic-bezier(0.33, 1, 0.68, 1)';
 
     var anims = [], timer = null, leaving = false, glide = null, flight = null;
+    var lastMode = '';                         // the picker's mode (picked or set), to tell a re-pick
     var stay = false;                          // its chat is fresh: it stays (on the chat box)
     var handing = null;                        // while it flies over: the run's bot's take-over
     var aim = null, flew = 0;                  // where it flies to, and since when
@@ -126,6 +127,7 @@
 
     // The entrance is over: the welcome words (Shell use: its chat) come back.
     function introEnd() {
+        document.body.classList.remove('mode-fresh');
         if (!document.body.classList.contains('mode-intro')) return;
         document.body.classList.remove('mode-intro');
         document.dispatchEvent(new CustomEvent('modebot:intro-end'));
@@ -288,6 +290,8 @@
             return;
         }
         document.body.classList.add('mode-intro', 'mode-front');
+        // a fresh chat's entrance: Shell use's chat waits for it (cli_stage.css)
+        document.body.classList.toggle('mode-fresh', stay);
         hold(p);
         // The splash's hero: fades in, grows from 0.85x out of a blur, wakes.
         anims.push(p.body.animate([{ opacity: 0 }, { opacity: 1 }], { duration: FADE, fill: 'both' }));
@@ -309,11 +313,21 @@
     // in its own listener first (cli_stage.js), and the bot's place shows only then.
     // Shell use at once: its chat comes up in the same moment (cli_stage.js) and
     // waits for the bot from its first frame (cli_stage.css).
+    // Shell use picked again while it is already the mode: nothing (its chat
+    // stays as it is; the old Shell bot did the same).
     document.addEventListener('agentmode:changed', function (e) {
-        var mode = (e.detail || {}).mode;
+        var mode = (e.detail || {}).mode, was = lastMode;
+        lastMode = mode || '';
         if (!BOTS[mode]) return leave();
-        if (mode === 'shell') return enter(mode);
+        if (mode === 'shell') {
+            if (was !== 'shell') enter(mode);
+            return;
+        }
         requestAnimationFrame(function () { enter(mode); });
+    });
+    document.addEventListener('agentmode:ready', function () {
+        var wrap = document.getElementById('agentModeWrap');
+        lastMode = (wrap && wrap.dataset.mode) || '';
     });
     // The menu set without a pick (a reopened chat's lock, a failed iPhone
     // pairing going back to Computer use): the bot in a fresh chat becomes
@@ -321,6 +335,7 @@
     // sets it too, and says so (chat:new) right after.
     document.addEventListener('agentmode:set', function (e) {
         var mode = (e.detail || {}).mode;
+        if (mode) lastMode = mode;
         requestAnimationFrame(function () {
             var p = find();
             if (!p || !p.host.classList.contains('on') || leaving || handing) return;

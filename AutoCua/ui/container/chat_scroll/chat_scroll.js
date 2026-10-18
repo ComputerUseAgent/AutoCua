@@ -16,8 +16,10 @@
 //     by run id or recording folder, showVideo puts it there (screen.js).
 //   • Each turn knows its mode's bot (data-bot: 'computer', 'web', 'mobile'),
 //     the one beside its reply (run_reply.css).
-//   window.chatScroll = { archiveLive, addPast, clear, toLive, toEnd, setLive,
-//                         setLiveScreen, setLiveBot, videoTurn, showVideo }
+//   • A sub-agent's box opening or closing under the live turn's tools
+//     (sub_agents.js): a view at the chat's end goes along with it (follow).
+//   window.chatScroll = { archiveLive, addPast, clear, toLive, toEnd, follow,
+//                         setLive, setLiveScreen, setLiveShape, setLiveBot, videoTurn, showVideo }
 // =====================================================================
 (function () {
     'use strict';
@@ -356,6 +358,18 @@
         if (live) live.classList.toggle('no-screen', !on);
     }
 
+    // The live turn's screen shape before its first screenshot (chat_input.js:
+    // a Computer use run's, this screen's), at once, not eased: so nothing
+    // moves when the first one comes (owner, 2026-10-18).
+    function setLiveShape(ar) {
+        var live = byId('liveTurn');
+        if (!live || !(ar > 0)) return;
+        live.style.transition = 'none';
+        live.style.setProperty('--screen-ar', String(ar));
+        void live.offsetWidth;
+        live.style.transition = '';
+    }
+
     // The bot beside the live turn's reply: a sent task's (chat_input.js:
     // 'computer', 'web', 'mobile' for iOS) or a reopened chat's (chat.js, its
     // saved mode).
@@ -395,6 +409,7 @@
     function toLive(prev, instant) {
         var sc = byId('chatScroll'), live = byId('liveTurn');
         if (!sc || !live) return;
+        stopFollow();
         if (prev && prev.turn && prev.turn.isConnected) {
             sc.scrollTop += prev.turn.getBoundingClientRect().top - prev.top;
         }
@@ -410,10 +425,45 @@
     function toEnd(instant) {
         var sc = byId('chatScroll');
         if (!sc) return;
+        stopFollow();
         var target = sc.scrollHeight - sc.clientHeight;
         if (instant || reduced()) sc.scrollTop = target;
         else sc.scrollTo({ top: target, behavior: 'smooth' });
         queueFades();
+    }
+
+    // A sub-agent's box opens or closes under the live turn's tools
+    // (sub_agents.js, 0.35 s): if the view is at the chat's end, it goes
+    // along with the box frame by frame, so the chat glides with it. Never
+    // past the live turn's top (its message stays in view) and never up. A
+    // view the user scrolled up, or scrolls while it follows, stays.
+    // toLive and toEnd take over from it.
+    var FOLLOW_MS = 450;
+    var followRaf = 0, followUntil = 0, followAt = 0;
+    function followStep(now) {
+        followRaf = 0;
+        var sc = byId('chatScroll'), live = byId('liveTurn');
+        if (!sc || !live) return;
+        var max = sc.scrollHeight - sc.clientHeight;
+        if (sc.scrollTop < Math.min(followAt, max) - 1) return;     // the user scrolled up
+        var target = Math.min(max, liveTop(sc, live));
+        if (target > sc.scrollTop) sc.scrollTop = target;
+        followAt = sc.scrollTop;
+        if (now < followUntil) followRaf = requestAnimationFrame(followStep);
+    }
+    function follow() {
+        var sc = byId('chatScroll');
+        if (!sc) return;
+        if (!followRaf) {
+            if (sc.scrollHeight - sc.clientHeight - sc.scrollTop > 2) return;   // not at its end
+            followAt = sc.scrollTop;
+            followRaf = requestAnimationFrame(followStep);
+        }
+        followUntil = performance.now() + FOLLOW_MS;
+    }
+    function stopFollow() {
+        if (followRaf) cancelAnimationFrame(followRaf);
+        followRaf = 0;
     }
 
     function wire() {
@@ -460,8 +510,10 @@
         clear: clear,
         toLive: toLive,
         toEnd: toEnd,
+        follow: follow,
         setLive: setLive,
         setLiveScreen: setLiveScreen,
+        setLiveShape: setLiveShape,
         setLiveBot: setLiveBot,
         videoTurn: videoTurn,
         showVideo: function (turn, url) { if (turn) showVideo(turn, url); }

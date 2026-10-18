@@ -20,6 +20,10 @@
 //
 // The chain stays EMPTY on app start and only animates while an agent run is driving it.
 // A built-in demo exists but is opt-in only (window.toolFlow.startTest()).
+//
+// A sub-agent box in the chat (container/sub_agents/sub_agents.js) gets a chain of its
+// own from window.createToolFlow(rootEl, {kind}) and feeds it the same events (see
+// createFlow below).
 // =====================================================================
 (function () {
     'use strict';
@@ -1667,15 +1671,15 @@
     };
 
     /* =====================================================================
-       CONFIG. STEPS is the LIVE chain, built dynamically as events arrive
-       (idle demo, or real agent events via window.toolFlow.onFlow). Each step:
+       CONFIG. STEPS (one per chain, see createFlow) is the LIVE chain, built
+       dynamically as events arrive (idle demo, or real agent events via
+       window.toolFlow.onFlow, or a sub-agent box's createToolFlow). Each step:
          shape     which logo (a key in SHAPES above)
          label     text shown while the step runs
          doneLabel (optional) text shown once the step is done
          tick      (optional) morph the logo into a ✓ when done
          phase     (optional) opening phase, not counted in "N tools used"
        ===================================================================== */
-    var STEPS = [];                                  // the live on-screen chain
 
     // Idle demo — plays + loops when no agent run is active.
     var DEMO = [
@@ -1779,16 +1783,25 @@
         ctx.scale(dpr, dpr);
         return ctx;
     }
+    // Every chain that is drawing: the main one once it is mounted, and each
+    // sub-agent box's (window.createToolFlow) until it is disposed. One rAF loop
+    // draws them all.
+    var liveFlows = [];
     var rafId = null;
     function frame(now) {
         rafId = null;
-        // Only the visible tail is re-rendered each frame, so long runs stay cheap
+        // Only the visible tail of each chain is re-rendered each frame, so long runs stay cheap
         // (off-screen items are masked out and don't need repainting).
-        var start = STEPS.length > RENDER_TAIL ? STEPS.length - RENDER_TAIL : 0;
-        for (var i = start; i < STEPS.length; i++) renderIcon(STEPS[i], now);
+        for (var f = 0; f < liveFlows.length; f++) {
+            var steps = liveFlows[f].steps;
+            var start = steps.length > RENDER_TAIL ? steps.length - RENDER_TAIL : 0;
+            for (var i = start; i < steps.length; i++) renderIcon(steps[i], now);
+        }
         rafId = requestAnimationFrame(frame);
     }
     function startEngine() { if (!rafId) rafId = requestAnimationFrame(frame); }
+    // keep each chain's "fill the box, then scroll" correct when the window resizes
+    window.addEventListener('resize', function () { for (var f = 0; f < liveFlows.length; f++) liveFlows[f].refit(); });
 
     function renderIcon(step, now) {
         var ctx = step._ctx;
@@ -1820,63 +1833,6 @@
         })();
     }
 
-    /* ---------------- orchestration (state machine) ---------------- */
-    function activate(step) {
-        if (!step || !step._item) return;
-        step.state = 'active';
-        step._doneAt = 0;
-        frontier = STEPS.indexOf(step);
-        scrollToFrontier(frontier);                           // slide the chain up if it overflows
-        step._item.classList.add('line-in');                  // CSS draws the line segment
-        clearTimeout(step._revealTimer);
-        step._revealTimer = setTimeout(function () {
-            step._item.classList.add('icon-in');              // reveal the logo
-            typeText(step._word, step.label);
-        }, 320);                                              // logo/text appear as the line lands
-    }
-    function complete(step) {
-        if (!step || !step._item) return;
-        step.state = 'done';
-        step._doneAt = performance.now();                     // drives the tick crossfade
-        // Make sure the step is visible even if setDone() is called without a
-        // prior setActive() (direct backend driving) — also scroll to it.
-        clearTimeout(step._revealTimer);
-        frontier = Math.max(frontier, STEPS.indexOf(step));
-        scrollToFrontier(frontier);
-        step._item.classList.add('line-in', 'icon-in');
-        if (step.doneLabel) {
-            clearTimeout(step._doneTimer);
-            step._doneTimer = setTimeout(function () { typeText(step._word, step.doneLabel); }, TICK_MS * 0.6);
-        } else if (step._word && !step._word.textContent) {
-            typeText(step._word, step.label);                 // no label yet -> show it now
-        }
-        // NB: the "N tools used" counter is bumped by the driver (per real tool),
-        // not here — opening phases / thinking complete without counting.
-    }
-
-    /* ---------------- conveyor scroll ----------------
-       The chain grows downward as steps activate. Once it fills the visible box,
-       each new step slides the whole tree up one "pitch" (logo + gap) so the top
-       logo rises past the top edge and dissolves under the mask. maxVisible is
-       MEASURED from the box height, so a taller window simply shows more. */
-    function getGap() {
-        if (!treeEl) return 12;
-        var cs = getComputedStyle(treeEl);
-        return parseFloat(cs.rowGap || cs.gap) || 12;     // resolve the clamp() to px
-    }
-    function scrollToFrontier(index) {
-        if (!treeEl || !flowEl) return;
-        var gap = getGap();
-        var pitch = ICON + gap;                            // ICON === item height
-        // N logos occupy EXACTLY N * pitch: the tree's padding-top draws the first
-        // connector, then every item adds one gap + one icon. The only other cost is
-        // the tree's own top offset — subtracting a gap here (as this used to) threw
-        // away a whole row whenever the leftover slack was smaller than one gap.
-        var maxVisible = Math.max(1, Math.floor((flowEl.clientHeight - treeEl.offsetTop) / pitch));
-        var overflow = Math.max(0, index - (maxVisible - 1));
-        treeEl.style.transform = 'translateY(' + (-overflow * pitch) + 'px)';
-    }
-
     /* ---------------- timing ---------------- */
     var GAP_MS = 700, HOLD_MS = 2200, FADE_MS = 450, WORK_MS = 1400;  // idle demo
     var STEP_GAP_MS = 950;     // ~1s between opening phases (real run)
@@ -1885,199 +1841,269 @@
     var TOOL_GAP_MS = 340;     // fast cadence between tools (real run)
     var RENDER_TAIL = 12;      // only the last N items are re-rendered each frame
 
-    /* ---------------- driver state ---------------- */
-    var flowEl = null, treeEl = null, zoneEl = null, frontier = -1, uid = 0;
-    var shimmerWord = null;                              // the newest word (loading shine)
-    // The chain stays EMPTY until a real agent run drives it. The demo is opt-in
-    // only (window.toolFlow.startTest()) — it never auto-runs on app start.
-    var demoOn = false, demoTimer = null;
-    // True only between run_start and run_end. onFlow drops everything else while
-    // it's false, so a stopped run's trailing events can't leak into a new chat.
-    var runActive = false;
-    var thinkingStep = null, receivedEarly = false, openingDone = true;
-    // openNext advances the opening sequence; markReceived calls it early (and flips
-    // fastOpening) when the packet lands before the composing beat is up.
-    var openNext = null, fastOpening = false;
-    var openTimers = [], toolQ = [], toolTimer = null;
-    var todoCreateCount = 0;   // # of create-todo (todo_list) calls this run — 2nd+ shows "overwrote todo"
-    // True while the current run is a Mobile-use run — read once at run_start from
-    // the agent-mode picker's DOM mirror (same source chat_input.js sends the backend).
-    var mobileRun = false;
-    function isMobileRun() {
-        var mw = document.getElementById('agentModeWrap');
-        return !!(mw && mw.dataset.mode === 'mobile');
-    }
-    // Same trick for the browser agent. Three agents send a tool called `click`
-    // and two send `scroll`, so the chain has to know which one is driving it
-    // before it can pick the right logo (see toolSpec).
-    var webRun = false;
-    function isWebRun() {
-        var mw = document.getElementById('agentModeWrap');
-        return !!(mw && mw.dataset.mode === 'web');
-    }
+    /* =====================================================================
+       createFlow(opts): one tool chain with its own steps, timers and run
+       state, so several can run at once. opts.main is the run's own chain
+       (window.toolFlow): it reads the agent-mode picker, counts its tools
+       ("N tools used"), marks its box .flow-started and has the opt-in demo.
+       Any other is a sub-agent box's chain (window.createToolFlow): opts.kind
+       ('web' or 'mobile') fixes its logos, and it does none of those.
+       attach(root) gives it its elements; until then onFlow does nothing.
+       ===================================================================== */
+    function createFlow(opts) {
+        var main = !!opts.main;
+        var STEPS = [];                                  // the live on-screen chain
 
-    function clearArr(a) { for (var i = 0; i < a.length; i++) clearTimeout(a[i]); a.length = 0; }
-
-    // The ONE way a step enters the chain: append + build DOM + play its reveal.
-    function addStep(spec) {
-        var step = { key: 's' + (uid++), shape: spec.shape, label: spec.label, doneLabel: spec.doneLabel, tick: spec.tick };
-        STEPS.push(step);
-        buildItem(step, treeEl);
-        activate(step);
-        // the newest item is the "current" one — move the loading shine onto it.
-        if (shimmerWord) shimmerWord.classList.remove('shimmer');
-        step._word.classList.add('shimmer');
-        shimmerWord = step._word;
-        return step;
-    }
-
-    function clearChain() {
-        runActive = false;                 // the run this chain belonged to is over for us
-        clearArr(openTimers); clearTimeout(toolTimer); toolTimer = null; toolQ.length = 0;
-        clearTimeout(demoTimer);
-        for (var i = 0; i < STEPS.length; i++) {
-            var s = STEPS[i];
-            clearTimeout(s._revealTimer); clearTimeout(s._doneTimer);
-            if (s._word) clearTimeout(s._word._typeTimer);
-            if (s._item && s._item.parentNode) s._item.parentNode.removeChild(s._item);
+        /* ---------------- orchestration (state machine) ---------------- */
+        function activate(step) {
+            if (!step || !step._item) return;
+            step.state = 'active';
+            step._doneAt = 0;
+            frontier = STEPS.indexOf(step);
+            scrollToFrontier(frontier);                           // slide the chain up if it overflows
+            step._item.classList.add('line-in');                  // CSS draws the line segment
+            clearTimeout(step._revealTimer);
+            step._revealTimer = setTimeout(function () {
+                step._item.classList.add('icon-in');              // reveal the logo
+                typeText(step._word, step.label);
+            }, 320);                                              // logo/text appear as the line lands
         }
-        STEPS.length = 0; frontier = -1; thinkingStep = null; receivedEarly = false; openingDone = true; shimmerWord = null;
-        openNext = null; fastOpening = false;
-        todoCreateCount = 0;
-        if (treeEl) {                                        // snap the conveyor back to top, no animation
-            treeEl.style.transition = 'none';
-            treeEl.style.transform = 'translateY(0)';
-            void treeEl.offsetHeight;
-            treeEl.style.transition = '';
+        function complete(step) {
+            if (!step || !step._item) return;
+            step.state = 'done';
+            step._doneAt = performance.now();                     // drives the tick crossfade
+            // Make sure the step is visible even if setDone() is called without a
+            // prior setActive() (direct backend driving) — also scroll to it.
+            clearTimeout(step._revealTimer);
+            frontier = Math.max(frontier, STEPS.indexOf(step));
+            scrollToFrontier(frontier);
+            step._item.classList.add('line-in', 'icon-in');
+            if (step.doneLabel) {
+                clearTimeout(step._doneTimer);
+                step._doneTimer = setTimeout(function () { typeText(step._word, step.doneLabel); }, TICK_MS * 0.6);
+            } else if (step._word && !step._word.textContent) {
+                typeText(step._word, step.label);                 // no label yet -> show it now
+            }
+            // NB: the "N tools used" counter is bumped by the driver (per real tool),
+            // not here — opening phases / thinking complete without counting.
         }
-        window.resetToolCount();
-        // Restore the pristine empty state: hide the "Tool response: N tools used"
-        // heading until the next run drives the chain again (run_start re-adds it).
-        if (zoneEl) zoneEl.classList.remove('flow-started');
-    }
 
-    /* ---------------- idle demo (loops when no run is active) ---------------- */
-    function runDemo() {
-        if (!demoOn) return;
-        clearChain();
-        if (flowEl) flowEl.style.opacity = '1';
-        var i = 0;
-        (function next() {
+        /* ---------------- conveyor scroll ----------------
+           The chain grows downward as steps activate. Once it fills the visible box,
+           each new step slides the whole tree up one "pitch" (logo + gap) so the top
+           logo rises past the top edge and dissolves under the mask. maxVisible is
+           MEASURED from the box height, so a taller window simply shows more. */
+        function getGap() {
+            if (!treeEl) return 12;
+            var cs = getComputedStyle(treeEl);
+            return parseFloat(cs.rowGap || cs.gap) || 12;     // resolve the clamp() to px
+        }
+        function scrollToFrontier(index) {
+            if (!treeEl || !flowEl) return;
+            var gap = getGap();
+            var pitch = ICON + gap;                            // ICON === item height
+            // N logos occupy EXACTLY N * pitch: the tree's padding-top draws the first
+            // connector, then every item adds one gap + one icon. The only other cost is
+            // the tree's own top offset — subtracting a gap here (as this used to) threw
+            // away a whole row whenever the leftover slack was smaller than one gap.
+            var maxVisible = Math.max(1, Math.floor((flowEl.clientHeight - treeEl.offsetTop) / pitch));
+            var overflow = Math.max(0, index - (maxVisible - 1));
+            treeEl.style.transform = 'translateY(' + (-overflow * pitch) + 'px)';
+        }
+
+        /* ---------------- driver state ---------------- */
+        var flowEl = null, treeEl = null, zoneEl = null, frontier = -1, uid = 0;
+        var shimmerWord = null;                              // the newest word (loading shine)
+        // The chain stays EMPTY until a real agent run drives it. The demo is opt-in
+        // only (window.toolFlow.startTest()) — it never auto-runs on app start.
+        var demoOn = false, demoTimer = null;
+        // True only between run_start and run_end. onFlow drops everything else while
+        // it's false, so a stopped run's trailing events can't leak into a new chat.
+        var runActive = false;
+        var thinkingStep = null, receivedEarly = false, openingDone = true;
+        // openNext advances the opening sequence; markReceived calls it early (and flips
+        // fastOpening) when the packet lands before the composing beat is up.
+        var openNext = null, fastOpening = false;
+        var openTimers = [], toolQ = [], toolTimer = null;
+        var todoCreateCount = 0;   // # of create-todo (todo_list) calls this run — 2nd+ shows "overwrote todo"
+        // True while the current run is a Mobile-use run — read once at run_start from
+        // the agent-mode picker's DOM mirror (same source chat_input.js sends the backend).
+        // A sub-agent box's chain takes it (and webRun) from its kind instead.
+        var mobileRun = false;
+        function isMobileRun() {
+            var mw = document.getElementById('agentModeWrap');
+            return !!(mw && mw.dataset.mode === 'mobile');
+        }
+        // Same trick for the browser agent. Three agents send a tool called `click`
+        // and two send `scroll`, so the chain has to know which one is driving it
+        // before it can pick the right logo (see toolSpec).
+        var webRun = false;
+        function isWebRun() {
+            var mw = document.getElementById('agentModeWrap');
+            return !!(mw && mw.dataset.mode === 'web');
+        }
+
+        function clearArr(a) { for (var i = 0; i < a.length; i++) clearTimeout(a[i]); a.length = 0; }
+
+        // The ONE way a step enters the chain: append + build DOM + play its reveal.
+        function addStep(spec) {
+            var step = { key: 's' + (uid++), shape: spec.shape, label: spec.label, doneLabel: spec.doneLabel, tick: spec.tick };
+            STEPS.push(step);
+            buildItem(step, treeEl);
+            activate(step);
+            // the newest item is the "current" one — move the loading shine onto it.
+            if (shimmerWord) shimmerWord.classList.remove('shimmer');
+            step._word.classList.add('shimmer');
+            shimmerWord = step._word;
+            return step;
+        }
+
+        function clearChain() {
+            runActive = false;                 // the run this chain belonged to is over for us
+            clearArr(openTimers); clearTimeout(toolTimer); toolTimer = null; toolQ.length = 0;
+            clearTimeout(demoTimer);
+            for (var i = 0; i < STEPS.length; i++) {
+                var s = STEPS[i];
+                clearTimeout(s._revealTimer); clearTimeout(s._doneTimer);
+                if (s._word) clearTimeout(s._word._typeTimer);
+                if (s._item && s._item.parentNode) s._item.parentNode.removeChild(s._item);
+            }
+            STEPS.length = 0; frontier = -1; thinkingStep = null; receivedEarly = false; openingDone = true; shimmerWord = null;
+            openNext = null; fastOpening = false;
+            todoCreateCount = 0;
+            if (treeEl) {                                        // snap the conveyor back to top, no animation
+                treeEl.style.transition = 'none';
+                treeEl.style.transform = 'translateY(0)';
+                void treeEl.offsetHeight;
+                treeEl.style.transition = '';
+            }
+            if (main) window.resetToolCount();
+            // Restore the pristine empty state: hide the "Tool response: N tools used"
+            // heading until the next run drives the chain again (run_start re-adds it).
+            if (zoneEl) zoneEl.classList.remove('flow-started');
+        }
+
+        /* ---------------- idle demo (loops when no run is active) ---------------- */
+        function runDemo() {
             if (!demoOn) return;
-            if (i >= DEMO.length) {                          // all shown -> hold, fade, loop
-                demoTimer = setTimeout(function () {
-                    if (flowEl) flowEl.style.opacity = '0';
-                    demoTimer = setTimeout(runDemo, FADE_MS);
-                }, HOLD_MS);
-                return;
-            }
-            var sp = DEMO[i];
-            var st = addStep(sp);
-            if (!sp.phase) window.bumpToolCount();
-            if (sp.tick) setTimeout(function () { complete(st); }, WORK_MS * 0.55);
-            i++;
-            demoTimer = setTimeout(next, GAP_MS);
-        })();
-    }
-    function stopDemo() { demoOn = false; clearTimeout(demoTimer); }
-
-    /* ---------------- real-run driver (fed by window.toolFlow.onFlow) ----------------
-       Opening phases auto-advance ~1s apart; "thinking" holds until the real `received`
-       event ticks it ("packet received"); tools queue behind the opening, then play fast. */
-    function startOpening(hasImage) {
-        clearArr(openTimers);
-        openingDone = false; thinkingStep = null; receivedEarly = false; fastOpening = false;
-        var specs = [];
-        if (hasImage) { specs.push(OPEN.screenshot); specs.push(OPEN.mapping); }
-        specs.push(OPEN.communicate);
-        specs.push(OPEN.composing);
-        specs.push(OPEN.thinking);
-        var i = 0;
-        function play() {
-            var sp = specs[i];
-            if (sp === OPEN.thinking) {
-                thinkingStep = addStep(sp);                  // stays active (loader spins) until received
-                openingDone = true;
-                openNext = null;                             // opening's done — nothing left to hurry
-                if (receivedEarly) { receivedEarly = false; complete(thinkingStep); thinkingStep = null; }
-                playTools();
-            } else {
-                addStep(sp);
-            }
-            i++;
-            if (i < specs.length) {
-                // the composing sash gets its own, longer beat — unless the packet
-                // already landed, in which case everything runs at catch-up pace
-                var wait = fastOpening ? CATCHUP_MS
-                    : (sp === OPEN.composing ? COMPOSE_MS : STEP_GAP_MS);
-                openTimers.push(setTimeout(play, wait));
-            }
+            clearChain();
+            if (flowEl) flowEl.style.opacity = '1';
+            var i = 0;
+            (function next() {
+                if (!demoOn) return;
+                if (i >= DEMO.length) {                          // all shown -> hold, fade, loop
+                    demoTimer = setTimeout(function () {
+                        if (flowEl) flowEl.style.opacity = '0';
+                        demoTimer = setTimeout(runDemo, FADE_MS);
+                    }, HOLD_MS);
+                    return;
+                }
+                var sp = DEMO[i];
+                var st = addStep(sp);
+                if (!sp.phase) window.bumpToolCount();
+                if (sp.tick) setTimeout(function () { complete(st); }, WORK_MS * 0.55);
+                i++;
+                demoTimer = setTimeout(next, GAP_MS);
+            })();
         }
-        openNext = play;
-        play();
-    }
-    // received{tools}: the packet arrived — tick the loader over to "synthesizing
-    // finished", then play this turn's tools (read from the action block) fast.
-    function markReceived(tools) {
-        toolQ = (tools || []).slice();
-        if (thinkingStep) { complete(thinkingStep); thinkingStep = null; playTools(); return; }
-        receivedEarly = true;                                // handled when the loader appears
-        // The LLM beat the opening (often well under COMPOSE_MS). Don't sit out the
-        // rest of the composing hold — drop to catch-up pace so the chain tracks the
-        // real speed instead of lagging seconds behind it.
-        if (openNext) {
-            fastOpening = true;
+        function stopDemo() { demoOn = false; clearTimeout(demoTimer); }
+
+        /* ---------------- real-run driver (fed by onFlow below) ----------------
+           Opening phases auto-advance ~1s apart; "thinking" holds until the real `received`
+           event ticks it ("packet received"); tools queue behind the opening, then play fast. */
+        function startOpening(hasImage) {
             clearArr(openTimers);
-            openTimers.push(setTimeout(openNext, CATCHUP_MS));
+            openingDone = false; thinkingStep = null; receivedEarly = false; fastOpening = false;
+            var specs = [];
+            if (hasImage) { specs.push(OPEN.screenshot); specs.push(OPEN.mapping); }
+            specs.push(OPEN.communicate);
+            specs.push(OPEN.composing);
+            specs.push(OPEN.thinking);
+            var i = 0;
+            function play() {
+                var sp = specs[i];
+                if (sp === OPEN.thinking) {
+                    thinkingStep = addStep(sp);                  // stays active (loader spins) until received
+                    openingDone = true;
+                    openNext = null;                             // opening's done — nothing left to hurry
+                    if (receivedEarly) { receivedEarly = false; complete(thinkingStep); thinkingStep = null; }
+                    playTools();
+                } else {
+                    addStep(sp);
+                }
+                i++;
+                if (i < specs.length) {
+                    // the composing sash gets its own, longer beat — unless the packet
+                    // already landed, in which case everything runs at catch-up pace
+                    var wait = fastOpening ? CATCHUP_MS
+                        : (sp === OPEN.composing ? COMPOSE_MS : STEP_GAP_MS);
+                    openTimers.push(setTimeout(play, wait));
+                }
+            }
+            openNext = play;
+            play();
         }
-    }
-    function playTools() {
-        if (toolTimer || !openingDone || !toolQ.length) return;
-        var raw = toolQ.shift();
-        var sp = toolSpec(raw);
-        var st = addStep(sp);
-        window.bumpToolCount();                               // every schema tool counts (incl. done)
-        if (sp.tick) setTimeout(function () { complete(st); }, 300);
-        if (toolQ.length) toolTimer = setTimeout(function () { toolTimer = null; playTools(); }, TOOL_GAP_MS);
-    }
-    function toolSpec(p) {
-        var name = p.name || '';
-        if (name === 'left_click') { var c = p.clicks || 1; name = c >= 3 ? 'left_click_3' : (c === 2 ? 'left_click_2' : 'left_click_1'); }
-        // Mobile (iOS) variants: 'scroll' is shared with desktop, so only a mobile
-        // run swaps the mouse for the swiping phone; video_player picks its sign
-        // from the sub-command.
-        if (mobileRun && name === 'scroll') return { shape: 'phoneScroll', label: 'swiping to scroll' };
-        // Browser variants. `click` is the sharpest collision: TOOL_MAP.click is
-        // the iOS finger, because the iOS driver sends that flat name, and the
-        // browser driver sends it too meaning a mouse click on a page. Without
-        // this a browser click would draw a phone.
-        if (webRun) {
-            if (name === 'click') return { shape: 'mouseClick', label: 'clicking' };
-            if (name === 'scroll') return { shape: 'mouse', label: 'scrolling the page' };
+        // received{tools}: the packet arrived — tick the loader over to "synthesizing
+        // finished", then play this turn's tools (read from the action block) fast.
+        function markReceived(tools) {
+            toolQ = (tools || []).slice();
+            if (thinkingStep) { complete(thinkingStep); thinkingStep = null; playTools(); return; }
+            receivedEarly = true;                                // handled when the loader appears
+            // The LLM beat the opening (often well under COMPOSE_MS). Don't sit out the
+            // rest of the composing hold — drop to catch-up pace so the chain tracks the
+            // real speed instead of lagging seconds behind it.
+            if (openNext) {
+                fastOpening = true;
+                clearArr(openTimers);
+                openTimers.push(setTimeout(openNext, CATCHUP_MS));
+            }
         }
-        // run_script with type "scrape" is the way into scraping mode (its own
-        // tools follow, `more` to `exit_scrape_mode`); any other script keeps the shell.
-        if (name === 'run_script' && p.script_type === 'scrape') return { shape: 'scrape', label: 'entering scrape mode' };
-        // skills {"type": "remove"} puts a read skill away: same scroll, its own word.
-        if (name === 'skills' && p.script_type === 'remove') return { shape: 'skill', label: 'closing the skill' };
-        if (name === 'video_player') return VIDEO_MAP[p.value] || VIDEO_MAP.streaming;
-        // A second (or later) create-todo in the same run overrides the first — same logo, different word.
-        if (name === 'todo_list' && ++todoCreateCount > 1) return { shape: 'todo', label: 'overwrote todo' };
-        return TOOL_MAP[name] || { shape: 'loader', label: (p.name || 'tool') };
-    }
-    // A terminal "!" drop — agent interrupted (stop) or a backend/LLM error. Not a tool,
-    // so it isn't counted; it just caps the chain with a short explanation.
-    function showError(text) {
-        clearArr(openTimers); clearTimeout(toolTimer); toolTimer = null; toolQ.length = 0;
-        thinkingStep = null; receivedEarly = false; openingDone = true; openNext = null;
-        addStep({ shape: 'error', label: text || 'something went wrong' });
-    }
+        function playTools() {
+            if (toolTimer || !openingDone || !toolQ.length) return;
+            var raw = toolQ.shift();
+            var sp = toolSpec(raw);
+            var st = addStep(sp);
+            if (main) window.bumpToolCount();                     // every schema tool counts (incl. done)
+            if (sp.tick) setTimeout(function () { complete(st); }, 300);
+            if (toolQ.length) toolTimer = setTimeout(function () { toolTimer = null; playTools(); }, TOOL_GAP_MS);
+        }
+        function toolSpec(p) {
+            var name = p.name || '';
+            if (name === 'left_click') { var c = p.clicks || 1; name = c >= 3 ? 'left_click_3' : (c === 2 ? 'left_click_2' : 'left_click_1'); }
+            // Mobile (iOS) variants: 'scroll' is shared with desktop, so only a mobile
+            // run swaps the mouse for the swiping phone; video_player picks its sign
+            // from the sub-command.
+            if (mobileRun && name === 'scroll') return { shape: 'phoneScroll', label: 'swiping to scroll' };
+            // Browser variants. `click` is the sharpest collision: TOOL_MAP.click is
+            // the iOS finger, because the iOS driver sends that flat name, and the
+            // browser driver sends it too meaning a mouse click on a page. Without
+            // this a browser click would draw a phone.
+            if (webRun) {
+                if (name === 'click') return { shape: 'mouseClick', label: 'clicking' };
+                if (name === 'scroll') return { shape: 'mouse', label: 'scrolling the page' };
+            }
+            // run_script with type "scrape" is the way into scraping mode (its own
+            // tools follow, `more` to `exit_scrape_mode`); any other script keeps the shell.
+            if (name === 'run_script' && p.script_type === 'scrape') return { shape: 'scrape', label: 'entering scrape mode' };
+            // skills {"type": "remove"} puts a read skill away: same scroll, its own word.
+            if (name === 'skills' && p.script_type === 'remove') return { shape: 'skill', label: 'closing the skill' };
+            if (name === 'video_player') return VIDEO_MAP[p.value] || VIDEO_MAP.streaming;
+            // A second (or later) create-todo in the same run overrides the first — same logo, different word.
+            if (name === 'todo_list' && ++todoCreateCount > 1) return { shape: 'todo', label: 'overwrote todo' };
+            return TOOL_MAP[name] || { shape: 'loader', label: (p.name || 'tool') };
+        }
+        // A terminal "!" drop — agent interrupted (stop) or a backend/LLM error. Not a tool,
+        // so it isn't counted; it just caps the chain with a short explanation.
+        function showError(text) {
+            clearArr(openTimers); clearTimeout(toolTimer); toolTimer = null; toolQ.length = 0;
+            thinkingStep = null; receivedEarly = false; openingDone = true; openNext = null;
+            addStep({ shape: 'error', label: text || 'something went wrong' });
+        }
 
-    /* ---------------- backend bridge ---------------- */
-    window.toolFlow = {
-        steps: STEPS,
-        // backend (app.py) calls: window.toolFlow.onFlow('<event>', '<json payload>')
-        onFlow: function (event, payload) {
+        /* ---------------- backend bridge ---------------- */
+        // backend (app.py) calls: window.toolFlow.onFlow('<event>', '<json payload>');
+        // a sub-agent box's chain gets the same events from sub_agents.js
+        function onFlow(event, payload) {
             if (!treeEl) return;
             // Events are RUN-SCOPED: anything that arrives once the chain has been
             // torn down (New chat / send, both via reset()) or after run_end belongs
@@ -2089,7 +2115,10 @@
             if (payload) { try { p = JSON.parse(payload); } catch (e) { p = {}; } }
             switch (event) {
                 case 'run_start':
-                    mobileRun = isMobileRun(); webRun = isWebRun(); stopDemo(); clearChain();
+                    // the main chain asks the picker which agent drives it; a sub-agent box's chain knows its kind
+                    if (main) { mobileRun = isMobileRun(); webRun = isWebRun(); }
+                    else { mobileRun = opts.kind === 'mobile'; webRun = opts.kind === 'web'; }
+                    stopDemo(); clearChain();
                     runActive = true;                             // after clearChain — it clears the flag
                     if (zoneEl) zoneEl.classList.add('flow-started');
                     break;
@@ -2101,10 +2130,58 @@
                     runActive = false;
                     break;
             }
-        },
-        reset: clearChain,
-        stopTest: stopDemo,                                  // back-compat aliases
-        startTest: function () { if (!demoOn) { demoOn = true; runDemo(); } },
+        }
+
+        /* ---------------- elements + lifetime ---------------- */
+        // root holds .tool-flow > .tool-flow-tree. Once attached, the shared rAF loop
+        // draws its live tail and a window resize re-fits it.
+        function attach(root) {
+            if (main) zoneEl = root;                     // .agent-container (heading reveal toggles on it)
+            flowEl = root.querySelector('.tool-flow');
+            var tree = root.querySelector('.tool-flow-tree');
+            if (tree) {
+                treeEl = tree;
+                if (liveFlows.indexOf(flow) < 0) liveFlows.push(flow);
+                startEngine();                           // rAF render loop (renders the live tail)
+            }
+        }
+        // keep "fill the box, then scroll" correct (the window or the box changed size)
+        function refit() { scrollToFrontier(frontier); }
+        // A sub-agent box is gone: its timers stop, its items go and it leaves the
+        // render loop. Its elements are dropped too, so a late event finds no tree.
+        function dispose() {
+            clearChain();
+            var i = liveFlows.indexOf(flow);
+            if (i >= 0) liveFlows.splice(i, 1);
+            flowEl = null; treeEl = null; zoneEl = null;
+        }
+
+        var flow = {
+            steps: STEPS, onFlow: onFlow, reset: clearChain, refit: refit, attach: attach, dispose: dispose,
+            stopDemo: stopDemo, startDemo: function () { if (!demoOn) { demoOn = true; runDemo(); } },
+        };
+        return flow;
+    }
+
+    // The run's own chain: the bottom container's tool panel, attached at mount below.
+    var mainFlow = createFlow({ main: true });
+    window.toolFlow = {
+        steps: mainFlow.steps,
+        // backend (app.py) calls: window.toolFlow.onFlow('<event>', '<json payload>')
+        onFlow: mainFlow.onFlow,
+        reset: mainFlow.reset,
+        stopTest: mainFlow.stopDemo,                         // back-compat aliases
+        startTest: mainFlow.startDemo,
+    };
+    // A sub-agent box's own chain (container/sub_agents/sub_agents.js). rootEl holds
+    // .tool-flow > .tool-flow-tree, the same markup as the main tool panel; kind
+    // ('web' or 'mobile') fixes its click and scroll logos. It is driven like the
+    // main one (onFlow, run-scoped) but counts no tools and has no demo or heading;
+    // dispose() ends it for good.
+    window.createToolFlow = function (rootEl, o) {
+        var f = createFlow({ kind: o && o.kind });
+        if (rootEl) f.attach(rootEl);
+        return { onFlow: f.onFlow, reset: f.reset, dispose: f.dispose, refit: f.refit };
     };
 
     /* ---------------- build + mount ---------------- */
@@ -2137,17 +2214,9 @@
                 var zone = holder.querySelector('.agent-container');
                 if (!zone) return;
                 grid.appendChild(zone);
-                zoneEl = zone;                                // .agent-container (heading reveal toggles on it)
-                flowEl = zone.querySelector('.tool-flow');
-                var tree = zone.querySelector('.tool-flow-tree');
-                if (tree) {
-                    treeEl = tree;
-                    startEngine();                            // rAF render loop (renders the live tail)
-                    // keep "fill the box, then scroll" correct when the window resizes
-                    window.addEventListener('resize', function () { scrollToFrontier(frontier); });
-                    // NOTE: no demo here — the chain stays empty until the agent run
-                    // drives it via window.toolFlow.onFlow(...).
-                }
+                mainFlow.attach(zone);                        // its elements; starts the rAF render loop
+                // NOTE: no demo here — the chain stays empty until the agent run
+                // drives it via window.toolFlow.onFlow(...).
             })
             .catch(function () { /* non-fatal */ });
     }

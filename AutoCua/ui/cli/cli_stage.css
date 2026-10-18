@@ -71,8 +71,9 @@ body.cli-shell #cliContainer .cc-agent {
     position: absolute;
     inset: 0;
 }
-/* While the CoderUse bot comes in (chat_input/mode_bot.js), the chat waits. */
-body.mode-intro.cli-shell #cliContainer .cc-agent {
+/* While the CoderUse bot comes in to a fresh chat (chat_input/mode_bot.js), the
+   chat waits, unseen (only its opacity: the bot's flight up aims at the box's real
+   place if you send meanwhile). */
+body.mode-intro.mode-fresh.cli-shell #cliContainer .cc-agent {
     opacity: 0;
-    transform: scale(0.96);
 }

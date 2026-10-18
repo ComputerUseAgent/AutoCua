@@ -642,11 +642,16 @@
     //   left. Every line stays, runs follow one another in it. Asked for by cli_stage.js
     //   only; dispatched coder cards in the other modes are unchanged: no header, actions
     //   on a 5-line `> AutoCua Code`.
+    // opts.box: true -> Computer use's coder box (cli_stage.js; container/sub_agents stacks
+    //   it in the chat, under the main agent's box): that live box alone, running from the
+    //   start, as wide as it is given. No chat, prompt, terminal, run bot, todo or bar; in
+    //   everything else it is the Shell card (it has the header).
     function create(desc, opts) {
         opts = opts || {};
-        var header = opts.header || '';
+        var box = !!opts.box;
+        var header = opts.header || (box ? 'AutoCua Code' : '');
         var el = document.createElement('div');
-        el.className = 'coder-card' + (header ? ' has-head' : '');
+        el.className = 'coder-card' + (header ? ' has-head' : '') + (box ? ' cc-box cc-running' : '');
         // The terminal card holds ONLY the streamed output + todo + minion output. Nothing else
         // (the action chain and scratchpad live in their own zones beside the card).
         // With a header the body is a ROW: .cc-main holds the terminal, with an (initially
@@ -697,16 +702,22 @@
                   '</span></div>') +
             // the compact card's minion tree, under its `>` (the Shell card's is in its box)
             (header ? '' : MINIONS_HTML);
-        el.innerHTML =
-            '<div class="cc-body">' +
+        el.innerHTML = box
+            // the coder box: the live box alone, its row (head, `>`, the agent's words), the
+            // minions' tree and their bots; its chain and tracking join it below
+            ? '<div class="cc-out"><div class="cc-prow"><canvas class="cc-mascot"></canvas>' +
+                  '<span class="cc-p">&gt;</span><span class="cc-think"></span></div>' +
+                  MINIONS_HTML + '<div class="cc-mbots"></div></div>'
+            : '<div class="cc-body">' +
                 (header ? '<div class="cc-main">' + inner + '</div><div class="cc-todo"></div>' : inner) +
-            '</div>' +
-            (header ? '' : '<div class="cc-progress"><span class="cc-fill"></span></div>');   // Shell use: in its box
-        if (header) el.querySelector('.cc-hname').textContent = header;
+              '</div>' +
+              (header ? '' : '<div class="cc-progress"><span class="cc-fill"></span></div>');   // Shell use: in its box
+        if (header && !box) el.querySelector('.cc-hname').textContent = header;
 
         var outEl = el.querySelector('.cc-out');
         var pEl = el.querySelector('.cc-p');           // the `>` prompt — trunk anchors just below it
-        var outText = el.querySelector('.cc-out-view');   // the scrolling viewport, not the wrapper
+        // the scrolling viewport, not the wrapper (the box has no chat: its stream goes nowhere)
+        var outText = el.querySelector('.cc-out-view') || document.createElement('div');
         var minionsEl = el.querySelector('.cc-minions');
         var trunk = el.querySelector('.cc-trunk');
         var flowEl = el.querySelector('.cc-mflow');       // conveyor window (clips)
@@ -733,7 +744,7 @@
         // Shell use: the live line is the chat's last item, inside its scrolling view (after
         // the streamer's .cc-scroll), so it scrolls with the chat like any of its lines.
         var liveBox = header ? el.querySelector('.cc-out') : null;
-        if (liveBox) outText.appendChild(liveBox);
+        if (liveBox && !box) outText.appendChild(liveBox);
         // ...and keeps its newest line in sight when it changes height (it opens; the
         // prompt row comes back after a command) — unless your wheel took it up.
         var termAtEnd = true, termH = 0, termRo = null;
@@ -750,7 +761,7 @@
                 termRo.observe(tview);
             }
         }
-        if (header) {
+        if (header && !box) {
             outStream.setNativeScroll(true);
             // Shell use: the chat's edges fade where there is more to scroll to, as in the
             // main chat (chat_scroll.js); on a scroll, and as the chat or its view resizes.
@@ -774,10 +785,15 @@
                     // the view got shorter or taller, or the live line at its end grew or
                     // shrank (minion rows, the terminal opening): at the end, stay there
                     var lh = liveBox ? liveBox.offsetHeight : 0;
-                    if (outText.clientHeight !== viewH || lh !== liveH) {
+                    if (outText.clientHeight !== viewH) {
                         viewH = outText.clientHeight;
                         liveH = lh;
                         if (atChatEnd) outText.scrollTop = outText.scrollHeight;
+                    } else if (lh !== liveH) {
+                        // the live box grew or shrank (a run's tool box opening or closing, the
+                        // terminal, minion rows): the chat follows its end smoothly, not in a jump
+                        liveH = lh;
+                        if (atChatEnd) outStream.toEnd();
                     }
                     fades();
                     rbotPlace();      // the run's bot keeps to the box's top (the lines above rewrapped)
@@ -799,13 +815,14 @@
         // bot is beside the answer already: it stays there while the answer fades in, then
         // the answer's own bot (its ::before, the same place and size) shows and this one
         // goes, in one frame: one bot all along.
+        //   botReserve()   a task was sent: the box makes room first, so nothing is drawn over it
         //   botIn()        the run started (or its card did): here, or on its way up
         //   botOn()        here (or on its way)? the run's answer then waits for it
         //   botToAnswer()  the run's answer just went in (with .cc-bot-wait)
-        //   botEnd()       the run ended without an answer: it goes
+        //   botEnd()       the run ended without an answer: it goes (or the room it was kept)
         var HAND_MS = 400;                              // the answer's fade-in (runReplyIn) and a little
         var rbot = null, rbotState = '', rbotHand = 0, rbotTimer = null, rbotMove = null;   // state: '' | on | wait | handing
-        if (header && liveBox) {
+        if (header && liveBox && !box) {
             rbot = document.createElement('div');
             rbot.className = 'cc-rbot';
             rbot.setAttribute('aria-hidden', 'true');
@@ -817,15 +834,24 @@
         // its top on the box's top, in the chat's own coordinates; not once it waits for the
         // answer (that took the box's old place, the box went under it)
         function rbotPlace() {
-            if (rbot && (rbotState === 'on' || rbotState === 'wait')) rbot.style.top = liveBox.offsetTop + 'px';
+            if (!rbot || (rbotState !== 'on' && rbotState !== 'wait')) return;
+            var top = liveBox.getBoundingClientRect().top - outText.getBoundingClientRect().top + outText.scrollTop - outText.clientTop;
+            rbot.style.top = top + 'px';                   // not offsetTop: whole pixels, the answer's is not
         }
-        // from where the chat box's bot landed to where its place is now (it moved on the way)
+        // from where the chat box's bot landed to where its place is now (it moved on the way);
+        // landed far off (its flight was cut short mid-air): it fades in at its place instead,
+        // a big move inside the chat's scrolling view would stretch what it scrolls
         function rbotDock(from) {
             if (rbotMove) rbotMove.cancel();
             rbotMove = null;
             var to = rbot.getBoundingClientRect();
             if (reduced() || !from.height || !to.height) return;
-            if (Math.abs(to.left - from.left) <= 2 && Math.abs(to.top - from.top) <= 2) return;
+            var dx = Math.abs(to.left - from.left), dy = Math.abs(to.top - from.top);
+            if (dx <= 0.5 && dy <= 0.5) return;
+            if (dx > 40 || dy > 40 || Math.abs(to.height - from.height) > 10) {
+                rbotMove = rbot.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, easing: 'ease' });
+                return;
+            }
             rbotMove = rbot.animate([
                 { transform: 'translate(' + (from.left - to.left) + 'px, ' + (from.top - to.top) + 'px) scale(' + (from.height / to.height) + ')' },
                 { transform: 'none' }
@@ -838,10 +864,16 @@
             rbotHand++;                                    // a flight still on its way lands nowhere
             rbotState = '';
             if (!rbot) return;
-            rbot.classList.remove('on', 'wait');
+            rbot.classList.remove('on', 'wait', 'handing');
             rbot.style.removeProperty('top');
             rbot.querySelector('.cc-rbot-eyes').style.removeProperty('transform');
             el.classList.remove('cc-rbot-room', 'cc-rbot-handing');
+            // the answer it handed over to shows its own bot now, and keeps it at later
+            // hand-overs (the waiting class goes with this one)
+            [].forEach.call(el.querySelectorAll('.cc-line.cc-bot-wait'), function (l) { l.classList.remove('cc-bot-wait'); });
+        }
+        function botReserve() {
+            if (rbot) el.classList.add('cc-rbot-room');
         }
         function botIn() {
             if (!rbot || rbotState === 'on' || rbotState === 'wait') return;
@@ -854,7 +886,19 @@
             if (window.modeBot && window.modeBot.ready('shell')) {
                 rbotState = 'wait';
                 rbot.classList.add('wait');
+                // while it flies, the chat may still be settling under it (its fade-in after the
+                // entrance, the stage coming back after Skills, the box making room): on to the
+                // place's new spot when such a move ends (mode_bot.js retarget)
+                var stage = document.getElementById('cliContainer');
+                var reaim = function (e) {
+                    if (mine !== rbotHand || !rbot.classList.contains('wait')) return;
+                    if (e && e.target !== stage && e.target !== liveBox && !(e.target.classList && e.target.classList.contains('cc-agent'))) return;
+                    rbotPlace();
+                    window.modeBot.retarget(rbot.getBoundingClientRect(), 0);
+                };
+                if (stage) stage.addEventListener('transitionend', reaim);
                 window.modeBot.flyTo(rbot, function (at) {
+                    if (stage) stage.removeEventListener('transitionend', reaim);
                     if (mine !== rbotHand) return;
                     rbot.classList.remove('wait');
                     if (rbotState === 'wait') rbotState = 'on';
@@ -866,14 +910,17 @@
         function botToAnswer() {
             if (!botOn()) return;
             rbotState = 'handing';                         // its place stays: the answer's bot's
+            rbot.classList.add('handing');                 // no blink starts now (bot_blink.js)
             el.classList.add('cc-rbot-handing');
             el.classList.remove('cc-rbot-room');           // the box, under the answer now, back to the left
             var since = performance.now();
+            var eyes = rbot.querySelector('.cc-rbot-eyes');
             (function hand() {
-                // still flying up, or gliding on from where it landed: it gets there first
-                // (its place is the answer's)
-                if (rbot.classList.contains('wait') || (rbotMove && rbotMove.playState === 'running')) {
-                    rbotTimer = setTimeout(hand, 60);
+                // still flying up, gliding on from where it landed, or blinking: it gets there,
+                // or its eyes open, first (its place is the answer's; the answer's bot shows
+                // with open eyes)
+                if (rbot.classList.contains('wait') || (rbotMove && rbotMove.playState === 'running') || eyes.style.transform) {
+                    rbotTimer = setTimeout(hand, 40);
                     return;
                 }
                 var left = HAND_MS - (performance.now() - since);
@@ -882,13 +929,17 @@
             })();
         }
         function botEnd() {
-            if (!botOn() || !rbot) return;
+            if (!rbot) return;
+            if (!botOn()) {                                // no bot, only the room kept at the send
+                if (rbotState !== 'handing') el.classList.remove('cc-rbot-room');
+                return;
+            }
             if (reduced() || rbotState === 'wait') return rbotOff();
             var mine = rbotHand;
             if (rbotMove) rbotMove.cancel();
+            rbot.classList.add('handing');
             var out = rbotMove = rbot.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, easing: 'ease', fill: 'forwards' });
-            out.onfinish = function () { if (mine === rbotHand) rbotOff(); };
-            el.classList.remove('cc-rbot-room');
+            out.onfinish = function () { if (mine === rbotHand) rbotOff(); };   // the room goes with it, after
             rbotState = 'handing';                         // nothing else moves it now
         }
         // Shell use only: the agent's own words on the live line (and a new chat's hello),
@@ -974,6 +1025,7 @@
         var mascotEl = el.querySelector('.cc-mascot');
         // 26px canvas -> a ~20px head; while working it wears the stop orb's colour
         var mascot = (mascotEl && ICONS && ICONS.createMascot) ? ICONS.createMascot(mascotEl, 26) : null;
+        if (box && mascot && mascot.setGlow) mascot.setGlow(true);   // the box runs from the start
         var actionChain = ICONS ? ICONS.createChain(chainEl.querySelector('.cc-chain'), { orientation: 'vertical' }) : null;
         function makeTracker() {
             return ICONS ? ICONS.createTracker(trackEl.querySelector('.cc-track-tree'), trackEl.querySelector('.cc-track-flow'), trackEl) : null;
@@ -1658,6 +1710,7 @@
                 clearTimeout(toolTimer); toolTimer = null;
                 toolQ.length = 0; openNext = null; thinkingStep = null;
                 anticipateNext = receivedEarly = fastOpening = openingDone = false;
+                if (box) return;           // the coder box keeps what it shows while it closes
                 if (actionChain) actionChain.dispose();
                 if (tracker) tracker.dispose();
                 tracker = makeTracker();
@@ -1700,6 +1753,7 @@
             },
             // An empty terminal (a reopened chat's, before its rows).
             clear: function () {
+                rbotOff();                     // a run's bot belongs to the chat that was on screen
                 outStream.clear();
                 if (termStream && !termBusy) termStream.clear();   // a command still running keeps its box
                 if (todoEl) todoEl.replaceChildren();
@@ -1722,6 +1776,7 @@
             },
             setTodo: setTodo,
             // Shell use: the run's bot beside the live box (above)
+            botReserve: botReserve,
             botIn: botIn,
             botOn: botOn,
             botToAnswer: botToAnswer,

@@ -14,6 +14,10 @@ and marks the device as a simulator.
 
 The process_request result dict is always written to --result.
 
+The app shows the run live, in its box in the main agent's chat: the agent's
+tool-flow events and the phone's screens go to events.jsonl and frame.jpg next
+to --result (the run's folder), where the main agent's controller reads them.
+
 Exit codes: 0 = agent returned (any status), 1 = crash, 130 = Ctrl+C.
 """
 
@@ -26,8 +30,62 @@ _HERE = Path(__file__).resolve().parent
 sys.path[:] = [p for p in sys.path if Path(p or ".").resolve() != _HERE]
 
 import argparse   # noqa: E402
+import base64     # noqa: E402
+import io         # noqa: E402
 import json       # noqa: E402
 import os         # noqa: E402
+import threading  # noqa: E402
+
+# The phone's screen as the app gets it: its longest side in px, and JPEG quality
+FRAME_EDGE = 900
+FRAME_QUALITY = 70
+
+
+class _LiveView:
+    """The run's live view, written for the app (controller/view.py reads it):
+    each tool-flow event as one JSON line in events.jsonl, and each screen,
+    made small, as frame.jpg plus a line saying a new one is there. The same
+    as browser_agent_child.py's.
+
+    Both are the agent's callbacks, so every call catches everything: the run
+    never fails over its live view. Nothing goes to stdout, which is agent.log,
+    the main agent's error report."""
+
+    def __init__(self, folder: Path):
+        self.folder = folder
+        self.frames = 0
+        self.lock = threading.Lock()
+
+    def flow(self, event, payload=None):
+        """tool_callback: run_start, turn, received, error or run_end"""
+        try:
+            p = None if payload is None else json.dumps(payload, ensure_ascii=False)
+            with self.lock:
+                self._write({"k": "flow", "ev": str(event), "p": p})
+        except Exception:
+            pass
+
+    def frame(self, image_b64):
+        """frontend_callback: the phone's full-size screen of a scan, as base64 PNG"""
+        try:
+            from PIL import Image
+            image = Image.open(io.BytesIO(base64.b64decode(image_b64)))
+            image.thumbnail((FRAME_EDGE, FRAME_EDGE))
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            with self.lock:
+                # Written whole, then swapped in: the app never reads half a picture
+                tmp = self.folder / "frame.tmp"
+                image.save(tmp, format="JPEG", quality=FRAME_QUALITY)
+                os.replace(tmp, self.folder / "frame.jpg")
+                self.frames += 1
+                self._write({"k": "frame", "n": self.frames})
+        except Exception:
+            pass
+
+    def _write(self, row):
+        with open(self.folder / "events.jsonl", "ab") as f:
+            f.write((json.dumps(row) + "\n").encode("utf-8"))
 
 
 def main():
@@ -50,7 +108,12 @@ def main():
 
         from AutoCua.ios.agent.main_driver.service import AgentService
 
-        agent = AgentService(provider=args.provider, model=args.model, speed=args.speed)
+        # Only these two: web_callback and shell_callback add sleeps, and
+        # token_callback would move the main agent's memory bar
+        live = _LiveView(Path(args.result).resolve().parent) if args.result else None
+        agent = AgentService(provider=args.provider, model=args.model, speed=args.speed,
+                             tool_callback=live.flow if live else None,
+                             frontend_callback=live.frame if live else None)
         result = agent.process_request(args.task)
         exit_code = 0
     except KeyboardInterrupt:

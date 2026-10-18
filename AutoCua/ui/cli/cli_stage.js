@@ -32,6 +32,8 @@
     var idleCard = null;               // the waiting terminal shown in Shell use
     var clearTimer = null;             // the deferred end-of-run wipe — cancellable, so a
                                        // run starting inside its 600ms window isn't destroyed
+    var boxes = new Map();             // Computer use: task_id -> its coder box's card (mountBox)
+    var boxMinions = new Map();        // ...and minion_id -> its box's task_id
 
     function getContainer() { return document.getElementById('cliContainer'); }
     // 1 card -> full-size; 2 -> halves; 3 -> thirds (drives the height transition in CSS).
@@ -162,6 +164,29 @@
         else if (shellPinned && !cards.size) mountIdle();   // back to the waiting terminal
     }
 
+    // Computer use: a coder the main agent starts gets its own box in the chat, under the
+    // main agent's box (container/sub_agents/sub_agents.js), not the stage. Its card
+    // (coder_card.js, {box: true}) is kept apart from `cards`: no cap, no queue, and
+    // clearAll / demote never see it. The stack disposes the card once its box is gone
+    // (closed at the coder's end, or all cleared: a send, New chat, another chat, the
+    // run's reply), and from then on its events are not routed any more.
+    function mountBox(taskId, desc, agentId) {
+        if (boxes.has(taskId) || !window.CliCoderCard) return;
+        var card = window.CliCoderCard.create(desc, { box: true });
+        var dispose = card.dispose;
+        card.dispose = function () {
+            if (boxes.get(taskId) === card) dropBox(taskId);
+            dispose();
+        };
+        boxes.set(taskId, card);
+        window.subAgents.mountCoder(taskId, card, agentId);
+        if (!card.el.isConnected) card.dispose();     // the stack had no place for it
+    }
+    function dropBox(taskId) {
+        boxes.delete(taskId);
+        boxMinions.forEach(function (parent, m) { if (parent === taskId) boxMinions.delete(m); });
+    }
+
     // Shell use: the run is over, its terminal goes back to waiting (the reverse of the
     // promotion in mountAgent) with everything it showed still in it. Late events for
     // the old task id find no card and are dropped.
@@ -237,11 +262,16 @@
     }
 
     // The run's answer (or why it ended): the run's bot beside the box hands over to it
-    // (coder_card.js botToAnswer), the answer's own bot unseen until then.
+    // (coder_card.js botToAnswer), the answer's own bot unseen until then. A run that
+    // never started (an error, Stop first) while the chat box's bot still waits for it:
+    // that bot flies up to the answer the same way. No bot at all: the room the box kept
+    // for one goes.
     function printRunAnswer(card, text, cls, mode) {
+        if (card.botIn && !card.botOn() && window.modeBot && window.modeBot.ready('shell')) card.botIn();
         var bot = !!(card.botOn && card.botOn());
         card.print(text, cls + (bot ? ' cc-bot-wait' : ''), mode);
         if (bot) card.botToAnswer();
+        else if (card.botEnd) card.botEnd();
     }
 
     // A reopened chat: each run's request as your message and its done message as the
@@ -330,8 +360,9 @@
             pendingHistory = null;        // the chat they were for is not the one open now
             unmountIdle();
             document.body.classList.remove('cli-typing');   // no prompt outside Shell use
-            // left Shell use — but never yank the stage out from under a live run
-            if (!awaitActive) {
+            // left Shell use — but never yank the stage out from under a live run's card
+            // (an empty one would just hide the chat: Computer use's coders are boxes in it)
+            if (!awaitActive || !cards.size) {
                 document.body.classList.remove('cli-stage');
                 // no terminal in this mode: the hero is the empty state again. Skipped
                 // mid-run (guarded above), and skipped when a CHAT is open (leaving
@@ -347,7 +378,9 @@
         injectPanel();
 
         // Slide the panel in / out. The chat box is untouched (no .cli-mode).
+        // Computer use: the coders waited on are boxes in the chat (mountBox), which stays.
         window.cliAwaitStart = function (reason) {
+            if (!shellPinned && window.subAgents) return;
             injectPanel();
             awaitActive = true;
             // a stale end-of-run wipe from the LAST run must not fire into this one
@@ -360,6 +393,9 @@
             // that finds a card still live is a stopped run's, arriving late after you
             // sent the next message: that run goes on.
             if (shellPinned && cards.size) return;
+            // Computer use's own wait had no stage (a Shell run's, still going after another
+            // chat was opened, ends its stage as before)
+            if (!shellPinned && !awaitActive && window.subAgents) return;
             awaitActive = false;
             if (!shellPinned) {
                 document.body.classList.remove('cli-stage');
@@ -421,6 +457,7 @@
         document.addEventListener('chat:new', function () {
             pendingHistory = null;                         // fresh chat — nothing to fill in
             runChat = null;
+            boxes.clear(); boxMinions.clear();             // the coders' boxes went with the old chat
             if (!shellPinned) {
                 // a Shell run's card still on the stage belongs to the old chat (a
                 // Computer use coder's is left alone)
@@ -449,29 +486,42 @@
             if (window.hideWelcomeHero) window.hideWelcomeHero();
             heroWasVisible = true;
         });
+        // ...and another chat opened (sub_agents.js cleared the boxes with the live turn)
+        document.addEventListener('chat:opened', function () { boxes.clear(); boxMinions.clear(); });
         syncShellStage();   // in case the picker mounted first
 
         // A coder agent starts → mount it if a slot is free, else queue it. Up to 2 show at once;
-        // the rest wait FIFO. Bare "[minion] " task_starts are ignored.
-        window.cliTaskStart = function (taskId, desc) {
+        // the rest wait FIFO. Bare "[minion] " task_starts are ignored. Computer use: its box
+        // in the chat instead (mountBox; agentId is its sub-agent registry id).
+        window.cliTaskStart = function (taskId, desc, agentId) {
             if (typeof desc === 'string' && desc.indexOf('[minion] ') === 0) return;
+            if (!shellPinned && window.subAgents) { mountBox(taskId, desc, agentId); return; }
             if (cards.has(taskId)) return;                                   // already visible
             for (var i = 0; i < queue.length; i++) if (queue[i].taskId === taskId) return;  // already queued
             if (cards.size < MAX_VISIBLE) mountAgent(taskId, desc);
             else queue.push({ taskId: taskId, desc: desc });
         };
         window.cliTaskLine = function (taskId, line, stream) {
-            var card = cards.get(taskId);   // queued (unmounted) agents' lines are dropped until shown
+            var card = boxes.get(taskId) || cards.get(taskId);   // queued (unmounted) agents' lines are dropped until shown
             if (card) card.setLine(line);
         };
         // Todos are handled internally by the agent and NOT rendered as a checklist. The
         // card swallows them in every mode except Shell use, where the terminal is the
         // full transcript and setTodo() streams the list into it.
         window.cliTaskTodo = function (taskId, payload) {
-            var card = cards.get(taskId);
+            var card = boxes.get(taskId) || cards.get(taskId);   // (a box has no todo column)
             if (card && card.setTodo) card.setTodo(payload);
         };
         window.cliTaskEnd = function (taskId, status, summary, summaryHtml) {
+            // Computer use: its box stops where it is and closes (sub_agents.js disposes the
+            // card once it is gone)
+            var box = boxes.get(taskId);
+            if (box) {
+                dropBox(taskId);
+                box.finish();
+                if (window.subAgents) window.subAgents.endCoder(taskId);
+                return;
+            }
             if (cards.has(taskId)) {
                 // Shell use: the run's answer under its lines, then the terminal waits for
                 // the next run with all of it still there (it is the chat's).
@@ -491,17 +541,23 @@
         };
 
         window.cliMinionStart = function (parentId, taskId, query) {
+            var box = boxes.get(parentId);           // a Computer use coder's box: its bot in there
+            if (box) { boxMinions.set(taskId, parentId); box.addMinion(taskId, query); return; }
             var card = cards.get(parentId);
             if (!card) return;
             minionParent.set(taskId, parentId);
             card.addMinion(taskId, query);            // Shell use: its bot in the box too
         };
         window.cliMinionLine = function (taskId, line, stream) {
+            var box = boxes.get(boxMinions.get(taskId));
+            if (box) { box.setMinionLine(taskId, line); return; }
             var parent = minionParent.get(taskId);
             var card = (parent != null) ? cards.get(parent) : null;
             if (card) card.setMinionLine(taskId, line);
         };
         window.cliMinionEnd = function (taskId, status, summary) {
+            var box = boxes.get(boxMinions.get(taskId));
+            if (box) { box.endMinion(taskId, status); return; }
             var parent = minionParent.get(taskId);
             var card = (parent != null) ? cards.get(parent) : null;
             if (card) card.endMinion(taskId, status);
@@ -569,6 +625,7 @@
             if (!card) return;
             if (card.leaveTyping) card.leaveTyping();
             if (card.print && String(text || '').trim()) printUser(card, text);
+            if (card.botReserve) card.botReserve();    // room for the run's bot, before it comes
             if (card.toEnd) card.toEnd();              // the chat glides down to it
         };
 
@@ -635,8 +692,8 @@
             if (card && card.termEnd) card.termEnd(code);
         };
 
-        window.cliPillWebLoadingStart = function (taskId) { var c = cards.get(taskId); if (c) c.setWeb(true); };
-        window.cliPillWebLoadingEnd = function (taskId) { var c = cards.get(taskId); if (c) c.setWeb(false); };
+        window.cliPillWebLoadingStart = function (taskId) { var c = boxes.get(taskId) || cards.get(taskId); if (c) c.setWeb(true); };
+        window.cliPillWebLoadingEnd = function (taskId) { var c = boxes.get(taskId) || cards.get(taskId); if (c) c.setWeb(false); };
     }
 
     function schedule() { setTimeout(installHooks, 0); }

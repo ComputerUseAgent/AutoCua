@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import time
@@ -34,6 +35,26 @@ logger = logging.getLogger(__name__)
 # Agent types the `sub_agent` tool can start on this platform. ios_agent is
 # listed as online only while the request's phone is connected (phone_state).
 SUB_AGENT_TYPES = ("coder_agent", "browser_agent", "ios_agent")
+
+
+def _read_new_lines(path: Path, live: dict, key: str) -> list:
+    """The lines a sub-agent added to `path` since the last call, read from the
+    byte offset kept in live[key]. A last line still being written waits for
+    the next call; a file that shrank was started over, so it is read again
+    from the top. A file that is not there (yet, or any more) gives nothing."""
+    pos = live.get(key, 0)
+    try:
+        with open(path, "rb") as f:
+            if os.fstat(f.fileno()).st_size < pos:
+                pos = 0
+            f.seek(pos)
+            data = f.read()
+    except OSError:
+        return []
+    end = data.rfind(b"\n") + 1
+    live[key] = pos + end
+    lines = data[:end].decode("utf-8", errors="replace").split("\n")
+    return [line.strip() for line in lines if line.strip()]
 
 
 class ControllerView:
@@ -107,6 +128,7 @@ class ControllerView:
         self.sub_agent_last_id = 0
         self._browser_tasks = []      # Browser agents at work: [{"id": int, "task": str, "run": dict}]
         self._ios_tasks = []          # ios_agent runs at work: [{"id": int, "task": str, "run": dict}]
+        self._sub_ended = set()       # Browser / iOS ids whose box in the chat got its sub_end (sent once)
         self.phone = None             # The request's PhoneLink (tool/ios_agent.py), set by the main driver
         self.speed = None             # The main agent's speed, so a browser agent runs the same way
         self.scan_on = True           # The `scan` tool's switch; the main driver reads it each step
@@ -369,15 +391,71 @@ class ControllerView:
             if row["id"] == agent_id:
                 row["status"] = status
 
+    def _end_sub_box(self, agent_id: int, status: str):
+        """Close a browser / iOS sub-agent's box in the chat, once: Stop and
+        the run's watcher can both get here."""
+        with self._cli_agent_lock:
+            if agent_id in self._sub_ended:
+                return
+            self._sub_ended.add(agent_id)
+        self._safe_cli_emit("sub_end", agent_id, status)
+
+    def _relay_sub_agent(self, agent_id: int, live: dict):
+        """One pass of a browser / iOS run's live view to its box in the chat:
+        the tool-flow events and the newest screen its child wrote to the run's
+        folder (events.jsonl and frame.jpg, see browser_agent_child.py), and
+        the new lines of its notes. Any read may fail: stop() and outcome()
+        delete folders from other threads."""
+        if self.cli_callback is None or agent_id in self._sub_ended:
+            return   # no app to show it, or its box is already closed
+        for line in _read_new_lines(live["dir"] / "events.jsonl", live, "events_at"):
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(row, dict):
+                continue
+            if row.get("k") == "flow":
+                self._safe_cli_emit("sub_flow", agent_id, str(row.get("ev") or ""), row.get("p") or "")
+            elif row.get("k") == "frame":
+                live["frame_due"] = True
+        if live.get("frame_due"):
+            # Only the newest screen: the child swaps frame.jpg in whole each time
+            try:
+                frame = base64.b64encode((live["dir"] / "frame.jpg").read_bytes()).decode("ascii")
+            except OSError:
+                frame = ""   # tried again on the next pass
+            if frame:
+                live["frame_due"] = False
+                self._safe_cli_emit("sub_frame", agent_id, frame)
+        try:
+            fresh = live["notes"].stat().st_mtime >= live["since"]
+        except OSError:
+            fresh = False
+        if fresh:
+            for line in _read_new_lines(live["notes"], live, "notes_at"):
+                self._safe_cli_emit("sub_note", agent_id, line)
+
     def _watch_browser_agent(self, agent_id: int, run: dict):
-        """Watcher thread: waits for one browser agent, then reports it"""
+        """Watcher thread: shows one browser agent live in its box in the chat,
+        about three times a second, then reports it"""
         from .tool import browser_agent
+        live = {"dir": run["result_file"].parent, "since": 0,
+                "notes": browser_agent._WEB_SCRATCHPAD / run["session_id"] / "milestone" / "milestone.md"}
         while True:
-            outcome = browser_agent.outcome(run)
-            if outcome is not None:
-                break
-            time.sleep(1)
+            exited = run["subprocess"].poll() is not None
+            self._relay_sub_agent(agent_id, live)
+            # outcome() clears the run's notes once the child is gone, so it is
+            # asked only after a pass that came after the exit, or once time is up
+            if exited or time.monotonic() > run["deadline"]:
+                outcome = browser_agent.outcome(run)
+                if outcome is not None:
+                    break
+            time.sleep(0.3)
         summary, status = outcome
+        # Its box closes however the run ended, also when Stop or the end of
+        # the request already cleared the list below
+        self._end_sub_box(agent_id, status)
         with self._cli_agent_lock:
             task = next((t for t in self._browser_tasks if t["id"] == agent_id), None)
             if task is None:
@@ -387,19 +465,30 @@ class ControllerView:
             logger.info(f"Browser Agent {agent_id} finished: {status}")
 
     def _watch_ios_agent(self, agent_id: int, run: dict):
-        """Watcher thread: waits for one ios_agent run, then reports it. A phone
-        that goes away mid-run ends the run at once."""
+        """Watcher thread: shows one ios_agent run live in its box in the chat,
+        about three times a second, then reports it. A phone that goes away
+        mid-run ends the run at once."""
         from .tool import ios_agent
+        # Its notes are the iOS agent's one shared scratchpad, wiped when the
+        # child starts: a file older than this run is an earlier run's
+        live = {"dir": run["result_file"].parent, "since": run["started"],
+                "notes": ios_agent._IOS_SCRATCHPAD / "milestone" / "milestone.md"}
         while True:
             # Stop reaches the phone at once, not only when the run unwinds
             # (the main agent may be parked in a model call for a while).
             if self.stop_event and self.stop_event.is_set() and not run.get("stopped"):
                 ios_agent.stop(run)
+            self._relay_sub_agent(agent_id, live)
             outcome = ios_agent.outcome(run, phone_online=(self.phone_state() == "online"))
             if outcome is not None:
                 break
-            time.sleep(1)
+            time.sleep(0.3)
+        # The child is gone: the last of what it wrote (outcome() keeps the notes)
+        self._relay_sub_agent(agent_id, live)
         summary, status = outcome
+        # Its box closes however the run ended, also when Stop or the end of
+        # the request already cleared the list below
+        self._end_sub_box(agent_id, status)
         with self._cli_agent_lock:
             task = next((t for t in self._ios_tasks if t["id"] == agent_id), None)
             if task is None:
@@ -480,10 +569,15 @@ class ControllerView:
                     terminated_ids.append(rf.stem)
             self._cli_tasks.clear()
             self._cli_completed.clear()
+            box_ids = [t["id"] for t in self._browser_tasks + self._ios_tasks]
             browser_runs = [t["run"] for t in self._browser_tasks]
             self._browser_tasks.clear()
             ios_runs = [t["run"] for t in self._ios_tasks]
             self._ios_tasks.clear()
+
+        # Their boxes in the chat close at once: a child can take seconds to stop
+        for agent_id in box_ids:
+            self._end_sub_box(agent_id, "stopped")
 
         # Browser agents go down with the run; the browser itself stays up
         if browser_runs:
@@ -850,6 +944,8 @@ class ControllerView:
                         })
                     else:
                         agent_id = self._register_sub_agent("browser_agent", task_description)
+                        # Its own box in the chat, under the main agent's
+                        self._safe_cli_emit("sub_start", agent_id, "browser", task_description)
                         with self._cli_agent_lock:
                             self._browser_tasks.append({"id": agent_id, "task": task_description, "run": run})
                         threading.Thread(target=self._watch_browser_agent, args=(agent_id, run),
@@ -900,6 +996,8 @@ class ControllerView:
                             })
                         else:
                             agent_id = self._register_sub_agent("ios_agent", task_description)
+                            # Its own box in the chat, under the main agent's
+                            self._safe_cli_emit("sub_start", agent_id, "ios", task_description)
                             with self._cli_agent_lock:
                                 self._ios_tasks.append({"id": agent_id, "task": task_description, "run": run})
                             threading.Thread(target=self._watch_ios_agent, args=(agent_id, run),
@@ -1030,8 +1128,9 @@ class ControllerView:
                         })
 
                     # Notify frontend a new task has started, then begin
-                    # streaming its stdout/stderr line-by-line.
-                    self._safe_cli_emit("task_start", task_id, task_description)
+                    # streaming its stdout/stderr line-by-line. Its sub-agent
+                    # id keys its box in the chat (Computer use).
+                    self._safe_cli_emit("task_start", task_id, task_description, agent_id)
                     if cli_proc is not None:
                         for pipe, stream_name in (
                             (cli_proc.stdout, "out"),
