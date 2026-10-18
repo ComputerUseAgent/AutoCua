@@ -54,25 +54,30 @@
     flex-direction: column;
     gap: clamp(2px, 0.3vw, 4px);
     margin-top: clamp(6px, 0.8vw, 9px);
+    /* Fills the left bar's body down to the settings footer and scrolls
+       there, under New chat; no scrollbar shows (like the collapsed rail). */
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
-    /* The left-bar body already scrolls; cap height so a long list doesn't push
-       the settings footer off-screen. */
-    max-height: 60vh;
+    scrollbar-width: none;
     padding-right: 2px;
+}
+.chat-history-list::-webkit-scrollbar {
+    display: none;
 }
 
 .chat-history-item {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7px;
     width: 100%;
     box-sizing: border-box;
-    padding: clamp(5px, 0.6vw, 7px) clamp(7px, 0.9vw, 9px);
+    padding: clamp(6px, 0.7vw, 8px) clamp(7px, 0.9vw, 9px);
     border-radius: clamp(7px, 0.9vw, 9px);
     cursor: pointer;
-    color: rgba(80, 80, 80, 0.9);
+    color: rgba(60, 60, 60, 0.93);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: clamp(11px, 1.05vw, 12.5px);
+    font-size: clamp(12px, 1.15vw, 13.5px);
     font-weight: 500;
     transition: background 0.18s ease;
 }
@@ -91,12 +96,12 @@
    agent owns the chat. Quiet by default, a touch stronger on the open chat. */
 .chat-mode-icon {
     flex: 0 0 auto;
-    width: 14px;
-    height: 14px;
-    opacity: 0.55;
+    width: 15px;
+    height: 15px;
+    opacity: 0.7;
 }
 .chat-history-item.active .chat-mode-icon {
-    opacity: 0.85;
+    opacity: 0.95;
 }
 
 .chat-history-name {
@@ -112,12 +117,12 @@
     flex: 0 0 auto;
     border: none;
     background: transparent;
-    color: rgba(110, 110, 110, 0.8);
+    color: rgba(95, 95, 95, 0.85);
     font-size: clamp(15px, 1.6vw, 18px);
     line-height: 1;
     padding: 0 3px;
     cursor: pointer;
-    opacity: 0.6;   /* always visible (not hover-only); brighter on hover/active */
+    opacity: 0.7;   /* always visible (not hover-only); brighter on hover/active */
     transition: opacity 0.15s ease, color 0.15s ease;
 }
 
