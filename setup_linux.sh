@@ -139,18 +139,34 @@ install_pkgs() {
     fi
 }
 
+# Optional, and apart from install_pkgs so a failure here costs nothing else:
+# a distro ffmpeg, which utils/video_compress.py prefers over imageio-ffmpeg's
+# Linux build. That build has no GPU encoders, so without this each recording
+# is compressed on the CPU, 2-3x slower. apt and pacman only: Fedora's
+# ffmpeg-free and openSUSE's own ffmpeg leave out codecs the app needs.
+optional_ffmpeg() {
+    command -v ffmpeg >/dev/null 2>&1 && return 0
+    if as_root "$@"; then
+        print_ok "ffmpeg installed: recordings can compress on the GPU"
+    else
+        print_info "ffmpeg not installed: recordings compress on the CPU instead"
+    fi
+}
+
 if command -v apt-get >/dev/null 2>&1; then
     # A fresh box may have stale lists; a failed refresh (an unreachable
     # third-party repo, say) must not block the install itself.
     as_root apt-get update -qq >/dev/null 2>&1 || true
     # shellcheck disable=SC2086
     install_pkgs "apt" apt-get install -y $APT_PKGS
+    optional_ffmpeg apt-get install -y ffmpeg
 elif command -v dnf >/dev/null 2>&1; then
     # shellcheck disable=SC2086
     install_pkgs "dnf" dnf install -y $DNF_PKGS
 elif command -v pacman >/dev/null 2>&1; then
     # shellcheck disable=SC2086
     install_pkgs "pacman" pacman -S --needed --noconfirm $PACMAN_PKGS
+    optional_ffmpeg pacman -S --needed --noconfirm ffmpeg
 elif command -v zypper >/dev/null 2>&1; then
     # shellcheck disable=SC2086
     install_pkgs "zypper" zypper install -y $ZYPPER_PKGS
