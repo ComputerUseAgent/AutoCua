@@ -12,7 +12,10 @@ strings of a parallel run (Part 2), and `mode` if you switch it often.
 ## The four required arguments
 
 ```python
+from dotenv import load_dotenv
 from AutoCua.agent_launcher import run_agent
+
+load_dotenv()  # the .env beside this script, for any install
 
 run_agent(
     mode="computer use",
