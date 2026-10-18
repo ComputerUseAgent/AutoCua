@@ -212,6 +212,17 @@ sudo apt install python3-gi python3-cairo python3-gi-cairo python3-venv gir1.2-a
 On KDE, swap `xdg-desktop-portal-gnome` for `xdg-desktop-portal-kde`. Fedora, Arch and openSUSE
 ship the same packages under their own names; `setup_linux.sh` in the repository lists them.
 
+Optional, for faster recordings: also install your distro's ffmpeg. Each run's recording is then
+compressed on the GPU instead of the CPU, because the ffmpeg pip brings on Linux has no GPU encoders:
+
+```bash
+sudo apt install ffmpeg            # Debian, Ubuntu
+sudo pacman -S --needed ffmpeg     # Arch
+```
+
+Skip it on Fedora and openSUSE: their own ffmpeg builds leave out codecs the app needs (RPM Fusion
+and Packman have full ones). Without it, recordings are still compressed, on the CPU.
+
 Ubuntu and Debian refuse `pip install` into the system Python, so create a virtualenv first,
 inside the folder that holds your `main.py` and `.env` so the agent finds that `.env`. Build it on
 your **distro's own `python3`** (3.10 to 3.14): AutoCua loads the system PyGObject from inside
