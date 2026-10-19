@@ -61,6 +61,14 @@ class ControllerService:
         center_x = bounds['x'] + bounds['width'] // 2
         center_y = bounds['y'] + bounds['height'] // 2
 
+        # Some apps report a Switch as its whole row (Google Calendar's "All
+        # day" is 390pt wide): a tap on its centre hits the label and does
+        # nothing, only the knob at the right end toggles it. A knob is ~63pt
+        # wide, so a Switch over 100pt is a row: tap 50pt in from its right
+        # edge. Knob-sized switches (Apple's) keep the centre tap.
+        if elem_data.get('type') == 'Switch' and bounds['width'] > 100:
+            center_x = bounds['x'] + bounds['width'] - 50
+
         logger.debug(f"Clicking at ({center_x}, {center_y})")
 
         # Get or create session
@@ -98,6 +106,66 @@ class ControllerService:
         except Exception as e:
             logger.error(f"✗ Click exception: {str(e)}")
             raise Exception(f"Click failed: {e}")
+
+    def ground_click(self, x, y):
+        """Tap a raw point: x and y on a 0-1000 scale of the screenshot.
+
+        For targets with no [id] (one chip inside a wide element, a switch
+        knob). The scanner draws the screenshot from the app frame (the
+        Application element), so a fraction of the image is the same fraction
+        of that frame, in the points WDA taps in.
+        """
+        try:
+            x, y = float(x), float(y)
+        except (TypeError, ValueError):
+            raise ValueError(f"ground_click needs x and y numbers, got ({x}, {y})")
+        if not (0 <= x <= 1000 and 0 <= y <= 1000):
+            raise ValueError(f"ground_click x and y must be 0-1000, got ({x:g}, {y:g})")
+
+        screen = next((e['bounds'] for e in self.elements.values()
+                       if e.get('type') == 'Application'), None)
+        if not screen:
+            raise Exception("No scanned screen to map the point onto")
+        tap_x = int(round(x / 1000 * screen['width']))
+        tap_y = int(round(y / 1000 * screen['height']))
+
+        logger.debug(f"Ground clicking ({x:g}, {y:g}) at ({tap_x}, {tap_y})")
+
+        # Get or create session
+        session = self.get_session()
+        if not session:
+            raise Exception("Failed to create WDA session")
+
+        # Same W3C tap as click()
+        try:
+            response = requests.post(
+                f"{self.wda_url}/session/{session}/actions",
+                json={
+                    "actions": [{
+                        "type": "pointer",
+                        "id": "finger1",
+                        "parameters": {"pointerType": "touch"},
+                        "actions": [
+                            {"type": "pointerMove", "duration": 0, "x": tap_x, "y": tap_y},
+                            {"type": "pointerDown", "button": 0},
+                            {"type": "pause", "duration": 100},
+                            {"type": "pointerUp", "button": 0}
+                        ]
+                    }]
+                },
+                timeout=5
+            )
+
+            if response.status_code == 200:
+                logger.info(f"✓ Ground click successful at ({tap_x}, {tap_y})")
+                return True
+            else:
+                logger.error(f"✗ WDA tap failed: {response.status_code} - {response.text}")
+                raise Exception(f"WDA tap failed: {response.text}")
+
+        except Exception as e:
+            logger.error(f"✗ Ground click exception: {str(e)}")
+            raise Exception(f"Ground click failed: {e}")
 
     def type_text(self, element_number, text):
         """Type text into element by number
