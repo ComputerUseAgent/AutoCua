@@ -4380,6 +4380,17 @@ def main():
     except Exception:
         debug_exception("browser_agent_close_hook")
 
+    # The app's own iPhone session too (the iOS pick in the chat box; the hook
+    # above only lets computer-use phone links go). Quitting leaves through
+    # os._exit (the desktop shell, right after this event) or C exit() (Cmd+Q),
+    # which both skip atexit, so _kill_shell_trees_on_exit never released it
+    # there: the WDA runner and its cable forward ran on with no app left.
+    # A no-op when no session is live.
+    try:
+        win.events.closing += _release_iphone
+    except Exception:
+        debug_exception("iphone_close_hook")
+
     # Recolor the native titlebar once the native window/handle exists (`shown`).
     if IS_MAC:
         try:
