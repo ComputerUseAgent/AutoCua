@@ -165,6 +165,19 @@ class ControllerView:
                     if result.get("status") == "error":
                         return result
 
+                elif action_type == "ground_click":
+                    x, y = action_item.get("x"), action_item.get("y")
+                    try:
+                        self.controller_service.ground_click(x, y)
+                        logger.info(f"✓ Ground clicked at ({x}, {y})")
+                        result = {"status": "success", "action": "ground_click", "x": x, "y": y}
+                    except Exception as e:
+                        logger.error(f"✗ Ground click failed: {str(e)}")
+                        result = {"status": "error", "action": "ground_click", "x": x, "y": y, "message": str(e)}
+                    results.append(result)
+                    if result.get("status") == "error":
+                        return result
+
                 elif action_type == "input":
                     element_id = action_item.get("id")
                     text_value = action_item.get("value")
