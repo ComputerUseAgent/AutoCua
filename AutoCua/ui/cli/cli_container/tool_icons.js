@@ -9,7 +9,7 @@
 //   createTracker(treeEl, flowEl, zoneEl)     -> { push(text), fit(), dispose }  (scratchpad stream)
 //                                                (fit(): the newest back in sight after its box
 //                                                 changed size)
-//   createMascot(canvas, size)                -> { setGlow(on), dispose }  (the blinking agent head, big)
+//   createMascot(canvas, size)                -> { setGlow(on), dispose }  (the round agent head, its eyes look around)
 //   createFaceIcon(canvas, {color, size})     -> { show, clear, dispose, addStep, addAction }
 //                                                (the chain one icon at a time, one colour: a
 //                                                 Shell use minion bot's visor, coder_card.js)
@@ -372,6 +372,184 @@
         };
     }
 
+    // --- the mascot head: a round head whose eyes look around its sphere ---
+    // The sphere and its bending eyes are ported as is from the owner's Circle page
+    // (drawSphericalEye: every number in it is the page's). The colours are the old
+    // head's: COLOR at rest, and opts.glow as in agentPainter (the orb's lavender and its
+    // coat while the agent is WORKING). How the eyes move (owner, 2026-10-19):
+    // - at rest they hold a point, then make a quick move you can see, mostly to the
+    //   other side from the last one, now and then a wide look where they bend round
+    //   the sphere, with uneven rests between;
+    // - lighting up wakes them: a quick left-right look round, then the centre;
+    // - while working they glide slowly, with long rests.
+    // Each painter keeps its own gaze, so two heads never look the same way.
+    function spherePainter(opts) {
+        opts = opts || {};
+        var R = 30;                          // the old head's 60-unit box, as a circle
+        var currentYaw = 0, currentPitch = 0, velocityYaw = 0, velocityPitch = 0;
+        var targetYaw = 0, targetPitch = 0, nextMoveTime = 0;
+        var lastSide = 1, wasWorking = false, wakeStart = -1, lastT = 0, acc = 0;
+        // hold: ms between looks [min, max], skewed short; reach: how far a look goes
+        // (x the page's 0.92 rad); spring: [stiffness, damping] per 60 Hz step (at rest
+        // 90% of a move in ~200 ms, working ~770 ms); wander: the page's drift, its size
+        // and its pace.
+        var MOODS = {
+            rest:    { hold: [450, 1600],  reach: 1.0, spring: [0.06, 0.72],  wander: 0.4, pace: 1 },
+            working: { hold: [1400, 3200], reach: 0.6, spring: [0.004, 0.91], wander: 0.5, pace: 0.5 }
+        };
+        var WAKE = [-0.8, 0.8, -0.6, 0.4, 0];   // yaw per beat: left, right, smaller, the centre
+        var WAKE_BEAT = 160;                      // ms per beat
+        var WAKE_SPRING = [0.16, 0.62];           // snappy
+
+        function pickNewGazeTarget(now, mood) {
+            var maxRotation = 0.92 * mood.reach;
+            var yaw = 0, pitch = 0;
+            for (var tries = 0; tries < 4; tries++) {
+                var roll = Math.random();
+                if (roll < 0.25) {
+                    // back near the centre
+                    yaw = (Math.random() - 0.5) * 0.3;
+                    pitch = (Math.random() - 0.5) * 0.3;
+                } else if (roll < 0.75) {
+                    // a glance to one side, mostly the other side from last time
+                    var side = Math.random() < 0.7 ? -lastSide : lastSide;
+                    yaw = side * (0.4 + Math.random() * 0.55) * maxRotation;
+                    pitch = (Math.random() - 0.5) * 0.6 * maxRotation;
+                } else {
+                    // a wide look toward the edge, where the eyes bend round the sphere
+                    var angle = Math.random() * Math.PI * 2;
+                    var mag = (0.6 + Math.random() * 0.4) * maxRotation;
+                    yaw = Math.cos(angle) * mag;
+                    pitch = Math.sin(angle) * mag * 0.85;
+                }
+                if (Math.hypot(yaw - targetYaw, pitch - targetPitch) > 0.25) break;   // a move you can see
+            }
+            if (Math.abs(yaw) > 0.15) lastSide = yaw < 0 ? -1 : 1;
+            targetYaw = yaw; targetPitch = pitch;
+            var r = Math.random();
+            nextMoveTime = now + mood.hold[0] + (mood.hold[1] - mood.hold[0]) * r * r;   // mostly short, now and then long
+        }
+
+        function stepSpring(spring, desiredYaw, desiredPitch) {
+            velocityYaw = (velocityYaw + (desiredYaw - currentYaw) * spring[0]) * spring[1];
+            velocityPitch = (velocityPitch + (desiredPitch - currentPitch) * spring[0]) * spring[1];
+            currentYaw += velocityYaw;
+            currentPitch += velocityPitch;
+        }
+
+        // One eye: a circle at (restLon, restLat) on the sphere, turned by yaw and pitch,
+        // foreshortened and bent along the sphere's edge as it nears it.
+        function drawSphericalEye(ctx, sphereRadius, restLon, restLat, yaw, pitch, eyeAngularRadius) {
+            // the eye centre's unit vector on the sphere at rest
+            var x0 = Math.sin(restLon) * Math.cos(restLat);
+            var y0 = Math.sin(restLat);
+            var z0 = Math.cos(restLon) * Math.cos(restLat);
+            // turn about Y (yaw, left-right)
+            var cosY = Math.cos(yaw), sinY = Math.sin(yaw);
+            var x1 = x0 * cosY + z0 * sinY;
+            var y1 = y0;
+            var z1 = -x0 * sinY + z0 * cosY;
+            // turn about X (pitch, up-down)
+            var cosP = Math.cos(pitch), sinP = Math.sin(pitch);
+            var x2 = x1;
+            var y2 = y1 * cosP + z1 * sinP;
+            var z2 = -y1 * sinP + z1 * cosP;
+            // angle from the sphere's front centre (0 = centre, PI/2 = edge)
+            var rhoC = Math.acos(Math.max(-1, Math.min(1, z2)));
+            var planarLen = Math.hypot(x2, y2);
+            // radial unit vector (toward the eye and its nearest edge), and the tangent
+            var rx = planarLen > 1e-5 ? x2 / planarLen : 1;
+            var ry = planarLen > 1e-5 ? y2 / planarLen : 0;
+            var tx = -ry, ty = rx;
+            // perspective: nearer the front centre is slightly larger
+            var camDist = 2.8;
+            function projectRadial(rho) {
+                var clamped = Math.min(Math.PI * 0.495, Math.max(-Math.PI * 0.495, rho));
+                var persp = (camDist - 1) / (camDist - Math.cos(clamped));
+                return sphereRadius * Math.sin(clamped) * (0.82 + 0.18 * persp);
+            }
+            var r0 = projectRadial(rhoC);
+            var baseEyeRadius = projectRadial(eyeAngularRadius);
+            var perspCenter = (camDist - 1) / (camDist - Math.cos(rhoC));
+            var tangentialRadius = baseEyeRadius * (0.85 + 0.15 * perspCenter);
+            // the bend grows smoothly as the eye nears the edge
+            var edgeFactor = Math.sin(rhoC);
+            var maxBendAngle = 0.68 * Math.pow(edgeFactor, 1.8);
+
+            var segments = 64;
+            ctx.beginPath();
+            for (var i = 0; i <= segments; i++) {
+                var a = (i / segments) * Math.PI * 2;
+                var eyeX = Math.cos(a), eyeY = Math.sin(a);
+                // onto the sphere's radial (xi) and tangential (eta) axes
+                var xi = eyeX * rx + eyeY * ry;
+                var eta = eyeX * tx + eyeY * ty;
+                // the outer half compresses tighter near the edge
+                var dr = projectRadial(rhoC + xi * eyeAngularRadius) - r0;
+                var localRadialOffset, localTangentOffset;
+                if (maxBendAngle > 1e-4) {
+                    // wrap the eye along an arc that follows the sphere's contour
+                    var arcRadius = tangentialRadius / maxBendAngle;
+                    var thetaArc = eta * maxBendAngle;
+                    var cosArc = Math.cos(thetaArc), sinArc = Math.sin(thetaArc);
+                    localRadialOffset = r0 - arcRadius * (1 - cosArc) + dr * cosArc;
+                    localTangentOffset = (arcRadius + dr) * sinArc;
+                } else {
+                    localRadialOffset = r0 + dr;
+                    localTangentOffset = tangentialRadius * eta;
+                }
+                var px = localRadialOffset * rx + localTangentOffset * tx;
+                var py = localRadialOffset * ry + localTangentOffset * ty;
+                if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        return function (ctx, cx, cy, t, alpha) {
+            var working = !!(opts.glow && opts.glow());
+            if (working && !wasWorking) wakeStart = t;   // just lit up: wake up
+            wasWorking = working;
+            var mood = working ? MOODS.working : MOODS.rest;
+            var spring = mood.spring, desiredYaw, desiredPitch;
+            var beat = wakeStart < 0 ? -1 : Math.floor((t - wakeStart) / WAKE_BEAT);
+            if (beat >= WAKE.length || (beat >= 0 && !working)) {
+                wakeStart = beat = -1;                   // awake (or the run ended mid-wake)
+                nextMoveTime = t + 500;                  // a moment at the centre first
+            }
+            if (beat >= 0) {
+                targetYaw = desiredYaw = WAKE[beat];
+                targetPitch = desiredPitch = 0;
+                spring = WAKE_SPRING;
+            } else {
+                if (t >= nextMoveTime) pickNewGazeTarget(t, mood);
+                // the page's wandering wave on top of the looks, smaller and slower by mood
+                var w = mood.wander, p = mood.pace;
+                desiredYaw = targetYaw + w * (Math.sin(t * 0.0024 * p) * 0.14 + Math.cos(t * 0.0041 * p) * 0.08);
+                desiredPitch = targetPitch + w * (Math.cos(t * 0.0029 * p) * 0.12 + Math.sin(t * 0.0037 * p) * 0.07);
+            }
+            // the spring steps at 60 Hz whatever the screen's rate (a 120 Hz screen would
+            // move the eyes twice as fast); a long gap (a hidden window) is capped
+            acc += lastT ? Math.min(t - lastT, 100) : 16.667;
+            lastT = t;
+            while (acc >= 16.667) { stepSpring(spring, desiredYaw, desiredPitch); acc -= 16.667; }
+
+            ctx.save();
+            ctx.translate(cx, cy); ctx.scale(VSCALE, VSCALE);
+            ctx.globalAlpha = alpha * 0.92;
+            ctx.fillStyle = working ? '#9292d8' : COLOR;   // the orb's lavender base
+            ctx.beginPath();
+            ctx.arc(0, 0, R, 0, Math.PI * 2);
+            ctx.fill();
+            if (working) paintWorkingCoat(ctx, t, alpha);   // clips to the circle
+
+            ctx.globalAlpha = alpha; ctx.fillStyle = knock(ctx, '#ffffff');
+            drawSphericalEye(ctx, R, -0.38, -0.10, currentYaw, currentPitch, 0.22);
+            drawSphericalEye(ctx, R, 0.38, -0.10, currentYaw, currentPitch, 0.22);
+            ctx.restore();
+        };
+    }
+
     // --- minion mascot: three AI heads, a parent branching to two children — ported from
     //     tool_animaation.html (AINODE / generateMinionData / drawSmallHead) ---
     var MINION_NODE = { left: [-24, 0], h1: [24, -20], h2: [24, 20], half: 12, l1: [-7, -4, 7, -16], l2: [-7, 4, 7, 16] };
@@ -577,10 +755,10 @@
     function startEngine() { if (!rafId) rafId = requestAnimationFrame(frame); }
     function dropStep(step) { var i = liveSteps.indexOf(step); if (i >= 0) liveSteps.splice(i, 1); }
 
-    // The same blinking agent head as the chain's `agent` icon, but standalone and
-    // at any size — the Shell-use terminal shows it under its name. Rides the
+    // The agent's round head (spherePainter: its eyes look around), standalone and at
+    // any size — the Shell-use terminal shows it at the start of its line. Rides the
     // shared rAF loop through the _render escape hatch, so no second loop starts.
-    // agentPainter draws a 60-unit head already scaled by VSCALE, so pre-scale by
+    // spherePainter draws a 60-unit head already scaled by VSCALE, so pre-scale by
     // k about the centre to land it at exactly `size` px.
     // `size` is the CANVAS box; the head is drawn at HEAD_FRAC of it (kept from the
     // old glow-bleed sizing so the head's on-screen size doesn't change).
@@ -593,7 +771,7 @@
         canvas.style.width = size + 'px'; canvas.style.height = size + 'px';
         ctx.scale(dpr, dpr);
         var glowOn = false;
-        var paint = agentPainter({ glow: function () { return glowOn; } });
+        var paint = spherePainter({ glow: function () { return glowOn; } });
         var k = (size * HEAD_FRAC / 60) / VSCALE;
         var step = {
             _render: function (t) {
