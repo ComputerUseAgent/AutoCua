@@ -66,7 +66,7 @@ def main():
         # pymobiledevice3) and which one.
         active_target.update({"kind": "simulation", "udid": args.sim_udid})
 
-        from AutoCua.ios.agent.main_driver.service import AgentService
+        from AutoCua.ios.agent.iphone_use.service import AgentService
 
         agent = AgentService(
             provider=args.provider,

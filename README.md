@@ -1159,7 +1159,7 @@ AutoCua/
   default_skills/          the shipped skills, read-only; yours go in AutoCua_data/skills/
   llm_provider/            every LLM endpoint and the model tables, one copy for all platforms
   mac/  windows/           computer use: agent, controller, tree, sandbox, tool_registry
-    agent/main_driver/       the desktop loop
+    agent/computer_use/      the desktop loop
     agent/coder/             the coding agent
     agent/minions/           read-only scouts
     controller/tool/         shell, open_app, screenshot, applescript, kernel_input

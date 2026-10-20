@@ -94,7 +94,7 @@ def _main_tools(track: dict, notes: dict = None) -> list:
 
     Descriptions are the system prompt's OWN tool text, copied verbatim from
     <tool_capability> / <os_interaction> / <task_completion> in
-    agent/main_driver/system_prompt.md - the prompt stays the source of truth
+    agent/iphone_use/system_prompt.md - the prompt stays the source of truth
     (it is user-managed and never edited from here); this just puts the same
     words where a native tool call can read them. Built twice, each with NO
     per-call params (`track` stays {}) and a dedicated notes tool in front:
