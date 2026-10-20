@@ -2246,10 +2246,11 @@ def start_agent():
                     agent_glow.start()
                 # The browser agent is the Rust extension (AutoCua/web/agent
                 # holds .rs, not .py): its AgentService is re-exported from the
-                # package facade. Every other agent is a Python main_driver.
+                # package facade. iOS is agent/iphone_use; mac, windows and linux are agent/computer_use.
                 AgentService = importlib.import_module(
                     "AutoCua.web.agent" if run_pkg == 'web'
-                    else f"AutoCua.{run_pkg}.agent.main_driver.service"
+                    else "AutoCua.ios.agent.iphone_use.service" if run_pkg == 'ios'
+                    else f"AutoCua.{run_pkg}.agent.computer_use.service"
                 ).AgentService
 
                 agent = AgentService(
@@ -3684,10 +3685,10 @@ def delete_chat(chat_id):
 
 
 def _read_main_system_prompt():
-    """Best-effort read of the active platform's main_driver system prompt, so a
+    """Best-effort read of the active platform's computer_use system prompt, so a
     downloaded conversation log shows the same SYSTEM PROMPT block as a main.py run."""
     try:
-        p = get_platform_path() / "agent" / "main_driver" / "system_prompt.md"
+        p = get_platform_path() / "agent" / "computer_use" / "system_prompt.md"
         with open(p, "r", encoding="utf-8") as f:
             return f.read()
     except Exception:

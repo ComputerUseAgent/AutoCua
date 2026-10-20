@@ -106,7 +106,7 @@ def main():
         from AutoCua.ios_connector.session import active_target
         active_target.update({"kind": "hardware", "udid": os.environ.get("PYMOBILEDEVICE3_UDID")})
 
-        from AutoCua.ios.agent.main_driver.service import AgentService
+        from AutoCua.ios.agent.iphone_use.service import AgentService
 
         # Only these two: web_callback and shell_callback add sleeps, and
         # token_callback would move the main agent's memory bar

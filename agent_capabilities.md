@@ -366,7 +366,7 @@ run_agent(
 ## Under the hood
 
 Each platform's `AgentService.__init__` (e.g.
-[AutoCua/windows/agent/main_driver/service.py](AutoCua/windows/agent/main_driver/service.py))
+[AutoCua/windows/agent/computer_use/service.py](AutoCua/windows/agent/computer_use/service.py))
 normalises `speed`, loads `fast_system_prompt.md` or `system_prompt.md` from
 the same folder, and passes the mode to `LLMManager`, which sends the
 `MAIN_TOOLS_FAST` registry (notes tool `memory`) or `MAIN_TOOLS` (notes tool
@@ -446,7 +446,7 @@ Remove the argument (or pass `False`) to stop writing logs.
 ## Under the hood
 
 Each `AgentService.__init__` (e.g.
-[AutoCua/windows/agent/main_driver/service.py](AutoCua/windows/agent/main_driver/service.py))
+[AutoCua/windows/agent/computer_use/service.py](AutoCua/windows/agent/computer_use/service.py))
 resets `conversation/` and `raw_reasoning/` and, when the flag is on, calls
 `_save_conversation_snapshot()` after every LLM step to write
 `conversation_N.txt`. The web agent does the same in Rust

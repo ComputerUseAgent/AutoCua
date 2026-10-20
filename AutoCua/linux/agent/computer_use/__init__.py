@@ -1,4 +1,4 @@
-# AutoCua/windows/agent/main_driver/__init__.py
+# AutoCua/linux/agent/computer_use/__init__.py
 from .service import AgentService
 from .view import AgentResponseFormatter
 

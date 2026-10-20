@@ -54,11 +54,11 @@ def resolve_agent_service(mode, os=None):
     if kind == "computer":
         host = platform.system()
         if host == "Darwin":
-            from AutoCua.mac.agent.main_driver.service import AgentService
+            from AutoCua.mac.agent.computer_use.service import AgentService
         elif host == "Windows":
-            from AutoCua.windows.agent.main_driver.service import AgentService
+            from AutoCua.windows.agent.computer_use.service import AgentService
         elif host == "Linux":
-            from AutoCua.linux.agent.main_driver.service import AgentService
+            from AutoCua.linux.agent.computer_use.service import AgentService
         else:
             raise RuntimeError(f"Unsupported OS for computer use: {host}")
         return AgentService
@@ -86,7 +86,7 @@ def resolve_agent_service(mode, os=None):
     if kind == "mobile":
         device = str(os or "").strip().lower()
         if device == "ios":
-            from AutoCua.ios.agent.main_driver.service import AgentService
+            from AutoCua.ios.agent.iphone_use.service import AgentService
             return AgentService
         if device == "android":
             raise NotImplementedError("Android support is not available yet")

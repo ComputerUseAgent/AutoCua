@@ -1,5 +1,5 @@
 # AutoCua/linux/agent/__init__.py
-from .main_driver.service import AgentService
-from .main_driver.view import AgentResponseFormatter
+from .computer_use.service import AgentService
+from .computer_use.view import AgentResponseFormatter
 
 __all__ = ['AgentService', 'AgentResponseFormatter']

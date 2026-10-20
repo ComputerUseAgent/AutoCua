@@ -279,7 +279,7 @@ def _build_prior_history(task, assistant_messages, tool_responses,
     surface deliberately avoids. Packages a finished run's memory lists into
     the prior_history dict AgentService expects, capped with the synthetic
     terminal bridge step + None tool slot. The bridge JSON must contain
-    main_driver's _BRIDGE_SIGNATURE ('"next_goal": "Previous run concluded.')
+    computer_use's _BRIDGE_SIGNATURE ('"next_goal": "Previous run concluded.')
     verbatim, or the <updated_user_request> run-marker logic silently stops
     firing on resume. Returns None when the run produced no
     steps — the caller keeps the previous memory then. prior_task freezes the
@@ -870,7 +870,7 @@ def _run_agent(task, provider, model, chat_id, bot, loop, prior_history=None,
     try:
         # Imported lazily — pulls in tree/element → skimage etc., which we
         # don't want to load until a task actually runs.
-        from AutoCua.linux.agent.main_driver.service import AgentService
+        from AutoCua.linux.agent.computer_use.service import AgentService
 
         # Look up the runtime API key for the chosen provider so LLMManager
         # doesn't fall back to an os.getenv() the user never set. Telegram
@@ -888,7 +888,7 @@ def _run_agent(task, provider, model, chat_id, bot, loop, prior_history=None,
         # Pipe each step's formatted response (thinking + next_goal +
         # memory, with action stripped) into the compact banner.
         # The agent already calls text_callback at
-        # main_driver/service.py:704-705 with exactly this content — same
+        # computer_use/service.py:704-705 with exactly this content — same
         # path the frontend's streamAgentText uses in app.py. update()
         # serialises onto the banner's UI thread, so the agent loop never
         # blocks on it.
