@@ -1,0 +1,116 @@
+/* =====================================================================
+   Run reply — the run's done message in the bottom container once it ends
+   (run_reply.js), like a chat reply: plain text on the left, in the chat
+   input's type like the message box above. It takes the whole container
+   while .show-reply is on, and the container grows with it: a long reply
+   never scrolls inside its box, the chat scrolls (chat_scroll.css). The
+   tool chain and tracking progress come back on the next run. Markdown
+   styles come from the shared .md rules (notes_stage/notes_stage.css).
+   ===================================================================== */
+.reply-panel {
+    display: none;
+}
+.agent-container.show-reply > .tool-panel,
+.agent-container.show-reply > .tracking-panel {
+    display: none;
+}
+/* A bot beside the AI's final message: the run's own (data-bot, below), or
+   the AutoCua bot (bots/autocua*.webp, from the owner's autocua-helmet.html);
+   Shell use's chat has the CoderUse bot (coder_card.css). As tall as a one-line reply's box
+   (its padding, a 1.5 line, its line), a gap from it; the run's bot stands
+   here, this size, while it runs (chain_bot.css). Three layers like the splash's
+   bots (body, eyes, shine on one canvas), so its eyes can blink. */
+:root {
+    --reply-bot-h: calc(2 * clamp(8px, 1vw, 12px) + 1.5 * clamp(13px, 1.3vw, 15px) + 2px);
+    --reply-bot-w: calc(var(--reply-bot-h) * 520 / 720);
+    --reply-bot-gap: clamp(6px, 0.8vw, 10px);
+}
+/* The container itself, while it holds the reply: just as big as the reply
+   (no longer three tool steps tall, agent.css), at most a chat reply's width,
+   so it stops short of the right side (the user's message side, --bl-cut).
+   The bot stands on its left. The box and the bot fade in
+   together, a pure fade (runReplyIn). No transition: the chat's glide to the
+   reply's last line (chat_scroll.js toEnd) measures it at once. */
+.agent-container.show-reply {
+    /* The reply has its box, the thin line (like Shell use's answers); the
+       container has no line while it holds the tool chain (agent.css). */
+    border-color: rgba(0, 0, 0, 0.08);
+    display: block;
+    justify-self: start;
+    align-self: start;
+    width: fit-content;
+    max-width: calc(100% - var(--bl-cut) - var(--reply-bot-w) - var(--reply-bot-gap));
+    margin-left: calc(var(--reply-bot-w) + var(--reply-bot-gap));
+    overflow: visible;
+    animation: runReplyIn 0.35s ease;
+}
+/* A Computer use run's video stays where its screen was, at the top left of
+   the row (screen.css): the reply comes right under it, a small gap away,
+   and the bot stays beside the video, at the row's top (owner, 2026-10-17;
+   the live run's bot stays there, chain_bot.css). */
+.chat-turn {
+    --reply-under-screen: calc(var(--bl-pad-y) + 1px + var(--screen-w) / var(--screen-ar, 1.6)
+                               + var(--reply-bot-gap));
+}
+.chat-turn:not(.no-screen) > .agent-container.show-reply {
+    margin-top: var(--reply-under-screen);
+}
+.chat-turn:not(.no-screen) > .agent-container.show-reply::before {
+    top: calc(-1px - var(--reply-under-screen));
+}
+/* The bot: its top on the box's top, its layers stacked shine over eyes over
+   body. It blinks like the owner's bot pages (bot_blink.js sets --reply-eyes
+   on the box, the eyes' height while they blink): the eyes layer squeezes
+   around the eye line, --reply-eye (measured on the layer), so the line
+   stays put. */
+.agent-container.show-reply::before {
+    content: "";
+    position: absolute;
+    top: -1px;
+    right: calc(100% + 1px + var(--reply-bot-gap));
+    width: var(--reply-bot-w);
+    height: var(--reply-bot-h);
+    --reply-eye: 25.14%;
+    background-image: url("../../bots/autocua-shine.webp"), url("../../bots/autocua-eyes.webp"),
+                      url("../../bots/autocua.webp");
+    background-size: 100% 100%, 100% calc(var(--reply-eyes, 1) * 100%), 100% 100%;
+    background-position: center, center var(--reply-eye), center;
+    background-repeat: no-repeat;
+    pointer-events: none;
+}
+/* A Computer use, Web use or Mobile use (iOS) chat's turns (chat_scroll.js
+   data-bot): that mode's own bot instead (the splash's layers), the one that
+   stood here while it ran (chain_bot.css). */
+.chat-turn[data-bot="computer"] > .agent-container.show-reply::before {
+    --reply-eye: 24.71%;
+    background-image: url("../../bots/computeruse-shine.webp"), url("../../bots/computeruse-eyes.webp"),
+                      url("../../bots/computeruse.webp");
+}
+.chat-turn[data-bot="web"] > .agent-container.show-reply::before {
+    --reply-eye: 24.65%;
+    background-image: url("../../bots/webuse-shine.webp"), url("../../bots/webuse-eyes.webp"),
+                      url("../../bots/webuse.webp");
+}
+.chat-turn[data-bot="mobile"] > .agent-container.show-reply::before {
+    --reply-eye: 24.65%;
+    background-image: url("../../bots/mobileuse-shine.webp"), url("../../bots/mobileuse-eyes.webp"),
+                      url("../../bots/mobileuse.webp");
+}
+.agent-container.show-reply > .reply-panel {
+    display: block;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(13px, 1.3vw, 15px);
+    line-height: 1.5;
+    color: rgba(40, 40, 40, 0.92);
+    overflow-wrap: anywhere;
+}
+/* Stopped / incomplete / error: why the run ended, muted. */
+.reply-panel.is-ended {
+    color: rgba(110, 110, 110, 0.9);
+}
+/* The fade is a filter, not opacity: a Telegram task fades the box's own
+   opacity away (style.css), and an opacity animation on it would cut that
+   fade short if the task starts while the reply is still coming in. */
+@keyframes runReplyIn {
+    from { filter: opacity(0); }
+}

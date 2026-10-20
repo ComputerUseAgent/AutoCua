@@ -1,0 +1,207 @@
+name: Bug report
+description: AutoCua did the wrong thing, crashed, or would not install or start.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. Filling in every field usually means the bug can be reproduced on the first try.
+
+        **Before you run AutoCua again**, read *Conversation log* near the end of this form: a new run deletes the previous run's log.
+
+        **Privacy:** screenshots and conversation logs contain whatever the agent saw: screen text, web pages, file contents, usernames. Read them and remove anything private before attaching. Never attach `.env` or anything from `AutoCua_data/`; they hold your API keys, saved passwords and browser logins.
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version
+      description: On Linux, add the distro, the desktop and X11 or Wayland. For `mobile use, ios`, add the iPhone or iPad model, its iOS version, and whether it is a simulator or a real device.
+      placeholder: Windows 11 24H2 / macOS 26.1, Apple Silicon / Ubuntu 24.04, GNOME, Wayland
+    validations:
+      required: true
+
+  - type: dropdown
+    id: run-from
+    attributes:
+      label: How did you run it?
+      options:
+        - "Terminal: python main.py"
+        - "Desktop app: ui=True"
+        - Telegram remote control
+        - "A module directly: python -m AutoCua..."
+        - "Installing or setup: pip install or a setup_* script"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: The `mode=` in your `run_agent(...)` call, or the mode picked in the app.
+      options:
+        - computer use
+        - shell use
+        - web use
+        - "mobile use, ios"
+        - "Didn't get that far"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Which agent went wrong?
+      description: "`shell use` is the coding agent itself, and `computer use` hands coding work to one. The coding agent can send out minions: read-only scouts that search files and report back."
+      options:
+        - The agent for the mode above
+        - A coding agent that computer use handed work to
+        - A minion
+        - Not sure
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      description: "Terminal: the `provider=` in your `run_agent(...)` call. Desktop app: Settings → Provider (with `ui=True` the app ignores `provider=`). Telegram: the provider picked there."
+      options:
+        - openrouter
+        - groq
+        - openai
+        - anthropic
+        - google
+        - perplexity
+        - together
+        - cerebras
+        - aws
+        - "Didn't get that far"
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: "Terminal: exactly as written in `model=` (names come from [model_list.txt](https://github.com/AutoCua/AutoCua/blob/main/model_list.txt)). Desktop app or Telegram: the name on the model picker, for example Gemini 3.8 Flash. Write `none` if it failed before this."
+      placeholder: gemini-3.8-flash
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: AutoCua and Python versions
+      description: Run `pip show autocua` and `python --version`. From a git checkout, give the commit (`git rev-parse --short HEAD`) instead of the AutoCua version. If installing failed, give the version you tried to install.
+      placeholder: AutoCua 0.1.0, Python 3.12.7
+    validations:
+      required: true
+
+  - type: textarea
+    id: task
+    attributes:
+      label: What you asked it to do
+      description: "Terminal: paste your whole `run_agent(...)` call so its flags come with it, and delete any `api_key=` first. Desktop app or Telegram: the task you typed, and whether Fast was on. Write `none` if it failed before this."
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: What the agent did, and where it went wrong. Give the step number if you know it. If you ran the task again to get a log, describe that run.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Does it happen again?
+      options:
+        - Every time I run this task
+        - Sometimes
+        - It happened once
+        - I haven't tried again
+    validations:
+      required: true
+
+  - type: input
+    id: other-model
+    attributes:
+      label: Same problem with another model?
+      placeholder: Yes, also with claude-sonnet-5 on anthropic / No, works with gpt-6-astra / Didn't try
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error or traceback
+      description: Paste any error from the terminal.
+      render: text
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or screen recording
+      description: Drag and drop images or a short video here.
+
+  - type: markdown
+    attributes:
+      value: |
+        ### Conversation log
+
+        The most useful thing you can attach: what the model saw and answered at each step.
+
+        **Terminal runs:** if your `run_agent(...)` call already has `save_conversation=True` (the repository's `main.py` does), the log of the failed run is already in the folder you ran Python from. Zip it now. If not, add `save_conversation=True`, run the task again, and describe that run under *What happened*.
+
+        | Mode | What to zip |
+        |---|---|
+        | `computer use` | `conversation/` and `raw_reasoning/`, plus `cli_conversation/` if it handed work to a coding agent (that one is written even without `save_conversation`) |
+        | `web use`, `mobile use, ios` | `conversation/` and `raw_reasoning/` |
+        | `shell use` | the newest folder in `cli_conversation/` (sort by date modified) |
+        | Minions (Windows only) | the folders in `cli_minion_conversation/` from that run, one per minion |
+        | Parallel tasks (`extra_tasks`) | `parallel/task_N/` |
+
+        **Copy these folders before you run anything again.** Every `computer use`, `web use` and `mobile use, ios` run empties `conversation/` and `raw_reasoning/` when it starts. Every `computer use` run also deletes `cli_conversation/`, and every parallel run deletes `parallel/`. On macOS and Linux, minions keep no log of their own; what each one returned is in the coding agent's `cli_conversation/` log.
+
+        **Desktop app:** open the **⋯** menu next to the chat and choose **Download conversation**; the `.txt` lands in your Downloads folder. It has every step's reply and tool results but only the final screen, so if the bug is in an earlier step, also run the task from the terminal with `save_conversation=True`. For `computer use`, also zip `cli_conversation/` from the folder you started the app in.
+
+        **Telegram:** no log is kept, and the run doesn't appear in the desktop app's chat list. Run the same task from the terminal with `save_conversation=True` and attach that log.
+
+        **`python -m` runs:** add `--save-conversation` (`AutoCua.web.agent`, `AutoCua.ios.agent`, `AutoCua.windows.agent.minions`). The coding agent (`AutoCua.<os>.agent.coder`) always writes `cli_conversation/`.
+
+  - type: textarea
+    id: conversation
+    attributes:
+      label: Conversation log
+      description: Drag and drop the `.zip` or `.txt` here.
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Other flags you passed (`speed`, `headless`, `external_terminal`, ...), and what you already tried.
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed API keys, passwords and personal information from everything I attached.
+          required: true

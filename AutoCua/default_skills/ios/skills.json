@@ -1,0 +1,7 @@
+{
+  "_comment": "apps: key = the app name as shown on the home screen (case-insensitive) or its bundle id -> skill .md",
+  "apps": {
+    "Instagram": "instagram.md",
+    "com.burbn.instagram": "instagram.md"
+  }
+}

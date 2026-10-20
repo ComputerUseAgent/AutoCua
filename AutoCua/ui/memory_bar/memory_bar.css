@@ -1,0 +1,95 @@
+/* =====================================================================
+   Memory ring — the composer's context gauge. A clean circle in the
+   composer's toolbar, just RIGHT of the Fast/Quality toggle and before the
+   model picker. The arc and the centre count are JS-driven
+   (window.updateMemoryBar). Hidden until the first send (or until a chat
+   with history opens); only a new chat hides it again.
+
+   While a run is active the composer collapses to one slim line with the
+   toolbar on its right, so the ring stays on screen for the whole run, which
+   is when the number actually moves.
+   ===================================================================== */
+.input-area-wrapper {
+    --mem-size: clamp(20px, 2.1vw, 23px);   /* ring diameter = the Skills icon's box (.skills-mark) */
+}
+
+.memory-ring {
+    position: relative;
+    width: var(--mem-size);
+    height: var(--orb);
+    flex-shrink: 0;
+    /* Hidden by default (window.show/hideMemoryBar toggle .visible), and out
+       of the row then, so a new chat's toolbar has no gap in it. */
+    display: none;
+    place-items: center;
+    cursor: default;
+    -webkit-user-select: none;
+    user-select: none;
+}
+.memory-ring.visible {
+    display: grid;
+    animation: memRingIn 0.45s ease;
+}
+@keyframes memRingIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* RUNNING: the slim line keeps room on its right for the toolbar
+   (chat_input.css); with the ring in it, a ring and a gap more. */
+.input-area-wrapper:has(.memory-ring.visible):has(.chat-input.agent-active) .chat-input {
+    padding-right: calc(clamp(150px, 20vw, 210px) + var(--mem-size) + clamp(6px, 0.8vw, 10px));
+}
+
+/* SVG and count share the one grid cell, both centred. */
+.memory-ring > * { grid-area: 1 / 1; }
+
+/* The ring: a round-capped arc on r=112.5 in a 240 box, turned so it starts at
+   12 o'clock. Stroke 15/240 is the Skills icon's own line weight (1.5/24), so the
+   two read as one icon set. pathLength=100 makes the dashoffset a percentage. */
+.memory-ring-svg {
+    width: 100%;
+    aspect-ratio: 1;
+    transform: rotate(-90deg);
+    overflow: visible;
+}
+.memory-ring-track,
+.memory-ring-arc {
+    fill: none;
+    stroke-width: 15;
+}
+/* Faint full circle under the arc, so a short arc still reads as a gauge
+   around the count. */
+.memory-ring-track {
+    stroke: rgba(120, 124, 130, 0.16);
+}
+.memory-ring-arc {
+    stroke: #b8a1f7;             /* JS sets the live colour */
+    stroke-linecap: round;
+    stroke-dasharray: 100;
+    stroke-dashoffset: 100;      /* empty until JS draws it */
+}
+
+.memory-ring-value {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    font-size: calc(var(--mem-size) * 0.3);    /* scales with the ring; 888k still fits */
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;   /* digits keep their width while counting */
+    letter-spacing: -0.05em;
+    line-height: 1;
+    white-space: nowrap;
+    color: rgba(90, 90, 90, 0.8);         /* the Skills icon's grey */
+    transition: color 0.3s ease;
+}
+/* At or over the budget the count takes the arc's full colour. */
+.memory-ring.full .memory-ring-value { color: rgba(242, 85, 44, 0.95); }
+
+/* Memory compression in progress (window.memoryCompressionStart/End): the arc
+   breathes until the background handoff compression finishes; the count then
+   glides down to the compressed size on the next update. */
+.memory-ring.compressing .memory-ring-arc {
+    animation: memRingBreathe 1.1s ease-in-out infinite;
+}
+@keyframes memRingBreathe {
+    50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .memory-ring.compressing .memory-ring-arc { animation: none; opacity: 0.5; }
+}

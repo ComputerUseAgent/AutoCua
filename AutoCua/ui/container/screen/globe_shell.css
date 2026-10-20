@@ -1,0 +1,162 @@
+/* =====================================================================
+   Shell terminal — while a shell command (or an AppleScript) runs, its lines
+   take the tool chain's place in the agent container (agent.html
+   #shellPanel, paired with globe_shell.js); when it is done the chain is
+   back. The screen container keeps the screenshot. (The file stays in the
+   screen folder, where the terminal used to show.)
+   Coder-card style: a TRANSPARENT `>` command line that streams + shimmers
+   with a dot loader while it runs, then an L-connector down to the output
+   line that comes back. Mirrors the cc-* visuals in
+   cli/cli_container/coder_card.css (shimmer, orbiting loader), scoped sh-*.
+   ===================================================================== */
+
+/* The tool panel's flow area is shared: the chain and the terminal sit in
+   the same cell under the "Tool response" label, one faded out. (As specific
+   as agent.css's .bl-panel flex column, which loads after this file.) */
+.bl-panel.tool-panel {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+}
+.tool-panel > .tool-flow,
+.tool-panel > .sh-panel {
+    grid-row: 2;
+    grid-column: 1;
+}
+.tool-panel:has(> .sh-panel.is-active) > .tool-flow { opacity: 0; }
+/* The chain's column is only its logos wide (agent.css): while it runs, the
+   terminal takes the tracking progress's room too, the tracking fading out
+   meanwhile; nothing moves. */
+.agent-container > .tool-panel { grid-row: 1; grid-column: 1; }
+.agent-container > .tracking-panel {
+    grid-row: 1;
+    grid-column: 2;
+    transition: opacity 0.4s ease;
+}
+.agent-container:has(> .tool-panel > .sh-panel.is-active) > .tool-panel { grid-column: 1 / -1; }
+.agent-container:has(> .tool-panel > .sh-panel.is-active) > .tracking-panel { opacity: 0; }
+
+.sh-panel {
+    min-height: 0;
+    /* Sized by its cell, never by its lines: a long command must not make the
+       agent container (and so the live turn) taller, like the chain can't. */
+    contain: size;
+    display: flex;
+    padding-top: clamp(8px, 1vw, 12px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+}
+.sh-panel.is-active { opacity: 1; }
+
+.shell-term {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: rgba(0, 0, 0, 0.82);
+}
+
+/* The lines, from the top-left like a terminal. A command and output too
+   long for the panel keep their end in view, like a terminal that has
+   scrolled: the body is never taller than the panel, its lines sit at its
+   bottom, and the top fades (.sh-over, globe_shell.js). */
+.sh-body {
+    flex: 0 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    overflow: hidden;
+}
+.sh-lines { flex: none; }
+.shell-term.sh-over .sh-body {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16px);
+            mask-image: linear-gradient(to bottom, transparent 0, #000 16px);
+}
+
+/* the `>` command line — the HEAD: prompt + streamed command + dot loader.
+   flex-start keeps the `>` pinned to the TOP (first line) when the command
+   wraps to several lines, exactly like the coder card's top-anchored `>`. */
+.sh-cmd-line { display: flex; align-items: flex-start; gap: 7px; }
+.sh-p { flex: 0 0 auto; color: rgba(0, 0, 0, 0.4); }
+.sh-cmd-text { min-width: 0; overflow-wrap: anywhere; }
+
+/* coder-style loading bar — a slim shimmering line shown WHILE the command runs
+   (ported from coder_card.css .cc-progress/.cc-fill: a gradient that flows L→R).
+   Sits right under the command; hidden again on result. */
+.sh-progress {
+    margin-top: 8px;
+    height: 4px;
+    border-radius: 999px;
+    position: relative;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.06);
+    border: 1px solid rgba(0, 0, 0, 0.04);
+    display: none;
+}
+.sh-progress.show { display: block; }
+.sh-fill {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(120, 124, 132, 0), rgba(120, 124, 132, 0.55), rgba(150, 154, 162, 0.7), rgba(120, 124, 132, 0));
+    transform: translateX(-70%);
+    animation: sh-flow 1.05s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+@keyframes sh-flow {
+    0%   { transform: translateX(-75%); opacity: 0.8; }
+    50%  { opacity: 1; }
+    100% { transform: translateX(75%); opacity: 0.8; }
+}
+
+/* output line — hidden until the result lands; an L drops from the `>` to it.
+   display (not opacity) so it takes NO vertical space while hidden — keeps the
+   loading bar tight under the command instead of leaving an empty gap. */
+.sh-out-line {
+    position: relative;
+    margin-top: 3px;
+    padding-left: 20px;
+    display: none;
+}
+.sh-out-line.show { display: block; }
+.sh-out-line::before {
+    content: "";
+    position: absolute;
+    left: 5px; top: -8px;
+    width: 12px; height: 16px;
+    border-left: 1px solid rgba(0, 0, 0, 0.22);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+    border-bottom-left-radius: 3px;
+}
+.sh-out-text { overflow-wrap: anywhere; }
+.sh-out-line.fail .sh-out-text { color: rgba(70, 70, 70, 0.95); }
+
+/* shimmer — text shines (loading) exactly like the coder `>` line. Applied to
+   the command WHILE it runs (awaiting the result). */
+.sh-shimmer {
+    background: linear-gradient(100deg, rgba(35,38,44,0.92) 0%, rgba(35,38,44,0.92) 40%, rgba(155,159,167,1) 50%, rgba(35,38,44,0.92) 60%, rgba(35,38,44,0.92) 100%);
+    background-size: 220% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    animation: sh-shimmer 1.4s linear infinite;
+}
+@keyframes sh-shimmer { from { background-position: 125% 0; } to { background-position: -25% 0; } }
+
+/* blinking cursor dot right after the `>` — the "running" indicator (port of
+   coder_card .cc-p::after). Hidden when idle; blinks only while the command runs
+   (.sh-cmd-line.running, toggled by globe_shell.js). */
+.sh-p::after {
+    content: "";
+    display: inline-block;
+    width: 4px; height: 4px;
+    margin-left: 5px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    vertical-align: middle;
+    opacity: 0;
+}
+.sh-cmd-line.running .sh-p::after { animation: sh-blink 1.2s ease-in-out infinite; }
+@keyframes sh-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.12; } }

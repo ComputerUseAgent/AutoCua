@@ -1,0 +1,80 @@
+{
+  "_readme": [
+    "Overlay for the built-in defaults. Loaded automatically from the working",
+    "directory as element.config.json; point elsewhere with --config <path>.",
+    "It is merged over the defaults, so you only list what you want to change.",
+    "Keys starting with _ are ignored by the scanner and exist as notes.",
+    "A bad JSON parse is reported and the file is skipped, never fatal."
+  ],
+
+  "_noise": [
+    "The main marks filter. cursor:pointer inherits and DOMSnapshot marks",
+    "descendants clickable, so every <svg>/wrapper <div> inside a button",
+    "otherwise scores as interactive and stacks its own box on the same",
+    "pixels. Set enabled=false to see the raw unfiltered set."
+  ],
+  "noise": {
+    "enabled": true,
+    "drop_nested_unnamed": true,
+    "drop_nested_same_name": true,
+    "drop_unnamed_generic": true
+  },
+
+  "_signals": [
+    "What counts as interactive. cursor_pointer is the loosest and the usual",
+    "cause of over-marking on app-style sites; turn it off per host below.",
+    "focusable is off by default because it marks a lot of scroll containers."
+  ],
+  "signals": {
+    "ax_role": true,
+    "is_clickable": true,
+    "interactive_tag": true,
+    "cursor_pointer": true,
+    "focusable": false
+  },
+
+  "_limits": [
+    "max_elements caps how many get numbered; the overflow stays in the tree",
+    "as plain text. Raise min_width/min_height to drop hairline hit targets."
+  ],
+  "limits": {
+    "max_elements": 300,
+    "max_name_chars": 90,
+    "max_text_chars": 140,
+    "max_href_chars": 60,
+    "min_width": 2,
+    "min_height": 2,
+    "viewport_margin": 0
+  },
+
+  "_occlusion": [
+    "Hides things covered by a large overlay (cookie banners, modals).",
+    "min_occluder_viewport_fraction is the share of the viewport an element",
+    "must cover before it is allowed to occlude anything."
+  ],
+  "occlusion": {
+    "enabled": true,
+    "min_occluder_viewport_fraction": 0.12
+  },
+
+  "_cross_process_frames": [
+    "Attach to out-of-process iframes (ads, embedded players, payment forms).",
+    "Costs one extra snapshot + AX tree per frame. Set false for a faster scan",
+    "when you do not care about iframe contents."
+  ],
+  "cross_process_frames": true,
+
+  "_hosts": [
+    "Per-host overrides, merged over everything above when the page host",
+    "matches exactly or is a subdomain. Add your own as needed."
+  ],
+  "hosts": {
+    "youtube.com": {
+      "signals": { "cursor_pointer": false },
+      "limits": { "max_elements": 200 }
+    },
+    "mail.google.com": {
+      "signals": { "cursor_pointer": true }
+    }
+  }
+}

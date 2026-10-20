@@ -1,0 +1,45 @@
+# macOS Accessibility & UI Automation
+pyobjc-framework-Cocoa
+pyobjc-framework-Quartz
+pyobjc-framework-ApplicationServices
+pyautogui
+pynput
+
+# Image Processing
+Pillow
+opencv-python
+# Each run's recording is compressed by its bundled ffmpeg
+# (AutoCua/utils/video_compress.py)
+imageio-ffmpeg
+numpy
+scipy
+ocrmac
+pyobjc-framework-Vision
+pyobjc-framework-Quartz
+
+# HTTP Requests & API clients
+requests
+groq
+openai
+anthropic
+google-genai
+
+# Environment & Configuration
+python-dotenv
+pywebview
+
+# Utilities
+mss
+flask
+psutil
+
+# Remote Connection (Telegram bot)
+python-telegram-bot
+
+# Build Tools (Nuitka binary compilation)
+nuitka
+ordered-set
+zstandard
+
+# Optional iOS path: use standalone requirements_ios.txt instead
+# (full app stack + pymobiledevice3 — installed by setup_ios.sh).

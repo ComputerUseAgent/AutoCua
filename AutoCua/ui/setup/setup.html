@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Set up AutoCua</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/setup/setup.css" />
+</head>
+<body class="setup-body">
+    <!-- Liquid-glass displacement filter (referenced by .liquidGlass-effect-btn).
+         Copied from index.html so the glass layers resolve on this standalone page. -->
+    <svg style="display: none">
+        <filter id="liquid-glass-button" x="-50%" y="-50%" width="200%" height="200%" filterUnits="objectBoundingBox">
+            <feTurbulence type="fractalNoise" baseFrequency="0.03 0.05" numOctaves="4" seed="3" result="turbulence" />
+            <feComponentTransfer in="turbulence" result="mapped">
+                <feFuncR type="gamma" amplitude="1" exponent="4" offset="0.4" />
+                <feFuncG type="gamma" amplitude="1" exponent="4" offset="0.4" />
+            </feComponentTransfer>
+            <feGaussianBlur in="mapped" stdDeviation="2.5" result="softMap" />
+            <feDisplacementMap in="SourceGraphic" in2="softMap" scale="25" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+    </svg>
+
+    <div class="setup-overlay" id="setupOverlay">
+        <div class="setup-card" id="setupCard">
+            <div class="liquidGlass-effect-btn"></div>
+            <div class="liquidGlass-tint-btn"></div>
+            <div class="liquidGlass-shine-btn"></div>
+
+            <div class="setup-card-content">
+                <!-- Preparing / cleanup beat -->
+                <div class="setup-prep" id="setupPrep">
+                    <div class="setup-spinner"></div>
+                    <div class="setup-prep-title">Preparing AutoCua…</div>
+                    <div class="setup-prep-sub">Checking your previous install.</div>
+                </div>
+
+                <!-- Main wizard (revealed after the prep beat) -->
+                <div class="setup-main" id="setupMain" hidden>
+                    <img class="setup-logo" src="/logo.png" alt="AutoCua" />
+                    <h1 class="setup-title" id="setupTitle">Set up AutoCua</h1>
+                    <p class="setup-subtitle" id="setupSubtitle">
+                        AutoCua needs a few macOS permissions to run.
+                    </p>
+
+                    <div class="setup-progress">
+                        <span class="setup-progress-label" id="setupProgressLabel">0 of 4</span>
+                        <div class="setup-progress-bar">
+                            <div class="setup-progress-fill" id="setupProgressFill"></div>
+                        </div>
+                    </div>
+
+                    <div class="setup-steps" id="setupSteps"><!-- rows injected by setup.js --></div>
+
+                    <div class="setup-footer" id="setupFooter">
+                        <button class="setup-launch-btn" id="setupLaunchBtn" hidden></button>
+                        <div class="setup-footer-links">
+                            <button class="setup-footer-link" id="setupRecheck">Re-check now</button>
+                            <span class="setup-footer-dot">·</span>
+                            <button class="setup-footer-link" id="setupResetAll">Reset everything</button>
+                            <span class="setup-footer-dot">·</span>
+                            <button class="setup-footer-link" id="setupQuit">Quit</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-toast" id="appToast"></div>
+
+    <script src="/setup/setup.js"></script>
+</body>
+</html>

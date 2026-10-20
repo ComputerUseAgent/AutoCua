@@ -1,0 +1,75 @@
+/* =====================================================================
+   Screen container — the agent's live screenshot, inside the bottom
+   container on its left, the tool chain after it (the tool box, agent.css;
+   owner, 2026-10-17), as wide as the screen it shows. The live screenshot
+   <img> shows in it once frames arrive (window.updateAgentImage), and the
+   run's video once the run is over (window.showRunVideo, screen.js): then it
+   stays there, the reply right under it (run_reply.css). Replaces the old
+   floating .image-stream-container; reuses #imageStreamContainer /
+   .stream-image.
+   ===================================================================== */
+.screen-container {
+    grid-column: 1 / -1;
+    grid-row: 5;             /* the bottom container's row (chat_scroll.css) */
+    /* Its top left corner a padding inside the bottom container's, in the
+       screen's own shape (--screen-ar on the turn, set per frame by
+       updateAgentImage in script.js; 16:10 until the first frame): three tool
+       steps tall, never wider than 16:10 (chat_scroll.css --screen-w). In
+       front of the box. */
+    justify-self: start;
+    align-self: start;
+    margin: calc(var(--bl-pad-y) + 1px) 0 0 calc(var(--bl-pad-x) + 1px);
+    box-sizing: border-box;
+    width: var(--screen-w);
+    aspect-ratio: var(--screen-ar, 16 / 10);     /* eases with the turn's --screen-ar */
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    z-index: 1;
+    /* Transparent, no line (owner, 2026-10-17: off again). The border stays
+       1px and transparent, so the box and the screenshot inside it keep their
+       sizes; overflow clips the screenshot inside the rounded corners. */
+    border: 1px solid transparent;
+    border-radius: var(--glass-radius);
+    overflow: hidden;
+}
+/* The bot's room on the left, as the container makes it (from the send,
+   chain_bot.css, and while it holds the reply, run_reply.css). */
+.chat-turn.live.cb-room > .screen-container,
+.chat-turn:has(> .agent-container.show-reply) > .screen-container {
+    margin-left: calc(var(--reply-bot-w) + var(--reply-bot-gap) + var(--bl-pad-x) + 1px);
+}
+
+.screenshot-frame {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* The live frame, once data arrives (display toggled by JS), and the run's
+   video after it. The box takes their own shape, so they fill it; contain
+   still shows the whole screen if the box is ever narrower (a very narrow
+   window). */
+.screenshot-frame .stream-image,
+.screenshot-frame .run-video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+}
+.screenshot-frame .run-video {
+    outline: none;
+}
+
+
+/* While a big-center stage (Skills) covers the grid the screen must be GONE,
+   or it would show through the transparent zone. Purely CSS-synced to the
+   stage's .active. */
+.main-grid:has(.big-center-zone.active) .screenshot-frame {
+    display: none;
+}
+
+/* The Agent Notes styles used to live here; they moved to notes_stage/
+   (the stage itself is parked in container/dead/notes_stage/). */

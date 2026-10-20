@@ -1,0 +1,68 @@
+/* =====================================================================
+   Settings button component — the gear that opens the settings overlay.
+   Moved out of css/style.css into its own folder for maintainability.
+
+   Previously this was a fixed, JS-positioned button floating next to the LLM
+   button; it now lives in the left bar footer as an in-flow element. The
+   settings OVERLAY/panel itself still lives in index.html + script.js for now.
+   ===================================================================== */
+
+.settings-btn {
+    position: relative;          /* in-flow within the left bar footer */
+    width: clamp(30px, 3vw, 36px);
+    height: clamp(30px, 3vw, 36px);
+    border-radius: 50%;
+    cursor: pointer;
+    overflow: hidden;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    transition: transform 0.3s ease;
+}
+
+.settings-btn:hover {
+    transform: scale(1.08);
+}
+
+/* Flat, like the left bar it sits in (left_bar.css): no shadow, no glass
+   blur or grey tint, just a thin 1px outline in the same colour. Scoped to
+   the cog because the -btn glass layers are shared with other buttons. */
+.settings-btn .liquidGlass-effect-btn {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    filter: none;
+}
+.settings-btn .liquidGlass-tint-btn {
+    background: transparent;
+}
+.settings-btn .liquidGlass-shine-btn {
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+.settings-icon-wrapper {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.settings-icon {
+    width: clamp(16px, 1.8vw, 20px);
+    height: clamp(16px, 1.8vw, 20px);
+    color: rgba(90, 90, 90, 0.85);
+    transition: transform 0.4s ease;
+}
+
+.settings-btn:hover .settings-icon {
+    transform: rotate(45deg);
+}
+
+/* Hide the cog while CLI pills own the screen (preserves prior behavior). */
+body.cli-mode .settings-btn {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.35s ease;
+}

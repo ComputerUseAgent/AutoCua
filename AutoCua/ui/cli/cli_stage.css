@@ -1,0 +1,79 @@
+/* =====================================================================
+   CLI container (step 1) — a single full-width panel that slides UP from the bottom
+   when the agent enters cli_await. It takes the bottom-row slot (full width, same
+   height as the bottom row) and pushes the grid up so the zones scroll out of view.
+   EMPTY for now — its content will live in cli/cli_container/ later. Toggled by
+   body.cli-stage (cli/cli_stage.js).
+   ===================================================================== */
+
+/* Clip the grid so the zones scrolling up + the panel sliding in stay inside its box. */
+#mainGrid { overflow: hidden; }
+
+/* Smooth the chat's push-up / restore (and keep chat_scroll.css's edge fades
+   easing: one transition list per element). */
+#chatScroll {
+    transition: transform 0.55s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.4s ease,
+                --fade-top 0.25s ease, --fade-bottom 0.25s ease;
+}
+
+/* The panel: a full-width container CENTERED vertically (straddling the lower half of
+   the top row + upper half of the bottom row). Transparent like the other zones — just
+   the border. Spans both grid rows so align-self can center it; parked below until
+   cli_await, then it slides up into the center. */
+#cliContainer {
+    grid-column: 1 / -1;        /* full width, both columns */
+    grid-row: 1 / -1;           /* span every row */
+    align-self: stretch;        /* FILL the grid area — a definite height so stacked agents can
+                                   flex-fill it and spread down the whole panel (a percentage
+                                   height here didn't resolve, collapsing the panel to content). */
+    z-index: 6;
+    box-sizing: border-box;
+    border: none;                                   /* borderless — only the thin per-agent dividers show */
+    background: transparent;                        /* transparent like the other zones */
+    transform: translateY(110%);                   /* parked below (clipped) */
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.55s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.4s ease;
+}
+
+/* cli_await ON: panel slides up into the bottom row; the whole chat (#chatScroll,
+   every turn) pushes up & fades out (so the panel has the cleared space to itself).
+   translateY(0), NOT 2%: the old shift pushed the panel's bottom 2% under #mainGrid's
+   clip, cutting off the tool-response row. The top gap the 2% gave is padding now, so
+   it stays INSIDE the box. And the panel NEVER scrolls — the agent unit sizes itself
+   to fit the panel (coder_card.css), so content adapts instead of overflowing. */
+body.cli-stage #cliContainer {
+    transform: translateY(0); opacity: 1; pointer-events: auto;
+    padding-top: clamp(16px, 2.4vh, 30px);
+    overflow: hidden;
+}
+body.cli-stage #chatScroll { transform: translateY(-100%); opacity: 0; pointer-events: none; }
+
+/* =====================================================================
+   Shell use: a chat with a terminal box (#cliContainer, the Shell card,
+   cli_container/coder_card.css) filling the frame. Nothing else in the
+   frame (picked in a fresh chat, the CoderUse bot comes in over it first and
+   then stands on the chat box: chat_input/mode_bot.js). The chat box's
+   Auto / Manual pill only says whose the prompt is.
+   ===================================================================== */
+body.cli-shell #cliContainer {
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+    align-self: start;
+    box-sizing: border-box;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+}
+/* a size container: the terminal box opens to a share of it (coder_card.css) */
+body.cli-stage.cli-shell #cliContainer { padding: 0; position: relative; container-type: size; }
+body.cli-shell #cliContainer .cc-agent {
+    position: absolute;
+    inset: 0;
+}
+/* While the CoderUse bot comes in to a fresh chat (chat_input/mode_bot.js), the
+   chat waits, unseen (only its opacity: the bot's flight up aims at the box's real
+   place if you send meanwhile). */
+body.mode-intro.mode-fresh.cli-shell #cliContainer .cc-agent {
+    opacity: 0;
+}

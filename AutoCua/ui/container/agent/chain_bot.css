@@ -1,0 +1,62 @@
+/* =====================================================================
+   The run's bot (chain_bot.js): an item of the live turn's grid in the
+   bottom container's row (chat_scroll.css row 5), in front of it: outside
+   the container on its left, its top on the container's top, the place and
+   size of the reply's bot (run_reply.css), so after the run it stays there:
+   beside the reply, or beside a Computer use run's video with the reply
+   under it. Only transform animates (its move over from the chat box).
+   ===================================================================== */
+.chat-turn.live > .chain-bot {
+    grid-row: 5;
+    grid-column: 1;
+    position: relative;
+    z-index: 3;
+    display: none;
+    justify-self: start;
+    align-self: start;
+    height: var(--reply-bot-h);
+    aspect-ratio: 884 / 1224;     /* the bot images' shape */
+    transform-origin: 0 0;        /* the corner it moves by */
+    pointer-events: none;
+}
+.chat-turn.live.cb-on > .chain-bot { display: block; }
+/* Unseen in its place while the chat box's bot comes over onto it (mode_bot.js). */
+.chat-turn.live > .chain-bot.cb-wait { visibility: hidden; }
+/* Its room: from the moment the task is sent, the container starts a bot and
+   a gap in, like the reply's box. */
+.chat-turn.live.cb-room > .agent-container {
+    margin-left: calc(var(--reply-bot-w) + var(--reply-bot-gap));
+}
+/* After the run it stays as the reply's bot: the box's own one (::before)
+   keeps out of sight, so there is one bot and one blink. */
+.chat-turn.live:has(> .chain-bot.docked) > .agent-container.show-reply::before {
+    visibility: hidden;
+}
+/* It goes where the container goes: under a full-size stage (Skills), and
+   while a Telegram task has the screen (style.css). */
+.main-grid:has(.big-center-zone.active) .chain-bot {
+    visibility: hidden;
+}
+body.tg-occupied #liveTurn > .chain-bot {
+    opacity: 0;
+    transition: opacity 0.4s ease;
+}
+
+.chain-bot-body {
+    position: absolute;
+    inset: 0;
+}
+.chain-bot img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    -webkit-user-select: none;
+    user-select: none;
+}
+/* The eyes blink around their own line (the bots' eye line, 24.7% from the
+   top: bot_blink.js squeezes them there). */
+.chain-bot .eyes {
+    transform-origin: 50% 24.7%;
+}
