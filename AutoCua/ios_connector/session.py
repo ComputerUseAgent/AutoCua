@@ -215,6 +215,28 @@ def _forward_pids():
     return found
 
 
+def _orphan_runner_pids():
+    """[pid] of every WDA runner (pymobiledevice3 xcuitest for our bundle) whose
+    app is gone: an app that crashed or was force-quit leaves it running,
+    parented to launchd (ppid 1). A runner with a live parent belongs to a run
+    that is still going (the app, a terminal run) and is never listed."""
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="],
+                             capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return []
+    found = []
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid, ppid, cmd = parts
+        if (ppid == "1" and pid.isdigit() and "pymobiledevice3" in cmd
+                and "xcuitest" in cmd and WDA_BUNDLE_ID in cmd):
+            found.append(int(pid))
+    return found
+
+
 # ───────────────────────────── pymobiledevice3 ────────────────────────────────
 def _pmd3_candidates():
     """Every place pymobiledevice3 can legitimately live, in priority order."""
@@ -285,8 +307,9 @@ class WDASession:
         return p is not None and p.poll() is None
 
     def _free_port(self):
-        """Kill only a LEFTOVER pymobiledevice3 forward squatting on the port."""
-        for pid, _ppid in _forward_pids():
+        """Kill only a LEFTOVER pymobiledevice3 forward squatting on the port,
+        and the orphaned runners an app that died left behind."""
+        for pid in [pid for pid, _ppid in _forward_pids()] + _orphan_runner_pids():
             try:
                 os.kill(pid, signal.SIGTERM)
             except Exception:

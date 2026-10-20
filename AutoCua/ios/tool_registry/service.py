@@ -182,6 +182,9 @@ def _main_tools(track: dict, notes: dict = None) -> list:
               '    1. Examples:\n'
               '        1. click {"id": 4}\n'
               '        2. click {"id": 23}', track=track),
+        _tool("ground_click", {"x": {"type": "integer"}, "y": {"type": "integer"}},
+              'Tap a raw point on the screenshot, for a target with no [id]: x and y on a 0-1000 scale of the image (0,0 top-left, 1000,1000 bottom-right).\n'
+              '    1. Example: ground_click {"x": 650, "y": 258}', track=track),
         _tool("input", {"id": {"type": "integer"}, "value": {"type": "string"}},
               'Type into an element by its [id]. Existing text in the field is auto-deleted before typing.\n'
               '    1. Examples:\n'
@@ -208,6 +211,8 @@ MAIN_TOOLS_FAST = _main_tools({}, notes=MAIN_NOTES_TOOL_FAST)
 MAIN_ACTION_DEFAULTS = {
     "reasoning": {"thinking": "", "memory": "", "next_goal": ""},
     "click": {"id": 0},
+    # None, not 0: a coordinate the model left out must fail, not tap the edge.
+    "ground_click": {"x": None, "y": None},
     "input": {"id": 0, "value": ""},
     "scroll": {"id": 0, "value": "up"},
     "vault": {"id": 0, "value": ""},

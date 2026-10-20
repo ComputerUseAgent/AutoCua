@@ -110,6 +110,12 @@ config = {
             "type": "XCUIElementTypeTextField",
             "enabled": True
         },
+        # Multi-line text boxes, like Google Calendar's event title. Only
+        # labelled, editable ones are kept (see the filter in scan_elements).
+        "text_view": {
+            "type": "XCUIElementTypeTextView",
+            "enabled": True
+        },
         "switch": {
             "type": "XCUIElementTypeSwitch",
             "enabled": True
@@ -130,6 +136,16 @@ config = {
             "type": "XCUIElementTypeScrollView",
             "enabled": True
         },
+        # Scrollable lists. Many screens scroll through one of these instead
+        # of a ScrollView (Google Calendar's event editor, Settings, Clock).
+        "collection_view": {
+            "type": "XCUIElementTypeCollectionView",
+            "enabled": True
+        },
+        "table": {
+            "type": "XCUIElementTypeTable",
+            "enabled": True
+        },
         "secure_text_field": {
             "type": "XCUIElementTypeSecureTextField",
             "enabled": True
@@ -140,6 +156,12 @@ config = {
         },
         "slider": {
             "type": "XCUIElementTypeSlider",
+            "enabled": True
+        },
+        # One wheel of a time or date picker (Clock's timer); the value is the
+        # row it rests on, and `scroll` turns it.
+        "picker_wheel": {
+            "type": "XCUIElementTypePickerWheel",
             "enabled": True
         },
         "static_text": {
@@ -467,9 +489,24 @@ class UIElementScanner:
                         if element_type == "XCUIElementTypeOther":
                             label = element.get('label', '').lower()
                             name = element.get('name', '').lower()
-                            if "maintabbar" not in label and "maintabbar" not in name and "tab" not in label and "tab" not in name and "text size" not in label:
+                            # A childless Other that reports a value is a control,
+                            # not a layout box: Google Calendar's time picker wheels
+                            # ("eleven hours") and its Event / Task / Birthday row
+                            # ("Selected Event"). Scroll bars report a value too
+                            # ("0%"), but they always hold their knob view.
+                            is_control = len(element) == 0 and bool(element.get('value'))
+                            if not is_control and "maintabbar" not in label and "maintabbar" not in name and "tab" not in label and "tab" not in name and "text size" not in label:
                                 should_add = False
                         
+                        # Only an editable TextView with its own label is a field:
+                        # Google Calendar draws "Add title" as two read-only copies
+                        # (StaticText trait) over its real title box, and Apple
+                        # Calendar's unlabelled notes view reports a frame over the
+                        # Title row while it is scrolled off-screen.
+                        if element_type == "XCUIElementTypeTextView" and (
+                                not element.get('label') or "StaticText" in element.get('traits', '')):
+                            should_add = False
+
                         # Check visibility if required and add element.
                         # Visibility is now derived from the element's own
                         # geometry rather than read from WDA's `visible`

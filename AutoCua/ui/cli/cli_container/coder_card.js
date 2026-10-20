@@ -1021,7 +1021,7 @@
         if (liveBox) { liveBox.appendChild(chainEl); liveBox.appendChild(trackEl); }
 
         var ICONS = window.CliToolIcons;
-        // the header's blinking agent head (same mark as the chain's `agent` icon)
+        // the line's round agent head, its eyes looking around (tool_icons.js spherePainter)
         var mascotEl = el.querySelector('.cc-mascot');
         // 26px canvas -> a ~20px head; while working it wears the stop orb's colour
         var mascot = (mascotEl && ICONS && ICONS.createMascot) ? ICONS.createMascot(mascotEl, 26) : null;
