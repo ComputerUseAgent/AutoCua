@@ -894,11 +894,57 @@ async function toolsWindowId() {
   for (let i = 0; i < 12; i++) {
     const all = await chrome.windows.getAll({ windowTypes: ["normal"] }).catch(() => []);
     const front = all.find((w) => w.focused) || all[0];
-    if (front) return front.id;
+    if (front) {
+      await toolsNotWholeScreen(front);
+      return front.id;
+    }
     await toolsSleep(250);
   }
   const made = await chrome.windows.create({ url: "about:blank", focused: true, type: "normal" });
+  await toolsNotWholeScreen(made);
   return made.id;
+}
+
+/// The browser the agent works in is a window, never the whole screen (the owner,
+/// 2026-10-20: "should not be like full screen, more like this size"). Chrome brings a
+/// window back the way it last was, so one left maximised or in full screen came back
+/// covering everything: that one goes back to a normal window, at its own normal size
+/// (the person's), or at TOOLS_WINDOW_SHARE of the screen, centred, when that is the
+/// whole screen too. A window the person sized is left as it is. Once per worker, so a
+/// person who maximises it during a run keeps it. Best-effort: it never fails a tool.
+const TOOLS_WINDOW_SHARE = { width: 0.76, height: 0.96 };
+let toolsWindowPlaced = false;
+async function toolsNotWholeScreen(win) {
+  if (toolsWindowPlaced || !win) return;
+  toolsWindowPlaced = true;
+  if (win.state !== "maximized" && win.state !== "fullscreen") return;
+  try {
+    // a maximised (or full-screen) window is the size of the screen
+    const whole = win.width * win.height;
+    await chrome.windows.update(win.id, { state: "normal" });
+    // leaving full screen is animated (macOS): sized once it is out
+    let now = null;
+    for (let i = 0; i < 40; i++) {
+      now = await chrome.windows.get(win.id).catch(() => null);
+      if (!now || now.state === "normal") break;
+      await toolsSleep(50);
+    }
+    if (!now || now.state !== "normal") return;
+    // By area: full screen also covers the menu bar, so a window that fills only the
+    // rest of the screen is still the whole screen.
+    if (now.width * now.height < whole * 0.85) return;   // its own normal size
+    // its normal size is the whole screen too: TOOLS_WINDOW_SHARE of that, centred
+    const width = Math.round(now.width * TOOLS_WINDOW_SHARE.width);
+    const height = Math.round(now.height * TOOLS_WINDOW_SHARE.height);
+    await chrome.windows.update(win.id, {
+      left: now.left + Math.round((now.width - width) / 2),
+      top: now.top + Math.round((now.height - height) / 2),
+      width,
+      height,
+    });
+  } catch (_) {
+    // a window that cannot be sized is still a window to work in
+  }
 }
 
 /// browser.rs open_tab_impl(): a tab in the background, so the browser stays where the
