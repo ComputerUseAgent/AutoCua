@@ -13,7 +13,7 @@ import threading
 
 from ...tool_registry.service import (LLMManager, tool_calls_to_steps, REASONING_FIELDS, drop_bundled_terminal,
                                          CLAUDE_REASONING_FIELDS, ACTION_DEFAULTS_CLAUDE,
-                                         CODER_TOOL_NAMES_CLAUDE)
+                                         CODER_TOOL_NAMES, CODER_TOOL_NAMES_CLAUDE)
 from ...controller.view import ControllerView
 from ....memory_compression.controller import CompressionController
 from .view import (CLIAgentResponseFormatter, render_tool_response, snapshot_turn,
@@ -874,9 +874,16 @@ class AgentService:
                     json.dumps(raw_response, indent=2, ensure_ascii=False, default=str),
                     step_number,
                 )
+                # While the notes tool is paused it is not offered, so a call
+                # to it is rejected like any unknown tool (the driver does the
+                # same for its hidden screen tools); the error names the tools
+                # that ARE offered this step.
+                allowed = CODER_TOOL_NAMES_CLAUDE if self._claude else CODER_TOOL_NAMES
+                if not notes_on:
+                    allowed = allowed.difference({self._notes_tool})
                 actions, calls, rejects, track = tool_calls_to_steps(
                     raw_response.get("tool_calls"),
-                    allowed=CODER_TOOL_NAMES_CLAUDE if self._claude else None,
+                    allowed=allowed,
                     defaults_map=ACTION_DEFAULTS_CLAUDE if self._claude else None,
                     track_params=CLAUDE_REASONING_FIELDS if self._claude else REASONING_FIELDS)
                 if self._claude:
