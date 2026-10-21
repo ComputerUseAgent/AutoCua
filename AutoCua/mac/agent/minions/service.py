@@ -82,7 +82,7 @@ def safe_print(*args, **kwargs):
 
 
 # Minion runs are bounded — its job is location-finding, not multi-step coding.
-MAX_MINION_ITERATIONS = 30
+MAX_MINION_ITERATIONS = 100
 
 
 # Appended to the system prompt for an `async_tools` model (GPT-6 Astra, see

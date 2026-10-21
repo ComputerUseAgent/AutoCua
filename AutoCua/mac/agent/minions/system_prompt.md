@@ -315,6 +315,7 @@ Rules for the report:
 - Do not re-read files you've already viewed in `<agent_history>` - line numbers don't drift here (read-only).
 - Avoid `find /` on huge trees; use `glob` with a specific pattern instead.
 - Prefer `grep --files_with_matches` first to scope, then `content` mode on the narrow set.
+- Up to 100 iterations are allowed in one run. Reaching the cap ends the run with whatever `<scratchpad>` already holds, so record each confirmed finding as you go and `exit` as soon as the report is complete.
 </efficiency_guideline>
 
 <critical_rule>
