@@ -112,16 +112,19 @@ CODER_TOOLS = [
     _tool("reasoning", REASONING_FIELDS,
           r"""Your notes to yourself for this step. Call it FIRST in every step, then the calls that do the work, all in the same turn. The harness does nothing with it (its result is just `ok`), but the call is replayed in <agent_history>, so your future self can read the reasoning behind every step.
 - `memory` and `next_goal` are filled every step. `thinking` is not: you think in bursts (see <thinking>). A FULL thinking ends with a ROUTE of the next 3-5 steps; on each step of that route omit `thinking` (or pass ""), and think again only when the route is used up, a guard fails, or the route said "think".
-- A step may be `reasoning` alone when you need to think before you act; the next step then does the work. Do not chain several such steps.
+- It never ends a turn: the calls that do this step's "Doing" always follow it in the SAME message, on a step that thinks too. A message holding only this call is a wasted turn. The one exception is the final review right before `exit`.
 - Not used on the `exit` step: `exit` is always the only call of its turn.
 - Format: reasoning {"thinking": "", "memory": "...", "next_goal": "..."}
-- Examples:
+- Examples (each `reasoning` call is followed, in the same turn, by the calls that do its "Doing"):
   1. Route step (no thinking; "Doing" is the next route line):
      reasoning {"memory": "Last step worked: replace applied at service.py:233, no mismatch. Verification script ready at ./.AutoCua_verify/test_cache.py.", "next_goal": "Doing: run ./.AutoCua_verify/test_cache.py (ToDo: #3 verify). If output shows 6/6 cases pass → Next: think: judge proof, clean up ./.AutoCua_verify/, mark #3 done."}
+     + shell {"command": "python ./.AutoCua_verify/test_cache.py", "input": ""}
   2. Planning moment (FULL thinking, ends with the ROUTE):
      reasoning {"thinking": "JUDGE: PASS, three reports, all anchored, and they agree. UNDERSTAND: known: the cache is a plain dict at service.py:233, put() inserts and nothing evicts; callers api.py:41 and worker.py:88 use only get/put. Assumed: no direct access to the dict elsewhere. DECIDE: OrderedDict inside get/put with a CACHE_MAX constant, no new dependency, callers untouched; the part most likely to be wrong is recency on a hit, so the proof tests exactly that. ROUTE: 1. plan set + todo_list, if both accepted. 2. view service.py:220-250, if the dict and put() sit at the reported anchors. 3. replace put()/get(), add CACHE_MAX, bottom-up, if all apply with no mismatch. 4. write + run ./.AutoCua_verify/test_cache.py, if output shows 4/4 cases pass → think: judge the proof.", "memory": "Last step worked: 3 minion reports with anchors, consistent. Cache = dict at service.py:233, callers api.py:41 and worker.py:88 use only get/put. Approach: OrderedDict LRU inside get/put. Unverified: no direct dict access elsewhere.", "next_goal": "Doing: write the plan (`plan` set) and derive the ToDo (ToDo: none yet — plan). If both are accepted → Next: view service.py:220-250 to confirm the anchors."}
+     + plan {"op": "set", "from": 0, "to": 0, "value": "..."} + todo_list {"value": "..."}
   3. Recovery after a failed guard:
-     reasoning {"thinking": "pytest exited 1 with ImportError at test_cache.py:3; the import path is stale after the move. Narrowest fix: correct the import and re-run. Guard: pytest exits 0.", "memory": "Last step failed: pytest exited 1, ImportError in test_cache.py line 3. The code change at service.py:233 is in place.", "next_goal": "Doing: fix the stale import path in test_cache.py (ToDo: #2 fix caching). If pytest exits 0 → Next: re-run the verification script."}""",
+     reasoning {"thinking": "pytest exited 1 with ImportError at test_cache.py:3; the import path is stale after the move. Narrowest fix: correct the import and re-run. Guard: pytest exits 0.", "memory": "Last step failed: pytest exited 1, ImportError in test_cache.py line 3. The code change at service.py:233 is in place.", "next_goal": "Doing: fix the stale import path in test_cache.py (ToDo: #2 fix caching). If pytest exits 0 → Next: re-run the verification script."}
+     + replace {"path": "test_cache.py", "line": 3, "old_block": "...", "new_block": "..."} + shell {"command": "python -m pytest test_cache.py", "input": ""}""",
           optional=REASONING_OPTIONAL),
 
     _tool("shell", {"command": {"type": "string"},
