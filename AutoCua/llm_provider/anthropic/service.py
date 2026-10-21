@@ -252,6 +252,14 @@ class AnthropicProvider:
                             "name": block.get("name") or "",
                             "arguments": args if isinstance(args, dict) else {},
                         })
+                if not calls and not any(t.strip() for t in texts):
+                    # The loops only see "empty response"; why it is empty
+                    # (a "refusal", an immediate "end_turn") is in stop_reason.
+                    print(f"   Anthropic returned no text and no tool call: "
+                          f"stop_reason={result.get('stop_reason')!r}, "
+                          f"content={json.dumps([b.get('type') for b in result.get('content', [])])}"
+                          + (f", stop_details={json.dumps(result.get('stop_details'), ensure_ascii=False)}"
+                             if result.get("stop_details") else ""))
                 return {
                     "choices": [{
                         "message": {
