@@ -140,20 +140,21 @@ def _recv_exact(sock, n):
     return data
 
 
-def plugged_in_udids():
-    """UDIDs of the iOS devices plugged into this Mac by USB, asked straight
-    from usbmuxd: about a millisecond, no subprocess. A phone seen only over
-    Wi-Fi does not count, the session runs over the cable.
-
-    None when usbmuxd could not be asked (no daemon, an odd reply), so the
-    caller can fall back to simply trying the phone."""
+def _usbmux_devices():
+    """usbmuxd's device list (ListDevices), asked straight from the daemon:
+    about a millisecond, no subprocess. Its unix socket on macOS and Linux,
+    its TCP port on Windows. None when usbmuxd could not be asked (no
+    daemon, an odd reply)."""
     import plistlib
-    import socket
     import struct
     try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        if sys.platform == "win32":
+            s = socket.create_connection(("127.0.0.1", 27015), timeout=2)
+        else:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             s.settimeout(2)
             s.connect("/var/run/usbmuxd")
+        with s:
             body = plistlib.dumps({"MessageType": "ListDevices",
                                    "ClientVersionString": "AutoCua", "ProgName": "AutoCua"})
             # usbmuxd header: total length, version 1 (plist), message 8 (plist), tag
@@ -163,12 +164,37 @@ def plugged_in_udids():
         devices = reply.get("DeviceList", [])
     except Exception:
         return None
+    return [d for d in devices if isinstance(d, dict)]
+
+
+def plugged_in_udids():
+    """UDIDs of the iOS devices plugged into this Mac by USB. A phone seen
+    only over Wi-Fi does not count, the session runs over the cable.
+
+    None when usbmuxd could not be asked, so the caller can fall back to
+    simply trying the phone."""
+    devices = _usbmux_devices()
+    if devices is None:
+        return None
     udids = set()
     for d in devices:
-        props = d.get("Properties", {}) if isinstance(d, dict) else {}
+        props = d.get("Properties", {})
         if props.get("ConnectionType") == "USB" and props.get("SerialNumber"):
             udids.add(str(props["SerialNumber"]))
     return udids
+
+
+def mux_device_id(udid):
+    """usbmuxd's id for the phone's CURRENT cable attachment, None when it is
+    not on the cable (or usbmuxd could not be asked). The id changes every
+    time the phone re-enumerates on USB (QuickTime's screen mirror picking
+    the phone, a cable glitch), and every usbmux connection made before that
+    moment is dead: the session's forward and runner have to start again."""
+    for d in _usbmux_devices() or []:
+        props = d.get("Properties", {})
+        if props.get("ConnectionType") == "USB" and str(props.get("SerialNumber")) == str(udid):
+            return d.get("DeviceID")
+    return None
 
 
 def _free_local_port(preferred):
@@ -292,6 +318,16 @@ class WDASession:
         self._shared = False
         self._udid = None
         self._log_path = None
+        # The phone's usbmux attachment id at the last (re)start. A re-plug
+        # (QuickTime picking the phone's screen, a cable glitch) gives it a
+        # new id and kills the forward and the runner's channel while both
+        # Mac-side processes stay alive, so a watchdog compares the id every
+        # few seconds and starts the session again in place.
+        self._mux_id = None
+        self._reconnecting = False
+        self._relaunches = []        # when the watchdog last restarted the session
+        self._gave_up = False
+        self._watchdog = None
 
     # -- helpers --
     def _wda_up(self):
@@ -386,12 +422,14 @@ class WDASession:
                 if self._udid == udid and self._wda_up():
                     self._owner = owner
                     self._shared = True
+                    self._relaunches = []
                     return {"ok": True, "state": "connected", "udid": udid, "shared": True}
                 if self._alive(self._xctest) and self._alive(self._forward):
                     return {"ok": False, "state": "error", "code": "in_use",
                             "error": "the phone is in use by Mobile use in the app"}
             if self._udid == udid and self._wda_up():
                 self._owner = owner
+                self._relaunches = []
                 return {"ok": True, "state": "connected", "udid": udid}
             # How long each step took, for the phone link's log: a connect
             # that misses its budget must say where the time went.
@@ -466,6 +504,10 @@ class WDASession:
                     base + ["developer", "dvt", "xcuitest", "--userspace", WDA_BUNDLE_ID],
                     stdout=subprocess.DEVNULL, stderr=log, env=env)
                 mark("spawn")
+                self._mux_id = mux_device_id(udid)
+                self._relaunches = []
+                self._gave_up = False
+                self._start_watchdog()
             except Exception as e:
                 self._stop_locked()
                 return {"ok": False, "state": "error", "error": str(e)}
@@ -477,6 +519,11 @@ class WDASession:
                 return {"state": "disconnected"}
             if (not self._alive(self._xctest) or not self._alive(self._forward)) \
                     and not self._wda_up():
+                if self._gave_up:
+                    return {"state": "error", "udid": self._udid, "code": "replug",
+                            "error": "the phone keeps re-plugging on USB",
+                            "hint": "Something keeps re-selecting the phone (QuickTime's screen "
+                                    "mirror?). Leave it alone during a run, then try again."}
                 info = self._classify(self._log_tail())
                 return {"state": "error", "udid": self._udid, **info}
             state = "connected" if self._wda_up() else "connecting"
@@ -490,7 +537,8 @@ class WDASession:
         the port, now for that run. Read without the lock (cheap, called
         every step), so it can be a moment late."""
         return (owner is not None and owner is self._owner and self._udid is not None
-                and self._alive(self._xctest) and self._alive(self._forward))
+                and (self._reconnecting
+                     or (self._alive(self._xctest) and self._alive(self._forward))))
 
     def busy_elsewhere(self):
         """True when another process holds the WDA port: a terminal run's
@@ -574,7 +622,7 @@ class WDASession:
             self._stop_locked()
         return {"ok": True, "state": "disconnected"}
 
-    def _stop_locked(self):
+    def _kill_locked(self):
         # Kill INSTANTLY: xctest first (it owns the phone-side session), tiny
         # grace for a clean teardown, then SIGKILL. The whole stop stays ~1s.
         for attr in ("_xctest", "_forward", "_mjpeg_forward"):
@@ -596,9 +644,122 @@ class WDASession:
             except Exception:
                 pass
             self._log_path = None
+
+    def _stop_locked(self):
+        self._kill_locked()
         self._udid = None
         self._owner = None
         self._shared = False
+        self._mux_id = None
+        self._relaunches = []
+        self._gave_up = False
+
+    # -- re-plug watchdog --
+    RECONNECTS_MAX = 5          # restarts within RECONNECT_WINDOW before giving up
+    RECONNECT_WINDOW = 600.0    # seconds: a phone re-plugging that often is left alone
+
+    def _start_watchdog(self):
+        if self._watchdog is not None and self._watchdog.is_alive():
+            return
+        self._watchdog = threading.Thread(target=self._watch_replug, daemon=True)
+        self._watchdog.start()
+
+    def _watch_replug(self):
+        """The phone re-plugged on USB (new usbmux id): start the session
+        again in place, same phone, owner and sharing. The processes of the
+        old session stay alive after a re-plug, so nothing else notices."""
+        while True:
+            time.sleep(2)
+            try:
+                udid, seen = self._udid, self._mux_id
+                if udid is None:
+                    continue
+                now = mux_device_id(udid)
+                if now is None:
+                    continue      # off the cable: status and the link report that
+                if seen is None:
+                    with self._lock:          # not readable at the spawn: adopt it
+                        if self._udid == udid and self._mux_id is None:
+                            self._mux_id = now
+                    continue
+                if now == seen:
+                    continue
+                with self._lock:
+                    if self._udid != udid or self._mux_id != seen:
+                        continue  # stopped or restarted by another caller meanwhile
+                    self._mux_id = now
+                    # Only the re-plug signature is ours to mend: the id changed
+                    # while this session's own processes live. Dead processes
+                    # mean another run's activate() took the phone (it kills
+                    # this forward), a start that failed, or the give-up below.
+                    if not (self._alive(self._forward) and self._alive(self._xctest)):
+                        continue
+                    t_now = time.monotonic()
+                    self._relaunches = [t for t in self._relaunches
+                                        if t_now - t < self.RECONNECT_WINDOW]
+                    if len(self._relaunches) >= self.RECONNECTS_MAX:
+                        self._gave_up = True
+                        self._kill_locked()      # so status() reports the dead session
+                        print(f"[ios_connector] the phone re-plugged again (usbmux id {seen} -> {now}): "
+                              f"giving up after {len(self._relaunches)} restarts in "
+                              f"{int(self.RECONNECT_WINDOW // 60)} min", flush=True)
+                        continue
+                    self._relaunches.append(t_now)
+                    self._relaunch_locked()
+                    print(f"[ios_connector] the phone re-plugged (usbmux id {seen} -> {now}): started the "
+                          f"session again ({len(self._relaunches)}/{self.RECONNECTS_MAX})", flush=True)
+            except Exception:
+                continue
+
+    def _relaunch_locked(self):
+        """Fresh forward and runner for the same phone: `holds()` stays true
+        meanwhile, so a request keeps its phone and only the step in flight
+        fails. No mount step: the image survives a re-plug (not a reboot;
+        that fails like any dead session and is reported by status())."""
+        base = _pmd3_base()
+        if not base:
+            return
+        self._reconnecting = True
+        try:
+            mjpeg_port = self.mjpeg_port if self._alive(self._mjpeg_forward) else None
+            self._kill_locked()
+            env = dict(os.environ)
+            env["PYMOBILEDEVICE3_UDID"] = self._udid
+            log = tempfile.NamedTemporaryFile(prefix="AutoCua_wda_", suffix=".log", delete=False)
+            self._log_path = log.name
+            self._forward = subprocess.Popen(
+                base + ["usbmux", "forward", str(WDA_PORT), str(WDA_PORT)],
+                stdout=subprocess.DEVNULL, stderr=log, env=env)
+            # The old runner on the phone can still answer for ~20-30 s after a
+            # re-plug (iOS ends it when testmanagerd notices). A second launch
+            # of the same bundle meeting it is undefined, so tell it to exit
+            # first, the way deactivate() does, and wait until the port is
+            # silent, bounded.
+            for _ in range(8):                   # the new forward needs a moment to listen
+                if _port_answers(WDA_PORT):
+                    break
+                time.sleep(0.25)
+            if self._wda_up():
+                try:
+                    urllib.request.urlopen(f"http://127.0.0.1:{WDA_PORT}/wda/shutdown", timeout=2)
+                except Exception:
+                    pass
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline and self._wda_up():
+                    time.sleep(0.5)
+            self._xctest = subprocess.Popen(
+                base + ["developer", "dvt", "xcuitest", "--userspace", WDA_BUNDLE_ID],
+                stdout=subprocess.DEVNULL, stderr=log, env=env)
+            if mjpeg_port:
+                # the phone window keeps reading the same local port
+                self._mjpeg_forward = subprocess.Popen(
+                    base + ["usbmux", "forward", "--serial", self._udid, str(mjpeg_port), str(MJPEG_PORT)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.mjpeg_port = mjpeg_port
+        except Exception:
+            pass
+        finally:
+            self._reconnecting = False
 
 
 wda_session = WDASession()
