@@ -132,6 +132,25 @@ Your tool calls run after the turn ends, in the order you emit them, and no resu
 </async_tools>
 """
 
+# Appended LAST to the live <persistent_memory> turn, every step. The coder
+# treats its notes tool as a think step: it calls `agent_memory` (Claude) or
+# `reasoning` (other models), ends its turn to wait for the result and acts on
+# the NEXT turn - one wasted LLM call per step. The main driver fixed the same
+# stall with its CLAUDE_BATCH_REMINDER: a rule in the live message moves
+# batching far more than the same rule in the system prompt. Live message
+# only, never persisted, so the cached prefix is unchanged.
+CLAUDE_BATCH_REMINDER = (
+    "\n\n<critical>This turn must carry the `agent_memory` call AND the action calls that do its "
+    "\"Doing\" in this one response. `agent_memory` alone is not a step: it has no result, "
+    "so never end the turn after it. The one exception is the final review right before `exit` "
+    "(and `exit` is always alone).</critical>")
+BATCH_REMINDER = (
+    "\n\n<critical>This turn must carry the `reasoning` call AND the action calls that do its "
+    "\"Doing\" in this one response. A step that thinks is no exception: think in `reasoning`, "
+    "then make the route's first call in the same response. `reasoning` alone is not a step: its "
+    "result is only `ok`, so never end the turn after it. The one exception is the final review "
+    "right before `exit` (and `exit` is always alone).</critical>")
+
 
 class AgentService:
     """CLI Agent Service - Agentic loop only"""
@@ -757,6 +776,9 @@ class AgentService:
                     "web call's durable `result` in <agent_history>; the raw text below is "
                     "shown once and never stored, so anything you do not record is gone.\n"
                     f"</critical>\n\n{pending_web}")
+            # The notes call and the action calls belong in ONE response (see
+            # BATCH_REMINDER). Last in the live message.
+            content += CLAUDE_BATCH_REMINDER if self._claude else BATCH_REMINDER
             messages.append({"role": "user", "content": content})
 
             # Prompt caching: mark the newest PERSISTENT turn — the last tool
@@ -874,18 +896,19 @@ class AgentService:
 
                 if not actions and not rejects:
                     if note_ids:
-                        # A reasoning-only step: the model chose to think
-                        # before acting. Accepted as a normal step - the turn
-                        # is recorded and its call answered like any other.
-                        # Only a RUN of them is bounded: from the third in a
-                        # row, the result carries a one-line reminder to act.
+                        # A notes-only step: the model ended its turn after the
+                        # notes call (see BATCH_REMINDER). The turn is recorded
+                        # and its call answered like any other, but from the
+                        # FIRST one the result says no action ran, so the next
+                        # turn makes the calls this one skipped.
                         reasoning_only_count += 1
-                        if reasoning_only_count >= 3:
-                            note_results = [{"tool_call_id": i, "content": render_tool_response({
-                                "status": "success", "action": self._notes_tool,
-                                "message": f"{reasoning_only_count} steps in a row without an action: "
-                                           "call a tool that does the work in this turn."})}
-                                for i in note_ids]
+                        note_results = [{"tool_call_id": i, "content": render_tool_response({
+                            "status": "success", "action": self._notes_tool,
+                            "message": f"No action ran ({reasoning_only_count} step(s) in a row): "
+                                       f"`{self._notes_tool}` alone does nothing. If this was the final "
+                                       "review and it passed, call `exit` now; otherwise make the calls for "
+                                       "its \"Doing\" now, in the same response as the notes."})}
+                            for i in note_ids]
                         normalized = encode_step(resp_text, wire_calls_from(all_calls),
                                                  raw_response.get("provider_meta"))
                         display_payload = json.dumps(
