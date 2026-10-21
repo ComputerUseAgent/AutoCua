@@ -149,7 +149,7 @@ CLAUDE_BATCH_REMINDER = (
 BATCH_REMINDER = (
     "\n\n<critical>This turn must carry the `reasoning` call AND the action calls that do its "
     "\"Doing\" in this one response. A step that thinks is no exception: think in `reasoning`, "
-    "then make the route's first call in the same response. `reasoning` alone is not a step: its "
+    "then make the calls for its \"Doing\" in the same response. `reasoning` alone is not a step: its "
     "result is only `ok`, so never end the turn after it. The one exception is the final review "
     "right before `exit` (and `exit` is always alone).</critical>")
 
