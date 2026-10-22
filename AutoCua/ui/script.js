@@ -1,13 +1,10 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // Splash screen: intro_animation.html plays the intro and posts
-    // 'splashDone' back to us when finished.
+    // Splash screen: the intro (intro_animation.tsx, drawn in #splashOverlay
+    // by the React page, index.tsx) posts 'splashDone' to this window when
+    // finished.
     let pendingToast = null;   // a toast asked for under the splash (showToast)
     const splash = document.getElementById('splashOverlay');
     if (splash) {
-        const splashFrame = document.getElementById('splashFrame');
-        if (splashFrame && !splashFrame.src) {
-            splashFrame.src = 'intro_animation.html';
-        }
         window.addEventListener('message', (e) => {
             if (e.data === 'splashDone') {
                 splash.style.pointerEvents = 'none';

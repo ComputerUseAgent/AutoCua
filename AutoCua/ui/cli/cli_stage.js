@@ -418,9 +418,9 @@
         // agentmode:set is SILENT by contract (no agentmode:changed — ios_session
         // must not react), but the stage still has to follow it: New chat resets
         // the picker to Computer use this way, and the pinned shell terminal must
-        // slide away with it. Deferred one tick — this listener registers before
-        // agent_mode's fetch-injected wire(), so a same-tick read would see the
-        // STALE dataset.mode; the timeout lets agent_mode's set handler paint first.
+        // slide away with it. Deferred one tick so the read never depends on which
+        // 'agentmode:set' listener runs first (this one or agent_mode's set handler
+        // that paints dataset.mode); the timeout lets agent_mode paint first.
         document.addEventListener('agentmode:set', function () { setTimeout(syncShellStage, 0); });
         // Shell use, in Manual: the whole PANEL is the terminal — clicking
         // anywhere on it (the empty space around/below the card included) puts
@@ -488,7 +488,7 @@
         });
         // ...and another chat opened (sub_agents.js cleared the boxes with the live turn)
         document.addEventListener('chat:opened', function () { boxes.clear(); boxMinions.clear(); });
-        syncShellStage();   // in case the picker mounted first
+        syncShellStage();   // the picker's 'agentmode:ready' fired before these hooks went in
 
         // A coder agent starts → mount it if a slot is free, else queue it. Up to 2 show at once;
         // the rest wait FIFO. Bare "[minion] " task_starts are ignored. Computer use: its box

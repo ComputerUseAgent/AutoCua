@@ -1,5 +1,5 @@
-// Memory ring component — injects the composer's context gauge into the
-// composer's toolbar (.input-toolbar, just right of the Fast/Quality toggle,
+// Memory ring component — wires the composer's context gauge (memory_bar.tsx) in
+// the composer's toolbar (.input-toolbar, just right of the Fast/Quality toggle,
 // before the model picker) and keeps the
 // hooks the old vertical bar exposed, so service.py, chat.js and chat_input.js
 // drive it unchanged:
@@ -17,7 +17,7 @@
 //   window.showMemoryBar/hideMemoryBar() — shown from the first send (or when a
 //                                         chat with history opens); only a new
 //                                         chat hides it.
-// Same self-contained fetch-inject pattern as agent_mode.js / skills.js.
+// Same self-contained wire-on-'chatinput:ready' pattern as agent_mode.js / skills.js.
 (function () {
     'use strict';
 
@@ -95,29 +95,17 @@
         });
     }
 
+    // The ring is in the toolbar from the start (memory_bar.tsx); take it
+    // over once chat_input.js has wired the box.
     function mount() {
-        var toolbar = document.querySelector('.input-area-wrapper .input-toolbar');
-        if (!toolbar || document.getElementById('memoryRing')) return;
-        fetch('memory_bar/memory_bar.html')
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-                if (document.getElementById('memoryRing')) return; // guard race
-                var holder = document.createElement('div');
-                holder.innerHTML = html.trim();
-                var el = holder.querySelector('.memory-ring');
-                if (!el) return;
-                // Right after the Fast/Quality toggle, so Shell use (where the
-                // toggle fades out) leaves no gap before the model picker.
-                var toggle = toolbar.querySelector('.fast-quality-toggle');
-                toolbar.insertBefore(el, toggle ? toggle.nextSibling : toolbar.firstChild);
-                ring = el;
-                arc = el.querySelector('.memory-ring-arc');
-                value = el.querySelector('.memory-ring-value');
-                paintState();
-                shown = used;           // land on the latest value, no count-up
-                draw(shown);
-            })
-            .catch(function () { /* non-fatal: the ring just won't render */ });
+        var el = document.getElementById('memoryRing');
+        if (!el || ring) return;
+        ring = el;
+        arc = el.querySelector('.memory-ring-arc');
+        value = el.querySelector('.memory-ring-value');
+        paintState();
+        shown = used;           // land on the latest value, no count-up
+        draw(shown);
     }
 
     window.updateMemoryBar = function (u, c) {
@@ -137,12 +125,5 @@
     window.showMemoryBar = function () { visible = true; paintState(); };
     window.hideMemoryBar = function () { visible = false; paintState(); };
 
-    // chat_input.html is itself fetch-injected — mount on its ready event, with
-    // a direct attempt in case that fired.
     document.addEventListener('chatinput:ready', mount);
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', mount);
-    } else {
-        mount();
-    }
 })();

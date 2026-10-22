@@ -163,7 +163,7 @@
 
 /* ---- Collapse toggle + collapsed rail --------------------------------------
    The toggle is a small flat circle centred on the bar's right edge, level
-   with the logo (left_bar.html; outside the bar, whose overflow is clipped).
+   with the logo (left_bar.tsx; outside the bar, whose overflow is clipped).
    Clicking it sets body.left-bar-collapsed: --left-bar-w (css/style.css)
    narrows to one icon plus the bar's padding, so the logo and the cog stay
    exactly where they are, New chat and the chats give way to a rail of
@@ -218,7 +218,7 @@ body.left-bar-collapsed .left-bar .gh-link {
     display: none;
 }
 
-/* Collapsed, the body's rows simply go away and the rail (left_bar.html,
+/* Collapsed, the body's rows simply go away and the rail (left_bar.tsx,
    filled by chat/chat.js) fades in in their place: New chat, then one circle
    per chat. On the way back the rows fade in once the bar has some room. */
 .left-bar .left-bar-rail {

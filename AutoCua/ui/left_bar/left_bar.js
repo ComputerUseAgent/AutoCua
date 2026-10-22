@@ -1,7 +1,7 @@
-// Left Bar loader — fetches the panel markup, injects it into the top document
-// once, and reveals it when the splash animation finishes (or immediately if
-// the splash is already gone). Kept out of the monolithic script.js so the
-// component stays self-contained in its own folder.
+// Left Bar — wires the panel (left_bar.tsx, in the page from the start) once
+// and reveals it; the splash overlay covers it until splashDone. Kept out of
+// the monolithic script.js so the component stays self-contained in its own
+// folder.
 (function () {
     'use strict';
 
@@ -37,7 +37,7 @@
     }
 
     function revealWhenReady(bar) {
-        // Reveal as soon as the bar is injected — the splash overlay still covers
+        // Reveal as soon as the bar is wired — the splash overlay still covers
         // it until splashDone, so there is no extra fade lag after the animation.
         reveal(bar);
     }
@@ -73,34 +73,27 @@
         cover.insertBefore(copy, cover.firstChild);
     }
 
+    // Once, a moment after DOMContentLoaded: when the bar's fetched markup
+    // used to arrive, so everything keeps its order.
+    var wired = false;
     function inject() {
-        fetch('left_bar/left_bar.html')
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-                if (document.getElementById('leftBar')) return; // guard double-inject
-                var holder = document.createElement('div');
-                holder.innerHTML = html.trim();
-                var bar = holder.querySelector('.left-bar');
-                if (!bar) return;
-                document.body.appendChild(bar);
-                var toggle = holder.querySelector('.left-bar-toggle');
-                if (toggle) {
-                    document.body.appendChild(toggle);
-                    wireToggle(toggle);
-                }
-                // Let dependent components (e.g. the settings button) mount into
-                // the bar now that it exists in the DOM.
-                document.dispatchEvent(new CustomEvent('leftbar:ready', { detail: { bar: bar } }));
-                cornerCopy(bar);
-                wireGithubLink();
-                revealWhenReady(bar);
-            })
-            .catch(function () { /* non-fatal: the bar simply won't render */ });
+        var bar = document.getElementById('leftBar');
+        if (!bar || wired) return;
+        wired = true;
+        var toggle = document.getElementById('leftBarToggle');
+        if (toggle) wireToggle(toggle);
+        // Let dependent components (the settings button, New chat) wire up
+        // their parts of the bar.
+        document.dispatchEvent(new CustomEvent('leftbar:ready', { detail: { bar: bar } }));
+        cornerCopy(bar);
+        wireGithubLink();
+        revealWhenReady(bar);
     }
 
+    function schedule() { setTimeout(inject, 0); }
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', inject);
+        document.addEventListener('DOMContentLoaded', schedule);
     } else {
-        inject();
+        schedule();
     }
 })();

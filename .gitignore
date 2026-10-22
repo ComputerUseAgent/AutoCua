@@ -168,6 +168,8 @@ AutoCua/ios_connector/paired_devices.json
 
 # The Chromium desktop shell's npm install (AutoCua/desktop/package-lock.json is kept)
 /AutoCua/desktop/node_modules/
+# The UI's npm install (AutoCua/ui/package-lock.json is kept; the build, AutoCua/ui/index.js, is committed)
+/AutoCua/ui/node_modules/
 # LEGACY shell location (desktop/ at the repo root, before it moved into the
 # package) — kept ignored until every checkout has moved or deleted its npm
 # install, so a pull can't turn it into untracked files.

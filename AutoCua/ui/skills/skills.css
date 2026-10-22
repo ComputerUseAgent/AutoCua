@@ -1,6 +1,6 @@
 /* =====================================================================
    Skills — composer icon that sits just to the RIGHT of the Computer/Mobile use
-   picker (it's appended inside .agent-mode-wrap, at the composer's bottom-left).
+   picker (it sits inside .agent-mode-wrap, at the composer's bottom-left).
    Transparent icon button; the scroll's writing scrolls upward on hover (the
    name comes from the native title tooltip). Fades with the picker on run start
    (inherited from .agent-mode-wrap's own hide-on-active rule).

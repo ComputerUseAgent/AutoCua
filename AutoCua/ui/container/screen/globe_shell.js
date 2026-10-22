@@ -8,9 +8,9 @@
 // A Three.js earth used to swap in here for web searches; it was removed — a web
 // search now just leaves the live screenshot up. The two hooks stay defined (and
 // do nothing) because service.py / script.js / chat_input.js still call them.
-// DOM lives in container/agent/agent.html (#shellPanel/#shellTerminalContainer);
-// globe_shell.css lays it over the chain. Elements are resolved lazily
-// (agent.html is fetch-injected), so this file's load order doesn't matter.
+// DOM lives in container/agent/agent.tsx (#shellPanel/#shellTerminalContainer);
+// globe_shell.css lays it over the chain. Elements are resolved lazily (on
+// each event), so this file's load order doesn't matter.
 // =====================================================================
 (function () {
     'use strict';
@@ -28,7 +28,7 @@
        SHELL TERMINAL  (coder-card style — transparent `>` cmd + dot loader,
        then an L-connector down to the output that comes back)
        ============================================================ */
-    // Resolved lazily (agent.html is fetch-injected) — re-query on each event.
+    // Resolved lazily — re-query on each event.
     let shellTerminalContainer = null;
     let shellCmdText = null;
     let shellCmdLine = null;

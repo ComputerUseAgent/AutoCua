@@ -3816,7 +3816,7 @@ if IS_COMPILED:
 # Windows and Linux; the Chromium shell draws its own bar in it
 # (AutoCua/desktop/main.js BACKGROUND). KEEP IN SYNC with the app/splash
 # background in ui/ (style.css `body` + `.splash-overlay` + `.settings-overlay`,
-# left_bar.css, skills.css, setup.css and intro_animation.html) so the bar and
+# left_bar.css, skills.css, setup.css and intro_animation.tsx) so the bar and
 # content read as one unified surface. Six-digit hex only: the macOS and
 # Windows hooks below parse it in pairs ("white" or "#FFF" silently skip the
 # tint).

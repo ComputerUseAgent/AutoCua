@@ -1,7 +1,7 @@
-// Skills — two pieces, same fetch-inject pattern as the rest of the app:
-//   1) the little scroll ICON, appended inside .agent-mode-wrap (right of the
-//      Computer/Mobile use picker), mounted on 'agentmode:ready';
-//   2) the STAGE (skills_stage.html), mounted INTO #zoneBigCenter — the full-grid
+// Skills — two pieces, same wire-on-ready pattern as the rest of the app:
+//   1) the little scroll ICON (skills.tsx), inside .agent-mode-wrap (right of the
+//      Computer/Mobile use picker), wired on 'agentmode:ready';
+//   2) the STAGE (skills_stage.tsx), in #zoneBigCenter — the full-grid
 //      container that shows ONE thing at a time. Clicking the icon reveals the
 //      stage (and hides Agent Notes so they never overlap); clicking it again
 //      makes the stage vanish from the container.
@@ -36,8 +36,8 @@
                   notes && notes.style.display !== 'none');
     }
 
-    // Icon clicked while the stage markup was still fetching — remembered so
-    // mountStage can honour the click the moment the stage lands.
+    // Icon clicked before the stage was wired (mountStage) — remembered so
+    // mountStage can honour the click when it runs.
     var pendingOpen = false;
 
     // Show Skills in the container — and hide the notes so it's the only thing.
@@ -419,22 +419,14 @@
         });
     }
 
+    // The stage is inside the main container from the start
+    // (skills_stage.tsx); wire it once.
+    var stageWired = false;
     function mountStage() {
-        var zone = zoneEl();
-        if (!zone || document.getElementById('skillsStage')) return;
-        fetch('skills/skills_stage.html')
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-                if (document.getElementById('skillsStage')) return;   // guard race
-                var holder = document.createElement('div');
-                holder.innerHTML = html.trim();
-                var stage = holder.querySelector('.skills-stage');
-                if (!stage) return;
-                zone.appendChild(stage);
-                wireStage();
-                if (pendingOpen) { pendingOpen = false; openSkills(); }
-            })
-            .catch(function () { /* non-fatal: the stage just won't render */ });
+        if (!stageEl() || stageWired) return;
+        stageWired = true;
+        wireStage();
+        if (pendingOpen) { pendingOpen = false; openSkills(); }
     }
 
     // Keep the "one thing at a time" rule: any path that shows the Agent Notes
@@ -485,38 +477,29 @@
                 if (now) closeSkills();      // never ADDS active — safe alongside
             }).observe(chatInput, { attributes: true, attributeFilter: ['class'] });
         }
-        // .chat-input is itself fetch-injected by chat_input.js.
+        // .chat-input is wired by chat_input.js (it fires 'chatinput:ready').
         document.addEventListener('chatinput:ready', watchRunStart);
         watchRunStart();                     // in case it mounted before us
     }
 
+    // The icon is in the mode picker from the start (skills.tsx, right of the
+    // trigger); wire it once agent_mode.js has wired the picker.
+    var iconWired = false;
     function injectIcon() {
-        var wrap = document.querySelector('.agent-mode-wrap');
-        if (!wrap || document.getElementById('skillsBtn')) return;
-        fetch('skills/skills.html')
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-                if (document.getElementById('skillsBtn')) return;     // guard race
-                var holder = document.createElement('div');
-                holder.innerHTML = html.trim();
-                var btn = holder.querySelector('.skills-btn');
-                if (!btn) return;
-                wrap.appendChild(btn);                                // right of the trigger
-                btn.addEventListener('click', function (e) {
-                    e.stopPropagation();                              // don't poke the agent-mode menu
-                    if (skillsOpen()) closeSkills(); else openSkills();
-                });
-                document.dispatchEvent(new CustomEvent('skills:ready'));
-            })
-            .catch(function () { /* non-fatal: the icon just won't render */ });
+        var btn = document.getElementById('skillsBtn');
+        if (!btn || iconWired) return;
+        iconWired = true;
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();                              // don't poke the agent-mode menu
+            if (skillsOpen()) closeSkills(); else openSkills();
+        });
+        document.dispatchEvent(new CustomEvent('skills:ready'));
     }
 
     wireCoordination();
 
-    // Stage mounts once the big-center shell exists (big_center_container.js fires
-    // 'bigcenter:ready'); the icon waits for the Computer/Mobile use picker.
-    document.addEventListener('bigcenter:ready', mountStage);
-    if (zoneEl()) mountStage();
+    // The stage is in the main container (big_center_container.tsx) from the
+    // start; the icon waits for the Computer/Mobile use picker.
+    mountStage();
     document.addEventListener('agentmode:ready', injectIcon);
-    injectIcon();   // in case agentmode:ready already fired
 })();

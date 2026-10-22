@@ -1,7 +1,7 @@
 // =====================================================================
 // Run reply — the run's done message in the bottom container once it ends,
 // like a chat reply under the user's message and the screen. It takes the
-// place of the tool-response chain and tracking progress (agent.html)
+// place of the tool-response chain and tracking progress (agent.tsx)
 // until the next run, and the chat glides down to its last line.
 //   window.showRunReply(html, status, still) — html is server-rendered Markdown
 //     (ui/markdown.py, already escaped). status 'success' shows it as the

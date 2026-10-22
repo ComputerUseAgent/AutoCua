@@ -1,5 +1,5 @@
-// New Chat button + chat-history list — injected at the TOP of the left bar
-// body (below the logo/cog header), once the left bar exists. Owns the UI for
+// New Chat button + chat-history list — the button (chat.tsx) sits at the TOP of
+// the left bar body (below the logo/cog header); this file wires it. Owns the UI for
 // permanent chat memory:
 //   • New chat  -> drop the active session (window.currentSessionId = null),
 //     reset the screen, ready for a fresh start.
@@ -9,7 +9,7 @@
 //     window.showRunReply / window.showRunVideo).
 //   • Delete    -> DELETE /api/chats/<id>.
 // All persistence lives in the backend (AutoCua/agent_conversation); this file
-// is pure UI. Same self-contained fetch-inject pattern as settings/settings.js.
+// is pure UI. Same self-contained wire-on-'leftbar:ready' pattern as settings/settings.js.
 (function () {
     'use strict';
 
@@ -25,7 +25,7 @@
     }
 
     // Per-mode logos for the sidebar rows — the SAME marks the composer's
-    // agent-mode picker uses (agent_mode.html), so a chat's row tells you at
+    // agent-mode picker uses (agent_mode.tsx), so a chat's row tells you at
     // a glance which agent owns it. Static path constants, no user content.
     var MODE_ICON_PATHS = {
         computer: '<rect x="3" y="4" width="18" height="12" rx="1"/><path d="M7 20h10"/><path d="M9 16v4"/><path d="M15 16v4"/>',
@@ -56,7 +56,7 @@
         return svg;
     }
 
-    // The collapsed left bar's rail (left_bar.html) shows a circle per chat
+    // The collapsed left bar's rail (left_bar.tsx) shows a circle per chat
     // instead of the rows: same mode icon, same click, name as the tooltip.
     function railChats() {
         return document.querySelector('#leftBarRail .rail-chats');
@@ -332,48 +332,42 @@
         document.dispatchEvent(new CustomEvent('chats:refresh'));   // clears highlight
     }
 
+    // The New chat button is in the bar from the start (chat.tsx, at the top
+    // of the body); this wires it, once, and builds the rest under it.
+    var mounted = false;
     function mount(bar) {
-        if (!bar) return;
+        if (!bar || mounted) return;
         var body = bar.querySelector('.left-bar-body');
-        if (!body || body.querySelector('.new-chat-btn')) return; // already mounted
-        fetch('chat/chat.html')
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-                if (body.querySelector('.new-chat-btn')) return; // guard race
-                var holder = document.createElement('div');
-                holder.innerHTML = html.trim();
-                var btn = holder.querySelector('.new-chat-btn');
-                if (!btn) return;
-                body.insertBefore(btn, body.firstChild); // top of the body
-                btn.addEventListener('click', startNewChat);
+        var btn = body && body.querySelector('.new-chat-btn');
+        if (!btn) return;
+        mounted = true;
+        btn.addEventListener('click', startNewChat);
 
-                // History list lives directly under the New-chat button.
-                var list = body.querySelector('.chat-history-list');
-                if (!list) {
-                    list = document.createElement('div');
-                    list.className = 'chat-history-list';
-                    body.insertBefore(list, btn.nextSibling);
-                }
+        // History list lives directly under the New-chat button.
+        var list = body.querySelector('.chat-history-list');
+        if (!list) {
+            list = document.createElement('div');
+            list.className = 'chat-history-list';
+            body.insertBefore(list, btn.nextSibling);
+        }
 
-                // The collapsed bar's rail: New chat as a circle, then the
-                // chats' circles (filled by renderChats).
-                var rail = bar.querySelector('#leftBarRail');
-                if (rail && !rail.querySelector('.rail-chats')) {
-                    var dot = document.createElement('button');
-                    dot.type = 'button';
-                    dot.className = 'rail-btn';
-                    dot.title = 'New chat';
-                    dot.setAttribute('aria-label', 'New chat');
-                    dot.appendChild(btn.querySelector('.new-chat-icon').cloneNode(true));
-                    dot.addEventListener('click', startNewChat);
-                    var chats = document.createElement('div');
-                    chats.className = 'rail-chats';
-                    rail.appendChild(dot);
-                    rail.appendChild(chats);
-                }
-                loadChats(list);
-            })
-            .catch(function () { /* non-fatal: the button just won't render */ });
+        // The collapsed bar's rail: New chat as a circle, then the
+        // chats' circles (filled by renderChats).
+        var rail = bar.querySelector('#leftBarRail');
+        if (rail && !rail.querySelector('.rail-chats')) {
+            var dot = document.createElement('button');
+            dot.type = 'button';
+            dot.className = 'rail-btn';
+            dot.title = 'New chat';
+            dot.setAttribute('aria-label', 'New chat');
+            dot.appendChild(btn.querySelector('.new-chat-icon').cloneNode(true));
+            dot.addEventListener('click', startNewChat);
+            var chats = document.createElement('div');
+            chats.className = 'rail-chats';
+            rail.appendChild(dot);
+            rail.appendChild(chats);
+        }
+        loadChats(list);
     }
 
     // Reload the list whenever a run ends or a new chat is started.
@@ -382,10 +376,7 @@
         if (list) loadChats(list);
     });
 
-    // Mount once the left bar exists: immediately if already injected, otherwise
-    // when left_bar.js fires 'leftbar:ready'.
-    var existing = document.getElementById('leftBar');
-    if (existing) mount(existing);
+    // Wire when left_bar.js says the bar is ready.
     document.addEventListener('leftbar:ready', function (e) {
         mount((e && e.detail && e.detail.bar) || document.getElementById('leftBar'));
     });
