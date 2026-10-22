@@ -43,7 +43,7 @@ pip install AutoCua
 
 Any desktop app, driven with real mouse and keyboard input. Agent mode: computer use.
 
-https://github.com/user-attachments/assets/a767c117-abad-46bf-8a8b-6ecf49be6288
+https://github.com/user-attachments/assets/640b3d7c-30e8-4537-8085-caf237fe99d4
 
 ## Web agent: fast mode
 
