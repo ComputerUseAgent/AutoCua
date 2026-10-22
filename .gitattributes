@@ -1,0 +1,4 @@
+# AutoCua/ui/index.js is the React build: Vite's output for the .tsx files,
+# committed so a pip install needs no Node (see note/handoffs/RELEASING.md).
+# It is machine-written, so keep it out of GitHub's language statistics.
+AutoCua/ui/index.js linguist-generated=true
