@@ -26,6 +26,7 @@ import json
 import logging
 import sys
 import threading
+import time
 from pathlib import Path
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -1108,19 +1109,35 @@ def start_bot() -> None:
 
     def _runner():
         import sys, traceback
-        try:
-            # Each thread needs its own asyncio event loop. Without this, the
-            # call to asyncio.Event() inside _run_bot_until_stopped fails.
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            tg_app = _build_telegram_app(token)
+        from telegram.error import NetworkError
+        delay = 5
+        while True:
             try:
-                loop.run_until_complete(_run_bot_until_stopped(tg_app))
-            finally:
-                loop.close()
-        except Exception as e:
-            _stderr(f"BOT CRASHED: {e!r}")
-            traceback.print_exc(file=sys.stderr)
+                # Each thread needs its own asyncio event loop. Without this, the
+                # call to asyncio.Event() inside _run_bot_until_stopped fails.
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                tg_app = _build_telegram_app(token)
+                try:
+                    loop.run_until_complete(_run_bot_until_stopped(tg_app))
+                finally:
+                    loop.close()
+                return
+            except NetworkError as e:
+                # Telegram not reachable right now — a stalled link, a VPN
+                # reconnecting, a captive network. One read timeout on the
+                # very first getMe used to kill the bot for the whole
+                # session; the API is usually back within seconds. Retry
+                # with backoff, and the bot comes online when the network
+                # does. A bad token is not a NetworkError and still crashes
+                # loudly below.
+                _stderr(f"Telegram unreachable ({e!r}) — retrying in {delay}s")
+                time.sleep(delay)
+                delay = min(delay * 2, 60)
+            except Exception as e:
+                _stderr(f"BOT CRASHED: {e!r}")
+                traceback.print_exc(file=sys.stderr)
+                return
 
     _BOT_THREAD = threading.Thread(target=_runner, daemon=True, name="telegram-bot")
     _BOT_THREAD.start()
