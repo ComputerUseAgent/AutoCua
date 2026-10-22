@@ -2,7 +2,7 @@
 // The mode's bot when a mode is picked (mode_bot.css): Computer use, Web use,
 // Mobile use and Shell use, each its own (ui/bots/<bot>*.webp; Shell use's is
 // the CoderUse bot). It comes in big in the middle of the frame like the
-// splash's hero (intro_animation.html): it fades in, grows from 0.85x out
+// splash's hero (intro_animation.tsx): it fades in, grows from 0.85x out
 // of a 6px blur, wakes and blinks; the welcome words (Shell use: its chat)
 // wait meanwhile. Then, in a fresh chat (nothing sent yet), it shrinks onto
 // the chat box and stands there, its waist on the box's top edge,
@@ -31,7 +31,7 @@
         mobile: { img: 'mobileuse', hem: 70 },
         shell: { img: 'coderuse', hem: 70 }
     };
-    // The splash's hero entrance (intro_animation.html), then onto the chat box.
+    // The splash's hero entrance (intro_animation.tsx), then onto the chat box.
     var FADE = 350, GROW = 1000;               // fades in; 0.85x -> 1x, blur 6px -> 0
     var WAKE_AT = 320, WAKE = 600;             // the eyes open
     var BLINK_AT = 1120, BLINK = 300;          // and blink
@@ -67,7 +67,7 @@
         return { host: host, bot: bot, body: bot.querySelector('.mb-bot-body'), eyes: bot.querySelector('.mb-eyes') };
     }
 
-    // Its place: in the chat box's column (chat_input.html), just above the
+    // Its place: in the chat box's column (chat_input.tsx), just above the
     // "Agent running..." strip. Not in the frame: the
     // frame clips what leaves it.
     function parts() {

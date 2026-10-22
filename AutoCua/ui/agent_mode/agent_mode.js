@@ -1,8 +1,8 @@
-// Agent mode — injects the composer's bottom-left mode picker (transparent
+// Agent mode — wires the composer's bottom-left mode picker (agent_mode.tsx; transparent
 // trigger showing the selected mode's logo + name, menu floating above with
 // Computer use / Mobile use / Shell use / Web use). Always exactly one mode
 // selected (default Computer use); picking another swaps trigger label + logo.
-// Same fetch-inject pattern as the other components.
+// Same wire-on-ready pattern as the other components (mounts on 'chatinput:ready').
 //
 // Each change dispatches 'agentmode:changed' (detail {mode, sub});
 // agent_mode/ios_session.js listens and drives the iPhone's WDA session
@@ -245,30 +245,16 @@
         paint();
     }
 
+    // The control is in the chat box from the start (agent_mode.tsx); wire it
+    // once chat_input.js has wired the box.
+    var mounted = false;
     function mount() {
-        var wrapper = document.querySelector('.input-area-wrapper');
-        if (!wrapper || document.getElementById('agentModeWrap')) return;
-        fetch('agent_mode/agent_mode.html')
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-                if (document.getElementById('agentModeWrap')) return; // guard race
-                var holder = document.createElement('div');
-                holder.innerHTML = html.trim();
-                var wrap = holder.querySelector('.agent-mode-wrap');
-                if (!wrap) return;
-                wrapper.appendChild(wrap);
-                wire(wrap);
-                document.dispatchEvent(new CustomEvent('agentmode:ready'));
-            })
-            .catch(function () { /* non-fatal: the control just won't render */ });
+        var wrap = document.getElementById('agentModeWrap');
+        if (!wrap || mounted) return;
+        mounted = true;
+        wire(wrap);
+        document.dispatchEvent(new CustomEvent('agentmode:ready'));
     }
 
-    // chat_input.html is itself fetch-injected — mount on its ready event,
-    // with a direct attempt in case that already fired.
     document.addEventListener('chatinput:ready', mount);
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', mount);
-    } else {
-        mount();
-    }
 })();

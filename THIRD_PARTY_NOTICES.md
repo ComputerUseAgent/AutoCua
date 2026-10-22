@@ -129,6 +129,45 @@ not covered by AutoCua's MIT license.
 
 ---
 
+## 6. React — **bundled into the UI's `index.js`**
+
+| | |
+|---|---|
+| **Author** | Meta Platforms, Inc. and affiliates |
+| **Upstream** | https://github.com/facebook/react (`react` and `react-dom` 19.3.1, from npm) |
+| **How it reaches you** | **Vendored, in built form.** The UI's React + TSX files in `AutoCua/ui` are built by Vite (`npm run build` in that folder) into `AutoCua/ui/index.js`, one minified script that includes React and ReactDOM. That file is committed and ships in the wheel; the npm packages themselves (`AutoCua/ui/node_modules`) do not. The build strips the packages' header comments, so the notice is here instead. |
+| **License** | MIT. Copyright (c) Meta Platforms, Inc. and affiliates. The full text is in `node_modules/react/LICENSE` and `node_modules/react-dom/LICENSE` after `npm ci` in `AutoCua/ui`, and at https://github.com/facebook/react/blob/main/LICENSE. |
+| **Used by** | The desktop app's page (`AutoCua/ui/index.tsx` and the parts under it). |
+
+React remains under its MIT license, which is reproduced below as it requires;
+it is not covered by AutoCua's own MIT license.
+
+```
+MIT License
+
+Copyright (c) Meta Platforms, Inc. and affiliates.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+---
+
 ## Reporting a licensing concern
 
 If you believe something here is misattributed, under-attributed, or

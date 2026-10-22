@@ -3,9 +3,9 @@
    (textarea + the embedded stop-agent orb), the welcome/milestone output
    area, the agent strip ("Agent running…" and the agent's live text), and
    the CLI streaming pills that take over the box during cli_await. Markup
-   lives in chat_input.html (injected into #chatWrapper by chat_input.js);
+   lives in chat_input.tsx (rendered into #chatWrapper by index.tsx);
    the agent-lifecycle wiring lives in chat_input.js (wireChatInput, run
-   right after injection).
+   once the page has loaded).
 
    These rules are the component's own styling — add styling for NEW
    input-bar pieces here. A few shared things they lean on stay GLOBAL in

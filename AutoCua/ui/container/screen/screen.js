@@ -1,6 +1,5 @@
-// Screen container loader — injects the screen cell into #liveTurn
-// (row 3), and owns its run video: window.showRunVideo /
-// window.hideRunVideo.
+// Screen container (screen.tsx, the live turn's second zone): owns its run
+// video, window.showRunVideo / window.hideRunVideo.
 (function () {
     'use strict';
 
@@ -70,25 +69,4 @@
         var img = zone.querySelector('.stream-image');
         if (img && img.getAttribute('src')) img.style.display = 'block';
     };
-
-    function mount() {
-        var grid = document.getElementById('liveTurn');
-        if (!grid || grid.querySelector('.screen-container')) return;
-        fetch('container/screen/screen.html')
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-                if (grid.querySelector('.screen-container')) return; // guard race
-                var holder = document.createElement('div');
-                holder.innerHTML = html.trim();
-                var zone = holder.querySelector('.screen-container');
-                if (zone) grid.appendChild(zone);
-            })
-            .catch(function () { /* non-fatal */ });
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', mount);
-    } else {
-        mount();
-    }
 })();

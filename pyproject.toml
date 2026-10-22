@@ -132,4 +132,7 @@ exclude = [
     # built per OS (a checkout runs `npm install` in AutoCua/desktop; a pip
     # install fetches it into a per-user cache, AutoCua/utils/electron.py)
     "AutoCua/desktop/node_modules/**",
+    # the UI's npm install (React, Vite, TypeScript: `npm ci` in AutoCua/ui builds
+    # ui/index.js, which is committed and ships; pip users need none of this)
+    "AutoCua/ui/node_modules/**",
 ]

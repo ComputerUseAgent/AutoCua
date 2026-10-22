@@ -1,0 +1,24 @@
+{
+  "name": "autocua-ui",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AutoCua's UI in React + TSX: `npm run build` writes index.js (the page) beside index.html, which loads it; the build is committed and ships with the package.",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "watch": "vite build --watch",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run build"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}

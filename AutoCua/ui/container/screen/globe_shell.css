@@ -1,6 +1,6 @@
 /* =====================================================================
    Shell terminal — while a shell command (or an AppleScript) runs, its lines
-   take the tool chain's place in the agent container (agent.html
+   take the tool chain's place in the agent container (agent.tsx
    #shellPanel, paired with globe_shell.js); when it is done the chain is
    back. The screen container keeps the screenshot. (The file stays in the
    screen folder, where the terminal used to show.)

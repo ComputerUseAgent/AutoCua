@@ -1,7 +1,7 @@
-// Chat input component — injects the bottom text box (the output / cli /
-// agent-activated strip areas + the input bar with its textarea and the stop-agent
-// orb) into #chatWrapper, then wires its behaviour: auto-resize, Enter-to-send and
-// the stop button. Same self-contained fetch-inject pattern as chat/chat.js and the
+// Chat input component — wires the bottom text box (chat_input.tsx: the output /
+// cli / agent-activated strip areas + the input bar with its textarea and the
+// stop-agent orb, in #chatWrapper): auto-resize, Enter-to-send and the stop
+// button. Same self-contained wire-on-ready pattern as chat/chat.js and the
 // container/* zones.
 //
 // Shared app state stays owned by script.js and is read through a tiny window
@@ -9,7 +9,7 @@
 //   • window.getModelSelection() -> { provider, model }  (live selection)
 //   • window.stopStreaming()                              (cancel agent-text stream)
 // Every one of those is only called at user-event time (Enter / send / stop click),
-// long after script.js has defined them — so injection order doesn't matter.
+// long after script.js has defined them — so script order doesn't matter.
 //
 // Two orb iframes are overlaid in the toolbar's slot and crossfaded (CSS, keyed off
 // .chat-input.agent-active): the grey send orb (send_button.html) idle, the glowing
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    // Wire the just-injected text box: auto-resize, send (Enter / orb), stop button.
+    // Wire the text box: auto-resize, send (Enter / orb), stop button.
     function wireChatInput(root) {
         const chatInput = (root || document).querySelector('.chat-input');
         if (!chatInput) return;
@@ -393,29 +393,23 @@
         });
     }
 
+    // The box is in the page from the start (chat_input.tsx); wire it once, a
+    // moment after DOMContentLoaded, when its fetched markup used to arrive.
+    var mounted = false;
     function mount() {
         var wrap = document.getElementById('chatWrapper');
-        if (!wrap || wrap.querySelector('.chat-container-content')) return;
-        fetch('chat_input/chat_input.html')
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-                if (wrap.querySelector('.chat-container-content')) return; // guard race
-                var holder = document.createElement('div');
-                holder.innerHTML = html.trim();
-                var content = holder.querySelector('.chat-container-content');
-                if (!content) return;
-                wrap.appendChild(content);
-                // The markup is now live — wire it (runs once, post-injection).
-                wireChatInput(content);
-                // Announce for any future listeners (script.js no longer needs this).
-                document.dispatchEvent(new CustomEvent('chatinput:ready'));
-            })
-            .catch(function () { /* non-fatal: the text box just won't render */ });
+        var content = wrap && wrap.querySelector('.chat-container-content');
+        if (!content || mounted) return;
+        mounted = true;
+        wireChatInput(content);
+        // The parts inside it (agent_mode.js, memory_bar.js, skills.js) wire up on this.
+        document.dispatchEvent(new CustomEvent('chatinput:ready'));
     }
 
+    function schedule() { setTimeout(mount, 0); }
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', mount);
+        document.addEventListener('DOMContentLoaded', schedule);
     } else {
-        mount();
+        schedule();
     }
 })();

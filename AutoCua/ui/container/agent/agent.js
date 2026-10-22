@@ -2204,28 +2204,24 @@
         step.state = 'pending';
         return item;
     }
+    // The zone is in the live turn from the start (agent.tsx); attach the flow
+    // to it once, a moment after DOMContentLoaded, when its fetched markup used
+    // to arrive.
+    var attached = false;
     function mount() {
         var grid = document.getElementById('liveTurn');
-        if (!grid || grid.querySelector('.agent-container')) return;
-        fetch('container/agent/agent.html')
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-                if (grid.querySelector('.agent-container')) return; // guard race
-                var holder = document.createElement('div');
-                holder.innerHTML = html.trim();
-                var zone = holder.querySelector('.agent-container');
-                if (!zone) return;
-                grid.appendChild(zone);
-                mainFlow.attach(zone);                        // its elements; starts the rAF render loop
-                // NOTE: no demo here — the chain stays empty until the agent run
-                // drives it via window.toolFlow.onFlow(...).
-            })
-            .catch(function () { /* non-fatal */ });
+        var zone = grid && grid.querySelector('.agent-container');
+        if (!zone || attached) return;
+        attached = true;
+        mainFlow.attach(zone);                        // its elements; starts the rAF render loop
+        // NOTE: no demo here — the chain stays empty until the agent run
+        // drives it via window.toolFlow.onFlow(...).
     }
 
+    function schedule() { setTimeout(mount, 0); }
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', mount);
+        document.addEventListener('DOMContentLoaded', schedule);
     } else {
-        mount();
+        schedule();
     }
 })();

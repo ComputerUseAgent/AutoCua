@@ -1,6 +1,6 @@
 // =====================================================================
 // Tracking progress — the LIVE scratchpad stream in the right half of the
-// bottom container (agent.html's .tracking-panel). Exposes
+// bottom container (agent.tsx's .tracking-panel). Exposes
 // window.trackingProgress { push, start, end }. While the agent runs, each
 // scratchpad entry (fed from window.streamMilestone in script.js) streams in
 // as a circle-bullet line on a connecting line, conveyor-scrolling up as it
