@@ -1089,7 +1089,10 @@ async def _run_bot_until_stopped(tg_app):
         await _post_init(tg_app)
     except Exception:
         logger.exception("post_init failed")
+    # bootstrap_retries=-1: the library retries its own deleteWebhook on a
+    # network hiccup, so a started app is never torn down and rebuilt.
     await tg_app.updater.start_polling(allowed_updates=Update.ALL_TYPES,
+                                       bootstrap_retries=-1,
                                        error_callback=_on_polling_error)
     _stderr("polling loop is live — send your bot a message")
     # Park here forever (daemon thread; killed on app exit).
@@ -1117,7 +1120,7 @@ def start_bot() -> None:
 
     def _runner():
         import sys, traceback
-        from telegram.error import NetworkError
+        from telegram.error import NetworkError, RetryAfter
         delay = 5
         while True:
             try:
@@ -1131,15 +1134,18 @@ def start_bot() -> None:
                 finally:
                     loop.close()
                 return
-            except NetworkError as e:
+            except (NetworkError, RetryAfter) as e:
                 # Telegram not reachable right now — a stalled link, a VPN
                 # reconnecting, a captive network. One read timeout on the
                 # very first getMe used to kill the bot for the whole
                 # session; the API is usually back within seconds. Retry
                 # with backoff, and the bot comes online when the network
-                # does. A bad token is not a NetworkError and still crashes
-                # loudly below.
-                _stderr(f"Telegram unreachable ({e!r}) — retrying in {delay}s")
+                # does. A 429 flood limit (RetryAfter) counts as unreachable
+                # too. A bad token is neither and still crashes loudly below.
+                # Type and message only, the token scrubbed and the text capped:
+                # a proxy block page can echo the request URL into the error.
+                _stderr(f"Telegram unreachable ({type(e).__name__}: "
+                        f"{str(e).replace(token, '<token>')[:160]}) — retrying in {delay}s")
                 time.sleep(delay)
                 delay = min(delay * 2, 60)
             except Exception as e:
