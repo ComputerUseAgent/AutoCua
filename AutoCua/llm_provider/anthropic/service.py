@@ -4,7 +4,7 @@ import copy
 from typing import Dict, Any, Optional
 
 from .view import get_model_info, get_sampling_params, get_thinking_params, get_tool_choice
-from .. import LLM_HTTP_TIMEOUT, screenshots
+from .. import LLM_HTTP_TIMEOUT, RefusalError, screenshots
 
 
 def _as_text(content) -> str:
@@ -232,7 +232,16 @@ class AnthropicProvider:
             response = self.session.post(self.api_url, json=data, headers=headers, timeout=LLM_HTTP_TIMEOUT)
             response.raise_for_status()
             result = response.json()
-            
+
+            if result.get("stop_reason") == "refusal":
+                # The API refused this request (no content, 0 output tokens);
+                # stop_details says which policy. Raised, not returned empty:
+                # the manager skips its retries and falls back where it can.
+                details = result.get("stop_details") or {}
+                raise RefusalError(
+                    f"stop_reason=refusal, category={details.get('category')!r}: "
+                    f"{details.get('explanation') or 'no explanation given'}")
+
             # Normalize response to match OpenAI-style format (choices[0].message.content)
             # Anthropic returns: content: [{type: "thinking", ...}, {type: "text", text: "..."},
             # {type: "tool_use", name, input}, ...]
@@ -252,6 +261,14 @@ class AnthropicProvider:
                             "name": block.get("name") or "",
                             "arguments": args if isinstance(args, dict) else {},
                         })
+                if not calls and not any(t.strip() for t in texts):
+                    # The loops only see "empty response"; why it is empty
+                    # (an immediate "end_turn", thinking only) is in stop_reason.
+                    print(f"   Anthropic returned no text and no tool call: "
+                          f"stop_reason={result.get('stop_reason')!r}, "
+                          f"content={json.dumps([b.get('type') for b in result.get('content', [])])}"
+                          + (f", stop_details={json.dumps(result.get('stop_details'), ensure_ascii=False)}"
+                             if result.get("stop_details") else ""))
                 return {
                     "choices": [{
                         "message": {

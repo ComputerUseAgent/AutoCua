@@ -24,6 +24,14 @@ import threading
 LLM_HTTP_TIMEOUT = (15, 180)
 
 
+class RefusalError(Exception):
+    """The API refused the request itself (Anthropic stop_reason "refusal":
+    no content, 0 output tokens, stop_details naming the policy). Not a
+    transport error: the same request gets the same answer, so LLMManager
+    skips its retries and falls back where it can instead of asking three
+    times and reporting an empty response."""
+
+
 def screenshots(shot) -> list:
     """The images a step's user message carries, in order. The step passes
     one base64 JPEG (the usual case on every platform) or, from the web agent,

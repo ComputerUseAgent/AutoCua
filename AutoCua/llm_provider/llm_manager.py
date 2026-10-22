@@ -6,7 +6,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-from . import _ensure_tls_works
+from . import _ensure_tls_works, RefusalError
 from .openrouter.service import OpenRouterProvider
 from .openrouter.view import get_model_info as get_openrouter_model_info
 from .groq.service import GroqProvider
@@ -665,6 +665,12 @@ class LLMManager:
                         _META_KEY: message.get(_META_KEY) or {},
                     }
                 return message['content']
+            except RefusalError as e:
+                # The API refused the request itself; the same request gets
+                # the same answer, so no retry. send_request falls back where
+                # it can.
+                print(f"⛔ {self.display_name} refused the request: {e}")
+                raise
             except Exception as e:
                 last_error = e
                 if attempt < 2:
@@ -693,7 +699,7 @@ class LLMManager:
                 raise
 
         fallback_info = self._resolve_model_info(self._cli_fallback_model)
-        print(f"⚠️ {self.display_name} failed 3 attempts — this step only, "
+        print(f"⚠️ {self.display_name} failed — this step only, "
               f"falling back to {fallback_info['display_name']}...")
         self._apply_model_info(fallback_info)
         try:
@@ -714,17 +720,35 @@ class LLMManager:
         for it. Read from the primary entry, so a one-call fallback does not flip it."""
         return bool(self._primary_model_info.get("async_tools"))
 
+    def _show_tools(self, on: bool, hidden) -> None:
+        """Send every tool, or every tool but `hidden`. The provider holds its
+        tools in its own dialect and reads them on every request, so each short
+        list is cut from the full one once per provider instance and swapped
+        onto the provider. One toggle per manager: the driver hides its screen
+        tools, the coder its notes tool."""
+        inst = self.provider_instance
+        cache = getattr(self, "_tool_cuts", None)
+        if cache is None or cache[0] is not inst:
+            cache = self._tool_cuts = (inst, inst.tools, {})
+        full, cuts = cache[1], cache[2]
+        if full is None:
+            return  # mode="text": no tools to hide
+        key = frozenset(hidden)
+        if key not in cuts:
+            cuts[key] = [t for t in full if _dialect_tool_name(t) not in key]
+        inst.tools = full if on else cuts[key]
+
     def show_screen_tools(self, on: bool) -> None:
         """Scan toggle (main driver): send every tool, or every tool but
-        SCREEN_TOOLS while the scan is off. The provider holds its tools in its
-        own dialect and reads them on every request, so the short list is cut
-        from that one once and the two are swapped on the provider."""
-        inst = self.provider_instance
-        if getattr(self, "_tool_lists_of", None) is not inst:
-            full = inst.tools
-            short = [t for t in full or [] if _dialect_tool_name(t) not in self.SCREEN_TOOLS]
-            self._tool_lists, self._tool_lists_of = (full, short), inst
-        inst.tools = self._tool_lists[0] if on else self._tool_lists[1]
+        SCREEN_TOOLS while the scan is off."""
+        self._show_tools(on, self.SCREEN_TOOLS)
+
+    def show_notes_tool(self, on: bool) -> None:
+        """Notes pause (coder): send every tool, or every tool but the notes
+        tool (`reasoning` / `agent_memory`) while the coder has it paused after
+        a run of notes-only turns, so the model can only call the tools that
+        do the work."""
+        self._show_tools(on, NOTE_TOOLS)
 
     def get_model_name(self) -> str:
         """Get the current model short name (preserves vertex suffix for downstream routing)"""

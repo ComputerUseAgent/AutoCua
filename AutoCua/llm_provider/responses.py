@@ -32,6 +32,12 @@ SYNC_TOOLS = ("done", "exit")
 # how long that idling can last. 2,000 bounds it to about 40 s while leaving
 # room for the longest legitimate turn.
 MAX_OUTPUT_TOKENS = 2000
+# The coder and minion (cli_agent) write far longer turns: a FULL `reasoning`
+# call plus a whole-file `write` or a `plan` set. At 2,000 such a turn was cut
+# mid-call and the trim below kept only the notes call, so the step read as
+# notes-only. 8,000 (the models allow 128,000) idles out in about 150 s, still
+# inside LLM_HTTP_TIMEOUT's 180 s read, so a cut reply is kept, not timed out.
+CLI_MAX_OUTPUT_TOKENS = 8000
 
 
 def async_route(info: dict) -> bool:
@@ -149,7 +155,7 @@ def send(session: requests.Session, url: str, api_key: str, error_prefix: str,
     if instructions:
         data["instructions"] = instructions
     data["input"] = items
-    data["max_output_tokens"] = MAX_OUTPUT_TOKENS
+    data["max_output_tokens"] = CLI_MAX_OUTPUT_TOKENS if cli_agent else MAX_OUTPUT_TOKENS
     data.update(reasoning or {})
     data.update(extra or {})
     data["tools"] = responses_tools(tools)

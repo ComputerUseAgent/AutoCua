@@ -14,7 +14,7 @@ import threading
 import subprocess
 from ...tool_registry.service import (LLMManager, tool_calls_to_steps, REASONING_FIELDS, drop_bundled_terminal,
                                          CLAUDE_REASONING_FIELDS, ACTION_DEFAULTS_CLAUDE,
-                                         CODER_TOOL_NAMES_CLAUDE)
+                                         CODER_TOOL_NAMES, CODER_TOOL_NAMES_CLAUDE)
 from ...controller.view import ControllerView
 from ...controller.cli.service import render_tool_response
 from ....memory_compression.controller import CompressionController
@@ -133,6 +133,33 @@ Your tool calls run after the turn ends, in the order you emit them, and no resu
 - `exit` stays the only call of its turn. Never add it after this turn's calls: their results have not arrived, so nothing is verified yet.
 </async_tools>
 """
+
+# Appended LAST to the live <persistent_memory> turn, every step, for a
+# non-Claude model. The coder treats its notes tool as a think step: it calls
+# `reasoning`, ends its turn to wait for the result and acts on the NEXT turn -
+# one wasted LLM call per step. A rule in the live message moves batching far
+# more than the same rule in the system prompt. Live message only, never
+# persisted, so the cached prefix is unchanged.
+#
+# Claude gets NO live reminder: the same sentence about `agent_memory`, on top
+# of this prompt's notes-for-your-future-self language, made Anthropic refuse
+# the whole request (stop_reason "refusal", category reasoning_extraction;
+# measured 2026-10-21 on Opus 5.5: refused with it, answered without it). Its
+# batching rides on claude_prompt.md, the `agent_memory` description and the
+# notes pause below.
+BATCH_REMINDER = (
+    "\n\n<critical>This turn must carry the `reasoning` call AND the action calls that do its "
+    "\"Doing\" in this one response. A step that thinks is no exception: think in `reasoning`, "
+    "then make the calls for its \"Doing\" in the same response. `reasoning` alone is not a step: its "
+    "result is only `ok`, so never end the turn after it. The one exception is the final review "
+    "right before `exit` (and `exit` is always alone).</critical>")
+
+# A notes-only turn (the notes call and nothing else) is answered with a result
+# that says no action ran. After NOTES_PAUSE_AFTER of them in a row the notes
+# tool is taken out of the tool list for the next NOTES_PAUSE_STEPS steps, so
+# the model can only call the tools that do the work; then it comes back.
+NOTES_PAUSE_AFTER = 2
+NOTES_PAUSE_STEPS = 5
 
 
 class AgentService:
@@ -591,6 +618,7 @@ class AgentService:
         is_first = True
         json_fail_count = 0  # Track consecutive JSON parse failures (max 3 before exit)
         reasoning_only_count = 0  # Consecutive steps that called `reasoning` and nothing else
+        notes_paused_until = 0    # last step number with the notes tool off (see NOTES_PAUSE_AFTER)
         web_memory_index = None    # tool slot of the web step to backfill with the digest's scratchpad
         web_pending = None         # [(call_id, compacted dict)] of the web step, for the digest fold
         is_web_digest = False      # True only on the iteration that digests a web result
@@ -752,6 +780,13 @@ class AgentService:
                     "web call's durable `result` in <agent_history>; the raw text below is "
                     "shown once and never stored, so anything you do not record is gone.\n"
                     f"</critical>\n\n{pending_web}")
+            # The notes call and the action calls belong in ONE response (see
+            # BATCH_REMINDER). Last in the live message. Not for Claude (see
+            # there), and not while the notes tool is paused: the reminder
+            # would ask for a call the tool list does not offer.
+            notes_on = step_number > notes_paused_until
+            if not self._claude and notes_on:
+                content += BATCH_REMINDER
             messages.append({"role": "user", "content": content})
 
             # Prompt caching: mark the newest PERSISTENT turn — the last tool
@@ -783,6 +818,10 @@ class AgentService:
             self.last_messages = messages
 
             try:
+                # The notes tool rides only while it is not paused (see
+                # NOTES_PAUSE_AFTER); the provider reads its list every request.
+                self.llm.show_notes_tool(notes_on)
+
                 # Call LLM — show a working spinner on a TTY so the terminal doesn't
                 # look frozen during the (multi-second) LLM wait.
                 if sys.stdout.isatty():
@@ -830,9 +869,16 @@ class AgentService:
                     json.dumps(raw_response, indent=2, ensure_ascii=False, default=str),
                     step_number,
                 )
+                # While the notes tool is paused it is not offered, so a call
+                # to it is rejected like any unknown tool (the driver does the
+                # same for its hidden screen tools); the error names the tools
+                # that ARE offered this step.
+                allowed = CODER_TOOL_NAMES_CLAUDE if self._claude else CODER_TOOL_NAMES
+                if not notes_on:
+                    allowed = allowed.difference({self._notes_tool})
                 actions, calls, rejects, track = tool_calls_to_steps(
                     raw_response.get("tool_calls"),
-                    allowed=CODER_TOOL_NAMES_CLAUDE if self._claude else None,
+                    allowed=allowed,
                     defaults_map=ACTION_DEFAULTS_CLAUDE if self._claude else None,
                     track_params=CLAUDE_REASONING_FIELDS if self._claude else REASONING_FIELDS)
                 if self._claude:
@@ -869,18 +915,32 @@ class AgentService:
 
                 if not actions and not rejects:
                     if note_ids:
-                        # A reasoning-only step: the model chose to think
-                        # before acting. Accepted as a normal step - the turn
-                        # is recorded and its call answered like any other.
-                        # Only a RUN of them is bounded: from the third in a
-                        # row, the result carries a one-line reminder to act.
+                        # A notes-only step: the model ended its turn after the
+                        # notes call. The turn is recorded and its call answered
+                        # like any other, but from the FIRST one the result says
+                        # no action ran, so the next turn makes the calls this
+                        # one skipped. The NOTES_PAUSE_AFTER-th in a row takes
+                        # the notes tool out of the tool list for the next
+                        # NOTES_PAUSE_STEPS steps (see show_notes_tool above).
                         reasoning_only_count += 1
-                        if reasoning_only_count >= 3:
-                            note_results = [{"tool_call_id": i, "content": render_tool_response({
-                                "status": "success", "action": self._notes_tool,
-                                "message": f"{reasoning_only_count} steps in a row without an action: "
-                                           "call a tool that does the work in this turn."})}
-                                for i in note_ids]
+                        if reasoning_only_count >= NOTES_PAUSE_AFTER:
+                            notes_paused_until = step_number + NOTES_PAUSE_STEPS
+                            reasoning_only_count = 0
+                            message = (f"No action ran, {NOTES_PAUSE_AFTER} steps in a row: `{self._notes_tool}` "
+                                       f"is off for the next {NOTES_PAUSE_STEPS} steps. Call the tools that do "
+                                       "the work directly (or `exit` if the work is done and reviewed); it "
+                                       "comes back after that.")
+                            if sys.stdout.isatty():
+                                safe_print(f"⚠️ {NOTES_PAUSE_AFTER} notes-only turns in a row: "
+                                           f"`{self._notes_tool}` off for the next {NOTES_PAUSE_STEPS} steps")
+                        else:
+                            message = (f"No action ran ({reasoning_only_count} step(s) in a row): "
+                                       f"`{self._notes_tool}` alone does nothing. If this was the final "
+                                       "review and it passed, call `exit` now; otherwise make the calls for "
+                                       "its \"Doing\" now, in the same response as the notes.")
+                        note_results = [{"tool_call_id": i, "content": render_tool_response({
+                            "status": "success", "action": self._notes_tool, "message": message})}
+                            for i in note_ids]
                         normalized = encode_step(resp_text, wire_calls_from(all_calls),
                                                  raw_response.get("provider_meta"))
                         display_payload = json.dumps(

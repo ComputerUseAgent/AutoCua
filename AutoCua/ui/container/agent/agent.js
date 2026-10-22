@@ -1743,8 +1743,10 @@
         scratchpad:   { shape: 'book',     label: 'saving to agent memory' },
         done:         { shape: 'loader',   label: 'done', tick: true },  // reuse the packet tick
         vault:        { shape: 'vault',    label: 'unlocking the vault' },
-        // mobile (iOS) action names — the iOS driver sends its flat action types
+        // mobile (iOS) action names — the iOS driver sends its flat action types.
+        // click taps an element by [id], ground_click a raw point: the same finger.
         click:        { shape: 'tap',      label: 'tapping the screen' },
+        ground_click: { shape: 'tap',      label: 'tapping the screen' },
         // web (browser) tool names — the browser driver's own set, from
         // AutoCua/web/controller/view.rs. `input`, `scroll`, `wait`,
         // `scratchpad`, `todo_list`, `update_todo` and `done` are already above

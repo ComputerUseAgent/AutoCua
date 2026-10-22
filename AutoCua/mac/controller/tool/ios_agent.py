@@ -400,7 +400,15 @@ class PhoneLink:
             # its activate() killed this link's forward. WDA still answers on
             # the port, but for that run, so status() alone cannot tell.
             if not wda_session.holds(self):
-                self._fail("another AutoCua run took over the phone")
+                # A session that died says so in status() (the re-plug watchdog
+                # gave up, a runner that could not start); a take-over does
+                # not: WDA still answers there, for the other run.
+                try:
+                    st = wda_session.status()
+                except Exception:
+                    st = {}
+                self._fail(_reason(st) if st.get("state") == "error"
+                           else "another AutoCua run took over the phone")
                 return
             try:
                 st = wda_session.status()
@@ -417,8 +425,15 @@ class PhoneLink:
             # its own. Off the cable is what counts.
             plugged = plugged_in_udids()
             if plugged is not None and self.udid not in plugged:
-                self._fail("the phone was unplugged")
-                return
+                # A re-plug (QuickTime's screen mirror picking the phone) takes
+                # it off the cable for well under a second and the session
+                # starts itself again (session.py's watchdog): look once more
+                # before calling it unplugged.
+                time.sleep(3)
+                plugged = plugged_in_udids()
+                if plugged is not None and self.udid not in plugged:
+                    self._fail("the phone was unplugged")
+                    return
 
     def _fail(self, reason: str):
         with self._lock:

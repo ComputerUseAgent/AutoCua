@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="AutoCua/logo/logo.png" alt="AutoCua" width="120"/>
+<img src="AutoCua/logo/autocua-bots.png" alt="AutoCua" width="820"/>
 
 <h1>AutoCua</h1>
 
