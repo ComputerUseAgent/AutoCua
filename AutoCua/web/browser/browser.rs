@@ -20,7 +20,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -1645,6 +1645,70 @@ pub(crate) fn find_chrome() -> SResult<PathBuf> {
         .ok_or_else(|| ScanErr::s("no browser found: install Google Chrome to use web mode"))
 }
 
+/// The user agent a headful run of this browser sends, for a headless run to
+/// send too.
+///
+/// `--headless=new` is the same browser as headful on the wire but for one
+/// word: its User-Agent header reads `HeadlessChrome/156.0.0.0`, and its
+/// client hints already say "Google Chrome". A site behind a bot wall drops
+/// the connection on that word alone. itv.com reset every request
+/// (ERR_HTTP2_PROTOCOL_ERROR, Chrome's own error page, never a page of ITV's)
+/// until the header said `Chrome/156.0.0.0`; with that, the same headless
+/// binary loaded the homepage and the sign-in page (measured 2026-10-23,
+/// Chrome 156). curl is dropped with any user agent, so the rest of Chrome's
+/// fingerprint is what gets it through and nothing else is overridden.
+///
+/// The string is Chrome's reduced one: a frozen platform per OS, the major
+/// version and zeros. None when the version cannot be read.
+fn headful_user_agent(chrome: &Path) -> Option<String> {
+    let major = chrome_major(chrome)?;
+    let platform = if cfg!(windows) {
+        "Windows NT 10.0; Win64; x64"
+    } else if cfg!(target_os = "macos") {
+        "Macintosh; Intel Mac OS X 10_15_7"
+    } else {
+        "X11; Linux x86_64"
+    };
+    let edge = if browser_name(chrome) == "Edge" {
+        format!(" Edg/{major}.0.0.0")
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) \
+         Chrome/{major}.0.0.0 Safari/537.36{edge}"
+    ))
+}
+
+/// The browser's major version. macOS and Linux print it for `--version`
+/// (20 ms, measured); Windows does not handle that switch, so there it is
+/// read from the versioned folder every Chromium install keeps beside its
+/// executable (`Application\156.0.8078.48\`), the highest when an update has
+/// left two.
+fn chrome_major(chrome: &Path) -> Option<u32> {
+    if cfg!(windows) {
+        let names = std::fs::read_dir(chrome.parent()?).ok()?;
+        return names
+            .flatten()
+            .filter_map(|e| major_in(&e.file_name().to_string_lossy()))
+            .max();
+    }
+    let out = Command::new(chrome)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    major_in(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The major of the first `N.N.N.N` in the text.
+fn major_in(text: &str) -> Option<u32> {
+    static VERSION: OnceLock<Regex> = OnceLock::new();
+    let re = VERSION.get_or_init(|| Regex::new(r"(\d+)\.\d+\.\d+\.\d+").expect("version regex"));
+    re.captures(text)?.get(1)?.as_str().parse().ok()
+}
+
 /// Name the profile and give it a face, before Chrome ever opens it.
 ///
 /// Chrome writes `Local State` from MEMORY when it exits, so editing the file
@@ -1934,7 +1998,7 @@ pub fn launch_chrome_impl(
     }
     let chrome = find_chrome()?;
     let name = browser_name(&chrome);
-    let mut cmd = Command::new(chrome);
+    let mut cmd = Command::new(&chrome);
     cmd.arg(format!("--remote-debugging-port={port}"))
         .arg(format!("--user-data-dir={}", profile.display()))
         .arg("--no-first-run")
@@ -1976,6 +2040,16 @@ pub fn launch_chrome_impl(
     }
     if headless {
         cmd.arg("--headless=new");
+        // Say "Chrome", not "HeadlessChrome": see headful_user_agent.
+        match headful_user_agent(&chrome) {
+            Some(ua) => {
+                cmd.arg(format!("--user-agent={ua}"));
+            }
+            None => println!(
+                "{name}: version not found, so this headless run names itself HeadlessChrome \
+                 and sites with a bot wall may refuse it"
+            ),
+        }
     }
     // Start ON about:blank rather than letting Chrome show its New Tab page,
     // so the very first surface the agent sees is inert.
