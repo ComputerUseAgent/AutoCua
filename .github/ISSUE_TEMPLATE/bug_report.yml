@@ -3,6 +3,19 @@ description: Something in AutoCua went wrong.
 labels: ["bug"]
 body:
   - type: dropdown
+    id: use-case
+    attributes:
+      label: Who is this for?
+      description: >-
+        Corporate reports are fixed faster: they go to the front of the queue
+        and the issue is labelled so it stays there.
+      options:
+        - Personal
+        - Corporate work
+    validations:
+      required: true
+
+  - type: dropdown
     id: mode
     attributes:
       label: Mode

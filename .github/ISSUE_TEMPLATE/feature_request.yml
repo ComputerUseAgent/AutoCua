@@ -1,0 +1,41 @@
+name: Feature request
+description: Something you want AutoCua to do.
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: use-case
+    attributes:
+      label: Who is this for?
+      description: >-
+        Corporate requests are looked at first: they go to the front of the
+        queue and the issue is labelled so it stays there.
+      options:
+        - Personal
+        - Corporate work
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: What exactly do you want to achieve?
+      description: >-
+        A few lines are enough. Say what you are trying to get done, not how
+        you think it should be built.
+      placeholder: |
+        I want to ...
+        Today I have to ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Anything to attach
+      description: |
+        Optional. Drag a screenshot, a short screen recording or a sketch
+        straight into this box.
+
+        ⚠️ **Please erase all sensitive data before you upload it.**
+    validations:
+      required: false
