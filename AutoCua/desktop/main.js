@@ -244,19 +244,56 @@ function systemTitleBarHeight() {
   return height > 0 ? height : 28;
 }
 
-// The logo fills its whole square, but a macOS icon keeps a clear margin round
-// its shape (Apple's grid: an 824 px shape on a 1024 px canvas). Unpadded, it
-// showed bigger than every other icon in the Dock.
+// A macOS icon keeps a clear margin round its shape (Apple's grid: an 824 px
+// shape on a 1024 px canvas). Unpadded, the icon shows bigger than every other
+// one in the Dock; padded twice, it shows smaller. logo.png has been both
+// kinds: a mark bleeding to the edges, and a finished tile that already
+// carries its own margin. So measure where the artwork actually is, trim the
+// transparent border off, and lay THAT on the grid. Then swapping logo.png
+// never changes how big the icon reads in the Dock.
 function dockIcon() {
   const logo = nativeImage.createFromPath(LOGO);
   if (logo.isEmpty()) return null;
+  const { width: W, height: H } = logo.getSize();
+  if (!W || !H) return null;
+
+  // Alpha sits in the 4th byte whichever way round the colours are. Ignore
+  // all but the faintest pixels: an export can leave a speckle of alpha 1-8
+  // out near the edges, invisible on screen but enough to defeat a trim.
+  const VISIBLE = 16;
+  const src = logo.toBitmap();
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++) {
+    const row = y * W * 4;
+    for (let x = 0; x < W; x++) {
+      if (src[row + x * 4 + 3] < VISIBLE) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  if (x1 < x0 || y1 < y0) return null;        // nothing visible in the file
+  const markW = x1 - x0 + 1;
+  const markH = y1 - y0 + 1;
+
   const CANVAS = 1024;
   const SHAPE = 824;
-  const at = (CANVAS - SHAPE) / 2;
-  const shape = logo.resize({ width: SHAPE, height: SHAPE, quality: 'best' }).toBitmap();
+  // Fit the longer side to the grid, so the shape never spills past it, and
+  // keep the proportions: the tile is not always perfectly square.
+  const scale = SHAPE / Math.max(markW, markH);
+  const w = Math.max(1, Math.round(markW * scale));
+  const h = Math.max(1, Math.round(markH * scale));
+  const shape = logo
+    .crop({ x: x0, y: y0, width: markW, height: markH })
+    .resize({ width: w, height: h, quality: 'best' })
+    .toBitmap();
+
+  const atX = Math.round((CANVAS - w) / 2);
+  const atY = Math.round((CANVAS - h) / 2);
   const out = Buffer.alloc(CANVAS * CANVAS * 4);   // transparent
-  for (let y = 0; y < SHAPE; y++) {
-    shape.copy(out, ((at + y) * CANVAS + at) * 4, y * SHAPE * 4, (y + 1) * SHAPE * 4);
+  for (let y = 0; y < h; y++) {
+    shape.copy(out, ((atY + y) * CANVAS + atX) * 4, y * w * 4, (y + 1) * w * 4);
   }
   return nativeImage.createFromBitmap(out, { width: CANVAS, height: CANVAS });
 }
