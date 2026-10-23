@@ -20,6 +20,7 @@ from .view import (AgentResponseFormatter, decode_step, encode_step,
 from ...tree.element import UIElementScanner, ELEMENT_CONFIG
 from ..skills import DomainKnowledgeService
 from ...controller import ControllerView
+from ....vault import service as vault
 
 # Run-boundary request markers: on resume, the bridge entry that ended the prior
 # run ("Previous run concluded.", saved by agent_conversation._build_history with
@@ -356,12 +357,14 @@ class AgentService:
             self._save_conversation_snapshot(messages, current_assistant_response, image_sent, interaction_count)
 
     @staticmethod
-    def _persistent_memory(todo_list: str, scratchpad_content: str) -> str:
-        """<persistent_memory>: the agent's own ToDo + scratchpad, rebuilt
-        fresh every step - the tag the system prompt's <input> describes."""
+    def _persistent_memory(todo_list: str, scratchpad_content: str, vault_block: str = "") -> str:
+        """<persistent_memory>: the agent's own ToDo + scratchpad, then <vault>
+        (the login keys saved for the app in front, when there are some),
+        rebuilt fresh every step - the tag the system prompt's <input> describes."""
         scratch = (f"<scratchpad>\n{scratchpad_content}\n</scratchpad>"
                    if scratchpad_content else "<scratchpad>none</scratchpad>")
-        return f"<persistent_memory>\n<todo_list>\n{todo_list}\n</todo_list>\n\n{scratch}\n</persistent_memory>"
+        tail = f"\n\n{vault_block}" if vault_block else ""
+        return f"<persistent_memory>\n<todo_list>\n{todo_list}\n</todo_list>\n\n{scratch}{tail}\n</persistent_memory>"
 
     def _read_todo_from_file(self) -> str:
         """Read the current todo list from the task tracker's todo.md file"""
@@ -557,6 +560,10 @@ class AgentService:
                                   for n in re.findall(r'<updated_user_request no="(\d+)">', tr)]
                     tool_responses[-1] = _request_marker(max([n_bridges] + marker_nos) + 1, task)
                 print(f"🧠 Resumed memory: {len(assistant_messages)} prior step(s) loaded")
+        # A fresh chat has typed nothing from the vault yet; a continuation keeps
+        # what it typed hidden, since the phone may still show it.
+        if not is_resumed:
+            vault.new_chat()
         # ----------------------------------------------------------------------
 
         # Print model info once at the start
@@ -600,6 +607,7 @@ class AgentService:
                 image_sent = False
                 formatted_element_tree = ""
                 skills_block = ""
+                vault_block = ""
             else:
                 # Scan UI elements and get annotated screenshot
                 print(f"\n{'='*60}")
@@ -623,8 +631,12 @@ class AgentService:
                 else:
                     print("❌ NO IMAGE - annotated image is None!")
 
-                # Wrap element tree in proper tags
-                formatted_element_tree = f"<element_tree>\n{element_tree_text}\n</element_tree>"
+                # Wrap element tree in proper tags. A value the vault typed shows
+                # in the field it went into (and anywhere the app echoes it): it
+                # reads as [vault].
+                formatted_element_tree = f"<element_tree>\n{vault.hide(element_tree_text)}\n</element_tree>"
+                # <vault>: the login keys saved for the app just scanned.
+                vault_block = vault.vault_service.block()
                 # Skills are matched against the screen we JUST scanned: the
                 # app in front is the root of the page source the scanner parsed.
                 skills_text = self.skills.get_knowledge(self.scanner.application_name)
@@ -644,6 +656,8 @@ class AgentService:
 """
                 if skills_block:
                     user_message += f"\n{skills_block}\n"
+                if vault_block:
+                    user_message += f"\n{vault_block}\n"
                 user_message += f"\n{formatted_element_tree}"
                 if image_sent:
                     user_message += "\n\n<image>Annotated screenshot with bounding boxes</image>"
@@ -692,7 +706,7 @@ No image and element tree provided. Focus on digesting the web response below.
                     # Normal iteration - include full context
                     user_message += f"""
 
-{self._persistent_memory(todo_list, scratchpad_content)}"""
+{self._persistent_memory(todo_list, scratchpad_content, vault_block)}"""
 
                     if skills_block:
                         user_message += f"""
@@ -1110,8 +1124,12 @@ No image and element tree provided. Focus on digesting the web response below.
                             # controller_service during scan_elements, so no
                             # set_elements handoff is needed here.)
 
-                            # Send action to controller
+                            # Send action to controller. A value the vault typed can
+                            # come back in a result: it reads as [vault]. Not in
+                            # `done`: that is the model's own answer to the user.
                             action_result = self.controller.route_action(agent_response["action"])
+                            if action_result.get("action") != "done":
+                                action_result = vault.hide_json(action_result)
 
                             # Check if action was stopped mid-execution. Here the
                             # actions DID partially run, so record what the

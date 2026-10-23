@@ -4855,7 +4855,7 @@ fn bridge_timeout(req: &Value) -> Duration {
         "frame" => 3.0,
         "blank_page" => 15.0,
         "click" => 10.0 + req.get("hold_s").and_then(Value::as_f64).unwrap_or(0.0),
-        "input" => 15.0,
+        "input" | "vault_input" => 15.0,
         _ => 10.0,
     };
     Duration::from_secs_f64(secs)

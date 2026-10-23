@@ -249,17 +249,19 @@ def skills_dir(platform=None) -> Path:
 
 
 def vault_file() -> Path:
-    """AutoCua_data/vault/credentials.json — the app's saved credentials.
+    """AutoCua_data/vault/credentials.json — the app's saved credentials, one
+    section per device: {"ios": {<app>: {...}}, "web": {<site>: {...}}}. Each
+    agent reads only its own section.
 
-    Created empty ({}) if absent, so the folder is discoverable and the user has
-    an obvious file to fill in. Lives outside the install folder like everything
-    else here, so an uninstall can't take the credentials with it."""
+    Created with empty sections if absent, so the folder is discoverable and the
+    user has an obvious file to fill in. Lives outside the install folder like
+    everything else here, so an uninstall can't take the credentials with it."""
     p = _ensure(data_root() / "vault") / "credentials.json"
     if not p.exists():
         try:
             # write_text -> io.open, so the compiled build's builtins.open patch
             # can't swallow the write into a throwaway buffer.
-            p.write_text("{}", encoding="utf-8")
+            p.write_text('{\n  "ios": {},\n  "web": {}\n}\n', encoding="utf-8")
         except Exception:
             logger.exception("create %s", p)
     return p

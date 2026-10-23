@@ -24,7 +24,7 @@ use serde_json::{json, Map, Value};
 
 use super::service::{ActErr, ControllerService};
 use super::{
-    click, dialog, done, input, keyboard, run_script, scratchpad, scroll, skills, tab, todo_tracker, wait,
+    click, dialog, done, input, keyboard, run_script, scratchpad, scroll, skills, tab, todo_tracker, vault, wait,
 };
 use crate::browser::{truthy, web_store_url, BrowserScanner, ScannerInner, WEB_STORE_BLOCKED};
 use crate::agent::main_driver::view::py_str_of;
@@ -32,12 +32,12 @@ use crate::agent::main_driver::view::py_str_of;
 /// The page actions a popup (a JavaScript alert, confirm or prompt) holding the
 /// current tab freezes (see `one`). run_script
 /// is not here: it can name another tab, and one into a held tab is refused below it.
-const HELD_BY_POPUP: [&str; 8] =
-    ["click", "hold_click", "input", "keyboard", "scroll", "update_tab", "navigate_tab", "more"];
+const HELD_BY_POPUP: [&str; 9] =
+    ["click", "hold_click", "input", "vault", "keyboard", "scroll", "update_tab", "navigate_tab", "more"];
 
 /// The page actions refused on a tab that is on the Chrome Web Store (see `one`); the
 /// tab tools are how it is left.
-const ON_THE_PAGE: [&str; 5] = ["click", "hold_click", "input", "keyboard", "scroll"];
+const ON_THE_PAGE: [&str; 6] = ["click", "hold_click", "input", "vault", "keyboard", "scroll"];
 
 /// Routes one step's actions against the live browser.
 pub struct ControllerView {
@@ -124,7 +124,7 @@ impl ControllerView {
         let ok = result.get("status").and_then(Value::as_str) == Some("success");
         let tool = result.get("tool").and_then(Value::as_str).unwrap_or("");
         if !ok
-            || !matches!(tool, "click" | "hold_click" | "input" | "keyboard" | "scroll" | "run_script" | "dialog")
+            || !matches!(tool, "click" | "hold_click" | "input" | "vault" | "keyboard" | "scroll" | "run_script" | "dialog")
         {
             return;
         }
@@ -374,6 +374,12 @@ impl ControllerView {
                 }
             }
         }
+        // A value the vault typed can come back in any result (a script that
+        // reads the form, a label that holds it): it reads as [vault]. Not in
+        // `done`: that is the model's own answer to the user, not the page's.
+        if kind != "done" {
+            vault::service::hide_json(&mut result);
+        }
         Ok((result, opened))
     }
 
@@ -413,6 +419,7 @@ impl ControllerView {
             "input" => input::service::type_into(
                 py, sc, &get("id"), &get("value"), &get("enter"), &elements,
             ),
+            "vault" => vault::service::fill(py, sc, &get("id"), &get("value"), &elements),
             "keyboard" => keyboard::service::shortcut(py, sc, &get("value")),
             "dialog" => dialog::service::answer(py, sc, &get("id"), &get("value")),
             // run_script: each `type` goes to its own door in the run_script

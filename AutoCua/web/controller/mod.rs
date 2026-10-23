@@ -50,3 +50,6 @@ pub mod scratchpad {
 pub mod todo_tracker {
     pub mod service;
 }
+pub mod vault {
+    pub mod service;
+}

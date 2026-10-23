@@ -12,6 +12,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+class TypingRefused(Exception):
+    """type_text's `check` said no: nothing was typed."""
+
+
 class ControllerService:
     """Service for executing iPhone actions via WebDriverAgent"""
 
@@ -167,11 +172,15 @@ class ControllerService:
             logger.error(f"✗ Ground click exception: {str(e)}")
             raise Exception(f"Ground click failed: {e}")
 
-    def type_text(self, element_number, text):
+    def type_text(self, element_number, text, check=None):
         """Type text into element by number
 
         If element already has text, it will be deleted first before typing new text.
         Sends delete/backspace key for each existing character including spaces.
+
+        `check(session)`, when given (the vault's, vault/service.py), runs after
+        the focus tap and before any key: a non-empty answer stops here with
+        TypingRefused, nothing deleted or typed.
         """
         elem_num = int(element_number)
 
@@ -189,6 +198,11 @@ class ControllerService:
         session = self.get_session()
         if not session:
             raise Exception("Failed to create WDA session")
+
+        if check:
+            problem = check(session)
+            if problem:
+                raise TypingRefused(problem)
 
         # If element has existing text (not blank), delete it first
         if current_value and current_value.strip():

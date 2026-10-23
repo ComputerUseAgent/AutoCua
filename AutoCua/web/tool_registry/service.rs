@@ -219,8 +219,19 @@ fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
   3. Negative examples (NEVER emit these):
     1. input {"id": 0, "value": "iphone 16", "enter": false} - WRONG: 0 is not a real element id; always use an [id] from the current <element_tree>
     2. input {"id": 21, "value": "", "enter": false} - WRONG: an empty value types nothing; it only clears the field
-  4. "enter": true presses Enter after typing - use it to submit searches/forms in the same action. Typing and its submit belong together here - never fill a field and stop before the submit that completes it. Other keys (esc, tab, shortcuts) are the `keyboard` tool's; text is ONLY typed with `input`.
+  4. "enter": true presses Enter after typing - use it to submit searches/forms in the same action. Typing and its submit belong together here - never fill a field and stop before the submit that completes it. Other keys (esc, tab, shortcuts) are the `keyboard` tool's; text is ONLY typed with `input` (a saved login with `vault`).
   5. Use false when the field is one of several: an early Enter submits a half-filled form."#, track),
+
+        tool("vault", &[("id", json!({"type": "integer"})), ("value", json!({"type": "string"}))],
+             r#"Fill a field with a login the user saved for this site: the runtime types it for you, and the value itself never reaches you.
+  1. Format: vault {"id": <id_from_element_tree>, "value": "<key_from_vault>"}
+  2. Examples:
+    1. vault {"id": 12, "value": "email"} - the saved email into the email field
+    2. vault {"id": 14, "value": "password"} - the saved password into the password field
+  3. <vault> in <persistent_memory> lists the keys saved for the current tab's site. No <vault> means nothing is saved for it: use what <user_request> gives, or ask the user. Never guess a login.
+  4. Like `input`, it clears the field first; it never presses Enter. Submit with a `click` on the form's button.
+  5. A password goes only into a password field, and nothing goes into a field inside a frame.
+  6. What the vault typed reads as [vault] in later steps."#, track),
 
         tool("keyboard", &[("value", json!({"type": "string"}))],
              r#"Press a keyboard shortcut on the current page: one key, or up to 3 keys held together, joined with "+". Key STROKES only - this is NOT a way to type: a word is rejected, and text always goes into a field through `input`.
@@ -530,6 +541,7 @@ pub fn main_action_defaults() -> &'static Value {
             "click": {"id": 0, "times": 1},
             "hold_click": {"id": 0, "time": 1},
             "input": {"id": 0, "value": "", "enter": false},
+            "vault": {"id": 0, "value": ""},
             "keyboard": {"value": ""},
             "dialog": {"id": 0, "value": ""},
             "run_script": {"id": 0, "type": "action", "value": ""},
