@@ -15,6 +15,26 @@ body:
     validations:
       required: true
 
+  - type: input
+    id: company
+    attributes:
+      label: Company name
+      description: Only if you picked Corporate work above.
+      placeholder: Acme Ltd
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: showcase
+    attributes:
+      label: Showing your name
+      description: >-
+        Optional, and it helps AutoCua a lot: teams look for other teams
+        already using it.
+      options:
+        - label: AutoCua may show our company name on its website as a team that trusts it.
+          required: false
+
   - type: textarea
     id: goal
     attributes:
