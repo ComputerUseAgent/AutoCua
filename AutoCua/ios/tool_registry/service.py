@@ -66,7 +66,7 @@ MAIN_REASONING_TOOL = _tool("reasoning", MAIN_REASONING_FIELDS,
 - `memory` and `next_goal` are filled every step. `thinking` is not: you think in bursts (see <thinking>). A FULL thinking ends with a ROUTE of the next 2-5 steps, each an action on a target named by NAME/ROLE with its guard (the visible change the next screenshot must show; for web, shell and video_player, that tool's returned result); on each step of that route omit `thinking` (or pass ""), and think again only when the route is used up, a guard fails, a new surface appears, or the route said "think". A screenshot that shows exactly what the guard predicted is confirmation, not new information: it goes into `memory`, never into a new thinking or a new ROUTE.
 - Every step, thinking or not, resolves the route's named targets to fresh [id]s from the CURRENT <element_tree> and locks them in `memory`'s Targets line before acting. A target that resolves to 0 or 2+ ids, or is only partially visible, means this step thinks.
 - A step may be `reasoning` alone when you need to think before you act (it costs a fresh screen scan); the next step then does the work. Do not chain several such steps.
-- `vault` stays the only action call of its turn: `reasoning`, then `vault`, nothing else. Not used on the `done` step: `done` is always the only call of its turn.
+- A keypad PIN `vault` (id 0, value "pin") stays the only action call of its turn: `reasoning`, then `vault`, nothing else. Not used on the `done` step: `done` is always the only call of its turn.
 - Format: reasoning {"thinking": "", "memory": "...", "next_goal": "..."}
 - Examples:
   1. Route step (no thinking; "Doing" is the next route line):
@@ -81,7 +81,7 @@ MAIN_NOTES_TOOL_FAST = _tool("memory", MAIN_NOTES_FIELDS_FAST,
                              r"""Your notes to yourself for this step. Call it FIRST in every step, then the calls that do the work, all in the same turn. The harness does nothing with it (its result is just `ok`), but the call is replayed in <agent_history>, so your future self can read what you knew and planned at every step.
 - One field, `next_goal`, filled every step: key context, the forward plan (Now / Plan / Then) and the Expect guard the next step verifies against (see <next_goal>). There is no thinking field: the reasoning stays silent (see <silent_reasoning>).
 - Every step resolves the plan's targets to fresh [id]s from the CURRENT <element_tree> and names them in `next_goal` before acting.
-- `vault` stays the only action call of its turn: `memory`, then `vault`, nothing else. Not used on the `done` step: `done` is always the only call of its turn.
+- A keypad PIN `vault` (id 0, value "pin") stays the only action call of its turn: `memory`, then `vault`, nothing else. Not used on the `done` step: `done` is always the only call of its turn.
 - Format: memory {"next_goal": "..."}
 - Example:
   memory {"next_goal": "App Store Search tab open; search field id 19 (element_name='Search', type='searchfield'), search button id 21 (element_name='Search', type='button'). Now: tap id 19, type 'Netflix', tap id 21 (ToDo: Update Netflix). Plan: open its page -> tap Update. Then: tap the Netflix row. Expect: results list shows the Netflix app row."}""")
@@ -141,16 +141,17 @@ def _main_tools(track: dict, notes: dict = None) -> list:
               '    1. Update a task only after it is confirmed complete via <agent_history> and the effect is visible in the latest input (image or any relevant tag); one item per call.\n'
               '    2. Example: update_todo {"value": "1"}', track=track),
         _tool("vault", {"id": {"type": "integer"}, "value": {"type": "string"}},
-              'Fill a secure credential straight from the vault - three-part action like scroll: the element [id] and the credential kind (value: username/password/phone_number/pin). The runtime types or taps it for you; secrets never appear in your context.\n'
-              '    1. Critical: vault must be the ONLY action call of its turn (only your notes call may precede it), and it fills one element per step. This holds on EVERY step, including route steps where `thinking` is omitted.\n'
-              '    2. Fill every required credential field (repeat vault across steps) before planning the next move.\n'
-              '    3. PIN keypads - a separate button for each digit 0-9, like the lock-screen passcode or an app PIN pad: use id 0 with value "pin". The vault finds the digit keys and taps the whole PIN itself. Never tap PIN digits yourself.\n'
-              '    4. The PIN result says whether every key press registered. Retry only when it says it is safe to try once more; if the PIN was not accepted, only part of it registered, or it was already tried twice, stop and ask the user.\n'
-              '    5. Format: vault {"id": <element_id>, "value": "<credential_kind>"}\n'
-              '    6. Examples:\n'
-              '        1. vault {"id": 3, "value": "username"}\n'
-              '        2. vault {"id": 4, "value": "password"}\n'
-              '        3. vault {"id": 0, "value": "pin"}', track=track),
+              'Fill a field with a login the user saved for the app in front: the runtime types it for you, and the value itself never reaches you.\n'
+              '    1. Format: vault {"id": <element_id>, "value": "<key_from_vault>"}\n'
+              '    2. Examples:\n'
+              '        1. vault {"id": 3, "value": "username"} - the saved username into the username field\n'
+              '        2. vault {"id": 4, "value": "password"} - the saved password into the password field\n'
+              '        3. vault {"id": 0, "value": "pin"} - the saved PIN on a PIN keypad\n'
+              '    3. <vault> in <persistent_memory> lists the keys saved for the app in front. No <vault> means nothing is saved for it: use what <user_request> gives, or ask the user. Never guess a login.\n'
+              '    4. Like `input`, it clears the field first, and it batches like `input`: fill every login field and tap the button in one turn. A password goes only into a password field (securetextfield).\n'
+              '    5. PIN keypads - a separate button for each digit 0-9, like the lock-screen passcode or an app PIN pad: use id 0 with value "pin". The vault finds the digit keys and taps the whole PIN itself. Never tap PIN digits yourself. A keypad PIN vault must be the ONLY action call of its turn (only your notes call may precede it). A PIN text field you can type into is filled like any other field, with its [id].\n'
+              '    6. The PIN result says whether every key press registered. Retry only when it says it is safe to try once more; if the PIN was not accepted, only part of it registered, or it was already tried twice, stop and ask the user.\n'
+              '    7. What the vault typed reads as [vault] in later steps.', track=track),
         _tool("video_player", {"value": {"type": "string"}},
               'Track and control full-screen video playback through the control center (works despite DRM screenshot restrictions). Commands: close, streaming (check whether content is playing), pause, play.\n'
               '    1. Format: video_player {"value": "one of: close/streaming/pause/play"}\n'
@@ -279,7 +280,7 @@ def _claude_reasoning_tool(final: str, work: str = "calls", batched: bool = Fals
                  opening +
                  "- `memory` and `next_goal` are filled every step: `memory` follows <memory>, "
                  "`next_goal` follows <next_goal>.\n"
-                 "- `vault` stays the only action call of its turn: `agent_memory`, then `vault`, nothing else. "
+                 "- A keypad PIN `vault` (id 0, value \"pin\") stays the only action call of its turn: `agent_memory`, then `vault`, nothing else. "
                  f"Not used on the `{final}` step: `{final}` is always the only call of its turn.\n"
                  '- Format: agent_memory {"memory": "...", "next_goal": "..."}')
 

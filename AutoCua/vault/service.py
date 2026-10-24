@@ -5,6 +5,7 @@ import time
 import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from urllib.parse import quote, quote_plus
 
 import requests
 
@@ -105,12 +106,132 @@ def _tap_pin_keys(controller_service, session, points):
             raise RuntimeError("tap request rejected")
 
 
+# ─────────────────────────────── Field fills ──────────────────────────────────
+# vault {"id": 5, "value": "password"}: the value saved under the key the agent
+# names, in the "ios" entry of the app in front (its exact name, case and
+# spaces ignored), typed into [5] like `input`. The same rules as the web vault
+# (web/controller/vault): the agent sees key names only (`block`), a password
+# goes only into a password field, and what was typed reads as [vault] from
+# then on (`hide`). Right before the keys go out, after the focus tap, the app
+# scanned must still be in front: an earlier call in the step can switch apps.
+
+# The fields a saved value may go into (the controller mapping's type).
+TEXT_FIELDS = ("TextField", "SecureTextField", "TextView", "SearchField")
+
+# The app WDA reports in front while a system screen (an alert) is up.
+SPRINGBOARD = "com.apple.springboard"
+
+# How long a tap gets to land focus in a field before the fill gives up.
+FOCUS_WAIT_SECONDS = 1.5
+
+# What a value the vault typed reads as, back on screen.
+HIDDEN = "[vault]"
+
+# The tree cuts a long label to its first 47 characters and "..."
+# (ios/tree/element.py), so a longer value is hidden by those too.
+CLIP_KEEP = 47
+
+# The values the vault typed this chat, longest first.
+_filled = []
+
+
+def _norm(name):
+    return str(name or "").lower().replace(" ", "")
+
+
+def _text_of(value):
+    """A saved value as the text to type: a non-empty string, or a whole
+    number (a pin saved as 1234). Anything else is not typed."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _usable_keys(creds):
+    """The keys of an entry that hold something to type, as the file writes them."""
+    return [k for k, v in creds.items() if _text_of(v) is not None]
+
+
+def new_chat():
+    """A fresh chat has typed nothing yet. A continuation keeps the list: the
+    phone may still show what was typed."""
+    _filled.clear()
+
+
+def _remember(secret):
+    """Hide `secret` from here on, in the forms a screen shows it back in: as
+    typed, with its whitespace collapsed, and url-encoded. Added before a
+    single key goes out, since a fill that fails halfway may have typed some."""
+    for form in (secret, " ".join(secret.split()), quote(secret, safe=""), quote_plus(secret)):
+        if form and form not in _filled:
+            _filled.append(form)
+    _filled.sort(key=len, reverse=True)
+
+
+def hide(text):
+    """`text` with every value the vault typed this chat shown as [vault]."""
+    for secret in _filled:
+        text = _hide_one(text, secret)
+    return text
+
+
+def hide_json(value):
+    """Every string in a tool result, through `hide`."""
+    if not _filled:
+        return value
+    if isinstance(value, str):
+        return hide(value)
+    if isinstance(value, list):
+        return [hide_json(v) for v in value]
+    if isinstance(value, dict):
+        return {k: hide_json(v) for k, v in value.items()}
+    return value
+
+
+def _hide_one(text, secret):
+    """`secret`, and any run of at least CLIP_KEEP of its first characters, as
+    [vault]. A match that runs on into a longer word or number is that word,
+    not the secret ("admin" in "administration"), and is left alone."""
+    head = secret[:CLIP_KEEP]
+    if not head:
+        return text
+    out, i = [], 0
+    while True:
+        at = text.find(head, i)
+        if at < 0:
+            break
+        end = at + len(head)
+        while end - at < len(secret) and end < len(text) and text[end] == secret[end - at]:
+            end += 1
+        before = text[at - 1] if at else ""
+        after = text[end] if end < len(text) else ""
+        joins = (before.isalnum() and secret[0].isalnum()) or (after.isalnum() and text[end - 1].isalnum())
+        out.append(text[i:at])
+        if joins:
+            # Part of a longer word: keep its first character, look on.
+            out.append(text[at])
+            i = at + 1
+        else:
+            out.append(HIDDEN)
+            i = end
+    out.append(text[i:])
+    return "".join(out)
+
+
 class VaultService:
     """Service for managing and retrieving credentials"""
-    
+
     def __init__(self):
         self.element_tree_text = ""
         self.credentials = {}
+        # The bundle id of the app in front as the last scan read the screen
+        # (begin_scan), for `_fill_check`; None after a scan that failed.
+        self._next_bundle = None
+        self._scan_bundle = None
         self._load_credentials()
     
     def _load_credentials(self, keep_on_error=False):
@@ -134,7 +255,12 @@ class VaultService:
                     loaded = json.load(f)
                 if not isinstance(loaded, dict):
                     raise ValueError("credentials.json must hold an object")
-                self.credentials = loaded
+                # One file for every device, a section each ("ios", "web", ...):
+                # iOS reads only its own, so a site key can never match an app.
+                section = loaded.get("ios", {})
+                if not isinstance(section, dict):
+                    raise ValueError('credentials.json\'s "ios" must hold an object')
+                self.credentials = section
                 logger.info(f"Loaded credentials for {len(self.credentials)} applications")
             else:
                 logger.debug("credentials.json not found")
@@ -144,56 +270,26 @@ class VaultService:
             if not keep_on_error:
                 self.credentials = {}
     
+    def begin_scan(self):
+        """A scan starts: note the app in front by bundle id, read just before
+        the screen is, so the app and the tree belong together. Until the scan
+        succeeds (update_element_tree) the vault types into nothing."""
+        self._scan_bundle = None
+        self._next_bundle = None
+        if self.credentials:
+            from ..ios.controller.tool.open_app import app_launcher_service
+            self._next_bundle = (app_launcher_service.active_app() or {}).get("bundleId")
+
     def update_element_tree(self, element_tree_text):
-        """Update the stored element tree"""
+        """Update the stored element tree, from the scan begin_scan started"""
         self.element_tree_text = element_tree_text
+        self._scan_bundle = self._next_bundle
         logger.debug("Vault element tree updated")
     
-    def get_credential_for_element(self, element_number):
-        """Get credential for a specific element based on app context and field type"""
-        try:
-            # Parse element tree to find app name and target element
-            lines = self.element_tree_text.strip().split('\n')
-            
-            app_name = None
-            target_element = None
-            
-            for line in lines:
-                # Parse element info
-                if f'[{element_number}]' in line:
-                    target_element = self._parse_element_line(line)
-                elif '[1]' in line and 'type="application"' in line:
-                    # Element 1 is usually the application
-                    app_info = self._parse_element_line(line)
-                    if app_info:
-                        app_name = app_info.get('label', '')
-            
-            if not app_name or not target_element:
-                logger.error(f"Could not find app name or target element {element_number}")
-                return None
-            
-            # Find matching credential
-            credential = self._find_credential(app_name, target_element)
-            return credential
-            
-        except Exception as e:
-            logger.error(f"Error getting credential: {str(e)}")
-            return None
-    
-    def get_pin(self):
-        """(entry_name, pin) for the screen in front, for vault {"id": 0, "value": "pin"}.
-
-        Stricter than the field lookup above, because a PIN pad locks after a
-        few wrong tries:
-          * re-reads credentials.json, so a PIN added while the app runs is used
-          * matches the app name EXACTLY (case and spaces ignored) - no fuzzy
-            or prefix match, which could hand one app's PIN to another
-          * reads only "pin", never "code", and only if it is all digits
-        Screens with no app in front (lock screen, home screen) use the entry
-        named after the device: "iPhone" or "iPad". pin is None when nothing
-        usable is saved; entry_name still says where to add it.
-        """
-        self._load_credentials(keep_on_error=True)
+    def _scanned_app(self):
+        """(app name, device) of the screen last scanned: the root [1]
+        application's label ("" on the home and lock screen) and the
+        current_device header ("iPhone" when it is missing)."""
         app_name, device = "", "iPhone"
         for line in self.element_tree_text.splitlines():
             if line.startswith("current_device:"):
@@ -201,7 +297,140 @@ class VaultService:
             elif line.lstrip().startswith("[1]<") and 'type="application"' in line:
                 app_name = ((self._parse_element_line(line) or {}).get("label") or "").strip()
                 break
+        return app_name, device
 
+    def _app_entry(self, app_name):
+        """(entry name, its keys) saved for `app_name`: its exact name, case
+        and spaces ignored. Never a device entry: those hold the lock-screen
+        PIN, which only get_pin reads."""
+        wanted = _norm(app_name)
+        if not wanted or wanted in DEVICE_ENTRIES:
+            return None
+        for key, creds in self.credentials.items():
+            if _norm(key) == wanted and isinstance(creds, dict):
+                return key, creds
+        return None
+
+    def block(self):
+        """<vault>: the key names saved for the app just scanned, or the
+        device's PIN on the home and lock screen. Empty when nothing is saved."""
+        self._load_credentials(keep_on_error=True)
+        app_name, _ = self._scanned_app()
+        found = self._app_entry(app_name)
+        if found:
+            name, keys = found[0], _usable_keys(found[1])
+        elif not app_name:
+            name, pin = self.get_pin()
+            keys = ["pin"] if pin else []
+        else:
+            return ""
+        if not keys:
+            return ""
+        return f'<vault app="{name}">\n{", ".join(keys)}\n</vault>'
+
+    def fill(self, controller_service, element_id, key):
+        """vault {"id", "value": <key>}: type the value saved under `key` for
+        the app in front into [id], like `input`. The result names the key,
+        never the value. A PIN keypad is enter_pin's, not this."""
+        key = str(key or "").strip()
+        result = {"action": "vault", "id": element_id, "value": key}
+
+        def refuse(message):
+            return {**result, "status": "error", "message": message}
+
+        try:
+            idx = int(element_id)
+        except (TypeError, ValueError):
+            return refuse(f"'{element_id}' is not a valid element id")
+        elem = controller_service.elements.get(str(idx))
+        if not elem:
+            return refuse(f"no element [{idx}] in the current element_tree. Ids are re-assigned on "
+                          "every scan - re-read the latest tree and use an id from it.")
+        if not key:
+            return refuse('vault\'s `value` is the name of a key in <vault>, like "username" or "password"')
+        self._load_credentials(keep_on_error=True)
+        app_name, _ = self._scanned_app()
+        found = self._app_entry(app_name)
+        if not found:
+            return refuse(f"nothing is saved in the vault for {app_name or 'the home screen'}: "
+                          "use what the task gives, or ask the user")
+        entry, creds = found
+        name = next((k for k in creds if k.strip().lower() == key.lower()), None)
+        if name is None:
+            return refuse(f'no "{key}" is saved for {entry}: <vault> has {", ".join(_usable_keys(creds))}')
+        secret = _text_of(creds[name])
+        if secret is None:
+            return refuse(f'the "{name}" saved for {entry} is empty or not text: ask the user to fix it '
+                          'under "ios" in AutoCua_data/vault/credentials.json')
+        password = "password" in name.lower()
+        kind = elem.get("type") or "element"
+        if kind not in TEXT_FIELDS:
+            return refuse(f"[{idx}] is a {kind.lower()}, not a text field")
+        if password and kind != "SecureTextField":
+            return refuse(f"[{idx}] is a {kind.lower()}, and a saved password goes only into a password field")
+
+        _remember(secret)
+        from ..ios.controller.service import TypingRefused
+        try:
+            controller_service.type_text(idx, secret,
+                                         check=lambda session: self._fill_check(controller_service, session, password))
+        except TypingRefused as e:
+            return refuse(f"nothing typed: {e}")
+        except Exception:
+            # Never the error's own text: a WDA reply can quote what was typed.
+            return refuse("the typing failed on the phone, and part of the value may be in the field: "
+                          "check the next screenshot")
+        logger.info(f"🔐 Vault filled element {idx} ({name})")
+        label = str(elem.get("name") or "").strip()
+        target = f"[{idx}] ({label})" if label and label != "no_label" else f"[{idx}]"
+        return {**result, "status": "success", "message": f"filled {target} with the saved {name} for {entry}"}
+
+    def _fill_check(self, controller_service, session, password):
+        """type_text's check, after the focus tap and before a single key: the
+        field that has focus takes this value, and the app the scan read is
+        still in front with no system screen up (asked last, right before the
+        keys). "" when all hold. A phone that cannot answer gets nothing."""
+        # A tap that starts an animation (Settings' search bar slides up) can
+        # leave WDA without an answer for a moment: ask again until FOCUS_WAIT.
+        base = f"{controller_service.wda_url}/session/{session}"
+        deadline = time.monotonic() + FOCUS_WAIT_SECONDS
+        while True:
+            try:
+                ref = requests.get(f"{base}/element/active", timeout=10).json().get("value") or {}
+                uid = ref.get("ELEMENT") or ref.get("element-6066-11e4-a52e-4f735466cecf")
+                kind = requests.get(f"{base}/element/{uid}/attribute/type", timeout=10).json().get("value") if uid else ""
+            except Exception:
+                kind = ""
+            # An error reply is a dict: no answer yet, never text for a message.
+            kind = kind.replace("XCUIElementType", "") if isinstance(kind, str) else ""
+            if kind or time.monotonic() >= deadline:
+                break
+            time.sleep(0.2)
+        if not kind:
+            return "no field took focus after the tap"
+        if password and kind != "SecureTextField":
+            return f"focus is on a {kind.lower()}, and a saved password goes only into a password field"
+        if kind not in TEXT_FIELDS:
+            return f"focus is on a {kind.lower()}, not a text field"
+        from ..ios.controller.tool.open_app import app_launcher_service
+        live = (app_launcher_service.active_app() or {}).get("bundleId")
+        if not live or live == SPRINGBOARD or live != self._scan_bundle:
+            return "the app that was scanned is no longer in front, or a system screen is up"
+        return ""
+
+    def get_pin(self):
+        """(entry_name, pin) for the screen in front, for vault {"id": 0, "value": "pin"}.
+
+        Careful, because a PIN pad locks after a few wrong tries:
+          * re-reads credentials.json, so a PIN added while the app runs is used
+          * matches the app name EXACTLY (case and spaces ignored), like `fill`
+          * reads only "pin", never "code", and only if it is all digits
+        Screens with no app in front (lock screen, home screen) use the entry
+        named after the device: "iPhone" or "iPad". pin is None when nothing
+        usable is saved; entry_name still says where to add it.
+        """
+        self._load_credentials(keep_on_error=True)
+        app_name, device = self._scanned_app()
         name = app_name or device
         wanted = name.lower().replace(" ", "")
         for app_key, app_creds in self.credentials.items():
@@ -337,60 +566,6 @@ class VaultService:
         except Exception as e:
             logger.error(f"Error parsing element line: {str(e)}")
             return None
-    
-    def _find_credential(self, app_name, element_info):
-        """Find matching credential using fuzzy matching"""
-        # Clean up app name for matching
-        app_name_clean = app_name.lower().replace(' ', '').strip()
-        element_label = element_info.get('label', '').lower()
-        element_type = element_info.get('type', '').lower()
-
-        # No app in front (lock screen, home screen: the root label is " "): an
-        # empty name is "in" every key and would match the first entry.
-        if not app_name_clean:
-            logger.warning("No app in front, so no credential is matched")
-            return None
-
-        # Search through credentials
-        for app_key, app_creds in self.credentials.items():
-            app_key_clean = app_key.lower().replace(' ', '').strip()
-
-            # The device passcode is never fuzzy-matched ("phone" is in
-            # "iphone"); only get_pin reads it, on the passcode screen.
-            if app_key_clean in DEVICE_ENTRIES:
-                continue
-
-            # Fuzzy match app name
-            if (app_key_clean in app_name_clean or 
-                app_name_clean in app_key_clean or
-                self._fuzzy_match(app_key_clean, app_name_clean)):
-                
-                # Found matching app, now find field
-                if 'email' in element_label or 'username' in element_label:
-                    return app_creds.get('email') or app_creds.get('username')
-                elif 'password' in element_label or element_type == 'securetextfield':
-                    return app_creds.get('password')
-                elif 'phone' in element_label:
-                    return app_creds.get('phone')
-                elif 'code' in element_label or 'pin' in element_label:
-                    return app_creds.get('code') or app_creds.get('pin')
-        
-        logger.warning(f"No credential found for app: {app_name}, field: {element_label}")
-        return None
-    
-    def _fuzzy_match(self, str1, str2):
-        """Simple fuzzy matching for app names"""
-        # Check if significant parts match
-        if len(str1) < 3 or len(str2) < 3:
-            return False
-        
-        # Check if one contains significant part of other
-        if len(str1) > 4 and str1[:4] in str2:
-            return True
-        if len(str2) > 4 and str2[:4] in str1:
-            return True
-        
-        return False
 
 
 # Create global instance

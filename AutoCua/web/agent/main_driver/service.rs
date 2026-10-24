@@ -141,17 +141,19 @@ fn trim_history_entry(entry: &str) -> String {
 /// the todo, the scratchpad, then <skills> (the skills by id, loaded and
 /// removed only when the agent asks) and <domain_knowledge> (what is known
 /// about the current tab's site, there on its own while the tab is on it),
-/// both from controller/skills and each left out when empty.
-fn persistent_memory(todo_list: &str, scratchpad: &str, skills: &str, domain: &str) -> String {
+/// both from controller/skills, then <vault> (the login keys saved for that
+/// site, controller/vault), each left out when empty.
+fn persistent_memory(todo_list: &str, scratchpad: &str, skills: &str, domain: &str, vault: &str) -> String {
     let todo = todo_list.trim();
     let pad = scratchpad.trim();
     let tail = |block: &str| if block.is_empty() { String::new() } else { format!("\n\n{block}") };
     format!(
-        "<persistent_memory>\n<todo_list>\n{}\n</todo_list>\n\n<scratchpad>\n{}\n</scratchpad>{}{}\n</persistent_memory>",
+        "<persistent_memory>\n<todo_list>\n{}\n</todo_list>\n\n<scratchpad>\n{}\n</scratchpad>{}{}{}\n</persistent_memory>",
         if todo.is_empty() { "none" } else { todo },
         if pad.is_empty() { "none" } else { pad },
         tail(skills),
         tail(domain),
+        tail(vault),
     )
 }
 
@@ -175,6 +177,13 @@ fn skills_blocks(py: Python<'_>, scanner: &crate::browser::BrowserScanner) -> (S
     let url = scanner.current_url(py).unwrap_or_default();
     crate::controller::skills::service::follow_url(&url);
     (crate::controller::skills::service::block(), crate::controller::skills::service::domain_block())
+}
+
+/// The <vault> block of <persistent_memory> (controller/vault): the key names
+/// saved for the current tab's site, empty when there are none.
+fn vault_block(py: Python<'_>, scanner: &crate::browser::BrowserScanner) -> String {
+    let url = scanner.current_url(py).unwrap_or_default();
+    crate::controller::vault::service::block(py, &url)
 }
 
 /// <all_tabs>: every open tab with its url — empty string on a digest step.
@@ -1152,6 +1161,11 @@ impl AgentService {
                 println!("Resumed memory: {} prior step(s) loaded", am.len());
             }
         }
+        // A fresh chat has typed nothing yet. A continuation keeps what the
+        // vault typed: Chrome stays up, so the page may still show it.
+        if !is_resumed {
+            crate::controller::vault::service::new_run();
+        }
         // ---------------------------------------------------------------------
 
         println!("\nProcessing with {}", self.model_name());
@@ -1304,8 +1318,10 @@ impl AgentService {
             let todo_list = self.read_todo_from_file();
             let scratchpad_content = self.read_scratchpad_from_file();
             let (skills, domain) = skills_blocks(py, self.scanner.get());
+            // Scrape mode offers no `vault`, so it lists nothing there.
+            let vault = if scrape_mode { String::new() } else { vault_block(py, self.scanner.get()) };
             let state_block = [
-                persistent_memory(&todo_list, &scratchpad_content, &skills, &domain),
+                persistent_memory(&todo_list, &scratchpad_content, &skills, &domain, &vault),
                 scraped_index_block(),
             ]
             .into_iter()
@@ -1321,6 +1337,10 @@ impl AgentService {
             .filter(|b| !b.is_empty())
             .collect::<Vec<_>>()
             .join("\n\n");
+            // A value the vault typed shows in the page it went into (the
+            // field's value in the tree, a label around it, a url): it reads
+            // as [vault].
+            let page_block = crate::controller::vault::service::hide(&page_block);
 
             // Construct user message based on iteration
             let mut user_message: String;

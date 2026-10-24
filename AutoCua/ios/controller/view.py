@@ -7,7 +7,7 @@ from .service import controller_service
 from .task_tracker.service import TaskTrackerService
 from .tool.open_app import app_launcher_service
 from .tool.videoplayer import VideoPlayerService
-from ...vault.service import vault_service, MAX_PIN_ATTEMPTS, DEVICE_ENTRIES
+from ...vault.service import vault_service, MAX_PIN_ATTEMPTS, DEVICE_ENTRIES, TEXT_FIELDS
 
 # Services still being ported from macOS one file at a time. Guarded imports
 # keep the router importable while the port is in progress: a missing service
@@ -95,7 +95,7 @@ class ControllerView:
         if not pin:
             return {**base, "status": "error",
                     "message": f'No PIN saved in the vault for "{name}". Ask the user to add '
-                               f'"{name}": {{"pin": "..."}} to AutoCua_data/vault/credentials.json.'}
+                               f'"{name}": {{"pin": "..."}} under "ios" in AutoCua_data/vault/credentials.json.'}
         tries = self._pin_attempts.get(name, 0)
         if tries >= MAX_PIN_ATTEMPTS:
             return {**base, "status": "error",
@@ -362,53 +362,26 @@ class ControllerView:
                         return result
 
                 elif (action_type == "vault"
-                      and str(action_item.get("value") or "").strip().lower() in ("pin", "passcode")):
-                    # Every PIN goes to the keypad path, whatever id was sent: the
-                    # field path below would guess a credential from the label.
+                      and str(action_item.get("value") or "").strip().lower() in ("pin", "passcode")
+                      and (self.controller_service.elements.get(str(action_item.get("id"))) or {}).get("type")
+                      not in TEXT_FIELDS):
+                    # A PIN aimed at no text field (id 0) goes to the keypad path:
+                    # the lock screen and app PIN pads have no field to type into.
+                    # A PIN field is filled like any other key, below.
                     result = self._enter_vault_pin(action_data)
                     if result["status"] != "success":
                         return result
                     results.append(result)
 
                 elif action_type == "vault":
-                    element_number = action_item.get("id")
-                    credential_kind = action_item.get("value", "")
-                    try:
-                        # credential_kind (username/password/phone_number) rides along
-                        # for the upcoming kind-aware vault lookup; today's vault
-                        # infers the field from the element tree.
-                        credential_value = vault_service.get_credential_for_element(int(element_number))
-
-                        if credential_value:
-                            # Use existing type_text to fill the credential
-                            self.controller_service.type_text(element_number, credential_value)
-                            logger.info(f"🔐 Vault filled element {element_number} ({credential_kind})")
-                            result = {
-                                "status": "success",
-                                "action": "vault",
-                                "element": element_number,
-                                "kind": credential_kind,
-                                "message": "Credential filled successfully"
-                            }
-                            results.append(result)
-                        else:
-                            logger.error(f"No credential found for element {element_number}")
-                            return {
-                                "status": "error",
-                                "action": "vault",
-                                "element": element_number,
-                                "kind": credential_kind,
-                                "message": "No matching credential found"
-                            }
-                    except Exception as e:
-                        logger.error(f"Vault action failed: {str(e)}")
-                        return {
-                            "status": "error",
-                            "action": "vault",
-                            "element": element_number,
-                            "kind": credential_kind,
-                            "message": str(e)
-                        }
+                    # The value saved under the key the agent names, typed like
+                    # `input` (vault/service.py fill). Batches like `input` too.
+                    result = vault_service.fill(self.controller_service, action_item.get("id"),
+                                                action_item.get("value"))
+                    results.append(result)
+                    if result["status"] != "success":
+                        return {"status": "error", "action": "vault", "results": results,
+                                "message": result["message"]}
 
                 elif action_type == "video_player":
                     command = action_item.get("value")

@@ -340,16 +340,19 @@ const TOOLS_FOCUS_HOLDER = "(function () {" +
 
 /// input/service.rs focus_elsewhere(): null when a field has focus (or the page could
 /// not say), else what has it, after waiting up to TOOLS_FOCUS_WAIT_MS for it to land.
-async function toolsFocusElsewhere(tabId) {
+/// `check` is the vault's stricter test when it sends one (controller/vault), else ours;
+/// the vault's fails closed, so a page that could not say takes nothing from it.
+async function toolsFocusElsewhere(tabId, check) {
   const deadline = performance.now() + TOOLS_FOCUS_WAIT_MS;
   for (;;) {
     let holder = null;
     try {
-      const r = await toolsCdp(tabId, "Runtime.evaluate", { expression: TOOLS_FOCUS_HOLDER, returnByValue: true });
+      const r = await toolsCdp(tabId, "Runtime.evaluate", { expression: check || TOOLS_FOCUS_HOLDER, returnByValue: true });
       holder = r && r.result && typeof r.result.value === "string" ? r.result.value : null;
     } catch (e) {
       holder = null;
     }
+    if (holder === null && check) holder = "a page the vault could not check";
     if (!holder) return null;
     if (performance.now() >= deadline) return holder;
     await toolsSleep(30);
@@ -368,11 +371,11 @@ async function toolsKey(tabId, key, vk, text) {
 /// input/service.rs type_into_rect(): focus the field with a click (twice for a box that
 /// only wakes up on the first), select all through Chrome's editing channel, replace the
 /// selection in one insertText (a Backspace when there is nothing to type), Enter when asked.
-async function toolsTypeInto(tabId, rect, text, enter) {
+async function toolsTypeInto(tabId, rect, text, enter, check) {
   await toolsPress(tabId, rect, 0, 1);
-  if ((await toolsFocusElsewhere(tabId)) !== null) {
+  if ((await toolsFocusElsewhere(tabId, check)) !== null) {
     await toolsPress(tabId, rect, 0, 1);
-    const what = await toolsFocusElsewhere(tabId);
+    const what = await toolsFocusElsewhere(tabId, check);
     if (what !== null) {
       throw new Error(`the field did not take focus, nothing typed: focus is on ${what}. ` +
         "Something may be covering it, or it is not a text field");
@@ -1693,6 +1696,14 @@ async function toolsHandle(msg, line) {
     case "input": {
       const tab = await toolsTab(msg);
       await toolsTypeInto(tab.id, toolsRect(msg), msg.text == null ? "" : String(msg.text), !!msg.enter);
+      return { typed: true };
+    }
+    case "vault_input": {
+      // controller/vault: input's typing with the vault's own focus test. A type of
+      // its own, so a Chrome still running an older copy of this file refuses it
+      // (unknown request) rather than type with the looser test.
+      const tab = await toolsTab(msg);
+      await toolsTypeInto(tab.id, toolsRect(msg), String(msg.text), false, String(msg.focus));
       return { typed: true };
     }
     case "keyboard": {

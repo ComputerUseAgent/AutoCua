@@ -394,6 +394,9 @@ class UIElementScanner:
         # this is only ever reassigned on success, so without the reset the
         # agent would be shown a stale frame and told it was current.
         self.image_base64 = None
+        # The vault types only into the app this scan reads: it notes the app
+        # in front now, before the screen is read (vault/service.py).
+        vault_service.begin_scan()
 
         # Fire the screenshot BEFORE /source, not after it. /source is a
         # multi-second XCTest snapshot (linear in element count, ~10ms each)

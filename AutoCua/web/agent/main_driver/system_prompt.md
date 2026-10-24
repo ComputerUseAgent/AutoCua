@@ -59,6 +59,7 @@ Each step includes:
   2. <scratchpad>: verified scratchpad entries so far (`none` until you write one).
   3. <skills>: the skill files you can load, listed by [id] with their size (`skills` tool). A loaded skill shows its content there every step, until you remove it. Nothing changes there unless you ask.
   4. <domain_knowledge>: what AutoCua knows about the site the current tab is on, given in full. It comes with the site and goes with it, on its own; it has no id and no tool.
+  5. <vault>: the login keys the user saved for the current tab's site (names only, never the values), there only when the site has some. Fill them with the `vault` tool.
 2. <element_tree>: the current page's DOM distilled into an indented tree.
   1. Format: `[id]<tag role="" ...>visible text</tag>`; indentation shows nesting - children sit under their parent.
   2. ONLY lines carrying a [id] are interactable; un-numbered lines are structural context (containers, labels, text).

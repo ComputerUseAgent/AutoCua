@@ -149,6 +149,14 @@ pub fn data_root(py: Python<'_>) -> PyResult<PathBuf> {
     Ok(PathBuf::from(dir.str()?.extract::<String>()?))
 }
 
+/// AutoCua_data/vault/credentials.json, whose "web" section holds the logins
+/// the `vault` tool fills (controller/vault), asked of Python like data_root.
+pub fn vault_file(py: Python<'_>) -> PyResult<PathBuf> {
+    let module = py.import("AutoCua")?;
+    let path = module.call_method0("vault_file")?;
+    Ok(PathBuf::from(path.str()?.extract::<String>()?))
+}
+
 /// AutoCua/web/agent — kept as a helper because the main_driver prompts the
 /// agent reads live under it.
 pub fn agent_dir(py: Python<'_>) -> PyResult<PathBuf> {

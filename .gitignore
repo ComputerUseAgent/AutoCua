@@ -174,3 +174,9 @@ AutoCua/ios_connector/paired_devices.json
 # package) — kept ignored until every checkout has moved or deleted its npm
 # install, so a pull can't turn it into untracked files.
 /desktop/node_modules/
+
+# The website demo (website/): the real UI driven by a stubbed backend, for
+# recording the clip that goes on the site. It is not part of the app, and the
+# mp4s it produces are big. Written up in
+# note/handoffs/WEBSITE_COMPONENTS_HANDOFF.md.
+/website/

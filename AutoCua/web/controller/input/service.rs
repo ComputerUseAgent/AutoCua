@@ -34,6 +34,7 @@ const FOCUS_WAIT_MS: u64 = ACTION_SETTLE_CAP_MS;
 /// text goes into (a text-like input, a textarea, contenteditable, or an
 /// iframe, whose own document holds the focus), otherwise a name for it
 /// ("body", "div[role=region]", "input[type=checkbox]") for the message.
+/// The vault passes a stricter one of its own (controller/vault).
 const FOCUS_HOLDER: &str = "(function () {\
     var a = document.activeElement;\
     while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement;\
@@ -47,19 +48,22 @@ const FOCUS_HOLDER: &str = "(function () {\
 
 /// Wait up to FOCUS_WAIT_MS for a field to have focus. None when one has
 /// it, or when the page could not say (no script context: the typing goes
-/// ahead as it always did); Some(what) names what has it instead.
-fn focus_elsewhere(cdp: &mut Cdp, sess: &str) -> Option<String> {
+/// ahead as it always did); Some(what) names what has it instead. `check`
+/// is the FOCUS_HOLDER-style expression that decides; the vault's own one
+/// fails closed, so a page that could not say takes nothing from it.
+fn focus_elsewhere(cdp: &mut Cdp, sess: &str, check: &str) -> Option<String> {
     let deadline = Instant::now() + Duration::from_millis(FOCUS_WAIT_MS);
     loop {
         let holder = cdp
             .rpc(
                 "Runtime.evaluate",
-                json!({"expression": FOCUS_HOLDER, "returnByValue": true}),
+                json!({"expression": check, "returnByValue": true}),
                 Some(sess),
                 5.0,
             )
             .ok()
-            .and_then(|r| r.get("result")?.get("value")?.as_str().map(str::to_string));
+            .and_then(|r| r.get("result")?.get("value")?.as_str().map(str::to_string))
+            .or_else(|| (check != FOCUS_HOLDER).then(|| "a page the vault could not check".to_string()));
         match holder {
             Some(what) if !what.is_empty() => {
                 if Instant::now() >= deadline {
@@ -92,13 +96,15 @@ fn key(cdp: &mut Cdp, sess: &str, key: &str, vk: i64, text: &str) -> Result<(), 
 }
 
 /// Focus the element at `rect`, clear whatever is in it, type `text`, and
-/// submit when asked.
-fn type_into_rect(
+/// submit when asked. `check` is the focus test (FOCUS_HOLDER, or the
+/// vault's stricter one).
+pub(crate) fn type_into_rect(
     cdp: &mut Cdp,
     sess: &str,
     rect: &[f64; 4],
     text: &str,
     enter: bool,
+    check: &str,
 ) -> Result<(), CdpFail> {
     press(cdp, sess, rect, 0.0, 1)?; // focus the field
 
@@ -108,9 +114,9 @@ fn type_into_rect(
     // any field, so one more click is tried; a covered field takes neither.
     // Without this, selectAll below fell on the whole page and the text on
     // nothing, and the tool still reported it typed.
-    if focus_elsewhere(cdp, sess).is_some() {
+    if focus_elsewhere(cdp, sess, check).is_some() {
         press(cdp, sess, rect, 0.0, 1)?;
-        if let Some(what) = focus_elsewhere(cdp, sess) {
+        if let Some(what) = focus_elsewhere(cdp, sess, check) {
             return Err(CdpFail::Clean(format!(
                 "the field did not take focus, nothing typed: focus is on {what}. \
                  Something may be covering it, or it is not a text field"
@@ -183,7 +189,7 @@ pub fn type_into(
                     .bridge_call(json!({"type": "input", "rect": rect, "text": text, "enter": submit}))
                     .map(|_| ());
             }
-            s.with_tab(|cdp, sess| type_into_rect(cdp, sess, &rect, &text, submit))
+            s.with_tab(|cdp, sess| type_into_rect(cdp, sess, &rect, &text, submit, FOCUS_HOLDER))
         })?;
     }
     let mut message = format!("typed into [{idx}] {}", label_for(elements, idx))
