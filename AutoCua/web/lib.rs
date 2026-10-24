@@ -179,6 +179,8 @@ fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(pyo3::wrap_pyfunction!(stage_bridge::stage_bridge, m)?)?;
     m.add_class::<bridge::PyBridge>()?;
     m.add_function(pyo3::wrap_pyfunction!(bridge_test::bridge_test, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(bridge::idle_bridge_start, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(bridge::idle_bridge_stop, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(browser::is_blank_page, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(browser::blank_html, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(browser::ensure_tab, m)?)?;

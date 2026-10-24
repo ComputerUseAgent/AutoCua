@@ -117,7 +117,7 @@ function bridgeRequest(payload, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     const line = [...lines.values()].find((l) => l.opened && l.ws && l.ws.readyState === WebSocket.OPEN);
     if (!line) {
-      reject(new Error("the bridge is not connected: run test.command"));
+      reject(new Error("the bridge is not connected: open the AutoCua app, or run test.command"));
       return;
     }
     const id = `x${++line.next}`;
@@ -244,9 +244,10 @@ connect();
 // ============================================================ the Test button (test.html)
 
 // The popup's Test button: scan the page it was opened on with the extension's own
-// scanner, hand the result to the agent side over the bridge, which writes it under
-// debug/iteration_N/ the way element.rs writes its DEBUG output (bridge_test.rs), and
-// give the popup the result with the timings and where it went.
+// scanner, hand the result to the agent side over the bridge (the app's own line, a
+// run's, or the hand test's), which writes it under debug/iteration_N/ the way
+// element.rs writes its DEBUG output (bridge.rs stash, bridge_test.rs), and give the
+// popup the result with the timings and where it went.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.type !== "test") return false;
   testScan().then(sendResponse, (e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
