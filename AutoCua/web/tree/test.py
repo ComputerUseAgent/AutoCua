@@ -16,7 +16,7 @@ This file lives in:  <repo>/AutoCua/web/tree/
 
 Usage (from anywhere):
     python3 AutoCua/web/tree/test.py
-    python3 AutoCua/web/tree/test.py --port 9222
+    python3 AutoCua/web/tree/test.py --port 9445
     python3 AutoCua/web/tree/test.py --url https://www.github.com
 
 Filtering:
@@ -29,6 +29,9 @@ Notes:
     - First run compiles the web crate with cargo (a minute or two). The
       scanner is part of that crate now, not a separate binary.
     - cargo is not on PATH here; the import falls back to ~/.cargo/bin/cargo.
+    - The browser is this script's own, on port 9444. 9222 is the agent's
+      port: a headless run leaves its browser there, and attaching to that
+      gives a scan with no window to drive.
 
 REPL:
     s / enter   scan the bound tab -> debug/scans/tree.txt + hits.json + shot.jpg
@@ -76,7 +79,8 @@ def chrome_json(port: int, path: str, method: str = "GET"):
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Open Chrome and run the element scanner REPL")
-    ap.add_argument("--port", type=int, default=9222, help="Chrome remote-debugging port")
+    ap.add_argument("--port", type=int, default=9444,
+                    help="Chrome remote-debugging port (not 9222, the agent's: a headless run leaves its browser there)")
     ap.add_argument("--url", default=None, help="Optional start URL (otherwise blank / last tab)")
     ap.add_argument("--out", default="debug/scans",
                     help="Output directory for tree/shot files (relative to the repo root)")
@@ -90,9 +94,13 @@ def main() -> None:
     sys.path.insert(0, str(ROOT))
 
     # Importing the package builds the crate if a source changed, then loads it.
-    from AutoCua.web.agent import BrowserScanner, launch_chrome  # noqa: E402
+    from AutoCua.web.agent import CHROME_PORT, BrowserScanner, launch_chrome  # noqa: E402
 
-    launch_chrome(args.port, False)
+    # Attached rather than launched, on the agent's port: a headless run
+    # leaves its browser there, and that one has no window to drive.
+    if not launch_chrome(args.port, False) and args.port == CHROME_PORT:
+        print(f"Port {CHROME_PORT} is the agent's. If no window is up, that browser is "
+              "headless: quit it, or leave --port at its default.")
     if args.url:
         chrome_json(args.port, f"/json/new?{urllib.parse.quote(args.url, safe='')}", "PUT")
         time.sleep(1)
