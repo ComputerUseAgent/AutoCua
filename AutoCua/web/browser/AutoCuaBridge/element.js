@@ -1320,11 +1320,15 @@ async function elementScan(tab, opts = {}) {
   if (failure) throw new Error(`scan failed: ${(failure && failure.message) || failure}`);
 
   // One result per frame Chrome could inject into; same-origin children answered
-  // {covered} and were read by their parent.
+  // {covered} and were read by their parent. The page's own result is the one from
+  // frame 0, an id Chrome sets: a frame handed the path "0" by a page lying to it
+  // (its hello is a message the page's own scripts can answer too) must not take
+  // the page's place. Any other made-up path is never used, since frames are only
+  // taken from the kids list of the frame that read them.
   const byPath = new Map();
   for (const r of results) {
     const v = r && r.result;
-    if (v && v.path) byPath.set(v.path, v);
+    if (v && v.path && (v.path !== "0" || r.frameId === 0)) byPath.set(v.path, v);
   }
   const top = byPath.get("0");
   if (!top || !top.recs) throw new Error(`scan failed: ${top && top.error ? top.error : "no result from the page"}`);
