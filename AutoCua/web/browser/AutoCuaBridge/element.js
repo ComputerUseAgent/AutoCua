@@ -16,9 +16,11 @@
 // iframe's place in the tree, and with no accessibility data (Chrome's full AX tree
 // covers the root document only, and element.rs mirrors that). A frame of another
 // origin reads itself and is appended after its parent's records behind a <frame>
-// line, like an element.rs session. It learns where it sits from its parent over a
-// postMessage handshake (a page cannot see Chrome's frame ids), so its records land
-// in page coordinates, clipped to its iframe's content box.
+// line, like an element.rs session. It learns where it sits over a postMessage
+// handshake with the frame that read the document it sits in: its parent, or a
+// higher ancestor when its parent is a same-origin frame that ancestor read inline
+// (a page cannot see Chrome's frame ids). So its records land in page coordinates,
+// clipped to its iframe's content box.
 //
 // Where that makes the answer differ from element.rs:
 // - role, accessible name and state are worked out from the DOM (ARIA attributes,
@@ -77,9 +79,10 @@ const ELEMENT_SETTLE_CEILING_MS = 3000;
 // these kinds never (element.rs SEED_BUDGET_MS and NEVER_WAIT_FOR).
 const ELEMENT_SEED_BUDGET_MS = 1500;
 const ELEMENT_NEVER_WAIT_FOR = new Set(["main_frame", "sub_frame", "media", "ping", "csp_report"]);
-// A frame of another origin waits this long for its parent to place it before it
-// gives up, which only happens when its parent could not be injected. On an ordinary
-// page a parent answers within a few ms, even while it is still reading a long page.
+// A frame of another origin waits this long to be placed by the ancestor that read
+// the document it sits in before it gives up, which only happens when that ancestor
+// could not be injected. On an ordinary page it is answered within a few ms, even
+// while that ancestor is still reading a long page.
 const ELEMENT_FRAME_WAIT_MS = 2000;
 
 // ============================================================ config
@@ -178,10 +181,11 @@ async function elementSettle(tabId) {
 //   its records, its viewport and the frames of another origin it met (it is path
 //   "0", they are "0.0", "0.1", ... in document order);
 // - a frame its parent can read (same origin) returns {covered: true} at once;
-// - a frame of another origin asks its parent where it sits (a postMessage hello,
-//   answered with its path, origin and clip in page device px, and the page's
-//   viewport area for the occlusion rule), then reads its document the same way, or
-//   returns {path, skipped: true} when it has no layout or is off screen.
+// - a frame of another origin asks where it sits (a postMessage hello to every
+//   ancestor; the one that read the document it sits in answers with its path,
+//   origin and clip in page device px, and the page's viewport area for the
+//   occlusion rule), then reads its document the same way, or returns
+//   {path, skipped: true} when it has no layout or is off screen.
 // The listener that answers hellos outlives the script that installed it, so a child
 // that asks after its parent's result went back is still placed. One listener per
 // frame: a new scan replaces it, and hellos carrying another scan's nonce are ignored.
@@ -247,10 +251,13 @@ function elementScanPage(cfg, scan) {
     return el.shadowRoot || null;
   };
   // A frame of another origin: it reads itself once told where it sits. `box` is its
-  // content box in page device px, null when it has no layout. Like element.rs, a
-  // frame with no box or nothing of it on screen is skipped.
-  const addKid = (el, box) => {
-    const clip = box && mine.clip ? intersect(mine.clip, box) : null;
+  // content box in page device px, null when it has no layout; `within` the clip of
+  // the document it sits in (this frame's own, or a same-origin child document's cut
+  // to its iframe), so a frame in a wrapper smaller than itself is cut to the
+  // wrapper. Like element.rs, a frame with no box or nothing of it on screen is
+  // skipped.
+  const addKid = (el, box, within) => {
+    const clip = box && within ? intersect(within, box) : null;
     kids.push({ win: el.contentWindow, path: `${mine.path}.${kids.length}`, origin: box ? [box[0], box[1]] : null, clip });
   };
   const kidOut = (k) => ({ path: k.path, skipped: !k.clip });
@@ -292,11 +299,28 @@ function elementScanPage(cfg, scan) {
       return failed(e);
     }
   }
+  // The frame that can place this one is the one that read the document it sits in:
+  // its parent, or a higher ancestor when the parent is a same-origin frame that
+  // ancestor read inline (such a frame returned {covered} above and listens to
+  // nothing; an about:blank wrapper around an ad or a tag manager's frame is the
+  // common case). So the hello goes to every ancestor, only the one that listed this
+  // frame's window answers (the others have no record of it), and the place is
+  // taken from whichever ancestor sends it.
+  const ancestors = [];
+  try {
+    for (let w = window.parent, guard = 0; w && guard < 32; guard++) {
+      ancestors.push(w);
+      if (w === window.top || w === w.parent) break;
+      w = w.parent;
+    }
+  } catch (e) {
+    // an ancestor on its way out: whatever was collected is asked
+  }
   return new Promise((resolve) => {
     let timer = null;
     const onPlace = (ev) => {
       const d = ev.data;
-      if (ev.source !== window.parent || !d || typeof d !== "object" || d.__AutoCua !== "place" || d.nonce !== scan.nonce) return;
+      if (!ancestors.includes(ev.source) || !d || typeof d !== "object" || d.__AutoCua !== "place" || d.nonce !== scan.nonce) return;
       window.removeEventListener("message", onPlace);
       clearInterval(timer);
       mine = { path: d.path, origin: d.origin, clip: d.clip, area: d.area };
@@ -307,7 +331,15 @@ function elementScanPage(cfg, scan) {
       }
     };
     window.addEventListener("message", onPlace);
-    const hello = () => window.parent.postMessage({ __AutoCua: "hello", nonce: scan.nonce }, "*");
+    const hello = () => {
+      for (const w of ancestors) {
+        try {
+          w.postMessage({ __AutoCua: "hello", nonce: scan.nonce }, "*");
+        } catch (e) {
+          // gone since it was collected
+        }
+      }
+    };
     const deadline = performance.now() + scan.wait_ms;
     timer = setInterval(() => {
       if (performance.now() < deadline) {
@@ -732,7 +764,7 @@ function elementScanPage(cfg, scan) {
               const bo = (pxv(st.borderBottomWidth, 0) + pxv(st.paddingBottom, 0)) * dpr;
               cb = [b[0] + l, b[1] + t, Math.max(b[2] - l - r, 0), Math.max(b[3] - t - bo, 0)];
             }
-            addKid(el, cb);
+            addKid(el, cb, frameClip);
           }
         }
 
@@ -852,8 +884,8 @@ function elementScanPage(cfg, scan) {
       }
     };
 
-    // The page clips to its viewport; a frame of another origin to what its parent
-    // handed it: its iframe's content box, cut to the parent's own clip.
+    // The page clips to its viewport; a frame of another origin to what it was handed:
+    // its iframe's content box, cut to the clip of the document it sits in.
     if (isTop) {
       mine.clip = [-lim.margin, -lim.margin, vw + 2 * lim.margin, vh + 2 * lim.margin];
       mine.area = vw * vh;
