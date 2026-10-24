@@ -2518,6 +2518,33 @@ def _kill_process_trees(pids) -> None:
             pass
 
 
+def _start_idle_bridge() -> None:
+    """The AutoCua extension's line while no run is on (web/browser/bridge.rs
+    idle_bridge_start). Its Test button saves a scan under debug/ through
+    whichever bridge is on the line; between runs that is this one, so the
+    button works whenever the app is open, not only with test.command. The
+    bridge steps aside by itself while a run is on. On a thread of its own:
+    a checkout's first import builds the Rust crate."""
+    try:
+        from AutoCua.web.agent import idle_bridge_start
+        idle_bridge_start()
+    except Exception:
+        debug_exception("idle bridge start")
+
+
+def _stop_idle_bridge() -> None:
+    """The line goes with the window: its config.json entry comes off, so the
+    extension stops dialling. Looked up rather than imported: never build the
+    crate on the way out, and nothing to stop if web use was never loaded."""
+    agent = sys.modules.get("AutoCua.web.agent")
+    if agent is None:
+        return
+    try:
+        agent.idle_bridge_stop()
+    except Exception:
+        debug_exception("idle bridge stop")
+
+
 @atexit.register
 def _kill_shell_trees_on_exit() -> None:
     """Quitting the app mid-run must not leave the coder running.
@@ -4281,6 +4308,8 @@ def main():
     # Clear orphaned macOS TCC "ghost" entries from a previous build (once per
     # build identity; no-op on Windows / dev).
     repair_stale_tcc_entries()
+    # The extension's line while no run is on, for its Test button.
+    threading.Thread(target=_start_idle_bridge, daemon=True).start()
     # macOS permissions are now driven one-by-one by the setup wizard (served at
     # /setup and gated via the initial window URL below), which also auto-repairs
     # stale ghost entries per-permission. The old bulk request_macos_permissions()
@@ -4380,6 +4409,12 @@ def main():
         win.events.closing += _stop_browser_agents
     except Exception:
         debug_exception("browser_agent_close_hook")
+
+    # The app's own line to the extension (_start_idle_bridge) goes with the window.
+    try:
+        win.events.closing += _stop_idle_bridge
+    except Exception:
+        debug_exception("idle_bridge_close_hook")
 
     # The app's own iPhone session too (the iOS pick in the chat box; the hook
     # above only lets computer-use phone links go). Quitting leaves through

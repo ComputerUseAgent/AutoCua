@@ -10,7 +10,10 @@
 //! It is written under debug/iteration_N/ in the working directory, the way
 //! element.rs writes its DEBUG output (tree.txt with the url, the summary and the
 //! timing as header lines, annotated_screenshot.jpg) plus hits.json, and each
-//! save is printed. Ctrl-C stops the bridge; Chrome stays open.
+//! save is printed. Ctrl-C stops the bridge; Chrome stays open. The desktop app
+//! keeps a line of its own that answers the same save while it is open (bridge.rs
+//! idle_bridge_start, which steps aside while this serves): this is the way
+//! without the app.
 //!
 //! A Chrome already running on the profile would take the launch over and ignore
 //! the flags, so it is quit first (SIGTERM is Chrome's graceful exit, the session
@@ -120,6 +123,15 @@ fn save(iteration: usize, req: &Value) -> io::Result<PathBuf> {
     Ok(dir)
 }
 
+/// The Test button's save from any bridge on the line (bridge.rs stash): one past
+/// the highest debug/iteration_N there, written, with its number, or why not.
+pub(crate) fn save_next(req: &Value) -> Result<(PathBuf, usize), String> {
+    let n = next_iteration(Path::new(DEBUG_DIR));
+    save(n, req)
+        .map(|dir| (dir, n))
+        .map_err(|e| format!("could not write debug/iteration_{n}: {e}"))
+}
+
 /// Ctrl-C arrives as Python's KeyboardInterrupt; polled between reads.
 fn interrupted() -> PyResult<bool> {
     Python::attach(|py| match py.check_signals() {
@@ -213,6 +225,8 @@ fn serve(listener: TcpListener, token: &str, origin: &str, mut iteration: usize)
 #[pyo3(signature = (chrome_args=None, profile=None))]
 pub fn bridge_test(py: Python<'_>, chrome_args: Option<Vec<String>>, profile: Option<String>) -> PyResult<()> {
     replace_previous()?;
+    // A run as far as the lock goes: the app's idle line steps aside while this serves.
+    let _run = bridge::hold_run_lock();
     let src = crate::browser_dir(py)?.join("AutoCuaBridge");
     let dest = stage_bridge::default_dest();
     let staged = stage_bridge::stage(&src, &dest).map_err(|e| {

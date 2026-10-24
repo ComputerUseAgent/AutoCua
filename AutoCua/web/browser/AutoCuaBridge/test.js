@@ -1,7 +1,8 @@
 // The Test button (in Settings): scan the page under the popup with the extension's own scanner,
 // show how long it took, the summary line, the annotated picture and the tree. The
-// result goes over the bridge to the agent side (bridge_test.rs, run by test.command),
-// which writes tree.txt, annotated_screenshot.jpg and hits.json under debug/iteration_N/.
+// result goes over the bridge to whoever is on the line (the AutoCua app while it is
+// open, a run, or bridge_test.rs run by test.command), which writes tree.txt,
+// annotated_screenshot.jpg and hits.json under debug/iteration_N/.
 const $ = (id) => document.getElementById(id);
 const manifest = chrome.runtime.getManifest();
 $("version").textContent = manifest.version_name || manifest.version;

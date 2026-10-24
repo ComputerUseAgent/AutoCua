@@ -20,6 +20,8 @@ from AutoCua.web.agent_native import (   # noqa: E402
     BrowserScanner,
     launch_chrome,
     Bridge,
+    idle_bridge_start,
+    idle_bridge_stop,
     ScannerError,
     CHROME_PORT,
 )
@@ -30,6 +32,8 @@ __all__ = [
     "BrowserScanner",
     "launch_chrome",
     "Bridge",
+    "idle_bridge_start",
+    "idle_bridge_stop",
     "ScannerError",
     "CHROME_PORT",
 ]

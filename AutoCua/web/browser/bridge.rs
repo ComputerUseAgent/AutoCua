@@ -18,14 +18,23 @@
 //! The Chrome launch finds the browser the way the debugging-port mode does
 //! (browser.rs find_chrome) and starts it itself, on macOS, Windows and Linux;
 //! `take_chrome` is how a run gets the person's own Chrome on the line.
+//!
+//! While no run is on, the desktop app keeps a line of its own open
+//! (`idle_bridge_start`, ui/service.py): it asks the browser nothing and only
+//! answers what the extension sends by itself, the Test button's `save` above
+//! all, so a scan can be saved under debug/ without the hand test. It knows a
+//! run is on by the run lock (`hold_run_lock`) and steps aside for it.
 
 use std::collections::{HashMap, VecDeque};
 use std::fs;
+use std::fs::File;
 use std::io;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use pyo3::prelude::*;
@@ -384,9 +393,13 @@ pub struct Bridge {
     /// Tabs the extension closed and opened again because their page froze or crashed
     /// (tools.js toolsReopen): old tab id -> the tab that took its place.
     reopened: HashMap<i64, i64>,
-    /// Requests the extension made (string ids: the Test button's `save`), for the
-    /// hand test to answer.
+    /// Requests the extension made (string ids) that nothing here answers, for
+    /// whoever reads them: none today, the Test button's `save` being answered
+    /// in `stash`.
     inbox: VecDeque<Value>,
+    /// The run lock (`hold_run_lock`), held for as long as this bridge lives and
+    /// never read: a run's has one, the app's idle line none.
+    _run_lock: Option<File>,
     /// How Chrome was started from here (`launch_chrome`): its user data folder (None:
     /// the person's own), --restore-last-session, and the extra switches. What
     /// `relaunch` starts again when Chrome goes away mid-run; None when Chrome was not
@@ -403,8 +416,16 @@ impl Drop for Bridge {
 
 impl Bridge {
     /// Stage the extension from `src` into `dest`, open the server on a free port
-    /// and write the extension's config.json. Chrome is not started here.
+    /// and write the extension's config.json. Chrome is not started here. The run
+    /// lock is held for as long as the bridge lives: the app's idle line steps aside.
     pub fn open(src: &Path, dest: &Path) -> io::Result<Bridge> {
+        Self::open_with(src, dest, true)
+    }
+
+    /// `open`, holding the run lock or not: the app's idle line (`idle_serve`) holds
+    /// none, being what the lock tells to step aside.
+    fn open_with(src: &Path, dest: &Path, run: bool) -> io::Result<Bridge> {
+        let _run_lock = if run { hold_run_lock() } else { None };
         let staged = stage_bridge::stage(src, dest)?;
         let extension_id = stage_bridge::extension_id(&staged);
         let listener = TcpListener::bind("127.0.0.1:0")?;
@@ -425,6 +446,7 @@ impl Bridge {
             dialogs: HashMap::new(),
             reopened: HashMap::new(),
             inbox: VecDeque::new(),
+            _run_lock,
             launched: None,
         })
     }
@@ -634,8 +656,14 @@ impl Bridge {
     }
 
     /// Read what the extension sent on its own for up to `wait`, asking it nothing:
-    /// notices and its own requests (the hand test's loop).
+    /// notices and its own requests. Ctrl-C ends the read.
     pub fn poll(&mut self, wait: Duration) -> SResult<()> {
+        self.poll_inner(wait, true)
+    }
+
+    /// `poll`, looking for Ctrl-C between reads or not: the app's idle line
+    /// (`idle_serve`) runs on a thread of its own and must not touch Python.
+    fn poll_inner(&mut self, wait: Duration, signals: bool) -> SResult<()> {
         if !self.connected() {
             return Ok(());
         }
@@ -665,7 +693,9 @@ impl Bridge {
                     return Ok(());
                 }
             }
-            crate::browser::check_py_signals()?;
+            if signals {
+                crate::browser::check_py_signals()?;
+            }
             if Instant::now() >= deadline {
                 return Ok(());
             }
@@ -701,6 +731,16 @@ impl Bridge {
                 }
             }
             Some("keepalive") | None => {}
+            // The Test button (AutoCuaBridge/test.html): the extension's own scan of
+            // a page, written under debug/iteration_N/ the way the hand test writes it
+            // (bridge_test.rs save_next) and answered with where it went. Whichever
+            // bridge is on the line does it: a run's, or the app's idle one.
+            Some("save") if m.get("id").is_some_and(Value::is_string) => {
+                let id = m["id"].clone();
+                let outcome = crate::bridge_test::save_next(&m)
+                    .map(|(dir, n)| json!({ "dir": dir.display().to_string(), "iteration": n }));
+                self.reply(&id, outcome);
+            }
             Some(_) => {
                 if m.get("id").is_some_and(Value::is_string) {
                     self.inbox.push_back(m);
@@ -812,6 +852,157 @@ impl Bridge {
             None => false,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// The run lock, and the app's idle line.
+// ---------------------------------------------------------------------------
+
+/// The file every bridge of a run holds a shared lock on while it lives, beside
+/// the staged copy (~/.AutoCua/AutoCuaBridge.lock). How the app's idle line knows
+/// a run is on (`run_on`), from any process, a crashed one included: the system
+/// drops its lock with it.
+fn run_lock_file() -> io::Result<File> {
+    let dest = stage_bridge::default_dest();
+    let dir = dest.parent().map(Path::to_path_buf).unwrap_or_else(|| dest.clone());
+    fs::create_dir_all(&dir)?;
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(dir.join("AutoCuaBridge.lock"))
+}
+
+/// Hold the run lock, shared with every other run: Some for as long as the file
+/// lives, None when it could not be taken (the idle line then stays on, harmless).
+pub(crate) fn hold_run_lock() -> Option<File> {
+    let file = run_lock_file().ok()?;
+    for _ in 0..50 {
+        match file.try_lock_shared() {
+            Ok(()) => return Some(file),
+            // The idle line's own check holds it exclusively for an instant.
+            Err(std::fs::TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(10)),
+            Err(std::fs::TryLockError::Error(_)) => return None,
+        }
+    }
+    None
+}
+
+/// Whether a run holds the lock: an exclusive try fails while any shared hold lives.
+fn run_on() -> bool {
+    let Ok(file) = run_lock_file() else { return false };
+    match file.try_lock() {
+        Ok(()) => {
+            let _ = file.unlock();
+            false
+        }
+        Err(std::fs::TryLockError::WouldBlock) => true,
+        Err(std::fs::TryLockError::Error(_)) => false,
+    }
+}
+
+/// How often the idle line looks for a run, and how long each of its reads waits.
+const IDLE_CHECK: Duration = Duration::from_millis(500);
+const IDLE_SLICE: Duration = Duration::from_millis(200);
+
+/// The idle line's thread, with the flag that ends it (`idle_bridge_stop`).
+static IDLE: Mutex<Option<(Arc<AtomicBool>, JoinHandle<()>)>> = Mutex::new(None);
+
+/// Sleep `wait`, in slices, unless stopped.
+fn nap(stop: &AtomicBool, wait: Duration) {
+    let deadline = Instant::now() + wait;
+    while !stop.load(Ordering::Relaxed) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// The app's line to the extension while no run is on: a bridge that asks the
+/// browser nothing and answers what the extension sends by itself (`stash`: the
+/// Test button's save). Open whenever no run holds the lock, and dropped (off
+/// config.json, its line closed) within IDLE_CHECK of one taking it. Never
+/// touches Python: the app may be on its way out.
+fn idle_serve(src: PathBuf, dest: PathBuf, stop: Arc<AtomicBool>) {
+    let mut bridge: Option<Bridge> = None;
+    let mut checked: Option<Instant> = None;
+    let mut failed = false;
+    while !stop.load(Ordering::Relaxed) {
+        if checked.is_none_or(|t| t.elapsed() >= IDLE_CHECK) {
+            checked = Some(Instant::now());
+            if run_on() {
+                bridge = None;
+                nap(&stop, IDLE_CHECK);
+                continue;
+            }
+            if bridge.is_none() {
+                match Bridge::open_with(&src, &dest, false) {
+                    Ok(b) => {
+                        bridge = Some(b);
+                        failed = false;
+                    }
+                    Err(e) => {
+                        if !failed {
+                            println!("The app's line to AutoCuaBridge could not open: {e}");
+                            failed = true;
+                        }
+                        nap(&stop, Duration::from_secs(2));
+                        continue;
+                    }
+                }
+            }
+        }
+        match bridge.as_mut() {
+            Some(b) => {
+                if b.connected() {
+                    let _ = b.poll_inner(IDLE_SLICE, false);
+                } else {
+                    nap(&stop, IDLE_SLICE);
+                }
+            }
+            None => nap(&stop, IDLE_SLICE),
+        }
+    }
+}
+
+/// Keep a line to the extension open while no run is on (`idle_serve`), from the
+/// desktop app's process (ui/service.py). A second call while one is on does nothing.
+#[pyfunction]
+#[pyo3(signature = (src=None))]
+pub fn idle_bridge_start(py: Python<'_>, src: Option<String>) -> PyResult<()> {
+    let src = match src {
+        Some(s) => PathBuf::from(s),
+        None => crate::browser_dir(py)?.join("AutoCuaBridge"),
+    };
+    let dest = stage_bridge::default_dest();
+    let mut slot = IDLE
+        .lock()
+        .map_err(|_| crate::ScannerError::new_err("idle bridge state poisoned by an earlier panic"))?;
+    if slot.is_some() {
+        return Ok(());
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&stop);
+    let thread = std::thread::Builder::new()
+        .name("AutoCua idle bridge".into())
+        .spawn(move || idle_serve(src, dest, flag))?;
+    *slot = Some((stop, thread));
+    Ok(())
+}
+
+/// End the idle line: its bridge is dropped (off config.json, its line closed)
+/// and the thread joined. Nothing to do when none is on.
+#[pyfunction]
+pub fn idle_bridge_stop(py: Python<'_>) -> PyResult<()> {
+    let taken = IDLE
+        .lock()
+        .map_err(|_| crate::ScannerError::new_err("idle bridge state poisoned by an earlier panic"))?
+        .take();
+    if let Some((stop, thread)) = taken {
+        stop.store(true, Ordering::Relaxed);
+        py.detach(move || {
+            let _ = thread.join();
+        });
+    }
+    Ok(())
 }
 
 fn lock(b: &Arc<Mutex<Bridge>>) -> SResult<std::sync::MutexGuard<'_, Bridge>> {
