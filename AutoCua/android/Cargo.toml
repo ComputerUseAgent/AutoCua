@@ -2,12 +2,10 @@
 # Cargo.lock, build.rs and lib.rs here, the sources in their own folders
 # beside them (agent/, controller/, tool_registry/, tree/), one file each,
 # no src/ and no mod.rs (lib.rs declares the folders). One cargo build gives
-# both targets into one target/:
-#   agent_native   the agent as a Python extension module (PyO3 cdylib),
-#                  built by agent/__init__.py and copied beside it as
-#                  agent_native.so, no maturin
-#   element        tree/element.rs as a plain binary, the phone reader that
-#                  tree/test.py drives (cargo build --bin element)
+# agent_native, the whole side as a Python extension module (PyO3 cdylib):
+# the agent, and the phone reader (tree/element.rs) it scans with, which
+# tree/test.py drives by hand through the same module. agent/__init__.py
+# builds it and copies it beside itself as agent_native.so, no maturin.
 
 [package]
 name = "agent_native"
@@ -21,10 +19,6 @@ edition = "2021"
 name = "agent_native"
 crate-type = ["cdylib"]
 path = "lib.rs"
-
-[[bin]]
-name = "element"
-path = "tree/element.rs"
 
 [build-dependencies]
 # Emits the macOS -undefined dynamic_lookup link args (see build.rs) that
@@ -49,8 +43,10 @@ chrono = "0.4"
 # from its bundled source with the system C++ compiler (Xcode tools, MSVC or
 # g++), instead of fetching a prebuilt library per OS.
 openh264 = "0.9"
-# Pure-Rust JPEG encoder for the saved screenshots.
+# Pure-Rust JPEG encoder for the screenshots, and base64 for the one the
+# model gets.
 jpeg-encoder = "0.7"
+base64 = "0.22"
 # Reads uiautomator's XML tree (no dependencies of its own). Pinned: 0.21.2
 # was a day old when this was written.
 roxmltree = "=0.21.1"

@@ -158,8 +158,11 @@ def adb_path():
 
 def _adb(adb, *args, timeout=30):
     # adb writes UTF-8; Windows would otherwise decode it with its code page.
+    # stdin from DEVNULL: `adb shell <command>` forwards this process's stdin
+    # to the phone while the command runs, and would eat keys (or piped
+    # lines) meant for whoever runs this.
     return subprocess.run([adb, *args], capture_output=True, encoding="utf-8",
-                          errors="replace", timeout=timeout)
+                          errors="replace", timeout=timeout, stdin=subprocess.DEVNULL)
 
 
 def _wireless(serial):

@@ -1,12 +1,11 @@
-//! Crate root: the module behind `AutoCua.android.agent`, and the package of
-//! the `element` binary (tree/element.rs, which tree/test.py drives).
+//! Crate root: the module behind `AutoCua.android.agent`.
 //!
 //! The whole Android side is ONE crate, the same shape as ../web: this file,
 //! Cargo.toml, Cargo.lock and build.rs sit here, and the sources sit in their
 //! own folders beside them, one file each and no mod.rs: the folders are
 //! declared below. agent/__init__.py builds the crate lazily (plain
-//! `cargo build --release`), copies the dylib beside itself as
-//! agent_native.so, and re-exports the classes from it.
+//! `cargo build --release`, through AutoCua/utils/rust.py), copies the dylib
+//! beside itself as agent_native.so, and re-exports the classes from it.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -50,8 +49,8 @@ pub mod controller {
 pub mod tool_registry {
     pub mod service;
 }
-/// The phone reader. The `element` binary's root, and the scanner the loop
-/// reads the phone with (UIElementScanner), as one module.
+/// The phone reader: the scanner the loop reads the phone with
+/// (UIElementScanner), which tree/test.py drives by hand.
 pub mod tree {
     pub mod element;
 }
@@ -100,6 +99,7 @@ fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     use agent::android_use::view;
 
     m.add_class::<agent::android_use::service::AgentService>()?;
+    m.add_class::<tree::element::UIElementScanner>()?;
     m.add_class::<tool_registry::service::LLMManager>()?;
     m.add_function(pyo3::wrap_pyfunction!(tool_registry::service::_tool_calls_to_steps_debug, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(tool_registry::service::_main_tools_debug, m)?)?;

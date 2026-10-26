@@ -1,28 +1,26 @@
 // AutoCua - Android screen reader (scrcpy stream + UI tree, Rust)
 //
-// READS ONLY, and not its own connection.
+// READS ONLY, and not its own connection. UIElementScanner at the end of
+// this file is the class the agent loop reads the phone with, the copy of
+// ios/tree/element.py's UIElementScanner (scan_elements, get_scan_data,
+// application_name); tree/test.py drives the same class by hand.
 //
-// Both come from one helper on the phone, which the connector starts and
-// forwards to two local ports (AutoCua/android_connector/stream.py):
-//   shots   scrcpy's server streams the screen as H.264. This program decodes
-//           every frame as it arrives and keeps the newest one, so a shot is
-//           the frame already in memory.
+// Both halves of a scan come from one helper on the phone, which the
+// connector starts and forwards to two local ports
+// (android_connector/session.py, android_session, over stream.py):
+//   shots   scrcpy's server streams the screen as H.264. A thread here
+//           decodes every frame as it arrives and keeps the newest one, so a
+//           shot is the frame already in memory.
 //   scans   AutoCua's Helper.java, in the same process, answers each request
 //           with the accessibility tree in uiautomator's XML format. It keeps
 //           its connection open, so there is none of `uiautomator dump`'s
-//           one-second wait for a still screen. This program then does what
-//           the iPhone scanner (ios/tree/element.py) does: keep only the
-//           element types that matter, under the iPhone's names (button,
-//           statictext, textfield...), number them, and write the tree text,
-//           one JSON entry per element, and the screenshot with numbered
-//           magenta boxes.
-//
-// Driven over stdin, one line per request (test.py does this):
-//   s / empty line   scan -> tree.txt, elements.json, scan.jpg
-//   p                plain screenshot -> shot.jpg
-//   q                quit (test.py then stops the phone's server)
-// Each answer is one line on stdout. "ready WxH" comes first, once the first
-// frame is decoded.
+//           one-second wait for a still screen. The scan then does what the
+//           iPhone scanner does: keep only the element types that matter,
+//           under the iPhone's names (button, statictext, textfield...),
+//           number them, and hand the loop the tree text, one JSON entry per
+//           element (the controller's map), and the screenshot with numbered
+//           magenta boxes. The three also go to debug/android/ (tree.txt,
+//           elements.json, scan.jpg) for a look after a run.
 //
 // The stream (scrcpy 5.x video socket, forward tunnel, no device name):
 //   1 byte    dummy, sent once the server really listens
@@ -34,28 +32,31 @@
 //
 // The tree (Helper.java, its own socket): send a line, get a 4-byte big-endian
 // length and that many bytes of UTF-8, the XML or a line starting "ERROR:".
-//
-// Usage:
-//   element --port <port> --tree-port <port> --adb <path> --serial <serial> [--out-dir debug/android]
 
 use std::collections::HashMap;
-use std::env;
 use std::fs;
-use std::io::{self, BufRead, ErrorKind, Read, Write};
+use std::io::{self, ErrorKind, Read, Write};
 use std::net::TcpStream;
-use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::path::Path;
+use std::process::Command;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use base64::Engine;
 use jpeg_encoder::{ColorType, Encoder, SamplingFactor};
 use openh264::decoder::Decoder;
 use openh264::formats::YUVSource;
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::prelude::*;
 use roxmltree::{Node, NodeId};
+use serde_json::{json, Map, Value};
 
-/// Where everything is written, relative to the process CWD. test.py runs
-/// this from the repo root, so it lands in the root debug/ folder (gitignored).
+use crate::controller::service::controller_service;
+
+/// Where each scan's files are written, relative to the process CWD: main.py
+/// and test.py run from the repo root, so they land in the root debug/
+/// folder (gitignored). The last scan only; each one overwrites the three.
 const DEFAULT_OUT_DIR: &str = "debug/android";
 
 /// Plain shots keep the video's own quarter-size colour (4:2:0).
@@ -163,21 +164,11 @@ impl Elem {
 /// A box as (x, y, width, height), in screen pixels.
 type Rect = (f64, f64, f64, f64);
 
-fn main() -> ExitCode {
-    match run() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("element: {e}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
-fn run() -> Result<(), String> {
-    let (port, tree_port, adb, serial, out_dir) = parse_args()?;
-    let t0 = Instant::now();
+/// Opens the screen stream the helper serves on `port`: reads the phone's
+/// size, density and home-screen app over adb (one call), connects, starts
+/// the decode thread and waits for the first frame.
+fn open(adb: String, serial: String, port: u16) -> Result<(Device, Arc<Shared>), String> {
     let device = device_info(adb, serial);
-    let mut tree = Tree { port: tree_port, sock: None };
     let mut sock = connect(port)?;
     let mut codec = [0u8; 4];
     sock.read_exact(&mut codec)
@@ -212,50 +203,140 @@ fn run() -> Result<(), String> {
         if latest.frames == 0 {
             return Err(format!("no frame within {} s", START_WAIT.as_secs()));
         }
-        println!("ready {}x{}  {} ms", latest.width, latest.height, t0.elapsed().as_millis());
     }
-
-    for line in io::stdin().lock().lines() {
-        let line = line.map_err(|e| format!("stdin: {e}"))?;
-        let answer = match line.trim() {
-            "q" => break,
-            "" | "s" => scan(&shared, &device, &mut tree, &out_dir),
-            "p" => shot(&shared, &out_dir),
-            other => Err(format!("unknown command {other:?} (s, p or q)")),
-        };
-        // Exactly one line per answer, whatever an error message holds: the
-        // caller pairs each request with the next line.
-        match answer {
-            Ok(done) => println!("{done}"),
-            Err(e) => println!("error: {}", e.split_whitespace().collect::<Vec<_>>().join(" ")),
-        }
-    }
-    Ok(())
+    Ok((device, shared))
 }
 
-fn parse_args() -> Result<(u16, u16, String, String, PathBuf), String> {
-    let mut port = None;
-    let mut tree_port = None;
-    let mut adb = None;
-    let mut serial = None;
-    let mut out_dir = PathBuf::from(DEFAULT_OUT_DIR);
-    let mut it = env::args().skip(1);
-    while let Some(flag) = it.next() {
-        let value = it.next().ok_or(format!("{flag} needs a value"))?;
-        match flag.as_str() {
-            "--port" => port = Some(value.parse::<u16>().map_err(|_| format!("bad port {value:?}"))?),
-            "--tree-port" => tree_port = Some(value.parse::<u16>().map_err(|_| format!("bad port {value:?}"))?),
-            "--adb" => adb = Some(value),
-            "--serial" => serial = Some(value),
-            "--out-dir" => out_dir = PathBuf::from(value),
-            _ => return Err(format!("unknown argument {flag}")),
+// ============================================================ the scanner
+
+/// What the loop reads of the last scan. The tree text stays from the last
+/// scan that worked; the picture is dropped the moment a new scan starts, so
+/// a failed scan never hands the loop the previous screen as if it were now
+/// (ios/tree/element.py does the same).
+#[derive(Default)]
+struct ScanState {
+    element_tree_text: String,
+    image_base64: Option<String>,
+    /// The app in front: its package, "" on the home screen (as "" is the
+    /// iPhone's SpringBoard).
+    application_name: String,
+}
+
+/// The scanner the agent loop reads the phone with: the Rust copy of
+/// ios/tree/element.py's UIElementScanner, with the same calls
+/// (scan_elements, get_scan_data, application_name), and a Python class too
+/// so tree/test.py can drive it by hand.
+///
+/// The connection is the connector's: android_connector/session.py's
+/// android_session starts the helper (agent_launcher does it before the run
+/// and stops it after; new() asks it as well, in case nobody has) and this
+/// reads the two ports it forwarded. The phone goes to the controller once
+/// (set_phone), the elements and the display size after every scan.
+#[pyclass(frozen)]
+pub struct UIElementScanner {
+    /// The app's screen box, handed each scan's plain screenshot (base64)
+    /// as on iOS; none on the terminal.
+    frontend_callback: Option<Py<PyAny>>,
+    shared: Arc<Shared>,
+    device: Device,
+    /// The tree connection, kept open between scans.
+    tree: Mutex<Tree>,
+    scan: Mutex<ScanState>,
+}
+
+#[pymethods]
+impl UIElementScanner {
+    #[new]
+    #[pyo3(signature = (frontend_callback=None))]
+    pub fn new(py: Python<'_>, frontend_callback: Option<Py<PyAny>>) -> PyResult<Self> {
+        let session = py.import("AutoCua.android_connector.session")?.getattr("android_session")?;
+        let info = session.call_method0("activate")?;
+        if !info.get_item("ok")?.extract::<bool>()? {
+            let why: String = info.get_item("error")?.extract()?;
+            return Err(PyRuntimeError::new_err(format!("📱 Android connection failed: {why}")));
         }
+        let adb: String = info.get_item("adb")?.extract()?;
+        let serial: String = info.get_item("serial")?.extract()?;
+        let port: u16 = info.get_item("port")?.extract()?;
+        let tree_port: u16 = info.get_item("tree_port")?.extract()?;
+        // The first frame can take a moment: nothing in Python waits for it.
+        let (device, shared) = py
+            .detach(|| open(adb, serial, port))
+            .map_err(PyRuntimeError::new_err)?;
+        controller_service().set_phone(&device.adb, &device.serial, device.density);
+        Ok(UIElementScanner {
+            frontend_callback,
+            shared,
+            device,
+            tree: Mutex::new(Tree { port: tree_port, sock: None }),
+            scan: Mutex::new(ScanState::default()),
+        })
     }
-    let port = port.ok_or("--port <port> is required (the connector forwards it)")?;
-    let tree_port = tree_port.ok_or("--tree-port <port> is required (the connector forwards it)")?;
-    let adb = adb.ok_or("--adb <path> is required (the connector finds it)")?;
-    let serial = serial.ok_or("--serial <serial> is required (the connector picks the phone)")?;
-    Ok((port, tree_port, adb, serial, out_dir))
+
+    /// Scan the phone's screen: the tree from the helper and the newest
+    /// frame, kept here for get_scan_data, the elements handed to the
+    /// controller, the files written to debug/android/.
+    pub fn scan_elements(&self, py: Python<'_>) -> PyResult<()> {
+        self.scan.lock().unwrap().image_base64 = None;
+        let want_plain = self.frontend_callback.is_some();
+        // Pure Rust from here to the pictures: the GIL is not held meanwhile.
+        let cap = py
+            .detach(|| {
+                let mut tree = self.tree.lock().unwrap();
+                capture(&self.shared, &self.device, &mut tree, want_plain)
+            })
+            .map_err(PyRuntimeError::new_err)?;
+
+        let controller = controller_service();
+        controller.update_elements(cap.elements.clone());
+        controller.set_screen(cap.disp_w, cap.disp_h);
+        // The same bytes the model gets, for a look after a run. Never a
+        // reason to fail the scan.
+        if let Err(e) = write_scan(Path::new(DEFAULT_OUT_DIR), &cap) {
+            eprintln!("element: {e}");
+        }
+        {
+            let mut scan = self.scan.lock().unwrap();
+            scan.element_tree_text = cap.tree_text;
+            scan.image_base64 = Some(base64::engine::general_purpose::STANDARD.encode(&cap.jpeg));
+            scan.application_name = cap.application_name;
+        }
+        println!("{}", cap.summary);
+
+        // Send to frontend: the plain screenshot, as on iOS.
+        if let (Some(callback), Some(plain)) = (&self.frontend_callback, &cap.plain) {
+            callback.call1(py, (base64::engine::general_purpose::STANDARD.encode(plain),))?;
+        }
+        Ok(())
+    }
+
+    /// Get scan data for AgentService: the element tree text and the
+    /// annotated screenshot as base64 (None when the last scan failed).
+    pub fn get_scan_data(&self, _py: Python<'_>) -> PyResult<(String, Option<String>)> {
+        let scan = self.scan.lock().unwrap();
+        Ok((scan.element_tree_text.clone(), scan.image_base64.clone()))
+    }
+
+    /// The app in front at the last scan: its package, "" on the home screen.
+    #[getter]
+    pub fn application_name(&self) -> String {
+        self.scan.lock().unwrap().application_name.clone()
+    }
+
+    /// The stream's frame size, (width, height): what the phone sends after
+    /// scrcpy's max_size scaling, in the screen's current orientation.
+    #[getter]
+    pub fn frame_size(&self) -> (usize, usize) {
+        let latest = self.shared.latest.lock().unwrap();
+        (latest.width, latest.height)
+    }
+
+    /// A plain screenshot of the newest frame to debug/android/shot.jpg
+    /// (tree/test.py's "p"). Returns one line saying what was written.
+    pub fn shot(&self, py: Python<'_>) -> PyResult<String> {
+        py.detach(|| shot(&self.shared, Path::new(DEFAULT_OUT_DIR)))
+            .map_err(PyRuntimeError::new_err)
+    }
 }
 
 // ============================================================ stream
@@ -389,9 +470,30 @@ fn device_info(adb: String, serial: String) -> Device {
 
 // ============================================================ scan
 
+/// Everything one scan produces, in memory: the loop sends the tree text and
+/// the marked picture to the model, the controller gets the elements by
+/// number, and the debug files are written from the same bytes.
+struct Capture {
+    tree_text: String,
+    /// elements.json's text, and the same entries as the controller's map.
+    json: String,
+    elements: Map<String, Value>,
+    jpeg: Vec<u8>,
+    /// The frame before the marks, for the app's screen box; encoded only
+    /// when asked.
+    plain: Option<Vec<u8>>,
+    /// The app in front: its package, "" on the home screen.
+    application_name: String,
+    /// The display's size in pixels, in the frame's orientation.
+    disp_w: f64,
+    disp_h: f64,
+    /// One line: the counts and the timings.
+    summary: String,
+}
+
 /// One scan: the tree from the helper, the newest frame, then the elements,
 /// the tree text, the JSON and the marked screenshot.
-fn scan(shared: &Shared, dev: &Device, tree: &mut Tree, out_dir: &Path) -> Result<String, String> {
+fn capture(shared: &Shared, dev: &Device, tree: &mut Tree, want_plain: bool) -> Result<Capture, String> {
     let t0 = Instant::now();
     let xml = tree.dump()?;
     let t_dump = Instant::now();
@@ -450,24 +552,24 @@ fn scan(shared: &Shared, dev: &Device, tree: &mut Tree, out_dir: &Path) -> Resul
     let hidden = elems.iter().filter(|e| e.under.is_some()).count();
 
     let tablet = disp_w.min(disp_h) / (dev.density / 160.0) >= 600.0;
-    let app = if !dev.launcher.is_empty() && package == dev.launcher { "home screen" } else { package.as_str() };
+    let home = !dev.launcher.is_empty() && package == dev.launcher;
+    let app = if home { "home screen" } else { package.as_str() };
     let tree = tree_text(&elems, tablet, fw > fh, app);
     let json = elements_json(&elems);
+    let elements = elements_map(&elems);
     let t_tree = Instant::now();
 
+    // The video only has quarter-size colour (4:2:0); keeping full-size
+    // colour in the plain shot would add bytes and time and no detail.
+    let plain = if want_plain { Some(encode_jpeg(&rgb, fw, fh, SHOT_QUALITY, SamplingFactor::F_2_2)?) } else { None };
     annotate(&mut rgb, fw, fh, &elems, fw as f64 / disp_w, fh as f64 / disp_h);
     let t_draw = Instant::now();
     let jpeg = encode_jpeg(&rgb, fw, fh, SCAN_QUALITY, SamplingFactor::F_1_1)?;
     let t_jpeg = Instant::now();
 
-    write(&out_dir.join("tree.txt"), tree.as_bytes())?;
-    write(&out_dir.join("elements.json"), json.as_bytes())?;
-    write(&out_dir.join("scan.jpg"), &jpeg)?;
-
     let ms = |a: Instant, b: Instant| b.duration_since(a).as_millis();
-    Ok(format!(
-        "scan -> {}  {} elements{}  dump={} ms tree={} ms draw={} ms jpeg={} ms total={} ms",
-        out_dir.display(),
+    let summary = format!(
+        "[scan] {} elements{}  dump={} ms tree={} ms draw={} ms jpeg={} ms total={} ms",
         elems.len() - hidden,
         if hidden > 0 { format!(" ({hidden} hidden)") } else { String::new() },
         ms(t0, t_dump),
@@ -475,7 +577,25 @@ fn scan(shared: &Shared, dev: &Device, tree: &mut Tree, out_dir: &Path) -> Resul
         ms(t_tree, t_draw),
         ms(t_draw, t_jpeg),
         t0.elapsed().as_millis()
-    ))
+    );
+    Ok(Capture {
+        tree_text: tree,
+        json,
+        elements,
+        jpeg,
+        plain,
+        application_name: if home { String::new() } else { package },
+        disp_w,
+        disp_h,
+        summary,
+    })
+}
+
+/// The scan's three files: tree.txt, elements.json and scan.jpg.
+fn write_scan(out_dir: &Path, cap: &Capture) -> Result<(), String> {
+    write(&out_dir.join("tree.txt"), cap.tree_text.as_bytes())?;
+    write(&out_dir.join("elements.json"), cap.json.as_bytes())?;
+    write(&out_dir.join("scan.jpg"), &cap.jpeg)
 }
 
 /// The tree half of the phone helper (Helper.java), on its forwarded port.
@@ -1020,6 +1140,27 @@ fn elements_json(elems: &[Elem]) -> String {
         ));
     }
     out.push_str("}\n");
+    out
+}
+
+/// The same entries as elements_json, as the map the controller reads the
+/// element numbers from (ios/controller/service.py's elements_mapping).
+fn elements_map(elems: &[Elem]) -> Map<String, Value> {
+    let mut out = Map::new();
+    for (i, e) in elems.iter().filter(|e| e.numbered()).enumerate() {
+        let n = i + 1;
+        let mut entry = json!({
+            "type": e.kind,
+            "name": short_name(&e.name),
+            "number": n,
+            "depth": e.depth,
+            "bounds": {"x": e.x as i64, "y": e.y as i64, "width": e.w as i64, "height": e.h as i64},
+        });
+        if !e.value.is_empty() {
+            entry["value"] = Value::String(e.value.clone());
+        }
+        out.insert(n.to_string(), entry);
+    }
     out
 }
 

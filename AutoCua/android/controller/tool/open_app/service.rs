@@ -2,13 +2,16 @@
 //! installed apps, matches a name to ONE of them, launches it and confirms
 //! it came to the front; and the home screen.
 //!
-//! Through adb: `pm list packages` for the list, `monkey` with the LAUNCHER
-//! category to launch (it resolves the app's launcher activity itself, on
-//! every Android version), `dumpsys window` for the app in front, the HOME
-//! key for the home screen. The phone lists packages, not the names shown
-//! on the home screen, so an app's display name is the one of KNOWN_LABELS
-//! when its package is there, else read off its package ("com.whatsapp" is
-//! "whatsapp", "com.google.android.apps.maps" is "maps"); a name also
+//! Through adb: the launcher activities (`cmd package query-activities`,
+//! the apps the home screen shows and nothing else; `pm list packages`
+//! stands in on an Android too old for it, with every provider and theme
+//! overlay too) for the list, `monkey` with the LAUNCHER category to launch
+//! (it resolves the app's launcher activity itself, on every Android
+//! version), `dumpsys window` for the app in front, the HOME key for the
+//! home screen. The phone lists packages, not the names shown on the home
+//! screen, so an app's display name is the one of KNOWN_LABELS when its
+//! package is there, else read off its package ("com.whatsapp" is
+//! "Whatsapp", "com.google.android.apps.maps" is "Maps"); a name also
 //! matches anywhere inside the package, as a bundle id does on iOS.
 
 use std::sync::{Mutex, OnceLock};
@@ -106,19 +109,26 @@ fn norm(text: &str) -> String {
     text.to_lowercase().trim().replace(' ', "")
 }
 
-/// A name for a package the phone cannot name: its most telling segment.
+/// A name for a package the phone cannot name: its most telling segment,
+/// with a capital letter as the home screen would show it ("Calculator"
+/// for com.oneplus.calculator).
 fn label_of(package: &str) -> String {
     if let Some((_, label)) = KNOWN_LABELS.iter().find(|(p, _)| *p == package) {
         return label.to_string();
     }
     let segments: Vec<&str> = package.split('.').collect();
-    segments
+    let segment = segments
         .iter()
         .rev()
         .find(|s| !GENERIC.contains(&s.to_lowercase().as_str()) && !s.is_empty())
         .or_else(|| segments.last())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| package.to_string())
+        .unwrap_or_else(|| package.to_string());
+    let mut chars = segment.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => segment,
+    }
 }
 
 impl AppLauncherService {
@@ -126,27 +136,56 @@ impl AppLauncherService {
         self.apps.lock().unwrap().clone()
     }
 
-    /// Scan the installed apps: `pm list packages`. True when the list was read.
+    /// Scan the installed apps: the packages with a launcher activity, the
+    /// apps the home screen shows ("Settings" is then one app, not the five
+    /// packages named settings a OnePlus 7T lists). `pm list packages`
+    /// stands in when the query is not there (older Android). True when a
+    /// list was read.
     pub fn scan_apps(&self) -> bool {
-        match controller_service().adb_shell(&["pm", "list", "packages"]) {
-            Ok(out) => {
-                let mut apps: Vec<AppInfo> = out
+        // "  com.android.chrome/com.google.android.apps.chrome.Main" lines,
+        // one per activity, between "Activity #n:" and "priority=..." lines.
+        let launchable = controller_service()
+            .adb_shell(&["cmd", "package", "query-activities", "--brief",
+                         "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER"])
+            .map(|out| {
+                let mut packages: Vec<String> = Vec::new();
+                for line in out.lines().map(str::trim) {
+                    if line.contains('=') || line.contains(' ') {
+                        continue;
+                    }
+                    if let Some((package, _activity)) = line.split_once('/') {
+                        if package.contains('.') && !packages.iter().any(|p| p == package) {
+                            packages.push(package.to_string());
+                        }
+                    }
+                }
+                packages
+            })
+            .unwrap_or_default();
+        let packages = if !launchable.is_empty() {
+            launchable
+        } else {
+            match controller_service().adb_shell(&["pm", "list", "packages"]) {
+                Ok(out) => out
                     .lines()
                     .filter_map(|l| l.trim().strip_prefix("package:"))
-                    .map(|p| p.trim())
+                    .map(|p| p.trim().to_string())
                     .filter(|p| !p.is_empty())
-                    .map(|p| AppInfo { bundle_id: p.to_string(), display_name: label_of(p), version: String::new() })
-                    .collect();
-                apps.sort_by(|a, b| a.bundle_id.cmp(&b.bundle_id));
-                let found = !apps.is_empty();
-                *self.apps.lock().unwrap() = apps;
-                found
+                    .collect(),
+                Err(e) => {
+                    eprintln!("App scan failed: {e}");
+                    return false;
+                }
             }
-            Err(e) => {
-                eprintln!("App scan failed: {e}");
-                false
-            }
-        }
+        };
+        let mut apps: Vec<AppInfo> = packages
+            .iter()
+            .map(|p| AppInfo { bundle_id: p.clone(), display_name: label_of(p), version: String::new() })
+            .collect();
+        apps.sort_by(|a, b| a.bundle_id.cmp(&b.bundle_id));
+        let found = !apps.is_empty();
+        *self.apps.lock().unwrap() = apps;
+        found
     }
 
     /// Match tier of one app for a name (0 = no match). Single source of
@@ -270,9 +309,13 @@ impl AppLauncherService {
     }
 
     /// The package of the app in front (`dumpsys window`'s focus lines), or
-    /// None when it can't be read.
+    /// None when it can't be read. The whole window dump, not its "windows"
+    /// section: Android 10 moved the focus lines to the "displays" section
+    /// (measured on a OnePlus 7T: none at all under `dumpsys window
+    /// windows`), and the top-level dump holds every section on every
+    /// version, 36 KB and 130 ms there.
     pub fn active_app(&self) -> Option<String> {
-        let out = match controller_service().adb_shell(&["dumpsys", "window", "windows"]) {
+        let out = match controller_service().adb_shell(&["dumpsys", "window"]) {
             Ok(out) => out,
             Err(e) => {
                 eprintln!("dumpsys window failed: {e}");
