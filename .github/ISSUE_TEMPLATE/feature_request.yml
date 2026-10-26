@@ -12,6 +12,7 @@ body:
       options:
         - Personal
         - Corporate work
+      default: 1
     validations:
       required: true
 
@@ -19,10 +20,10 @@ body:
     id: company
     attributes:
       label: Company name
-      description: Only if you picked Corporate work above.
-      placeholder: Acme Ltd
+      description: Write NA if this is for personal use.
+      placeholder: Acme Ltd, or NA if personal
     validations:
-      required: false
+      required: true
 
   - type: checkboxes
     id: showcase
