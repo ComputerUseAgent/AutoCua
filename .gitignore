@@ -157,6 +157,18 @@ AutoCua/ios_connector/paired_devices.json
 /AutoCua/ios_connector/WebDriverAgent
 # Staging tree for the runtime clone (utils/wda.py); only outlives a crash.
 /AutoCua/ios_connector/.WebDriverAgent.incoming.*
+# Google's adb, fetched on first use (android_connector/adb.py), and its staging folder.
+/AutoCua/android_connector/platform-tools
+/AutoCua/android_connector/.platform-tools.incoming.*
+# scrcpy's server, fetched on first use (android_connector/stream.py), and its staging file.
+/AutoCua/android_connector/scrcpy-server-v*
+/AutoCua/android_connector/.scrcpy-server.incoming.*
+# Staging file of a helper build (android_connector/build_helper.py); only outlives a crash.
+/AutoCua/android_connector/.autocua-helper.jar.*
+# cargo's build of the Android crate (android/Cargo.toml): the element binary
+# (tree/test.py) and the agent's extension module. The agent's scratchpad.
+/AutoCua/android/target
+/AutoCua/android/scratchpad
 
 # Local-only tooling (never pushed)
 /sync.py

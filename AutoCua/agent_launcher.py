@@ -8,6 +8,12 @@
 #                                drive the paired iPhone/iPad instead. Either way the
 #                                WDA connection is opened before the run and
 #                                closed after it (ios_connector).
+#   mode = "mobile use, android" -> Android agent (AutoCua/android, Rust like the
+#                                web agent) driving the phone on USB: adb and the
+#                                phone helper are started before the run and
+#                                stopped after it (android_connector/session.py).
+#                                AutoCua_ANDROID_SERIAL picks one phone when
+#                                several are plugged in.
 #   mode = "web use"          -> browser agent driving CDP-controlled Chrome
 #                                (AutoCua/web). Host OS independent.
 import atexit
@@ -89,12 +95,16 @@ def resolve_agent_service(mode, os=None):
             from AutoCua.ios.agent.iphone_use.service import AgentService
             return AgentService
         if device == "android":
-            raise NotImplementedError("Android support is not available yet")
+            # The Rust extension in AutoCua/android (agent_native), compiled
+            # lazily by that package's agent/__init__ on first import, like
+            # the web agent's.
+            from AutoCua.android.agent import AgentService
+            return AgentService
         raise ValueError('mobile use needs a device — "mobile use, ios" or "mobile use, android"')
 
     raise ValueError(
-        f'Unknown mode "{mode}" — use "computer use", "shell use", "web use" '
-        'or "mobile use, ios"'
+        f'Unknown mode "{mode}" — use "computer use", "shell use", "web use", '
+        '"mobile use, ios" or "mobile use, android"'
     )
 
 
@@ -146,6 +156,23 @@ def _connect_iphone(poll_every=2.0, deadline=90.0):
 
     wda_session.deactivate()
     raise RuntimeError(f"📱 iPhone connection timed out after {int(deadline)}s")
+
+
+def _connect_android():
+    """Start the Android phone's helper (adb, scrcpy's server, the tree reader)
+    and wait until the phone is ready. The counterpart of _connect_iphone.
+
+    Returns the live android_session; raises RuntimeError if the phone can't
+    be reached (adb.py already said what to do on the phone meanwhile).
+    """
+    from AutoCua.android_connector.session import android_session
+
+    print("📱 Connecting Android phone...")
+    res = android_session.activate()
+    if not res.get("ok"):
+        raise RuntimeError(f"📱 Android connection failed: {res.get('error')}")
+    print(f"📱 Android phone connected ({res.get('model')}, {res.get('serial')})")
+    return android_session
 
 
 def _connect_simulator(ios_version=None, poll_every=2.0, deadline=600.0, sim_device=None,
@@ -330,8 +357,10 @@ def run_agent(mode, provider, model, task, os=None,
     parallel: on the web each as its own agent sharing one Chrome, pinned to
     its own single tab; on iOS each on its own simulator.
 
-    For "mobile use, ios" the device connection is opened first and always
-    closed when the agent terminates (success, error, or Ctrl+C).
+    For "mobile use, ios" and "mobile use, android" the device connection is
+    opened first and always closed when the agent terminates (success, error,
+    or Ctrl+C). Android has no simulator: device, ios_version, sim_device and
+    app_build are ignored; the phone is the one on USB.
     """
     if ui:
         from AutoCua.ui.service import main as launch_ui
@@ -422,6 +451,10 @@ def run_agent(mode, provider, model, task, os=None,
             except BaseException:
                 close_view(sim_window)
                 raise
+    elif (kind, mobile_os) == ("mobile", "android"):
+        # The phone helper is up before the agent is built, and stopped in
+        # the finally below like the iOS connection.
+        phone = _connect_android()
     agent_glow = None
     try:
         if sim_window is not None:
@@ -455,7 +488,7 @@ def run_agent(mode, provider, model, task, os=None,
             close_view(sim_window)
         if phone is not None:
             phone.deactivate()
-            print("📱 iOS connection closed")
+            print(f"📱 {'Android' if mobile_os == 'android' else 'iOS'} connection closed")
 
 
 def run_parallel_sim_agents(tasks, provider, model, save_conversation=False,

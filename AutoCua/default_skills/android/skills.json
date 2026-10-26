@@ -1,0 +1,7 @@
+{
+  "_comment": "apps: key = the app name as the launcher shows it (case-insensitive) or its package -> skill .md",
+  "apps": {
+    "Instagram": "instagram.md",
+    "com.instagram.android": "instagram.md"
+  }
+}

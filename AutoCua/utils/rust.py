@@ -1,17 +1,16 @@
-"""Build the web agent's Rust extension if it isn't built yet.
+"""Build the Rust extensions (the web agent, the Android agent) if they aren't built yet.
 
-The whole web side is ONE crate rooted at AutoCua/web/: Cargo.toml, target/
-and the built agent_native.so all live there, and the .rs sources sit in their
-own folders (agent/, browser/, controller/, tool_registry/, tree/) mirroring the
-old Python layout. tree/element.rs is the page scanner; it used to build as a
-second binary and run as a subprocess, and is a plain module of this crate now.
-It compiles with plain `cargo build --release` — no maturin, no pyproject.toml
-— one cargo build for the whole web side.
+Each side is ONE crate rooted at its folder, AutoCua/web/ and AutoCua/android/:
+Cargo.toml, target/ and the built agent_native.so all live there, and the .rs
+sources sit in their own folders (agent/, controller/, tool_registry/, tree/)
+mirroring the old Python layout. Each compiles with plain
+`cargo build --release` — no maturin, no pyproject.toml — one cargo build for
+the whole side.
 
 WHEN THIS ACTUALLY RUNS
     Checkout  — Cargo.toml sits beside the package, so this compiles on the
-                first `web use` and on any later run where a .rs source is
-                newer than the built module.
+                first "web use" / "mobile use, android" and on any later run
+                where a .rs source is newer than the built module.
     pip wheel — the extension ships prebuilt (agent_native.abi3.so) and the
                 crate sources are excluded, so there is no Cargo.toml to find
                 and cargo is never touched.
@@ -27,7 +26,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-_WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+_PACKAGE = Path(__file__).resolve().parent.parent
+_WEB_DIR = _PACKAGE / "web"
+_ANDROID_DIR = _PACKAGE / "android"
 
 # Two different naming schemes have to line up here, and neither is portable:
 # Python only imports an extension named .pyd on Windows and .so elsewhere,
@@ -40,10 +41,6 @@ elif sys.platform == "darwin":
     _EXT_SUFFIX, _CARGO_ARTIFACT = ".so", "libagent_native.dylib"
 else:
     _EXT_SUFFIX, _CARGO_ARTIFACT = ".so", "libagent_native.so"
-
-_SO = _WEB_DIR / f"agent_native{_EXT_SUFFIX}"
-_DYLIB = _WEB_DIR / "target" / "release" / _CARGO_ARTIFACT
-_MANIFEST = _WEB_DIR / "Cargo.toml"
 
 # The setup script for this host — what every error below points at. Rather
 # than straight at rustup.rs, because the scripts install the toolchain AND
@@ -59,12 +56,12 @@ elif sys.platform.startswith("linux"):
 else:
     _SETUP_HINT = "install Rust from https://rustup.rs and a C compiler"
 
-# Directories under web/ that hold no crate sources.
+# Directories under a crate that hold no crate sources.
 _NOT_SOURCE = {"target", "tests", "scratchpad", "__pycache__"}
 
 
-def _rust_sources():
-    """Every .rs the crate compiles, wherever under web/ it lives.
+def _rust_sources(crate_dir):
+    """Every .rs the crate compiles, wherever under its folder it lives.
 
     Walked rather than listed folder by folder. A hand-written list goes stale
     the moment a source moves, and it fails SILENTLY — the extension simply
@@ -72,7 +69,7 @@ def _rust_sources():
     the code. browser/browser.rs was exactly that: moved out of agent/, and
     with it out of the freshness check.
     """
-    for entry in _WEB_DIR.iterdir():
+    for entry in crate_dir.iterdir():
         if entry.name in _NOT_SOURCE:
             continue
         if entry.is_dir():
@@ -81,21 +78,25 @@ def _rust_sources():
             yield entry
 
 
-def ensure_web_agent_built() -> None:
-    """Compile the extension once — a minute on first use, then never again.
+def _ensure_built(crate_dir, what, others):
+    """Compile one crate's extension once — a minute on first use, then never again.
+
+    what: the crate's name in messages ("web agent"); others: the modes that
+    run without it, for the error text.
 
     A no-op from a pip wheel: no Cargo.toml means the extension is already
     built and shipped, so nothing here has anything to do.
     """
-    if not _MANIFEST.is_file():
+    manifest = crate_dir / "Cargo.toml"
+    if not manifest.is_file():
         return
+    so = crate_dir / f"agent_native{_EXT_SUFFIX}"
+    dylib = crate_dir / "target" / "release" / _CARGO_ARTIFACT
 
-    # Everything the crate compiles — including tree/element.rs, which builds
-    # as the `element` binary target of this same crate (one cargo build, one
-    # target/, both artifacts).
-    sources = [_MANIFEST, *_rust_sources()]
+    # Everything the crate compiles, wherever under its folder it lives.
+    sources = [manifest, *_rust_sources(crate_dir)]
     stamps = [p.stat().st_mtime for p in sources if p.exists()]
-    if _SO.exists() and stamps and _SO.stat().st_mtime >= max(stamps):
+    if so.exists() and stamps and so.stat().st_mtime >= max(stamps):
         return
 
     # shutil.which applies PATHEXT itself, so it already finds cargo.exe; only
@@ -104,28 +105,27 @@ def ensure_web_agent_built() -> None:
     cargo = shutil.which("cargo") or str(Path.home() / ".cargo" / "bin" / cargo_exe)
     if not Path(cargo).exists():
         raise RuntimeError(
-            "cargo not found — the web agent is a Rust extension that builds "
+            f"cargo not found — the {what} is a Rust extension that builds "
             f"once from source. To fix it, {_SETUP_HINT}\n"
-            "Every other mode (computer use, shell use, mobile use) runs "
-            "without it."
+            f"{others} run without it."
         )
 
-    # cargo links through the system C compiler, and ring (the SHA-256 that
-    # stages the browser extension) compiles C sources — a Linux box straight from the
-    # installer has neither. Caught here with a readable message rather than
-    # minutes later as "linker `cc` not found" deep in cargo's output. macOS
-    # always has /usr/bin/cc (Apple's shim, which offers the Command Line
-    # Tools itself), so in practice this fires on Linux only.
+    # cargo links through the system C compiler, and the crates compile C
+    # sources of their own (ring's SHA-256 on the web side, OpenH264 on the
+    # Android side) — a Linux box straight from the installer has neither.
+    # Caught here with a readable message rather than minutes later as
+    # "linker `cc` not found" deep in cargo's output. macOS always has
+    # /usr/bin/cc (Apple's shim, which offers the Command Line Tools itself),
+    # so in practice this fires on Linux only.
     if sys.platform != "win32" and not any(shutil.which(c) for c in ("cc", "gcc", "clang")):
         apt = " (or just:  sudo apt install build-essential)" if sys.platform.startswith("linux") else ""
         raise RuntimeError(
-            "no C compiler found — cargo needs one to link the web agent. "
+            f"no C compiler found — cargo needs one to link the {what}. "
             f"To fix it, {_SETUP_HINT}{apt}\n"
-            "Every other mode (computer use, shell use, mobile use) runs "
-            "without it."
+            f"{others} run without it."
         )
 
-    print("Building the web agent (first run, ~1 min)...")
+    print(f"Building the {what} (first run, ~1 min)...")
     # Pin the build to the interpreter that is importing us. pyo3-build-config
     # otherwise picks whatever "python" PATH resolves to, which in a venv that
     # was never activated is a different install than the one that will load
@@ -143,14 +143,28 @@ def ensure_web_agent_built() -> None:
     # of the toolchain live beside it and are found the same way.
     env["PATH"] = os.pathsep.join([str(Path(cargo).parent), env.get("PATH", "")])
     subprocess.check_call(
-        [cargo, "build", "--release", "--manifest-path", str(_MANIFEST)],
-        cwd=str(_WEB_DIR), env=env)
-    if not _DYLIB.exists():
-        raise RuntimeError(f"build succeeded but {_DYLIB} is missing")
+        [cargo, "build", "--release", "--manifest-path", str(manifest)],
+        cwd=str(crate_dir), env=env)
+    if not dylib.exists():
+        raise RuntimeError(f"build succeeded but {dylib} is missing")
     # Install through a NEW inode, never by overwriting the .so in place:
     # macOS keeps the previous code-signature blob registered on the old
     # vnode, and every process that then maps the rewritten file is
     # SIGKILLed ("zsh: killed", exit 137) with nothing in the log.
-    tmp = _SO.with_name(_SO.name + ".new")
-    shutil.copy2(_DYLIB, tmp)
-    os.replace(tmp, _SO)
+    tmp = so.with_name(so.name + ".new")
+    shutil.copy2(dylib, tmp)
+    os.replace(tmp, so)
+
+
+def ensure_web_agent_built() -> None:
+    """The web agent's extension (AutoCua/web/agent_native), built once."""
+    _ensure_built(_WEB_DIR, "web agent",
+                  "Every other mode (computer use, shell use, mobile use)")
+
+
+def ensure_android_agent_built() -> None:
+    """The Android agent's extension (AutoCua/android/agent_native), built
+    once. Its first build also compiles OpenH264 (the phone's screen stream),
+    the longer half of the minute."""
+    _ensure_built(_ANDROID_DIR, "Android agent",
+                  "Every other mode (computer use, shell use, web use, iOS)")
