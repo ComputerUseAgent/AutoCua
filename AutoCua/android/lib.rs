@@ -43,6 +43,26 @@ pub mod controller {
         pub mod shell {
             pub mod service;
         }
+        /// The vault: the logins saved for the app in front, and PIN pads.
+        pub mod vault {
+            pub mod service;
+        }
+        /// The system Back: a page back, or out of a full-screen video player.
+        pub mod back {
+            pub mod service;
+        }
+        /// The web search: service.rs routes it, one file per provider's
+        /// search and the browser-agent fallback beside it, as on iOS.
+        pub mod web {
+            pub mod service;
+            pub mod anthropic;
+            pub mod chatgpt;
+            pub mod google_search;
+            pub mod groq_search;
+            pub mod openrouter;
+            pub mod perplexity_search;
+            pub mod web_agent;
+        }
     }
 }
 /// The tool registry and its LLM manager, the copy of ios/tool_registry.

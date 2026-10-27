@@ -281,11 +281,13 @@ fn trim_history_entry(entry: &str) -> String {
     }
 }
 
-/// The shared vault (AutoCua/vault/service.py), called as the iOS loop calls
-/// it: what it typed this chat reads as [vault], and <vault> lists the keys
-/// saved for the app in front.
+/// The vault, called as the iOS loop calls it: what it typed this chat reads
+/// as [vault] (the shared hide, AutoCua/vault/service.py), and <vault> lists
+/// the keys saved for the app in front (the Android vault,
+/// controller/tool/vault, which reads the "android" section).
 mod vault {
     use super::*;
+    use crate::controller::tool::vault::service::vault_service;
 
     fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
         py.import("AutoCua.vault.service")
@@ -311,15 +313,19 @@ mod vault {
 
     /// <vault>: the key names saved for the app just scanned, "" when none.
     pub fn block(py: Python<'_>) -> PyResult<String> {
-        module(py)?.getattr("vault_service")?.call_method0("block")?.extract()
+        Ok(vault_service().block(py))
     }
 
-    /// The tree the scan just read, which `block` names the app from. On iOS
-    /// the scanner pushes it (ios/tree/element.py); here the loop does, from
-    /// the scan it just took. The vault knows its iOS and web sections so
-    /// far; the Android section comes with the `vault` tool (controller).
-    pub fn update_element_tree(py: Python<'_>, text: &str) -> PyResult<()> {
-        module(py)?.getattr("vault_service")?.call_method1("update_element_tree", (text,))?;
+    /// A scan starts: until it succeeds the vault types into nothing.
+    pub fn begin_scan() {
+        vault_service().begin_scan();
+    }
+
+    /// The tree a scan just read, which `block` and the vault tool name the
+    /// app from. On iOS the scanner pushes it (ios/tree/element.py); here the
+    /// loop does, from the scan it just took.
+    pub fn update_element_tree(_py: Python<'_>, text: &str) -> PyResult<()> {
+        vault_service().update_element_tree(text);
         Ok(())
     }
 }
@@ -1151,15 +1157,22 @@ impl AgentService {
                 // Scan UI elements and get annotated screenshot
                 println!("\n{}", "=".repeat(60));
                 println!("🔍 Step {step_number}: Scanning snapshot.");
-                if let Err(e) = self.scanner.scan_elements(py) {
-                    // KeyboardInterrupt / SystemExit are BaseException: let
-                    // them fly. A failed scan is reported and the step goes
-                    // on with what the scanner holds, as the iOS scanner does.
-                    if !e.is_instance_of::<PyException>(py) {
-                        return Err(e);
+                // Until this scan succeeds the vault types into nothing
+                // (iOS's scanner does the same at the start of a scan).
+                vault::begin_scan();
+                let scanned = match self.scanner.scan_elements(py) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        // KeyboardInterrupt / SystemExit are BaseException: let
+                        // them fly. A failed scan is reported and the step goes
+                        // on with what the scanner holds, as the iOS scanner does.
+                        if !e.is_instance_of::<PyException>(py) {
+                            return Err(e);
+                        }
+                        println!("Error: {}", py_err_str(py, &e));
+                        false
                     }
-                    println!("Error: {}", py_err_str(py, &e));
-                }
+                };
 
                 // Check Stop AFTER Scan
                 if self.stop_set(py)? {
@@ -1187,8 +1200,11 @@ impl AgentService {
                 formatted_element_tree =
                     format!("<element_tree>\n{}\n</element_tree>", vault::hide(py, &element_tree_text)?);
                 // <vault>: the login keys saved for the app just scanned,
-                // which the vault reads off the tree it is handed first.
-                vault::update_element_tree(py, &element_tree_text)?;
+                // which the vault reads off the tree it is handed first (only
+                // a tree this scan read: after a failed one it keeps the last).
+                if scanned {
+                    vault::update_element_tree(py, &element_tree_text)?;
+                }
                 vault_block = vault::block(py)?;
                 // Skills are matched against the screen we JUST scanned: the
                 // app in front is the root of the tree the scanner parsed.
