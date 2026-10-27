@@ -32,6 +32,9 @@
 //
 // The tree (Helper.java, its own socket): send a line, get a 4-byte big-endian
 // length and that many bytes of UTF-8, the XML or a line starting "ERROR:".
+// The vault and the back tool use the same connection (read_tree,
+// fill_focused): the helper serves one client at a time, and the scanner
+// keeps its one open.
 
 use std::collections::HashMap;
 use std::fs;
@@ -39,7 +42,7 @@ use std::io::{self, ErrorKind, Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
 use std::process::Command;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -239,8 +242,6 @@ pub struct UIElementScanner {
     frontend_callback: Option<Py<PyAny>>,
     shared: Arc<Shared>,
     device: Device,
-    /// The tree connection, kept open between scans.
-    tree: Mutex<Tree>,
     scan: Mutex<ScanState>,
 }
 
@@ -264,11 +265,11 @@ impl UIElementScanner {
             .detach(|| open(adb, serial, port))
             .map_err(PyRuntimeError::new_err)?;
         controller_service().set_phone(&device.adb, &device.serial, device.density);
+        use_helper(tree_port);
         Ok(UIElementScanner {
             frontend_callback,
             shared,
             device,
-            tree: Mutex::new(Tree { port: tree_port, sock: None }),
             scan: Mutex::new(ScanState::default()),
         })
     }
@@ -282,8 +283,9 @@ impl UIElementScanner {
         // Pure Rust from here to the pictures: the GIL is not held meanwhile.
         let cap = py
             .detach(|| {
-                let mut tree = self.tree.lock().unwrap();
-                capture(&self.shared, &self.device, &mut tree, want_plain)
+                let mut tree = helper().lock().unwrap();
+                let tree = tree.as_mut().ok_or("no phone helper connected")?;
+                capture(&self.shared, &self.device, tree, want_plain)
             })
             .map_err(PyRuntimeError::new_err)?;
 
@@ -598,6 +600,66 @@ fn write_scan(out_dir: &Path, cap: &Capture) -> Result<(), String> {
     write(&out_dir.join("scan.jpg"), &cap.jpeg)
 }
 
+/// The helper connection: one per process, as there is one scanner and one
+/// helper on the phone. The scanner reads the tree through it, and the vault
+/// fills a field and re-reads a PIN pad through it too, so the helper (which
+/// serves one client at a time) never has a second client waiting.
+fn helper() -> &'static Mutex<Option<Tree>> {
+    static HELPER: OnceLock<Mutex<Option<Tree>>> = OnceLock::new();
+    HELPER.get_or_init(|| Mutex::new(None))
+}
+
+/// The helper connection from here on: the one on `port`, the helper's
+/// forwarded tree port (connected at the first request).
+pub(crate) fn use_helper(port: u16) {
+    *helper().lock().unwrap() = Some(Tree { port, sock: None });
+}
+
+/// The screen's tree as it is now, in uiautomator's XML format (the vault's
+/// read of a PIN pad before and after it taps, the back tool's check that
+/// the screen changed).
+pub fn read_tree() -> Result<String, String> {
+    let mut tree = helper().lock().unwrap();
+    tree.as_mut().ok_or("no phone helper connected")?.dump()
+}
+
+/// Why fill_focused set nothing.
+pub enum FillError {
+    /// The helper looked and said no: `why` is no_focus, not_password,
+    /// not_text or wrong_app, `class` the focused view's class when it named
+    /// one. Nothing was set.
+    Refused { why: String, class: String },
+    /// The request failed, or the field did not take the text: what the field
+    /// holds now is unknown.
+    Failed,
+}
+
+/// Set the text of the field that has input focus, through the helper
+/// (Helper.java's fill): `password` when the value is a password (the field
+/// must then be a password field), `package` the app the scan read (the
+/// field must be in it). The value travels only over the helper's socket:
+/// never in a process list, a log or an error.
+pub fn fill_focused(password: bool, package: &str, text: &str) -> Result<(), FillError> {
+    // Both in base64, so neither can break the request line.
+    let b64 = |s: &str| base64::engine::general_purpose::STANDARD.encode(s.as_bytes());
+    let request = format!("fill {} {} {}\n", if password { 1 } else { 0 }, b64(package), b64(text));
+    let mut tree = helper().lock().unwrap();
+    let tree = tree.as_mut().ok_or(FillError::Failed)?;
+    // One try: the text may have been set before a reply went missing.
+    let answer = tree.exchange(request.as_bytes()).map_err(|_| FillError::Failed)?;
+    if answer == "OK" {
+        return Ok(());
+    }
+    let mut words = answer.strip_prefix("ERROR:").unwrap_or("").split_whitespace();
+    match words.next() {
+        Some(why @ ("no_focus" | "not_password" | "not_text" | "wrong_app")) => Err(FillError::Refused {
+            why: why.to_string(),
+            class: words.next().unwrap_or("").to_string(),
+        }),
+        _ => Err(FillError::Failed),
+    }
+}
+
 /// The tree half of the phone helper (Helper.java), on its forwarded port.
 /// One connection, kept open between scans.
 struct Tree {
@@ -612,9 +674,9 @@ impl Tree {
     fn dump(&mut self) -> Result<String, String> {
         // A connection the helper has dropped shows up as an I/O error: one
         // fresh try.
-        let text = match self.exchange() {
+        let text = match self.exchange(b"dump\n") {
             Ok(text) => text,
-            Err(_) => self.exchange()?,
+            Err(_) => self.exchange(b"dump\n")?,
         };
         match text.strip_prefix("ERROR:") {
             Some(why) => Err(format!("helper: {}", why.trim())),
@@ -622,10 +684,10 @@ impl Tree {
         }
     }
 
-    /// One request and its whole answer. On any I/O error the connection is
-    /// dropped, so a late or half-read answer is never taken for the next one.
-    /// A whole "ERROR:" answer keeps it: that stream is still in step.
-    fn exchange(&mut self) -> Result<String, String> {
+    /// One request line and its whole answer. On any I/O error the connection
+    /// is dropped, so a late or half-read answer is never taken for the next
+    /// one. A whole "ERROR:" answer keeps it: that stream is still in step.
+    fn exchange(&mut self, request: &[u8]) -> Result<String, String> {
         if self.sock.is_none() {
             let sock = TcpStream::connect(("127.0.0.1", self.port)).map_err(|e| format!("tree: {e}"))?;
             sock.set_read_timeout(Some(TREE_WAIT)).ok();
@@ -633,7 +695,7 @@ impl Tree {
         }
         let sock = self.sock.as_mut().unwrap();
         let answer = (|| -> io::Result<Vec<u8>> {
-            sock.write_all(b"dump\n")?;
+            sock.write_all(request)?;
             let mut len = [0u8; 4];
             sock.read_exact(&mut len)?;
             let len = u32::from_be_bytes(len) as usize;
@@ -1006,7 +1068,7 @@ fn is_control(n: Node) -> bool {
     flag(n, "clickable") || flag(n, "checkable") || flag(n, "scrollable") || is_input(attr(n, "class"))
 }
 
-fn is_input(class: &str) -> bool {
+pub(crate) fn is_input(class: &str) -> bool {
     let short = class.rsplit('.').next().unwrap_or(class);
     short.contains("EditText") || short.contains("AutoCompleteTextView")
 }
