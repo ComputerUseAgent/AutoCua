@@ -44,9 +44,12 @@ APP_WAIT = 5.0
 # accessibility first, and the forward takes a connection before it listens.
 TREE_WAIT = 15.0
 
-# How long "already registered" is asked again: a helper that was just
-# stopped is gone in under a second; anything longer is another program.
-REGISTERED_WAIT = 3.0
+# How long a passing answer is asked again: "already registered" (a helper
+# that was just stopped is gone in under a second; anything longer is another
+# program) and "no active window" (a helper that has just connected gets
+# Android's windows a moment later; anything longer is a screen that is off).
+PASSING_WAIT = 3.0
+PASSING = ("already registered", "no active window")
 
 
 # ─────────────────────────── remembered phones ───────────────────────────
@@ -145,8 +148,9 @@ def _read_tree(port):
     connection before the phone side listens, then drops it, so a dropped one
     is tried again until TREE_WAIT runs out. A helper stopped a moment ago
     (Settings' check) holds Android's one UiAutomation for under a second
-    while it exits, so "already registered" is asked again for a few seconds
-    (the helper connects it again on each request)."""
+    while it exits, and a helper that has just connected may not have the
+    active window yet, so those two answers are asked again for a few seconds
+    (the helper connects and reads again on each request)."""
     start = time.monotonic()
     while True:
         try:
@@ -160,7 +164,7 @@ def _read_tree(port):
             continue
         if not answer.startswith("ERROR:"):
             return
-        if "already registered" not in answer or time.monotonic() - start > REGISTERED_WAIT:
+        if not any(p in answer for p in PASSING) or time.monotonic() - start > PASSING_WAIT:
             raise RuntimeError(answer[len("ERROR:"):].strip())
         time.sleep(0.3)
 
@@ -243,9 +247,11 @@ class AndroidSession:
             _read_tree(res["tree_port"])
         except Exception as e:  # noqa: BLE001 - reported, like activate
             self.deactivate()
+            hint = ("Wake the phone and unlock it, then try again." if "no active window" in str(e)
+                    else "Close anything else that reads the phone's screen (another AutoCua, "
+                         "Appium), then try again.")
             return {"ok": False, "state": "error", "error": f"The phone helper did not read the screen: {e}",
-                    "hint": "Close anything else that reads the phone's screen (another AutoCua, "
-                            "Appium), then try again."}
+                    "hint": hint}
         if not keep:
             self.deactivate()
         return res
