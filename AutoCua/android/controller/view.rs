@@ -284,9 +284,13 @@ impl ControllerView {
             let get = |key: &str| action_item.get(key).cloned().unwrap_or(Value::Null);
 
             match action_type.as_str() {
+                // The phone calls below run adb (a tap is Android's own `input`
+                // tool, ~0.2 s; open_app waits up to 3 s for the app): Python's
+                // lock is let go meanwhile, so the app's Stop, its watchers and
+                // its window never wait on the phone.
                 "click" => {
                     let element_id = get("id");
-                    let result = match self.controller_service.click(&element_id) {
+                    let result = match py.detach(|| self.controller_service.click(&element_id)) {
                         Ok(()) => json!({"status": "success", "action": "click", "element": py_int(&element_id).unwrap_or(0)}),
                         Err(e) => {
                             eprintln!("✗ Click failed: {e}");
@@ -302,7 +306,7 @@ impl ControllerView {
 
                 "ground_click" => {
                     let (x, y) = (get("x"), get("y"));
-                    let result = match self.controller_service.ground_click(&x, &y) {
+                    let result = match py.detach(|| self.controller_service.ground_click(&x, &y)) {
                         Ok(()) => json!({"status": "success", "action": "ground_click", "x": x, "y": y}),
                         Err(e) => {
                             eprintln!("✗ Ground click failed: {e}");
@@ -319,7 +323,8 @@ impl ControllerView {
                 "input" => {
                     let element_id = get("id");
                     let text_value = get("value");
-                    let result = match self.controller_service.type_text(&element_id, &py_str_of(&text_value)) {
+                    let text = py_str_of(&text_value);
+                    let result = match py.detach(|| self.controller_service.type_text(&element_id, &text)) {
                         Ok(()) => json!({"status": "success", "action": "input", "element": py_int(&element_id).unwrap_or(0), "text": text_value}),
                         Err(e) => {
                             eprintln!("✗ Input failed: {e}");
@@ -341,7 +346,8 @@ impl ControllerView {
                 "scroll" => {
                     let element_id = get("id");
                     let direction = get("value");
-                    let result = match self.controller_service.scroll(&element_id, &py_str_of(&direction)) {
+                    let way = py_str_of(&direction);
+                    let result = match py.detach(|| self.controller_service.scroll(&element_id, &way)) {
                         Ok(()) => json!({"status": "success", "action": "scroll", "element": py_int(&element_id).unwrap_or(0), "direction": direction}),
                         Err(e) => {
                             eprintln!("✗ Scroll failed: {e}");
@@ -365,7 +371,7 @@ impl ControllerView {
                     let launcher = app_launcher_service();
                     // Special 'home' case: return to the home screen
                     if app_name.to_lowercase() == "home" {
-                        if launcher.go_home() {
+                        if py.detach(|| launcher.go_home()) {
                             results.push(json!({"status": "success", "action": "tool", "tool": "open_app", "app": "home"}));
                         } else {
                             return Ok(json!({
@@ -377,7 +383,7 @@ impl ControllerView {
                             }));
                         }
                     } else {
-                        let launch = launcher.launch_app(&app_name);
+                        let launch = py.detach(|| launcher.launch_app(&app_name));
                         let ok = launch.get("ok").is_some_and(truthy);
                         // Report what was ACTUALLY launched (resolved display
                         // name + package), never just the query, and success

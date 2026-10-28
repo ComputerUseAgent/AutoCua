@@ -148,8 +148,8 @@ function SettingsOverlay() {
                         </div>
                     </div>
 
-                    {/* Connect Device: phone automation. iPhone (iOS/WDA) is live;
-                        Android is disabled for now. Wired by device_connect.js. */}
+                    {/* Connect Device: phone automation, iPhone (iOS/WDA) and Android
+                        (adb + the phone helper). Wired by device_connect.js. */}
                     <div className="settings-view settings-device-view" id="settingsDeviceView">
                         <div className="settings-section-heading">Connect Device</div>
                         <div className="device-list">
@@ -208,13 +208,50 @@ function SettingsOverlay() {
                                 </div>
                             </div>
 
-                            {/* Android (future) */}
-                            <div className="device-option is-disabled" id="deviceOptionAndroid" aria-disabled="true" data-tip="Added in a future update">
+                            {/* Android */}
+                            <div className="device-option" id="deviceOptionAndroid" role="button" tabIndex={0} aria-expanded="false" aria-label="Connect Android phone">
                                 <span className="device-logo device-logo-android" aria-hidden="true">
                                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6,18C6,18.55 6.45,19 7,19H8V22.5C8,23.33 8.67,24 9.5,24C10.33,24 11,23.33 11,22.5V19H13V22.5C13,23.33 13.67,24 14.5,24C15.33,24 16,23.33 16,22.5V19H17C17.55,19 18,18.55 18,18V8H6V18M3.5,8C2.67,8 2,8.67 2,9.5V16.5C2,17.33 2.67,18 3.5,18C4.33,18 5,17.33 5,16.5V9.5C5,8.67 4.33,8 3.5,8M20.5,8C19.67,8 19,8.67 19,9.5V16.5C19,17.33 19.67,18 20.5,18C21.33,18 22,17.33 22,16.5V9.5C22,8.67 21.33,8 20.5,8M15.53,2.16L16.84,0.85C17.03,0.66 17.03,0.34 16.84,0.14C16.64,-0.05 16.32,-0.05 16.13,0.14L14.65,1.62C13.85,1.23 12.95,1 12,1C11.04,1 10.14,1.23 9.34,1.63L7.85,0.14C7.66,-0.05 7.34,-0.05 7.15,0.14C6.95,0.34 6.95,0.66 7.15,0.85L8.46,2.16C6.97,3.26 6,5.01 6,7H18C18,5.01 17.03,3.25 15.53,2.16M10,5H9V4H10V5M15,5H14V4H15V5Z" /></svg>
                                 </span>
                                 <span className="device-name">Android</span>
-                                <span className="device-soon">Soon</span>
+                                <span className="device-chevron" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 6 15 12 9 18"></polyline></svg>
+                                </span>
+                            </div>
+
+                            {/* Android expandable panel: the iPhone's flow for an Android
+                                phone, with no account and nothing to install. Connect
+                                reads the phone over USB, starts its helper and reads one
+                                screen through it, then remembers it. Wired by
+                                device_connect.js. */}
+                            <div className="device-panel" id="devicePanelAndroid" hidden>
+                                <div className="dc-flow">
+                                    {/* Device dropdown (auto-selected) */}
+                                    <div className="dc-field">
+                                        <label className="dc-label">Device</label>
+                                        <div className="dc-select" id="dcAndroidDeviceSelect" role="button" tabIndex={0}>
+                                            <span className="dc-select-value placeholder" id="dcAndroidDeviceValue">Looking…</span>
+                                            <ChevronDown className="dc-select-chevron" />
+                                            <div className="dc-select-menu" id="dcAndroidDeviceMenu"></div>
+                                        </div>
+                                    </div>
+
+                                    <div className="dc-status" id="dcAndroidStatus" data-state="loading">
+                                        <span className="dc-spinner" id="dcAndroidSpinner"></span>
+                                        <span className="dc-check" id="dcAndroidCheck" hidden></span>
+                                        <span className="dc-status-text" id="dcAndroidStatusText">Looking for your Android phone…</span>
+                                    </div>
+                                    <div className="dc-steps" id="dcAndroidSteps" hidden></div>
+                                    <button className="dc-action" id="dcAndroidAction" type="button" hidden></button>
+
+                                    {/* Connected phones (android_paired/paired_devices.json): the
+                                        Android pick in the chat box starts the newest one that is
+                                        plugged in. × forgets the phone. */}
+                                    <div className="dc-paired" id="dcAndroidPaired" hidden>
+                                        <div className="dc-label">Connected devices</div>
+                                        <div className="dc-paired-list" id="dcAndroidPairedList"></div>
+                                    </div>
+                                </div>
                             </div>
 
                         </div>

@@ -349,7 +349,7 @@ def get_platform_path(pkg=None):
 # only ever be reopened as Computer use, so stamping a web run wrong locks it
 # out of Web use permanently. "shell" is not here — that axis is its own marker,
 # set by run_shell_task, and shares the desktop pkg.
-_PKG_MODE = {'ios': 'mobile', 'web': 'web'}
+_PKG_MODE = {'ios': 'mobile', 'android': 'mobile', 'web': 'web'}
 _MODE_LABEL = {'mobile': 'Mobile use', 'web': 'Web use', 'computer': 'Computer use'}
 
 
@@ -1579,6 +1579,87 @@ def api_ios_deactivate():
 
 
 # =============================================================================
+# Flask routes — Android phone (Settings → Connect Device → Android, and the
+# chat box's Android pick), the iPhone's steps for an Android phone.
+# paired_devices.json (android_connector) lists the phones Settings connected.
+# Connect reads the phone, starts its helper and reads one screen through it,
+# then stops it; the Android pick in the chat box starts it for the run.
+# Nothing is installed on the phone.
+# =============================================================================
+@app.route('/api/android/detect', methods=['GET'])
+def api_android_detect():
+    """The phones on USB, ready or not, for Settings' Device menu."""
+    try:
+        from AutoCua.android_connector.session import phones
+        return jsonify({"ok": True, "devices": phones()})
+    except Exception as e:
+        debug_exception("api_android_detect")
+        return jsonify({"ok": False, "devices": [], "error": str(e)})
+
+
+@app.route('/api/android/connect', methods=['POST'])
+def api_android_connect():
+    """Settings' Connect: check the phone and its helper, then remember it."""
+    from flask import request
+    try:
+        data = request.get_json(silent=True) or {}
+        serial = data.get("serial")
+        if not serial:
+            return jsonify({"ok": False, "error": "No phone picked"})
+        from AutoCua.android_connector.session import android_session, add_paired
+        res = android_session.confirm(serial, keep=False)
+        if not res.get("ok"):
+            return jsonify(res)
+        return jsonify({"ok": True, "devices": add_paired(serial, data.get("name") or res.get("model"),
+                                                          data.get("version"))})
+    except Exception:
+        debug_exception("api_android_connect")
+        return jsonify({"ok": False, "error": "connect failed"}), 500
+
+
+@app.route('/api/android/paired', methods=['GET'])
+def api_android_paired():
+    """The phones Settings connected (for Settings and the Android pick)."""
+    try:
+        from AutoCua.android_connector.session import paired_devices
+        return jsonify({"devices": paired_devices()})
+    except Exception:
+        debug_exception("api_android_paired")
+        return jsonify({"devices": []})
+
+
+@app.route('/api/android/paired/remove', methods=['POST'])
+def api_android_paired_remove():
+    """Forget a phone (Settings' × button)."""
+    from flask import request
+    try:
+        data = request.get_json(silent=True) or {}
+        from AutoCua.android_connector.session import remove_paired
+        return jsonify({"ok": True, "devices": remove_paired(data.get("serial"))})
+    except Exception:
+        debug_exception("api_android_paired_remove")
+        return jsonify({"ok": False}), 500
+
+
+@app.route('/api/android/activate', methods=['POST'])
+def api_android_activate():
+    """Android pick ON: the helper on the newest connected phone that is plugged in."""
+    try:
+        from AutoCua.android_connector.session import android_session
+        return jsonify(android_session.confirm(keep=True))
+    except Exception:
+        debug_exception("api_android_activate")
+        return jsonify({"ok": False, "state": "error", "error": "activate failed"}), 500
+
+
+@app.route('/api/android/deactivate', methods=['POST'])
+def api_android_deactivate():
+    """Android pick OFF: stop the helper."""
+    _release_android()
+    return jsonify({"ok": True})
+
+
+# =============================================================================
 # Flask routes — providers / keys / settings / vertex
 # =============================================================================
 @app.route('/api/providers', methods=['GET'])
@@ -2059,11 +2140,13 @@ def start_agent():
         if not all([provider, model, task]):
             return jsonify({'error': 'Missing provider, model, or task'}), 400
 
-        # ── Agent mode: mobile+ios runs the iOS agent; anything else = host desktop ──
+        # ── Agent mode: mobile+ios runs the iOS agent, mobile+android the Android
+        # agent; anything else = host desktop ──
         agent_mode = (data.get('mode') or 'computer').strip().lower()
         device_os = (data.get('os') or '').strip().lower()
         speed = (data.get('speed') or 'quality').strip().lower()   # ⚡/✨ toggle
         run_pkg = ('ios' if (agent_mode == 'mobile' and device_os == 'ios')
+                   else 'android' if (agent_mode == 'mobile' and device_os == 'android')
                    else 'web' if agent_mode == 'web'
                    else PLATFORM_PKG)
         # Every Computer use run is recorded, on a machine that can (not Web use
@@ -2244,14 +2327,26 @@ def start_agent():
                 # on completion, on error, and on Stop.
                 if run_pkg == PLATFORM_PKG:
                     agent_glow.start()
-                # The browser agent is the Rust extension (AutoCua/web/agent
-                # holds .rs, not .py): its AgentService is re-exported from the
-                # package facade. iOS is agent/iphone_use; mac, windows and linux are agent/computer_use.
+                # The browser and Android agents are Rust extensions
+                # (AutoCua/web/agent and AutoCua/android/agent hold .rs, not .py):
+                # their AgentService is re-exported from the package facade. iOS
+                # is agent/iphone_use; mac, windows and linux are agent/computer_use.
                 AgentService = importlib.import_module(
                     "AutoCua.web.agent" if run_pkg == 'web'
+                    else "AutoCua.android.agent" if run_pkg == 'android'
                     else "AutoCua.ios.agent.iphone_use.service" if run_pkg == 'ios'
                     else f"AutoCua.{run_pkg}.agent.computer_use.service"
                 ).AgentService
+
+                # Android: the phone the chat box's pick connected. Its helper
+                # is normally still up (this answers at once); a phone gone
+                # since stops the run in seconds with why, not after the
+                # scanner's minute-long wait for a phone.
+                if run_pkg == 'android':
+                    from AutoCua.android_connector.session import APP_WAIT, android_session
+                    phone = android_session.activate(android_session.serial, wait=APP_WAIT)
+                    if not phone.get("ok"):
+                        raise RuntimeError(f"📱 Android connection failed: {phone.get('error')}")
 
                 agent = AgentService(
                     provider=provider,
@@ -2305,11 +2400,19 @@ def start_agent():
                 # Runs for BOTH completion and stop, and BEFORE the window guard,
                 # so memory is saved even if the window closed or a newer run
                 # superseded this one. agent may be None if construction failed.
+                # A run that made no steps of its own (its start failed: no
+                # agent, or none kept) saves the chat's earlier steps back, so
+                # a reopened chat keeps its memory, not just the ending note.
+                steps = getattr(agent, "assistant_messages", None)
+                results = getattr(agent, "tool_responses", None)
+                if not steps and isinstance(prior_history, dict):
+                    steps = prior_history.get("assistant_messages")
+                    results = prior_history.get("tool_responses")
                 try:
                     conversation.save_run(
                         chat_session_id,
-                        getattr(agent, "assistant_messages", None),
-                        getattr(agent, "tool_responses", None),
+                        steps,
+                        results,
                         run_outcome.get("status", "success"),
                         run_outcome.get("message", "") or "",
                         task,
@@ -3343,6 +3446,8 @@ def new_chat():
     # idempotent (no session -> no-op) and phone-first (~1s), but that second
     # belongs to a background thread, not this endpoint's response.
     threading.Thread(target=_release_iphone, daemon=True).start()
+    # The Android phone's helper the same way.
+    threading.Thread(target=_release_android, daemon=True).start()
     return jsonify({'status': 'ok'})
 
 
@@ -3353,6 +3458,15 @@ def _release_iphone():
         wda_session.deactivate()
     except Exception:
         debug_exception("release iphone")
+
+
+def _release_android():
+    """Stop the Android phone's helper — safe to call whether or not it runs."""
+    try:
+        from AutoCua.android_connector.session import android_session
+        android_session.deactivate()
+    except Exception:
+        debug_exception("release android")
 
 
 @app.route('/api/open-github', methods=['POST'])
@@ -4426,6 +4540,11 @@ def main():
         win.events.closing += _release_iphone
     except Exception:
         debug_exception("iphone_close_hook")
+    # The Android phone's helper too (its atexit is skipped the same way).
+    try:
+        win.events.closing += _release_android
+    except Exception:
+        debug_exception("android_close_hook")
 
     # Recolor the native titlebar once the native window/handle exists (`shown`).
     if IS_MAC:

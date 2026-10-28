@@ -167,11 +167,9 @@ impl Elem {
 /// A box as (x, y, width, height), in screen pixels.
 type Rect = (f64, f64, f64, f64);
 
-/// Opens the screen stream the helper serves on `port`: reads the phone's
-/// size, density and home-screen app over adb (one call), connects, starts
-/// the decode thread and waits for the first frame.
-fn open(adb: String, serial: String, port: u16) -> Result<(Device, Arc<Shared>), String> {
-    let device = device_info(adb, serial);
+/// Opens the screen stream the helper serves on `port`: connects and starts
+/// the decode thread (first_frame waits for its first picture).
+fn open(port: u16) -> Result<Arc<Shared>, String> {
     let mut sock = connect(port)?;
     let mut codec = [0u8; 4];
     sock.read_exact(&mut codec)
@@ -193,21 +191,23 @@ fn open(adb: String, serial: String, port: u16) -> Result<(Device, Arc<Shared>),
         reader.latest.lock().unwrap().ended = Some(why);
         reader.changed.notify_all();
     });
+    Ok(shared)
+}
 
-    {
-        let latest = shared.latest.lock().unwrap();
-        let (latest, _) = shared
-            .changed
-            .wait_timeout_while(latest, START_WAIT, |l| l.frames == 0 && l.ended.is_none())
-            .unwrap();
-        if let Some(why) = &latest.ended {
-            return Err(why.clone());
-        }
-        if latest.frames == 0 {
-            return Err(format!("no frame within {} s", START_WAIT.as_secs()));
-        }
+/// Waits for the stream's first frame (at once when it has one).
+fn first_frame(shared: &Shared) -> Result<(), String> {
+    let latest = shared.latest.lock().unwrap();
+    let (latest, _) = shared
+        .changed
+        .wait_timeout_while(latest, START_WAIT, |l| l.frames == 0 && l.ended.is_none())
+        .unwrap();
+    if let Some(why) = &latest.ended {
+        return Err(why.clone());
     }
-    Ok((device, shared))
+    if latest.frames == 0 {
+        return Err(format!("no frame within {} s", START_WAIT.as_secs()));
+    }
+    Ok(())
 }
 
 // ============================================================ the scanner
@@ -260,13 +260,30 @@ impl UIElementScanner {
         let serial: String = info.get_item("serial")?.extract()?;
         let port: u16 = info.get_item("port")?.extract()?;
         let tree_port: u16 = info.get_item("tree_port")?.extract()?;
-        // The first frame can take a moment: nothing in Python waits for it.
-        let (device, shared) = py
-            .detach(|| open(adb, serial, port))
-            .map_err(PyRuntimeError::new_err)?;
+        // The stream an earlier scanner opened on this same helper goes on
+        // while it runs (the app's next run), also when its first frame never
+        // came (a still screen sends none: this run waits again); a new
+        // helper's is opened, and kept for the next scanner at once.
+        let live = stream()
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(p, s)| *p == port && s.latest.lock().unwrap().ended.is_none())
+            .map(|(_, s)| Arc::clone(s));
+        let shared = match live {
+            Some(shared) => shared,
+            None => {
+                let shared = py.detach(|| open(port)).map_err(PyRuntimeError::new_err)?;
+                *stream().lock().unwrap() = Some((port, Arc::clone(&shared)));
+                shared
+            }
+        };
+        // Size, density and home-screen app over adb (one call), then the
+        // first frame, which can take a moment: nothing in Python waits for it.
+        let device = py.detach(|| device_info(adb, serial));
+        py.detach(|| first_frame(&shared)).map_err(PyRuntimeError::new_err)?;
         controller_service().set_phone(&device.adb, &device.serial, device.density);
         use_helper(tree_port);
-        *stream().lock().unwrap() = Some(Arc::clone(&shared));
         Ok(UIElementScanner {
             frontend_callback,
             shared,
@@ -408,16 +425,18 @@ fn decode_loop(mut sock: TcpStream, shared: &Shared) -> Result<(), String> {
     }
 }
 
-/// The screen stream: one per process, as there is one scanner. The video
-/// player watches it for movement.
-fn stream() -> &'static Mutex<Option<Arc<Shared>>> {
-    static STREAM: OnceLock<Mutex<Option<Arc<Shared>>>> = OnceLock::new();
+/// The screen stream: one per process, with the forwarded port it came in
+/// on. The app builds a scanner per run while the phone's helper stays up,
+/// and scrcpy serves one video client, so the next scanner on the same
+/// helper reads this one on. The video player watches it for movement.
+fn stream() -> &'static Mutex<Option<(u16, Arc<Shared>)>> {
+    static STREAM: OnceLock<Mutex<Option<(u16, Arc<Shared>)>>> = OnceLock::new();
     STREAM.get_or_init(|| Mutex::new(None))
 }
 
 /// The newest frame of the screen stream: RGB, width, height.
 pub fn latest_frame() -> Result<(Vec<u8>, usize, usize), String> {
-    let shared = stream().lock().unwrap().clone().ok_or("no screen stream")?;
+    let shared = stream().lock().unwrap().as_ref().map(|(_, s)| Arc::clone(s)).ok_or("no screen stream")?;
     frame(&shared)
 }
 

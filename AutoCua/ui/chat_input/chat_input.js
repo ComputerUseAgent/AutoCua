@@ -81,12 +81,10 @@
             if (agentMode === 'shell' && modeWrap.dataset.shellInput === 'manual') return;
             // The run's own bot: beside the bottom container while it works
             // (chain_bot.js), then beside its reply (run_reply.css). Computer use's, Web use's, or
-            // Mobile use's on iOS. Android runs on the desktop agent (and is saved
-            // as a Computer use chat): no bot on its chain, Computer use's by its
-            // reply.
+            // Mobile use's (iOS and Android alike).
             const runBot = (agentMode === 'computer' || agentMode === 'web') ? agentMode
-                : (agentMode === 'mobile' && agentSub === 'ios') ? 'mobile' : '';
-            const replyBot = runBot || (agentMode === 'mobile' ? 'computer' : '');
+                : (agentMode === 'mobile') ? 'mobile' : '';
+            const replyBot = runBot;
             // Web use needs no sub-option and no gate: service.py routes
             // mode 'web' to run_pkg 'web' (the browser agent) and /api/start-agent
             // below is the right endpoint for it, same as Computer and Mobile.
@@ -143,7 +141,7 @@
             // Its reply will have the mode's bot beside it (chat_scroll.js); the
             // run's bot will stand there while it runs, its room made now.
             if (chatGoesOn) window.chatScroll.setLiveBot(replyBot);
-            // A Computer use (or Android) run's screen box opens in the shape its
+            // A Computer use run's screen box opens in the shape its
             // screenshots will have, so the first one does not resize it: the
             // last run's (script.js), else this screen's (the agent's may be
             // another display: a Mac's built-in one).
@@ -151,7 +149,7 @@
                 const ar = window.deskScreenAr || (window.screen.height ? window.screen.width / window.screen.height : 0);
                 if (ar) window.chatScroll.setLiveShape(ar);
             }
-            // A Web use or iOS run's keeps the box's own 16:10 all along
+            // A Web use or Mobile use (iOS, Android) run's keeps the box's own 16:10 all along
             // (chat_scroll.css): its screenshots fit inside it (script.js)
             if (chatGoesOn && (replyBot === 'web' || replyBot === 'mobile')) window.chatScroll.setLiveShape(1.6);
             if (runBot && window.chainBot) window.chainBot.reserve();
@@ -196,7 +194,7 @@
                     if (agentMode === 'shell' && window.cliShellStarted) window.cliShellStarted(data.session_id);
                     // This run's id: its video finds its turn by it (chat_scroll.js).
                     if (chatGoesOn && data.run_id) window.chatScroll.setLive(data.run_id, '');
-                    // Computer use, Web use, iOS: the moving background behind the
+                    // Computer use, Web use, Mobile use: the moving background behind the
                     // screen (run_bot.js), and the run's bot comes in at the bottom container.
                     // Not when Stop came first (its reply is already up).
                     if (runBot && !document.querySelector('#agentContainer.show-reply')) {
