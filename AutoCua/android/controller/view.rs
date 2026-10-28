@@ -10,11 +10,14 @@
 //!     update_todo -> {"action": "todo_updated"}
 //!     a batch     -> {"action": "multiple", "results": [...]}  one entry per action that ran
 //!
-//! Not ported yet, as asked: the video player (play, pause, close,
-//! streaming), the web search and the vault answer with an error that says
-//! so, the way iOS answers for a service it has not ported, so the model sees
-//! why and goes on.
+//! The iPhone's video_player close is `back` here (the system Back, which
+//! also takes the page back); video_player keeps streaming, pause and play.
 
+use std::collections::HashMap;
+use std::io::{IsTerminal, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use pyo3::exceptions::{PyException, PyIOError};
@@ -26,6 +29,10 @@ use super::service::{controller_service, py_float, py_int, ActErr, ControllerSer
 use super::task_tracker::service::TaskTrackerService;
 use super::tool::open_app::service::app_launcher_service;
 use super::tool::shell::service::ShellService;
+use super::tool::back::service as back;
+use super::tool::vault::service::{vault_service, DEVICE_ENTRIES, MAX_PIN_ATTEMPTS, TEXT_FIELDS};
+use super::tool::videoplayer::service as videoplayer;
+use super::tool::web::service::WebService;
 use crate::agent::android_use::view::{py_str_of, truthy};
 
 /// Python `str(x or "")`.
@@ -37,9 +44,51 @@ fn stopped() -> Value {
     json!({"status": "stopped", "action": "stop", "message": "Stopped by user"})
 }
 
+/// The animated "🌐 Web..." line while a web search runs. Terminal only: the
+/// `\r` overwrite only works in a real terminal, and in the UI's piped
+/// subprocess it would just dump carriage returns into the reader.
+struct WebLoading {
+    done: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl WebLoading {
+    fn start() -> Self {
+        let done = Arc::new(AtomicBool::new(false));
+        let thread = std::io::stdout().is_terminal().then(|| {
+            let done = Arc::clone(&done);
+            std::thread::spawn(move || {
+                let dots = ["", ".", "..", "..."];
+                let mut idx = 0;
+                while !done.load(Ordering::Relaxed) {
+                    let mut out = std::io::stdout();
+                    let _ = write!(out, "\r🌐 Web{}   ", dots[idx % dots.len()]);
+                    let _ = out.flush();
+                    idx += 1;
+                    std::thread::sleep(Duration::from_millis(500));
+                }
+            })
+        });
+        WebLoading { done, thread }
+    }
+
+    /// Stop the line and clear the in-place text (terminal only).
+    fn stop(mut self) {
+        self.done.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+        if std::io::stdout().is_terminal() {
+            let mut out = std::io::stdout();
+            let _ = write!(out, "\r{}\r", " ".repeat(50));
+            let _ = out.flush();
+        }
+    }
+}
+
 /// The central router for all phone actions.
 pub struct ControllerView {
-    /// LLM provider, model and runtime key, for the web search (when it comes).
+    /// LLM provider, model and runtime key, for the web search.
     pub provider: String,
     pub model: String,
     pub api_key: Option<String>,
@@ -54,6 +103,8 @@ pub struct ControllerView {
     pub task_tracker: TaskTrackerService,
     pub scratchpad_service: ScratchpadService,
     shell_service: ShellService,
+    /// Vault entry name -> PIN tries that may have been spent.
+    pin_attempts: Mutex<HashMap<String, u32>>,
 }
 
 impl ControllerView {
@@ -80,7 +131,68 @@ impl ControllerView {
             task_tracker,
             scratchpad_service,
             shell_service: ShellService::new(py),
+            pin_attempts: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// vault {"id": 0, "value": "pin"}: the vault taps its PIN on the
+    /// on-screen keypad. Every refusal happens before the first tap. Results
+    /// and logs never carry a digit, a key id or a coordinate (see the PIN
+    /// part of tool/vault/service.rs).
+    fn enter_vault_pin(&self, py: Python<'_>, action_count: usize) -> Value {
+        let base = |status: &str, message: String| {
+            json!({"action": "vault", "element": 0, "kind": "pin", "status": status, "message": message})
+        };
+        if action_count > 1 {
+            // The keys come from this step's scan; another action could move the screen first.
+            return base("error", "A PIN vault must be the only action in its step. Re-issue it alone.".to_string());
+        }
+        let vault = vault_service();
+        // Keypad first, vault second: asking where no keypad is must not reveal whether a PIN is saved.
+        let Some(keys) = vault.find_pin_keys(&self.controller_service.elements()) else {
+            return base("error", "No digit keypad (0-9) recognised on screen. Open the PIN screen first.".to_string());
+        };
+
+        let (name, pin) = vault.get_pin(py);
+        // The phone's own lock-screen PIN is not tapped on Android yet: the
+        // home screen and System UI also show widgets and notifications,
+        // which can draw ten digit keys and a press count of their own, and
+        // the real keyguard has not been read on a phone to tell it apart.
+        let device_entry = DEVICE_ENTRIES.contains(&name.to_lowercase().replace(' ', "").as_str());
+        if device_entry {
+            return base(
+                "error",
+                "The vault does not enter the phone's own lock-screen PIN on Android. Ask the user to unlock the phone."
+                    .to_string(),
+            );
+        }
+        let Some(pin) = pin else {
+            return base(
+                "error",
+                format!(
+                    "No PIN saved in the vault for \"{name}\". Ask the user to add \"{name}\": {{\"pin\": \"...\"}} under \"android\" in AutoCua_data/vault/credentials.json."
+                ),
+            );
+        };
+        let tries = self.pin_attempts.lock().unwrap().get(&name).copied().unwrap_or(0);
+        if tries >= MAX_PIN_ATTEMPTS {
+            return base(
+                "error",
+                format!(
+                    "The \"{name}\" PIN was already tried twice in this task. Stop and ask the user, another wrong try could lock the keypad."
+                ),
+            );
+        }
+
+        let outcome = vault.enter_pin(py, &keys, &pin, device_entry);
+        // A pad that closed starts fresh; only a try that may have reached the pad counts.
+        let mut attempts = self.pin_attempts.lock().unwrap();
+        if outcome.closed {
+            attempts.insert(name, 0);
+        } else if outcome.pressed {
+            attempts.insert(name, tries + 1);
+        }
+        base(outcome.status, outcome.message)
     }
 
     /// Set the elements mapping in the controller service.
@@ -127,6 +239,15 @@ impl ControllerView {
         }
     }
 
+    /// Web search status for the frontend's web animation: "start" or "end",
+    /// the one argument the web callback takes.
+    fn web_status(&self, py: Python<'_>, status: &str) -> PyResult<()> {
+        if let Some(cb) = &self.web_callback {
+            cb.call1(py, (status,))?;
+        }
+        Ok(())
+    }
+
     fn callback(&self, py: Python<'_>, cb: &Option<Py<PyAny>>, args: (&str, Value)) -> Result<(), ActErr> {
         if let Some(cb) = cb {
             let payload = pythonize::pythonize(py, &args.1).map_err(PyErr::from)?;
@@ -163,9 +284,13 @@ impl ControllerView {
             let get = |key: &str| action_item.get(key).cloned().unwrap_or(Value::Null);
 
             match action_type.as_str() {
+                // The phone calls below run adb (a tap is Android's own `input`
+                // tool, ~0.2 s; open_app waits up to 3 s for the app): Python's
+                // lock is let go meanwhile, so the app's Stop, its watchers and
+                // its window never wait on the phone.
                 "click" => {
                     let element_id = get("id");
-                    let result = match self.controller_service.click(&element_id) {
+                    let result = match py.detach(|| self.controller_service.click(&element_id)) {
                         Ok(()) => json!({"status": "success", "action": "click", "element": py_int(&element_id).unwrap_or(0)}),
                         Err(e) => {
                             eprintln!("✗ Click failed: {e}");
@@ -181,7 +306,7 @@ impl ControllerView {
 
                 "ground_click" => {
                     let (x, y) = (get("x"), get("y"));
-                    let result = match self.controller_service.ground_click(&x, &y) {
+                    let result = match py.detach(|| self.controller_service.ground_click(&x, &y)) {
                         Ok(()) => json!({"status": "success", "action": "ground_click", "x": x, "y": y}),
                         Err(e) => {
                             eprintln!("✗ Ground click failed: {e}");
@@ -198,7 +323,8 @@ impl ControllerView {
                 "input" => {
                     let element_id = get("id");
                     let text_value = get("value");
-                    let result = match self.controller_service.type_text(&element_id, &py_str_of(&text_value)) {
+                    let text = py_str_of(&text_value);
+                    let result = match py.detach(|| self.controller_service.type_text(&element_id, &text)) {
                         Ok(()) => json!({"status": "success", "action": "input", "element": py_int(&element_id).unwrap_or(0), "text": text_value}),
                         Err(e) => {
                             eprintln!("✗ Input failed: {e}");
@@ -220,7 +346,8 @@ impl ControllerView {
                 "scroll" => {
                     let element_id = get("id");
                     let direction = get("value");
-                    let result = match self.controller_service.scroll(&element_id, &py_str_of(&direction)) {
+                    let way = py_str_of(&direction);
+                    let result = match py.detach(|| self.controller_service.scroll(&element_id, &way)) {
                         Ok(()) => json!({"status": "success", "action": "scroll", "element": py_int(&element_id).unwrap_or(0), "direction": direction}),
                         Err(e) => {
                             eprintln!("✗ Scroll failed: {e}");
@@ -244,7 +371,7 @@ impl ControllerView {
                     let launcher = app_launcher_service();
                     // Special 'home' case: return to the home screen
                     if app_name.to_lowercase() == "home" {
-                        if launcher.go_home() {
+                        if py.detach(|| launcher.go_home()) {
                             results.push(json!({"status": "success", "action": "tool", "tool": "open_app", "app": "home"}));
                         } else {
                             return Ok(json!({
@@ -256,7 +383,7 @@ impl ControllerView {
                             }));
                         }
                     } else {
-                        let launch = launcher.launch_app(&app_name);
+                        let launch = py.detach(|| launcher.launch_app(&app_name));
                         let ok = launch.get("ok").is_some_and(truthy);
                         // Report what was ACTUALLY launched (resolved display
                         // name + package), never just the query, and success
@@ -301,13 +428,30 @@ impl ControllerView {
 
                 "web" => {
                     let query = get("value");
-                    let _ = &self.web_callback;
-                    return Ok(json!({
-                        "status": "error",
+
+                    self.web_status(py, "start")?;
+                    let loading = WebLoading::start();
+
+                    let stop_event = self.stop_event.as_ref().map(|e| e.clone_ref(py));
+                    let web_result = WebService::new(py, &self.provider, &self.model, self.api_key.clone(), stop_event)
+                        .and_then(|web_service| web_service.search(py, &py_str_of(&query)));
+
+                    loading.stop();
+                    if self.web_callback.is_some() {
+                        self.web_status(py, "end")?;
+                        // Wait for CSS fade-out to complete before next action
+                        Self::sleep(py, 0.7);
+                    }
+                    let web_result = web_result?;
+
+                    // WebService reports a failed search inside its text
+                    let failed = web_result.starts_with("{\ntool: web,\nstatus: error,");
+                    results.push(json!({
+                        "status": if failed { "error" } else { "success" },
                         "action": "tool",
                         "tool": "web",
                         "query": query,
-                        "message": "Web service not available yet on Android",
+                        "result": web_result,
                     }));
                 }
 
@@ -344,26 +488,82 @@ impl ControllerView {
                     }
                 }
 
+                "vault"
+                    if matches!(str_or_empty(&get("value")).trim().to_lowercase().as_str(), "pin" | "passcode")
+                        && !self
+                            .controller_service
+                            .elements()
+                            .get(&py_str_of(&get("id")))
+                            .and_then(|e| e.get("type"))
+                            .and_then(Value::as_str)
+                            .is_some_and(|t| TEXT_FIELDS.contains(&t)) =>
+                {
+                    // A PIN aimed at no text field (id 0) goes to the keypad
+                    // path: the lock screen and app PIN pads have no field to
+                    // type into. A PIN field is filled like any other key, below.
+                    let result = self.enter_vault_pin(py, actions.len());
+                    if result["status"] != "success" {
+                        return Ok(result);
+                    }
+                    results.push(result);
+                }
+
                 "vault" => {
-                    return Ok(json!({
-                        "status": "error",
-                        "action": "vault",
-                        "results": results,
-                        "message": "Vault not available yet on Android",
-                    }));
+                    // The value saved under the key the agent names, typed like
+                    // `input` (tool/vault/service.rs fill). Batches like `input` too.
+                    let result = vault_service().fill(py, &get("id"), &get("value"))?;
+                    let failed = result["status"] != "success";
+                    results.push(result.clone());
+                    if failed {
+                        return Ok(json!({"status": "error", "action": "vault", "results": results, "message": result["message"]}));
+                    }
+                }
+
+                "back" => {
+                    // The system Back, `value` times (tool/back/service.rs).
+                    let result = match back::back(py, &get("value")) {
+                        Ok(presses) => json!({"status": "success", "action": "back", "presses": presses}),
+                        Err(e) => {
+                            eprintln!("✗ Back failed: {e}");
+                            json!({"status": "error", "action": "back", "message": e})
+                        }
+                    };
+                    let failed = result["status"] == "error";
+                    results.push(result.clone());
+                    if failed {
+                        return Ok(result);
+                    }
                 }
 
                 "video_player" => {
+                    // Watched on the screen (tool/videoplayer/service.rs); a
+                    // player closes with `back`.
                     let command = get("value");
-                    let message = "Video player not available yet on Android";
-                    eprintln!("Video player action failed: {message}");
-                    results.push(json!({
-                        "status": "error",
-                        "action": "video_player",
-                        "command": command,
-                        "message": message,
-                        "tool_response": format!("videoplayer: Result - Error: {message}"),
-                    }));
+                    let tool_response = match command.as_str() {
+                        Some("streaming") => Ok(if videoplayer::streaming(py) { "Streaming" } else { "Not streaming" }),
+                        Some("pause") => Ok(if videoplayer::pause(py) { "Paused" } else { "Failed to pause" }),
+                        Some("play") => Ok(if videoplayer::play(py) { "Playing" } else { "Failed to play" }),
+                        Some("close") => Err("video_player has no close on Android: use back".to_string()),
+                        _ => Err(format!("Unknown video_player command: {}", py_str_of(&command))),
+                    };
+                    results.push(match tool_response {
+                        Ok(said) => json!({
+                            "status": "success",
+                            "action": "video_player",
+                            "command": command,
+                            "tool_response": format!("videoplayer: Result - {said}"),
+                        }),
+                        Err(message) => {
+                            eprintln!("Video player action failed: {message}");
+                            json!({
+                                "status": "error",
+                                "action": "video_player",
+                                "command": command,
+                                "message": message,
+                                "tool_response": format!("videoplayer: Result - Error: {message}"),
+                            })
+                        }
+                    });
                 }
 
                 "todo_list" => {

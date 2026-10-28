@@ -6,9 +6,11 @@ import android.graphics.Rect;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.Base64;
 import android.util.Log;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
@@ -46,8 +48,9 @@ import java.util.Set;
  * reads both the same way, plus each node's drawing order. The app's window
  * comes first, then the system's bars, each as one more root node.
  *
- * On the local socket: the client sends a line ("dump"); the answer is a
- * 4-byte big-endian length, then that many bytes of UTF-8, either the XML or
+ * On the local socket: the client sends a line, "dump" for the tree or
+ * "fill ..." for the vault (see fill); the answer is a 4-byte big-endian
+ * length, then that many bytes of UTF-8, either the XML ("OK" for a fill) or
  * a line starting with "ERROR:".
  */
 public final class Helper {
@@ -56,6 +59,10 @@ public final class Helper {
 
     /** Longest wait for an empty web page to fill in (see dump). */
     private static final long WEB_WAIT_MS = 2000;
+
+    /** How long the field the vault tapped gets to take input focus (see fill). */
+    private static final long FOCUS_WAIT_MS = 1500;
+    private static final long FOCUS_POLL_MS = 200;
 
     /** Boxes seen as empty web pages, and those that stayed empty a whole WEB_WAIT_MS. */
     private static final Set<Integer> WEB = new HashSet<Integer>();
@@ -87,7 +94,7 @@ public final class Helper {
                 .invoke(null, (Object) Arrays.copyOfRange(args, 1, args.length));
     }
 
-    /** Answers one client at a time, one dump per request line. */
+    /** Answers one client at a time, one answer per request line. */
     private static void serve(String name) {
         // Listening before UiAutomation connects: a client that comes early
         // just waits in the queue.
@@ -106,7 +113,8 @@ public final class Helper {
                             new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
                     DataOutputStream out = new DataOutputStream(
                             new BufferedOutputStream(client.getOutputStream(), 64 * 1024));
-                    while (in.readLine() != null) {
+                    String line;
+                    while ((line = in.readLine()) != null) {
                         String answer;
                         try {
                             // Not connected yet: try again. Android allows one
@@ -116,7 +124,7 @@ public final class Helper {
                             if (ui == null) {
                                 ui = connect(thread.getLooper());
                             }
-                            answer = dump(ui);
+                            answer = line.startsWith("fill ") ? fill(ui, line) : dump(ui);
                         } catch (Throwable t) {
                             answer = "ERROR: " + reason(t);
                         }
@@ -183,6 +191,62 @@ public final class Helper {
                     + " or a helper left from an earlier run)";
         }
         return text.replace('\n', ' ');
+    }
+
+    /**
+     * The vault's fill: "fill PASSWORD PACKAGE TEXT", PASSWORD 1 when the
+     * value is a password, PACKAGE the app the scan read and TEXT the value,
+     * both in base64 (so neither can break the line). Waits up to
+     * FOCUS_WAIT_MS for the field with input focus (the
+     * vault's own tap put it there), checks it may take this value (a
+     * password only into a password field, anything only into an editable
+     * one, and only inside the app that was scanned, never a system screen
+     * that came up since), then sets the whole text at once
+     * (ACTION_SET_TEXT): any characters, no keyboard. The answer is "OK" or
+     * "ERROR: <why> [<class>]"; neither it nor the log ever carries the text.
+     */
+    private static String fill(UiAutomation ui, String line) {
+        String[] parts = line.split(" ", 4);
+        if (parts.length != 4) {
+            return "ERROR: bad_request";
+        }
+        AccessibilityNodeInfo field = null;
+        try {
+            long until = SystemClock.uptimeMillis() + FOCUS_WAIT_MS;
+            while (true) {
+                clearCache(ui);
+                field = ui.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+                if (field != null || SystemClock.uptimeMillis() >= until) {
+                    break;
+                }
+                Thread.sleep(FOCUS_POLL_MS);
+            }
+            if (field == null) {
+                return "ERROR: no_focus";
+            }
+            String kind = String.valueOf(field.getClassName());
+            if ("1".equals(parts[1]) && !field.isPassword()) {
+                return "ERROR: not_password " + kind;
+            }
+            if (!field.isEditable()) {
+                return "ERROR: not_text " + kind;
+            }
+            String scanned = new String(Base64.decode(parts[2], Base64.DEFAULT), StandardCharsets.UTF_8);
+            if (!scanned.contentEquals(String.valueOf(field.getPackageName()))) {
+                return "ERROR: wrong_app";
+            }
+            Bundle text = new Bundle();
+            text.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                    new String(Base64.decode(parts[3], Base64.DEFAULT), StandardCharsets.UTF_8));
+            return field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, text) ? "OK" : "ERROR: refused " + kind;
+        } catch (Throwable t) {
+            // Never the exception's own text: it could quote what was being set.
+            return "ERROR: failed";
+        } finally {
+            if (field != null) {
+                field.recycle();
+            }
+        }
     }
 
     /**

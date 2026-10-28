@@ -246,8 +246,9 @@ pub fn claude_reasoning_tool(final_tool: &str, work: &str, batched: bool) -> Val
 /// Claude the `agent_memory` tool. All share each action tool's text.
 ///
 /// Phone-specific vs the macOS registry: `scroll` and `vault` carry `value`
-/// (not macOS's `direction`), `click` has no `clicks` field, and `vault` /
-/// `video_player` exist here only.
+/// (not macOS's `direction`), `click` has no `clicks` field, and `vault`,
+/// `back` and `video_player` exist here only (`back` is how a player closes,
+/// the iPhone's video_player close).
 fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
     let mut tools: Vec<Value> = Vec::new();
     if let Some(t) = notes {
@@ -296,15 +297,24 @@ fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
         3. vault {"id": 0, "value": "pin"} - the saved PIN on a PIN keypad
     3. <vault> in <persistent_memory> lists the keys saved for the app in front. No <vault> means nothing is saved for it: use what <user_request> gives, or ask the user. Never guess a login.
     4. Like `input`, it clears the field first, and it batches like `input`: fill every login field and tap the button in one turn. A password goes only into a password field (securetextfield).
-    5. PIN keypads - a separate button for each digit 0-9, like the lock-screen passcode or an app PIN pad: use id 0 with value "pin". The vault finds the digit keys and taps the whole PIN itself. Never tap PIN digits yourself. A keypad PIN vault must be the ONLY action call of its turn (only your notes call may precede it). A PIN text field you can type into is filled like any other field, with its [id].
+    5. PIN keypads - a separate button for each digit 0-9, like an app's PIN pad (not the phone's own lock screen: ask the user to unlock the phone): use id 0 with value "pin". The vault finds the digit keys and taps the whole PIN itself. Never tap PIN digits yourself. A keypad PIN vault must be the ONLY action call of its turn (only your notes call may precede it). A PIN text field you can type into is filled like any other field, with its [id].
     6. The PIN result says whether every key press registered. Retry only when it says it is safe to try once more; if the PIN was not accepted, only part of it registered, or it was already tried twice, stop and ask the user.
     7. What the vault typed reads as [vault] in later steps."##, track),
+        tool("back", &[("value", json!({"type": "string"}))],
+             r##"Press the phone's system Back, the same as its back button or back gesture: it takes the page back, and it closes a full-screen video player (works despite DRM screenshot restrictions). `value` is how many times to press it, usually 1.
+    1. Format: back {"value": "1"}
+    2. Examples:
+        1. back {"value": "1"} - close the full-screen video player
+        2. back {"value": "1"} - go back to the previous page
+    3. On YouTube one Back only leaves full screen; a second one shrinks the video to the small player.
+    4. An error result means the screen did not change after a Back."##, track),
         tool("video_player", &[("value", json!({"type": "string"}))],
-             r##"Track and control full-screen video playback through the system's media controls (works despite DRM screenshot restrictions). Commands: close, streaming (check whether content is playing), pause, play.
-    1. Format: video_player {"value": "one of: close/streaming/pause/play"}
+             r##"Check and control video playback by watching the screen (content that is not DRM-blocked). Commands: streaming (check whether content is playing), pause, play. To close a full-screen video player, use back.
+    1. Format: video_player {"value": "one of: streaming/pause/play"}
     2. Examples:
         1. video_player {"value": "streaming"}
-        2. video_player {"value": "pause"}"##, track),
+        2. video_player {"value": "pause"}
+    3. If play or pause fails, ground_click the video to bring up its controls, then call video_player again (it checks the state first)."##, track),
         tool("scratchpad", &[("value", json!({"type": "string"}))],
              r##"Record a verified checkpoint or any critical fact (file path, metric, finding). Follow <scratchpad> rules.
     1. Write `value` in Markdown - inline only (`**bold**`, backticks), never a line break.
@@ -387,6 +397,7 @@ pub fn main_action_defaults() -> &'static Value {
             "shell": {"value": ""},
             "todo_list": {"value": ""},
             "update_todo": {"value": ""},
+            "back": {"value": "1"},
             "video_player": {"value": ""},
             "scratchpad": {"value": ""},
             "done": {"value": ""},

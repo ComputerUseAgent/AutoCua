@@ -32,6 +32,9 @@
 //
 // The tree (Helper.java, its own socket): send a line, get a 4-byte big-endian
 // length and that many bytes of UTF-8, the XML or a line starting "ERROR:".
+// The vault and the back tool use the same connection (read_tree,
+// fill_focused): the helper serves one client at a time, and the scanner
+// keeps its one open.
 
 use std::collections::HashMap;
 use std::fs;
@@ -39,9 +42,9 @@ use std::io::{self, ErrorKind, Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
 use std::process::Command;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use jpeg_encoder::{ColorType, Encoder, SamplingFactor};
@@ -53,6 +56,14 @@ use roxmltree::{Node, NodeId};
 use serde_json::{json, Map, Value};
 
 use crate::controller::service::controller_service;
+
+// ========== FLAGS ==========
+/// Set to true to save files to debug folders, false for direct LLM only:
+/// ios/tree/element.py's DEBUG. With it every scan of a run is kept, the
+/// tree as debug/element/ui_elements_<time>.txt and the marked screenshot
+/// (the bytes the model gets) as debug/screenshot/ui_elements_screenshot_<time>.jpg,
+/// and the app's screen box gets that marked screenshot instead of the plain one.
+const DEBUG: bool = false;
 
 /// Where each scan's files are written, relative to the process CWD: main.py
 /// and test.py run from the repo root, so they land in the root debug/
@@ -68,6 +79,11 @@ const SCAN_QUALITY: u8 = 85;
 /// How long the phone's server gets to start listening, and then to send the
 /// first frame.
 const START_WAIT: Duration = Duration::from_secs(10);
+
+/// How long a new stream gets to send its first frame before one screenshot
+/// stands in for it: scrcpy sends a frame only when the screen changes, so a
+/// still screen can send none for a long time (see first_frame).
+const FIRST_FRAME_WAIT: Duration = Duration::from_secs(1);
 
 /// Bit 62 of a media packet's header: SPS/PPS rather than a picture.
 const CONFIG_FLAG: u64 = 1 << 62;
@@ -113,6 +129,9 @@ struct Latest {
     frames: u64,
     /// Why the stream stopped, once it has.
     ended: Option<String>,
+    /// The stream's size from its session packet, (0, 0) until it came: the
+    /// screenshot that stands in for a first frame is scaled to it.
+    session: (usize, usize),
 }
 
 struct Shared {
@@ -164,11 +183,9 @@ impl Elem {
 /// A box as (x, y, width, height), in screen pixels.
 type Rect = (f64, f64, f64, f64);
 
-/// Opens the screen stream the helper serves on `port`: reads the phone's
-/// size, density and home-screen app over adb (one call), connects, starts
-/// the decode thread and waits for the first frame.
-fn open(adb: String, serial: String, port: u16) -> Result<(Device, Arc<Shared>), String> {
-    let device = device_info(adb, serial);
+/// Opens the screen stream the helper serves on `port`: connects and starts
+/// the decode thread (first_frame waits for its first picture).
+fn open(port: u16) -> Result<Arc<Shared>, String> {
     let mut sock = connect(port)?;
     let mut codec = [0u8; 4];
     sock.read_exact(&mut codec)
@@ -178,7 +195,7 @@ fn open(adb: String, serial: String, port: u16) -> Result<(Device, Arc<Shared>),
     }
 
     let shared = Arc::new(Shared {
-        latest: Mutex::new(Latest { rgb: Vec::new(), width: 0, height: 0, frames: 0, ended: None }),
+        latest: Mutex::new(Latest { rgb: Vec::new(), width: 0, height: 0, frames: 0, ended: None, session: (0, 0) }),
         changed: Condvar::new(),
     });
     let reader = Arc::clone(&shared);
@@ -190,21 +207,124 @@ fn open(adb: String, serial: String, port: u16) -> Result<(Device, Arc<Shared>),
         reader.latest.lock().unwrap().ended = Some(why);
         reader.changed.notify_all();
     });
+    Ok(shared)
+}
 
+/// Waits for the stream's first frame (at once when it has one). scrcpy
+/// sends a frame only when the screen changes (its own develop.md says the
+/// first one may not come on a static screen), so after FIRST_FRAME_WAIT one
+/// screenshot stands in for it, scaled to the stream's size: on a screen that
+/// is not moving it is the same picture. The stream's frames take over as
+/// soon as anything changes.
+fn first_frame(shared: &Shared, dev: &Device) -> Result<(), String> {
+    if wait_frame(shared, FIRST_FRAME_WAIT)? {
+        return Ok(());
+    }
+    let t0 = Instant::now();
+    let shot = screencap(dev);
     {
-        let latest = shared.latest.lock().unwrap();
-        let (latest, _) = shared
-            .changed
-            .wait_timeout_while(latest, START_WAIT, |l| l.frames == 0 && l.ended.is_none())
-            .unwrap();
-        if let Some(why) = &latest.ended {
-            return Err(why.clone());
-        }
-        if latest.frames == 0 {
-            return Err(format!("no frame within {} s", START_WAIT.as_secs()));
+        let mut latest = shared.latest.lock().unwrap();
+        // A frame that came meanwhile is newer than the screenshot: it stays.
+        if latest.frames == 0 && latest.ended.is_none() {
+            if let Ok((rgb, w, h)) = &shot {
+                let (sw, sh) = latest.session;
+                let (rgb, w, h) = if sw > 0 && sh > 0 && (sw, sh) != (*w, *h) {
+                    (scale(rgb, *w, *h, sw, sh), sw, sh)
+                } else {
+                    (rgb.clone(), *w, *h)
+                };
+                latest.rgb = rgb;
+                latest.width = w;
+                latest.height = h;
+                latest.frames += 1;
+                shared.changed.notify_all();
+                println!("[scan] still screen, no first frame: a screenshot stands in ({} ms)",
+                         t0.elapsed().as_millis());
+            }
         }
     }
-    Ok((device, shared))
+    if wait_frame(shared, START_WAIT)? {
+        return Ok(());
+    }
+    Err(match shot {
+        Ok(_) => format!("no frame within {} s", START_WAIT.as_secs()),
+        Err(e) => format!("no frame within {} s, and no screenshot either ({e})", START_WAIT.as_secs()),
+    })
+}
+
+/// Waits up to `wait` for the stream to have a frame: true when it has one,
+/// false when the time ran out, the reason when the stream ended.
+fn wait_frame(shared: &Shared, wait: Duration) -> Result<bool, String> {
+    let latest = shared.latest.lock().unwrap();
+    let (latest, _) = shared
+        .changed
+        .wait_timeout_while(latest, wait, |l| l.frames == 0 && l.ended.is_none())
+        .unwrap();
+    if let Some(why) = &latest.ended {
+        return Err(why.clone());
+    }
+    Ok(latest.frames > 0)
+}
+
+/// One raw screenshot over adb (`screencap` without -p, so no PNG to make or
+/// read): a header of little-endian u32s, width, height, pixel format and on
+/// newer Androids the colour space (12 or 16 bytes), then 4 bytes a pixel.
+/// As RGB, width, height.
+fn screencap(dev: &Device) -> Result<(Vec<u8>, usize, usize), String> {
+    let out = Command::new(&dev.adb)
+        .args(["-s", &dev.serial, "exec-out", "screencap"])
+        .output()
+        .map_err(|e| format!("screencap: {e}"))?;
+    let b = out.stdout;
+    if b.len() < 12 {
+        return Err(format!("screencap: {} bytes", b.len()));
+    }
+    let word = |i: usize| u32::from_le_bytes(b[i..i + 4].try_into().unwrap()) as usize;
+    let (w, h, format) = (word(0), word(4), word(8));
+    // RGBA_8888 (1), RGBX_8888 (2), BGRA_8888 (5): the formats a phone gives.
+    if !matches!(format, 1 | 2 | 5) || w == 0 || h == 0 {
+        return Err(format!("screencap: {w}x{h}, pixel format {format}"));
+    }
+    let head = b
+        .len()
+        .checked_sub(w * h * 4)
+        .filter(|n| *n == 12 || *n == 16)
+        .ok_or_else(|| format!("screencap: {} bytes for {w}x{h}", b.len()))?;
+    let mut rgb = Vec::with_capacity(w * h * 3);
+    for px in b[head..].chunks_exact(4) {
+        if format == 5 {
+            rgb.extend_from_slice(&[px[2], px[1], px[0]]);
+        } else {
+            rgb.extend_from_slice(&px[..3]);
+        }
+    }
+    Ok((rgb, w, h))
+}
+
+/// An RGB picture scaled to `dw` x `dh`, bilinear (the screenshot to the
+/// stream's size, a few percent smaller).
+fn scale(src: &[u8], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<u8> {
+    let mut out = vec![0u8; dw * dh * 3];
+    let (fx, fy) = (sw as f64 / dw as f64, sh as f64 / dh as f64);
+    for y in 0..dh {
+        let sy = ((y as f64 + 0.5) * fy - 0.5).max(0.0);
+        let y0 = (sy as usize).min(sh - 1);
+        let y1 = (y0 + 1).min(sh - 1);
+        let wy = sy - y0 as f64;
+        for x in 0..dw {
+            let sx = ((x as f64 + 0.5) * fx - 0.5).max(0.0);
+            let x0 = (sx as usize).min(sw - 1);
+            let x1 = (x0 + 1).min(sw - 1);
+            let wx = sx - x0 as f64;
+            for c in 0..3 {
+                let p = |xx: usize, yy: usize| src[(yy * sw + xx) * 3 + c] as f64;
+                let top = p(x0, y0) * (1.0 - wx) + p(x1, y0) * wx;
+                let bottom = p(x0, y1) * (1.0 - wx) + p(x1, y1) * wx;
+                out[(y * dw + x) * 3 + c] = (top * (1.0 - wy) + bottom * wy).round() as u8;
+            }
+        }
+    }
+    out
 }
 
 // ============================================================ the scanner
@@ -239,8 +359,6 @@ pub struct UIElementScanner {
     frontend_callback: Option<Py<PyAny>>,
     shared: Arc<Shared>,
     device: Device,
-    /// The tree connection, kept open between scans.
-    tree: Mutex<Tree>,
     scan: Mutex<ScanState>,
 }
 
@@ -259,16 +377,34 @@ impl UIElementScanner {
         let serial: String = info.get_item("serial")?.extract()?;
         let port: u16 = info.get_item("port")?.extract()?;
         let tree_port: u16 = info.get_item("tree_port")?.extract()?;
-        // The first frame can take a moment: nothing in Python waits for it.
-        let (device, shared) = py
-            .detach(|| open(adb, serial, port))
-            .map_err(PyRuntimeError::new_err)?;
+        // The stream an earlier scanner opened on this same helper goes on
+        // while it runs (the app's next run), also when its first frame never
+        // came (a still screen sends none: this run waits again); a new
+        // helper's is opened, and kept for the next scanner at once.
+        let live = stream()
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(p, s)| *p == port && s.latest.lock().unwrap().ended.is_none())
+            .map(|(_, s)| Arc::clone(s));
+        let shared = match live {
+            Some(shared) => shared,
+            None => {
+                let shared = py.detach(|| open(port)).map_err(PyRuntimeError::new_err)?;
+                *stream().lock().unwrap() = Some((port, Arc::clone(&shared)));
+                shared
+            }
+        };
+        // Size, density and home-screen app over adb (one call), then the
+        // first frame, which can take a moment: nothing in Python waits for it.
+        let device = py.detach(|| device_info(adb, serial));
+        py.detach(|| first_frame(&shared, &device)).map_err(PyRuntimeError::new_err)?;
         controller_service().set_phone(&device.adb, &device.serial, device.density);
+        use_helper(tree_port);
         Ok(UIElementScanner {
             frontend_callback,
             shared,
             device,
-            tree: Mutex::new(Tree { port: tree_port, sock: None }),
             scan: Mutex::new(ScanState::default()),
         })
     }
@@ -278,12 +414,14 @@ impl UIElementScanner {
     /// controller, the files written to debug/android/.
     pub fn scan_elements(&self, py: Python<'_>) -> PyResult<()> {
         self.scan.lock().unwrap().image_base64 = None;
-        let want_plain = self.frontend_callback.is_some();
+        // DEBUG sends the marked screenshot instead: no plain one to make.
+        let want_plain = self.frontend_callback.is_some() && !DEBUG;
         // Pure Rust from here to the pictures: the GIL is not held meanwhile.
         let cap = py
             .detach(|| {
-                let mut tree = self.tree.lock().unwrap();
-                capture(&self.shared, &self.device, &mut tree, want_plain)
+                let mut tree = helper().lock().unwrap();
+                let tree = tree.as_mut().ok_or("no phone helper connected")?;
+                capture(&self.shared, &self.device, tree, want_plain)
             })
             .map_err(PyRuntimeError::new_err)?;
 
@@ -295,6 +433,12 @@ impl UIElementScanner {
         if let Err(e) = write_scan(Path::new(DEFAULT_OUT_DIR), &cap) {
             eprintln!("element: {e}");
         }
+        // Save to debug folder ONLY if DEBUG is enabled: every scan, as on iOS.
+        if DEBUG {
+            if let Err(e) = write_debug(Path::new("debug"), &cap) {
+                eprintln!("element: {e}");
+            }
+        }
         {
             let mut scan = self.scan.lock().unwrap();
             scan.element_tree_text = cap.tree_text;
@@ -303,9 +447,11 @@ impl UIElementScanner {
         }
         println!("{}", cap.summary);
 
-        // Send to frontend: the plain screenshot, as on iOS.
-        if let (Some(callback), Some(plain)) = (&self.frontend_callback, &cap.plain) {
-            callback.call1(py, (base64::engine::general_purpose::STANDARD.encode(plain),))?;
+        // Send to frontend: the plain screenshot, as on iOS (the marked one
+        // with DEBUG, for debugging).
+        let shown = if DEBUG { Some(&cap.jpeg) } else { cap.plain.as_ref() };
+        if let (Some(callback), Some(bytes)) = (&self.frontend_callback, shown) {
+            callback.call1(py, (base64::engine::general_purpose::STANDARD.encode(bytes),))?;
         }
         Ok(())
     }
@@ -374,7 +520,13 @@ fn decode_loop(mut sock: TcpStream, shared: &Shared) -> Result<(), String> {
             Err(e) => return Err(format!("stream: {e}")),
         }
         if head[0] & 0x80 != 0 {
-            continue; // session packet: a new size (rotation); the frames carry it too
+            // Session packet: the stream's size (again after a rotation), as
+            // flags, width and height. The frames carry it too; it is kept for
+            // the screenshot that stands in for a first frame (first_frame).
+            let w = u32::from_be_bytes(head[4..8].try_into().unwrap()) as usize;
+            let h = u32::from_be_bytes(head[8..12].try_into().unwrap()) as usize;
+            shared.latest.lock().unwrap().session = (w, h);
+            continue;
         }
         let flags = u64::from_be_bytes(head[..8].try_into().unwrap());
         let len = u32::from_be_bytes(head[8..].try_into().unwrap()) as usize;
@@ -403,6 +555,21 @@ fn decode_loop(mut sock: TcpStream, shared: &Shared) -> Result<(), String> {
         latest.frames += 1;
         shared.changed.notify_all();
     }
+}
+
+/// The screen stream: one per process, with the forwarded port it came in
+/// on. The app builds a scanner per run while the phone's helper stays up,
+/// and scrcpy serves one video client, so the next scanner on the same
+/// helper reads this one on. The video player watches it for movement.
+fn stream() -> &'static Mutex<Option<(u16, Arc<Shared>)>> {
+    static STREAM: OnceLock<Mutex<Option<(u16, Arc<Shared>)>>> = OnceLock::new();
+    STREAM.get_or_init(|| Mutex::new(None))
+}
+
+/// The newest frame of the screen stream: RGB, width, height.
+pub fn latest_frame() -> Result<(Vec<u8>, usize, usize), String> {
+    let shared = stream().lock().unwrap().as_ref().map(|(_, s)| Arc::clone(s)).ok_or("no screen stream")?;
+    frame(&shared)
 }
 
 /// A copy of the newest frame (a few ms), so the decode thread never waits.
@@ -598,6 +765,76 @@ fn write_scan(out_dir: &Path, cap: &Capture) -> Result<(), String> {
     write(&out_dir.join("scan.jpg"), &cap.jpeg)
 }
 
+/// One scan's DEBUG files under `dir`, named by the time in seconds as
+/// ios/tree/element.py names them: element/ui_elements_<time>.txt (the tree
+/// text) and screenshot/ui_elements_screenshot_<time>.jpg (the marked
+/// screenshot, byte for byte what the model gets).
+fn write_debug(dir: &Path, cap: &Capture) -> Result<(), String> {
+    let time = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    write(&dir.join("element").join(format!("ui_elements_{time}.txt")), cap.tree_text.as_bytes())?;
+    write(&dir.join("screenshot").join(format!("ui_elements_screenshot_{time}.jpg")), &cap.jpeg)
+}
+
+/// The helper connection: one per process, as there is one scanner and one
+/// helper on the phone. The scanner reads the tree through it, and the vault
+/// fills a field and re-reads a PIN pad through it too, so the helper (which
+/// serves one client at a time) never has a second client waiting.
+fn helper() -> &'static Mutex<Option<Tree>> {
+    static HELPER: OnceLock<Mutex<Option<Tree>>> = OnceLock::new();
+    HELPER.get_or_init(|| Mutex::new(None))
+}
+
+/// The helper connection from here on: the one on `port`, the helper's
+/// forwarded tree port (connected at the first request).
+pub(crate) fn use_helper(port: u16) {
+    *helper().lock().unwrap() = Some(Tree { port, sock: None });
+}
+
+/// The screen's tree as it is now, in uiautomator's XML format (the vault's
+/// read of a PIN pad before and after it taps, the back tool's check that
+/// the screen changed).
+pub fn read_tree() -> Result<String, String> {
+    let mut tree = helper().lock().unwrap();
+    tree.as_mut().ok_or("no phone helper connected")?.dump()
+}
+
+/// Why fill_focused set nothing.
+pub enum FillError {
+    /// The helper looked and said no: `why` is no_focus, not_password,
+    /// not_text or wrong_app, `class` the focused view's class when it named
+    /// one. Nothing was set.
+    Refused { why: String, class: String },
+    /// The request failed, or the field did not take the text: what the field
+    /// holds now is unknown.
+    Failed,
+}
+
+/// Set the text of the field that has input focus, through the helper
+/// (Helper.java's fill): `password` when the value is a password (the field
+/// must then be a password field), `package` the app the scan read (the
+/// field must be in it). The value travels only over the helper's socket:
+/// never in a process list, a log or an error.
+pub fn fill_focused(password: bool, package: &str, text: &str) -> Result<(), FillError> {
+    // Both in base64, so neither can break the request line.
+    let b64 = |s: &str| base64::engine::general_purpose::STANDARD.encode(s.as_bytes());
+    let request = format!("fill {} {} {}\n", if password { 1 } else { 0 }, b64(package), b64(text));
+    let mut tree = helper().lock().unwrap();
+    let tree = tree.as_mut().ok_or(FillError::Failed)?;
+    // One try: the text may have been set before a reply went missing.
+    let answer = tree.exchange(request.as_bytes()).map_err(|_| FillError::Failed)?;
+    if answer == "OK" {
+        return Ok(());
+    }
+    let mut words = answer.strip_prefix("ERROR:").unwrap_or("").split_whitespace();
+    match words.next() {
+        Some(why @ ("no_focus" | "not_password" | "not_text" | "wrong_app")) => Err(FillError::Refused {
+            why: why.to_string(),
+            class: words.next().unwrap_or("").to_string(),
+        }),
+        _ => Err(FillError::Failed),
+    }
+}
+
 /// The tree half of the phone helper (Helper.java), on its forwarded port.
 /// One connection, kept open between scans.
 struct Tree {
@@ -612,9 +849,9 @@ impl Tree {
     fn dump(&mut self) -> Result<String, String> {
         // A connection the helper has dropped shows up as an I/O error: one
         // fresh try.
-        let text = match self.exchange() {
+        let text = match self.exchange(b"dump\n") {
             Ok(text) => text,
-            Err(_) => self.exchange()?,
+            Err(_) => self.exchange(b"dump\n")?,
         };
         match text.strip_prefix("ERROR:") {
             Some(why) => Err(format!("helper: {}", why.trim())),
@@ -622,10 +859,10 @@ impl Tree {
         }
     }
 
-    /// One request and its whole answer. On any I/O error the connection is
-    /// dropped, so a late or half-read answer is never taken for the next one.
-    /// A whole "ERROR:" answer keeps it: that stream is still in step.
-    fn exchange(&mut self) -> Result<String, String> {
+    /// One request line and its whole answer. On any I/O error the connection
+    /// is dropped, so a late or half-read answer is never taken for the next
+    /// one. A whole "ERROR:" answer keeps it: that stream is still in step.
+    fn exchange(&mut self, request: &[u8]) -> Result<String, String> {
         if self.sock.is_none() {
             let sock = TcpStream::connect(("127.0.0.1", self.port)).map_err(|e| format!("tree: {e}"))?;
             sock.set_read_timeout(Some(TREE_WAIT)).ok();
@@ -633,7 +870,7 @@ impl Tree {
         }
         let sock = self.sock.as_mut().unwrap();
         let answer = (|| -> io::Result<Vec<u8>> {
-            sock.write_all(b"dump\n")?;
+            sock.write_all(request)?;
             let mut len = [0u8; 4];
             sock.read_exact(&mut len)?;
             let len = u32::from_be_bytes(len) as usize;
@@ -1006,7 +1243,7 @@ fn is_control(n: Node) -> bool {
     flag(n, "clickable") || flag(n, "checkable") || flag(n, "scrollable") || is_input(attr(n, "class"))
 }
 
-fn is_input(class: &str) -> bool {
+pub(crate) fn is_input(class: &str) -> bool {
     let short = class.rsplit('.').next().unwrap_or(class);
     short.contains("EditText") || short.contains("AutoCompleteTextView")
 }
@@ -1041,7 +1278,7 @@ fn flag(n: Node, key: &str) -> bool {
 }
 
 /// "[x1,y1][x2,y2]" as (x, y, width, height).
-fn bounds(s: &str) -> Option<(f64, f64, f64, f64)> {
+pub(crate) fn bounds(s: &str) -> Option<(f64, f64, f64, f64)> {
     let mut nums = s.split(['[', ']', ',']).filter(|p| !p.is_empty()).map(|p| p.parse::<f64>());
     let (x1, y1, x2, y2) = (nums.next()?.ok()?, nums.next()?.ok()?, nums.next()?.ok()?, nums.next()?.ok()?);
     Some((x1, y1, x2 - x1, y2 - y1))

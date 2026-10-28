@@ -129,6 +129,10 @@ impl ControllerService {
         *self.screen.lock().unwrap() = Some((width, height));
     }
 
+    pub fn screen(&self) -> Option<(f64, f64)> {
+        *self.screen.lock().unwrap()
+    }
+
     /// Pixels per dp on this phone.
     fn dp(&self) -> f64 {
         self.phone().map(|p| p.density / 160.0).unwrap_or(1.0)
@@ -167,8 +171,9 @@ impl ControllerService {
         }
     }
 
-    /// One tap, as `input tap`.
-    fn tap(&self, x: i64, y: i64) -> Result<(), String> {
+    /// One tap, as `input tap`. The error names the point: the vault, whose
+    /// points are PIN digits, never passes it on.
+    pub(crate) fn tap(&self, x: i64, y: i64) -> Result<(), String> {
         self.adb_shell(&["input", "tap", &x.to_string(), &y.to_string()])
             .map(|_| ())
             .map_err(|e| format!("adb tap failed: {e}"))

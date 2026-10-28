@@ -36,11 +36,11 @@
 
     function chatModeIcon(row) {
         // agent_mode is stamped at chat mint (shell-conversation work); legacy
-        // rows fall back to run_pkg (ios -> mobile, anything else ->
+        // rows fall back to run_pkg (ios/android -> mobile, anything else ->
         // computer, same inference the reopen path uses).
         var mode = row.agent_mode;
         if (!MODE_ICON_PATHS[mode]) {
-            mode = (row.run_pkg === 'ios') ? 'mobile'
+            mode = (row.run_pkg === 'ios' || row.run_pkg === 'android') ? 'mobile'
                  : (row.run_pkg === 'web') ? 'web' : 'computer';
         }
         var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -195,12 +195,13 @@
                 if (window.showMemoryBar) window.showMemoryBar();
                 // Per-chat mode lock: the chat follows the agent that ran it.
                 // shell marker -> Shell use (the terminal re-pins via the silent
-                // set below); ios -> Mobile use with the device tick CLEARED
-                // (the phone session is gone — the user re-picks iOS/Android to
-                // re-pair); any desktop pkg -> Computer use; untagged -> free.
+                // set below); ios/android -> Mobile use with the device tick
+                // CLEARED (the phone session is gone — the user re-picks
+                // iOS/Android to re-pair); any desktop pkg -> Computer use;
+                // untagged -> free.
                 var pkg = data.run_pkg || '';
                 var lockMode = isShell ? 'shell'
-                    : (pkg === 'ios' ? 'mobile'
+                    : ((pkg === 'ios' || pkg === 'android') ? 'mobile'
                     : (pkg === 'web' ? 'web'
                     : (pkg ? 'computer' : null)));
                 document.dispatchEvent(new CustomEvent('agentmode:lock', { detail: { mode: lockMode } }));

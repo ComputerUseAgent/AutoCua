@@ -1,7 +1,7 @@
 /* =====================================================================
    Connect Device — the Settings section for phone automation. Two options:
-   iPhone (iOS/WebDriverAgent, live) and Android (disabled, future). The iPhone
-   row expands into a device picker + connection state + Connect/Disconnect.
+   iPhone (iOS/WebDriverAgent) and Android (adb + the phone helper). Each
+   row expands into a device picker + connection state + one action.
    Wired by device_connect/device_connect.js. Matches the light settings theme;
    accent green when connected, amber while connecting.
    ===================================================================== */
@@ -24,7 +24,7 @@
     user-select: none;
     transition: border-color 0.2s ease, background 0.2s ease;
 }
-.device-option:hover:not(.is-disabled) {
+.device-option:hover {
     border-color: rgba(146, 146, 216, 0.55);   /* app accent #9292d8 */
     background: rgba(146, 146, 216, 0.06);
 }
@@ -62,49 +62,7 @@
 .device-chevron svg { width: 100%; height: 100%; display: block; }
 .device-option.is-open .device-chevron { transform: rotate(90deg); }
 
-/* Android row — disabled, with a hover tooltip ("Added in a future update"). */
-.device-option.is-disabled {
-    cursor: default;
-    opacity: 0.55;
-    background: rgba(0, 0, 0, 0.015);
-    position: relative;
-}
-.device-option.is-disabled .device-logo,
-.device-option.is-disabled .device-name { color: rgba(120, 120, 120, 0.8); }
-
-.device-soon {
-    flex: 0 0 auto;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    color: rgba(146, 146, 216, 0.9);
-    border: 1px solid rgba(146, 146, 216, 0.4);
-    border-radius: 999px;
-    padding: 2px 8px;
-}
-/* hover tooltip bubble above the disabled row */
-.device-option.is-disabled::after {
-    content: attr(data-tip);
-    position: absolute;
-    right: 12px;
-    bottom: calc(100% + 6px);
-    background: rgba(40, 40, 45, 0.95);
-    color: #fff;
-    font-size: 11.5px;
-    font-weight: 500;
-    white-space: nowrap;
-    padding: 6px 10px;
-    border-radius: 8px;
-    opacity: 0;
-    transform: translateY(4px);
-    pointer-events: none;
-    transition: opacity 0.18s ease, transform 0.18s ease;
-    z-index: 5;
-}
-.device-option.is-disabled:hover::after { opacity: 1; transform: translateY(0); }
-
-/* Expandable iPhone panel — a clean pairing flow in the app's transparent
+/* Expandable device panel — a clean pairing flow in the app's transparent
    theme (no dark console). Just a status line, an optional device/steps block,
    and one action button. */
 .device-panel {
