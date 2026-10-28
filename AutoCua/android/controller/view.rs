@@ -10,8 +10,8 @@
 //!     update_todo -> {"action": "todo_updated"}
 //!     a batch     -> {"action": "multiple", "results": [...]}  one entry per action that ran
 //!
-//! Android has `back` (the system Back) where the iPhone has video_player:
-//! Back takes the page back and closes a full-screen video player.
+//! The iPhone's video_player close is `back` here (the system Back, which
+//! also takes the page back); video_player keeps streaming, pause and play.
 
 use std::collections::HashMap;
 use std::io::{IsTerminal, Write};
@@ -31,6 +31,7 @@ use super::tool::open_app::service::app_launcher_service;
 use super::tool::shell::service::ShellService;
 use super::tool::back::service as back;
 use super::tool::vault::service::{vault_service, DEVICE_ENTRIES, MAX_PIN_ATTEMPTS, TEXT_FIELDS};
+use super::tool::videoplayer::service as videoplayer;
 use super::tool::web::service::WebService;
 use crate::agent::android_use::view::{py_str_of, truthy};
 
@@ -526,6 +527,37 @@ impl ControllerView {
                     if failed {
                         return Ok(result);
                     }
+                }
+
+                "video_player" => {
+                    // Watched on the screen (tool/videoplayer/service.rs); a
+                    // player closes with `back`.
+                    let command = get("value");
+                    let tool_response = match command.as_str() {
+                        Some("streaming") => Ok(if videoplayer::streaming(py) { "Streaming" } else { "Not streaming" }),
+                        Some("pause") => Ok(if videoplayer::pause(py) { "Paused" } else { "Failed to pause" }),
+                        Some("play") => Ok(if videoplayer::play(py) { "Playing" } else { "Failed to play" }),
+                        Some("close") => Err("video_player has no close on Android: use back".to_string()),
+                        _ => Err(format!("Unknown video_player command: {}", py_str_of(&command))),
+                    };
+                    results.push(match tool_response {
+                        Ok(said) => json!({
+                            "status": "success",
+                            "action": "video_player",
+                            "command": command,
+                            "tool_response": format!("videoplayer: Result - {said}"),
+                        }),
+                        Err(message) => {
+                            eprintln!("Video player action failed: {message}");
+                            json!({
+                                "status": "error",
+                                "action": "video_player",
+                                "command": command,
+                                "message": message,
+                                "tool_response": format!("videoplayer: Result - Error: {message}"),
+                            })
+                        }
+                    });
                 }
 
                 "todo_list" => {

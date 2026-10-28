@@ -129,6 +129,10 @@ impl ControllerService {
         *self.screen.lock().unwrap() = Some((width, height));
     }
 
+    pub fn screen(&self) -> Option<(f64, f64)> {
+        *self.screen.lock().unwrap()
+    }
+
     /// Pixels per dp on this phone.
     fn dp(&self) -> f64 {
         self.phone().map(|p| p.density / 160.0).unwrap_or(1.0)

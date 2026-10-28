@@ -51,6 +51,10 @@ pub mod controller {
         pub mod back {
             pub mod service;
         }
+        /// The video player: playing or not, play and pause, from the screen.
+        pub mod videoplayer {
+            pub mod service;
+        }
         /// The web search: service.rs routes it, one file per provider's
         /// search and the browser-agent fallback beside it, as on iOS.
         pub mod web {
