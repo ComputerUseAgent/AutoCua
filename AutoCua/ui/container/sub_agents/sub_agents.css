@@ -71,11 +71,12 @@
     transform-origin: 50% 24.65%;
 }
 
-/* The browser's and the iOS agent's box: like the run's tool box while it
+/* The browser's and the iOS and Android agents' box: like the run's tool box while it
    runs (agent.css), no line, three tool steps tall: its screen, a gap, the
    chain's logos, a gap, the tracking progress. */
 .sub-box[data-kind="browser"],
-.sub-box[data-kind="ios"] {
+.sub-box[data-kind="ios"],
+.sub-box[data-kind="android"] {
     border: 1px solid transparent;
     border-radius: var(--glass-radius);
     padding: var(--bl-pad-y) var(--bl-pad-x);

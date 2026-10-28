@@ -397,7 +397,8 @@ class AgentService:
           - <scratchpad>: the verified checkpoints so far, or "none".
           - <sub_agents>: an `online:` line naming the sub-agents it can start
             (ios_agent only while the request's phone is connected, with a
-            `checking connection: ios_agent` line while it is being connected),
+            `checking connection: ios_agent` line while it is being connected;
+            android_agent the same way for the Android phone),
             then one row per sub-agent started in this run (id, task cut to 100
             characters, status). Always present. While the dataset recorder is
             on it reads `offline:` instead: the sub-agent tools are withheld.
@@ -418,10 +419,14 @@ class AgentService:
             head = [f"offline: {', '.join(SUB_AGENT_TYPES)}"]
         else:
             phone = self.controller.phone_state()
-            online = [t for t in SUB_AGENT_TYPES if t != "ios_agent" or phone == "online"]
+            android = self.controller.android_state()
+            online = [t for t in SUB_AGENT_TYPES
+                      if (t != "ios_agent" or phone == "online") and (t != "android_agent" or android == "online")]
             head = [f"online: {', '.join(online)}"]
             if phone == "checking":
                 head.append("checking connection: ios_agent")
+            if android == "checking":
+                head.append("checking connection: android_agent")
         pm.append("<sub_agents>\n" + "\n".join(head + [self._sub_agent_row(r) for r in rows])
                   + "\n</sub_agents>")
         return "<persistent_memory>\n" + "\n\n".join(pm) + "\n</persistent_memory>"
@@ -557,19 +562,23 @@ class AgentService:
         """Run one user request (see _process_request), with the phone around it.
 
         The moment the request starts, the paired iPhone/iPad is looked for and
-        connected in the background, so ios_agent can come online; however the
-        request ends (done, Stop, an error, Ctrl+C), the phone is let go.
+        connected in the background, so ios_agent can come online, and an
+        Android phone on USB is checked the same way for android_agent;
+        however the request ends (done, Stop, an error, Ctrl+C), the phones
+        are let go.
 
-        While the dataset recorder is on, ios_agent cannot be started at all
-        (data_extraction.OFF_TOOLS), so the phone is not looked for either."""
+        While the dataset recorder is on, the sub-agents cannot be started at
+        all (data_extraction.OFF_TOOLS), so no phone is looked for either."""
         if not data_extraction.ENABLED:
-            from ...controller.tool import ios_agent
+            from ...controller.tool import android_agent, ios_agent
             self.controller.phone = ios_agent.PhoneLink.start()
             self.controller.phone.window = self.phone_window
+            self.controller.android = android_agent.AndroidLink.start()
         try:
             return self._process_request(task)
         finally:
             self.controller.release_phone()
+            self.controller.release_android()
 
     def _process_request(self, task: str) -> dict:
         """Process a user request in an iterative loop until completion.
