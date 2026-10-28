@@ -13,18 +13,156 @@ UiAutomation slot: a leftover one makes the next run's helper fail with
 "already registered").
 
 agent_launcher.run_agent does both around a "mobile use, android" run.
+
+The desktop app has the iPhone's two steps too. Settings → Connect Device
+checks a phone once (confirm with keep=False) and remembers it in
+AutoCua_data/android_paired/paired_devices.json, the way
+ios_connector/session.py remembers a paired iPhone. The chat box's Android
+pick then starts the helper on the newest remembered phone that is plugged in
+(confirm with keep=True).
 """
 
 import atexit
+import json
 import os
+import socket
 import threading
+import time
 
-from AutoCua.android_connector.adb import _adb, connect
+from AutoCua.android_connector.adb import HINTS, NO_PERMISSIONS, _adb, _wireless, adb_path, connect, devices
 from AutoCua.android_connector.stream import Stream
 
 # Picks one phone when several are plugged in (adb's serial). Unset: the one
 # USB phone.
 SERIAL_ENV = "AutoCua_ANDROID_SERIAL"
+
+# How long the app's Connect waits for a phone that is not ready (the
+# terminal's run waits a minute, saying what to do on the phone).
+APP_WAIT = 5.0
+
+# How long the first tree may take: the helper connects to Android's
+# accessibility first, and the forward takes a connection before it listens.
+TREE_WAIT = 15.0
+
+# How long "already registered" is asked again: a helper that was just
+# stopped is gone in under a second; anything longer is another program.
+REGISTERED_WAIT = 3.0
+
+
+# ─────────────────────────── remembered phones ───────────────────────────
+def _registry_file():
+    """AutoCua_data/android_paired/paired_devices.json: user data, outside the
+    install folder, as the iPhone's list is."""
+    from AutoCua import _ensure, data_root
+    return _ensure(data_root() / "android_paired") / "paired_devices.json"
+
+
+# Path.read_text / write_text, never builtins.open(): compiled builds patch
+# open() and silently swallow writes under AutoCua_data (see AutoCua/__init__.py).
+def _read_registry():
+    f = _registry_file()
+    if f.exists():
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("devices"), list):
+                return data["devices"]
+        except Exception:
+            pass
+    return []
+
+
+def _write_registry(phones):
+    try:
+        _registry_file().write_text(
+            json.dumps({"devices": phones}, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def paired_devices():
+    """Every phone connected in Settings: [{serial, name, version, paired_at}], newest first."""
+    return sorted(_read_registry(), key=lambda d: d.get("paired_at", 0), reverse=True)
+
+
+def add_paired(serial, name="Android", version=""):
+    """Add or refresh one phone (one entry per serial)."""
+    if not serial:
+        return paired_devices()
+    phones = [d for d in _read_registry() if d.get("serial") != serial]
+    phones.append({"serial": str(serial), "name": str(name or "Android"),
+                   "version": str(version or ""), "paired_at": int(time.time())})
+    _write_registry(phones)
+    return paired_devices()
+
+
+def remove_paired(serial):
+    """Forget one phone (Settings' × button)."""
+    _write_registry([d for d in _read_registry() if d.get("serial") != serial])
+    return paired_devices()
+
+
+def phones():
+    """The phones on USB, ready or not, for Settings' Device menu:
+    [{"serial", "state", "model", "version", "hint"}]. A ready one ("device")
+    tells its model and Android version; for the others, hint says what to
+    do on the phone."""
+    adb = adb_path()
+    if not adb:
+        raise RuntimeError("adb is not available")
+    started = _adb(adb, "start-server")
+    if started.returncode != 0:
+        raise RuntimeError(f"adb start-server failed: {started.stderr.strip()}")
+    found = []
+    for serial, state in devices(adb):
+        if _wireless(serial):
+            continue                                # USB only for now, as connect()
+        phone = {"serial": serial, "state": state, "model": "", "version": "", "hint": ""}
+        if state == "device":
+            props = _adb(adb, "-s", serial, "shell", "getprop ro.product.model; "
+                         "getprop ro.build.version.release").stdout.splitlines() + ["", ""]
+            phone["model"], phone["version"] = props[0].strip() or serial, props[1].strip()
+        elif state.startswith("no permissions"):
+            phone["hint"] = NO_PERMISSIONS
+        else:
+            phone["hint"] = HINTS.get(state, f"The phone is in the {state!r} state.")
+        found.append(phone)
+    return found
+
+
+def _recv(sock, n):
+    data = b""
+    while len(data) < n:
+        chunk = sock.recv(n - len(data))
+        if not chunk:
+            raise ConnectionError("the helper closed the connection")
+        data += chunk
+    return data
+
+
+def _read_tree(port):
+    """One tree through the helper, as element.rs reads it: the line "dump",
+    then a 4-byte big-endian length and that many bytes. The forward takes a
+    connection before the phone side listens, then drops it, so a dropped one
+    is tried again until TREE_WAIT runs out. A helper stopped a moment ago
+    (Settings' check) holds Android's one UiAutomation for under a second
+    while it exits, so "already registered" is asked again for a few seconds
+    (the helper connects it again on each request)."""
+    start = time.monotonic()
+    while True:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=TREE_WAIT) as sock:
+                sock.sendall(b"dump\n")
+                answer = _recv(sock, int.from_bytes(_recv(sock, 4), "big")).decode("utf-8", "replace")
+        except OSError as e:
+            if time.monotonic() - start > TREE_WAIT:
+                raise RuntimeError(f"no answer within {TREE_WAIT:.0f} s ({e})")
+            time.sleep(0.2)
+            continue
+        if not answer.startswith("ERROR:"):
+            return
+        if "already registered" not in answer or time.monotonic() - start > REGISTERED_WAIT:
+            raise RuntimeError(answer[len("ERROR:"):].strip())
+        time.sleep(0.3)
 
 
 class AndroidSession:
@@ -39,8 +177,9 @@ class AndroidSession:
         self.stream = None
         atexit.register(self.deactivate)
 
-    def activate(self, serial=None):
-        """Connect the phone and start its helper.
+    def activate(self, serial=None, wait=60.0):
+        """Connect the phone and start its helper. wait: how long a phone that
+        is not ready yet (Allow not tapped, still starting) gets.
 
         Returns {"ok": True, "state": "connected", "serial", "model", "adb",
         "port", "tree_port"}, or {"ok": False, "state": "error", "error"} when
@@ -53,13 +192,63 @@ class AndroidSession:
             if self.stream is not None:
                 self._stop()     # the helper died: its forwards go before a new one
             try:
-                adb, found = connect(serial or os.environ.get(SERIAL_ENV) or None)
+                adb, found = connect(serial or os.environ.get(SERIAL_ENV) or None, wait)
                 model = _adb(adb, "-s", found, "shell", "getprop", "ro.product.model").stdout.strip()
                 stream = Stream.start(adb, found)
             except Exception as e:  # noqa: BLE001 - reported, not raised, like wda_session
                 return {"ok": False, "state": "error", "error": str(e)}
             self.adb, self.serial, self.model, self.stream = adb, found, model or found, stream
             return self._info()
+
+    def confirm(self, serial=None, keep=True):
+        """The app's two steps. Settings' Connect (keep=False) starts the
+        helper on `serial`, reads one tree through it, so the phone really
+        answers, then stops it again. The chat box's Android pick (keep=True,
+        no serial) does the same on the newest phone Settings connected that
+        is plugged in, and leaves the helper running for the run.
+
+        Same answer as activate(), with "hint" on an error. A helper already
+        running for the phone is left as it is: it serves one client at a
+        time, and a run may be reading through it.
+        """
+        if not serial:
+            saved = paired_devices()
+            if not saved:
+                return {"ok": False, "state": "error", "error": "No Android phone connected yet",
+                        "hint": "Connect it in Settings → Connect Device."}
+            try:
+                plugged = {p["serial"]: p for p in phones()}
+            except Exception as e:  # noqa: BLE001 - reported, like activate
+                return {"ok": False, "state": "error", "error": str(e)}
+            phone = next((d for d in saved if d["serial"] in plugged), None)
+            if phone is None:
+                return {"ok": False, "state": "error", "error": f"{saved[0]['name']} is not plugged in",
+                        "hint": "Plug it in with a USB cable and unlock it."}
+            if plugged[phone["serial"]]["state"] != "device":
+                return {"ok": False, "state": "error", "error": f"{phone['name']} is not ready",
+                        "hint": plugged[phone["serial"]]["hint"]}
+            serial = phone["serial"]
+
+        live = self.status()
+        if live["state"] == "connected":
+            if live["serial"] == serial:
+                return live
+            return {"ok": False, "state": "error", "error": f"Another phone ({live['model']}) is in use",
+                    "hint": "Pick another mode in the chat box, or wait for its run to end."}
+
+        res = self.activate(serial, wait=APP_WAIT)
+        if not res["ok"]:
+            return res
+        try:
+            _read_tree(res["tree_port"])
+        except Exception as e:  # noqa: BLE001 - reported, like activate
+            self.deactivate()
+            return {"ok": False, "state": "error", "error": f"The phone helper did not read the screen: {e}",
+                    "hint": "Close anything else that reads the phone's screen (another AutoCua, "
+                            "Appium), then try again."}
+        if not keep:
+            self.deactivate()
+        return res
 
     def status(self):
         """{"state": "connected"} while the helper runs, else "disconnected"."""

@@ -92,6 +92,9 @@
     <script src="agent_mode/agent_mode.js"></script>
     <!-- Skills: wires the icon (skills.tsx) and the stage (skills_stage.tsx) -->
     <script src="skills/skills.js"></script>
+    <!-- The Android pick's phone helper (window.androidSession). Before ios_session.js:
+         its menu listener must run first (see the file's header) -->
+    <script src="agent_mode/android_session.js"></script>
     <!-- Parked: the proven iOS connect logic (window.iosSession) — attached once the design is final -->
     <script src="agent_mode/ios_session.js"></script>
     <!-- Connect Device: wires the Settings iPhone/Android device-connect section -->

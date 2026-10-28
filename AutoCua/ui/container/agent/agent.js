@@ -1747,6 +1747,8 @@
         // click taps an element by [id], ground_click a raw point: the same finger.
         click:        { shape: 'tap',      label: 'tapping the screen' },
         ground_click: { shape: 'tap',      label: 'tapping the screen' },
+        // Android's system Back: a press of the phone's back button, the same finger.
+        back:         { shape: 'tap',      label: 'going back' },
         // web (browser) tool names — the browser driver's own set, from
         // AutoCua/web/controller/view.rs. `input`, `scroll`, `wait`,
         // `scratchpad`, `todo_list`, `update_todo` and `done` are already above
