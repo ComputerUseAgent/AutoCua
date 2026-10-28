@@ -44,7 +44,7 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use jpeg_encoder::{ColorType, Encoder, SamplingFactor};
@@ -56,6 +56,14 @@ use roxmltree::{Node, NodeId};
 use serde_json::{json, Map, Value};
 
 use crate::controller::service::controller_service;
+
+// ========== FLAGS ==========
+/// Set to true to save files to debug folders, false for direct LLM only:
+/// ios/tree/element.py's DEBUG. With it every scan of a run is kept, the
+/// tree as debug/element/ui_elements_<time>.txt and the marked screenshot
+/// (the bytes the model gets) as debug/screenshot/ui_elements_screenshot_<time>.jpg,
+/// and the app's screen box gets that marked screenshot instead of the plain one.
+const DEBUG: bool = false;
 
 /// Where each scan's files are written, relative to the process CWD: main.py
 /// and test.py run from the repo root, so they land in the root debug/
@@ -71,6 +79,11 @@ const SCAN_QUALITY: u8 = 85;
 /// How long the phone's server gets to start listening, and then to send the
 /// first frame.
 const START_WAIT: Duration = Duration::from_secs(10);
+
+/// How long a new stream gets to send its first frame before one screenshot
+/// stands in for it: scrcpy sends a frame only when the screen changes, so a
+/// still screen can send none for a long time (see first_frame).
+const FIRST_FRAME_WAIT: Duration = Duration::from_secs(1);
 
 /// Bit 62 of a media packet's header: SPS/PPS rather than a picture.
 const CONFIG_FLAG: u64 = 1 << 62;
@@ -116,6 +129,9 @@ struct Latest {
     frames: u64,
     /// Why the stream stopped, once it has.
     ended: Option<String>,
+    /// The stream's size from its session packet, (0, 0) until it came: the
+    /// screenshot that stands in for a first frame is scaled to it.
+    session: (usize, usize),
 }
 
 struct Shared {
@@ -179,7 +195,7 @@ fn open(port: u16) -> Result<Arc<Shared>, String> {
     }
 
     let shared = Arc::new(Shared {
-        latest: Mutex::new(Latest { rgb: Vec::new(), width: 0, height: 0, frames: 0, ended: None }),
+        latest: Mutex::new(Latest { rgb: Vec::new(), width: 0, height: 0, frames: 0, ended: None, session: (0, 0) }),
         changed: Condvar::new(),
     });
     let reader = Arc::clone(&shared);
@@ -194,20 +210,121 @@ fn open(port: u16) -> Result<Arc<Shared>, String> {
     Ok(shared)
 }
 
-/// Waits for the stream's first frame (at once when it has one).
-fn first_frame(shared: &Shared) -> Result<(), String> {
+/// Waits for the stream's first frame (at once when it has one). scrcpy
+/// sends a frame only when the screen changes (its own develop.md says the
+/// first one may not come on a static screen), so after FIRST_FRAME_WAIT one
+/// screenshot stands in for it, scaled to the stream's size: on a screen that
+/// is not moving it is the same picture. The stream's frames take over as
+/// soon as anything changes.
+fn first_frame(shared: &Shared, dev: &Device) -> Result<(), String> {
+    if wait_frame(shared, FIRST_FRAME_WAIT)? {
+        return Ok(());
+    }
+    let t0 = Instant::now();
+    let shot = screencap(dev);
+    {
+        let mut latest = shared.latest.lock().unwrap();
+        // A frame that came meanwhile is newer than the screenshot: it stays.
+        if latest.frames == 0 && latest.ended.is_none() {
+            if let Ok((rgb, w, h)) = &shot {
+                let (sw, sh) = latest.session;
+                let (rgb, w, h) = if sw > 0 && sh > 0 && (sw, sh) != (*w, *h) {
+                    (scale(rgb, *w, *h, sw, sh), sw, sh)
+                } else {
+                    (rgb.clone(), *w, *h)
+                };
+                latest.rgb = rgb;
+                latest.width = w;
+                latest.height = h;
+                latest.frames += 1;
+                shared.changed.notify_all();
+                println!("[scan] still screen, no first frame: a screenshot stands in ({} ms)",
+                         t0.elapsed().as_millis());
+            }
+        }
+    }
+    if wait_frame(shared, START_WAIT)? {
+        return Ok(());
+    }
+    Err(match shot {
+        Ok(_) => format!("no frame within {} s", START_WAIT.as_secs()),
+        Err(e) => format!("no frame within {} s, and no screenshot either ({e})", START_WAIT.as_secs()),
+    })
+}
+
+/// Waits up to `wait` for the stream to have a frame: true when it has one,
+/// false when the time ran out, the reason when the stream ended.
+fn wait_frame(shared: &Shared, wait: Duration) -> Result<bool, String> {
     let latest = shared.latest.lock().unwrap();
     let (latest, _) = shared
         .changed
-        .wait_timeout_while(latest, START_WAIT, |l| l.frames == 0 && l.ended.is_none())
+        .wait_timeout_while(latest, wait, |l| l.frames == 0 && l.ended.is_none())
         .unwrap();
     if let Some(why) = &latest.ended {
         return Err(why.clone());
     }
-    if latest.frames == 0 {
-        return Err(format!("no frame within {} s", START_WAIT.as_secs()));
+    Ok(latest.frames > 0)
+}
+
+/// One raw screenshot over adb (`screencap` without -p, so no PNG to make or
+/// read): a header of little-endian u32s, width, height, pixel format and on
+/// newer Androids the colour space (12 or 16 bytes), then 4 bytes a pixel.
+/// As RGB, width, height.
+fn screencap(dev: &Device) -> Result<(Vec<u8>, usize, usize), String> {
+    let out = Command::new(&dev.adb)
+        .args(["-s", &dev.serial, "exec-out", "screencap"])
+        .output()
+        .map_err(|e| format!("screencap: {e}"))?;
+    let b = out.stdout;
+    if b.len() < 12 {
+        return Err(format!("screencap: {} bytes", b.len()));
     }
-    Ok(())
+    let word = |i: usize| u32::from_le_bytes(b[i..i + 4].try_into().unwrap()) as usize;
+    let (w, h, format) = (word(0), word(4), word(8));
+    // RGBA_8888 (1), RGBX_8888 (2), BGRA_8888 (5): the formats a phone gives.
+    if !matches!(format, 1 | 2 | 5) || w == 0 || h == 0 {
+        return Err(format!("screencap: {w}x{h}, pixel format {format}"));
+    }
+    let head = b
+        .len()
+        .checked_sub(w * h * 4)
+        .filter(|n| *n == 12 || *n == 16)
+        .ok_or_else(|| format!("screencap: {} bytes for {w}x{h}", b.len()))?;
+    let mut rgb = Vec::with_capacity(w * h * 3);
+    for px in b[head..].chunks_exact(4) {
+        if format == 5 {
+            rgb.extend_from_slice(&[px[2], px[1], px[0]]);
+        } else {
+            rgb.extend_from_slice(&px[..3]);
+        }
+    }
+    Ok((rgb, w, h))
+}
+
+/// An RGB picture scaled to `dw` x `dh`, bilinear (the screenshot to the
+/// stream's size, a few percent smaller).
+fn scale(src: &[u8], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<u8> {
+    let mut out = vec![0u8; dw * dh * 3];
+    let (fx, fy) = (sw as f64 / dw as f64, sh as f64 / dh as f64);
+    for y in 0..dh {
+        let sy = ((y as f64 + 0.5) * fy - 0.5).max(0.0);
+        let y0 = (sy as usize).min(sh - 1);
+        let y1 = (y0 + 1).min(sh - 1);
+        let wy = sy - y0 as f64;
+        for x in 0..dw {
+            let sx = ((x as f64 + 0.5) * fx - 0.5).max(0.0);
+            let x0 = (sx as usize).min(sw - 1);
+            let x1 = (x0 + 1).min(sw - 1);
+            let wx = sx - x0 as f64;
+            for c in 0..3 {
+                let p = |xx: usize, yy: usize| src[(yy * sw + xx) * 3 + c] as f64;
+                let top = p(x0, y0) * (1.0 - wx) + p(x1, y0) * wx;
+                let bottom = p(x0, y1) * (1.0 - wx) + p(x1, y1) * wx;
+                out[(y * dw + x) * 3 + c] = (top * (1.0 - wy) + bottom * wy).round() as u8;
+            }
+        }
+    }
+    out
 }
 
 // ============================================================ the scanner
@@ -281,7 +398,7 @@ impl UIElementScanner {
         // Size, density and home-screen app over adb (one call), then the
         // first frame, which can take a moment: nothing in Python waits for it.
         let device = py.detach(|| device_info(adb, serial));
-        py.detach(|| first_frame(&shared)).map_err(PyRuntimeError::new_err)?;
+        py.detach(|| first_frame(&shared, &device)).map_err(PyRuntimeError::new_err)?;
         controller_service().set_phone(&device.adb, &device.serial, device.density);
         use_helper(tree_port);
         Ok(UIElementScanner {
@@ -297,7 +414,8 @@ impl UIElementScanner {
     /// controller, the files written to debug/android/.
     pub fn scan_elements(&self, py: Python<'_>) -> PyResult<()> {
         self.scan.lock().unwrap().image_base64 = None;
-        let want_plain = self.frontend_callback.is_some();
+        // DEBUG sends the marked screenshot instead: no plain one to make.
+        let want_plain = self.frontend_callback.is_some() && !DEBUG;
         // Pure Rust from here to the pictures: the GIL is not held meanwhile.
         let cap = py
             .detach(|| {
@@ -315,6 +433,12 @@ impl UIElementScanner {
         if let Err(e) = write_scan(Path::new(DEFAULT_OUT_DIR), &cap) {
             eprintln!("element: {e}");
         }
+        // Save to debug folder ONLY if DEBUG is enabled: every scan, as on iOS.
+        if DEBUG {
+            if let Err(e) = write_debug(Path::new("debug"), &cap) {
+                eprintln!("element: {e}");
+            }
+        }
         {
             let mut scan = self.scan.lock().unwrap();
             scan.element_tree_text = cap.tree_text;
@@ -323,9 +447,11 @@ impl UIElementScanner {
         }
         println!("{}", cap.summary);
 
-        // Send to frontend: the plain screenshot, as on iOS.
-        if let (Some(callback), Some(plain)) = (&self.frontend_callback, &cap.plain) {
-            callback.call1(py, (base64::engine::general_purpose::STANDARD.encode(plain),))?;
+        // Send to frontend: the plain screenshot, as on iOS (the marked one
+        // with DEBUG, for debugging).
+        let shown = if DEBUG { Some(&cap.jpeg) } else { cap.plain.as_ref() };
+        if let (Some(callback), Some(bytes)) = (&self.frontend_callback, shown) {
+            callback.call1(py, (base64::engine::general_purpose::STANDARD.encode(bytes),))?;
         }
         Ok(())
     }
@@ -394,7 +520,13 @@ fn decode_loop(mut sock: TcpStream, shared: &Shared) -> Result<(), String> {
             Err(e) => return Err(format!("stream: {e}")),
         }
         if head[0] & 0x80 != 0 {
-            continue; // session packet: a new size (rotation); the frames carry it too
+            // Session packet: the stream's size (again after a rotation), as
+            // flags, width and height. The frames carry it too; it is kept for
+            // the screenshot that stands in for a first frame (first_frame).
+            let w = u32::from_be_bytes(head[4..8].try_into().unwrap()) as usize;
+            let h = u32::from_be_bytes(head[8..12].try_into().unwrap()) as usize;
+            shared.latest.lock().unwrap().session = (w, h);
+            continue;
         }
         let flags = u64::from_be_bytes(head[..8].try_into().unwrap());
         let len = u32::from_be_bytes(head[8..].try_into().unwrap()) as usize;
@@ -631,6 +763,16 @@ fn write_scan(out_dir: &Path, cap: &Capture) -> Result<(), String> {
     write(&out_dir.join("tree.txt"), cap.tree_text.as_bytes())?;
     write(&out_dir.join("elements.json"), cap.json.as_bytes())?;
     write(&out_dir.join("scan.jpg"), &cap.jpeg)
+}
+
+/// One scan's DEBUG files under `dir`, named by the time in seconds as
+/// ios/tree/element.py names them: element/ui_elements_<time>.txt (the tree
+/// text) and screenshot/ui_elements_screenshot_<time>.jpg (the marked
+/// screenshot, byte for byte what the model gets).
+fn write_debug(dir: &Path, cap: &Capture) -> Result<(), String> {
+    let time = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    write(&dir.join("element").join(format!("ui_elements_{time}.txt")), cap.tree_text.as_bytes())?;
+    write(&dir.join("screenshot").join(format!("ui_elements_screenshot_{time}.jpg")), &cap.jpeg)
 }
 
 /// The helper connection: one per process, as there is one scanner and one
