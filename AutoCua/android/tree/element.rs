@@ -228,18 +228,26 @@ fn first_frame(shared: &Shared, dev: &Device) -> Result<(), String> {
         if latest.frames == 0 && latest.ended.is_none() {
             if let Ok((rgb, w, h)) = &shot {
                 let (sw, sh) = latest.session;
-                let (rgb, w, h) = if sw > 0 && sh > 0 && (sw, sh) != (*w, *h) {
-                    (scale(rgb, *w, *h, sw, sh), sw, sh)
+                let (w, h) = (*w, *h);
+                // A shot of another shape (3% off) is another display, the
+                // other panel of a foldable that may be off and black, or the
+                // other way up: no stand-in then.
+                if sw > 0 && sh > 0 && (w * sh).abs_diff(h * sw) * 100 > h * sw * 3 {
+                    println!("[scan] still screen: the screenshot is {w}x{h}, the stream {sw}x{sh}: not used");
                 } else {
-                    (rgb.clone(), *w, *h)
-                };
-                latest.rgb = rgb;
-                latest.width = w;
-                latest.height = h;
-                latest.frames += 1;
-                shared.changed.notify_all();
-                println!("[scan] still screen, no first frame: a screenshot stands in ({} ms)",
-                         t0.elapsed().as_millis());
+                    let (rgb, w, h) = if sw > 0 && sh > 0 && (sw, sh) != (w, h) {
+                        (scale(rgb, w, h, sw, sh), sw, sh)
+                    } else {
+                        (rgb.clone(), w, h)
+                    };
+                    latest.rgb = rgb;
+                    latest.width = w;
+                    latest.height = h;
+                    latest.frames += 1;
+                    shared.changed.notify_all();
+                    println!("[scan] still screen, no first frame: a screenshot stands in ({} ms)",
+                             t0.elapsed().as_millis());
+                }
             }
         }
     }
@@ -272,7 +280,11 @@ fn wait_frame(shared: &Shared, wait: Duration) -> Result<bool, String> {
 /// As RGB, width, height.
 fn screencap(dev: &Device) -> Result<(Vec<u8>, usize, usize), String> {
     let out = Command::new(&dev.adb)
-        .args(["-s", &dev.serial, "exec-out", "screencap"])
+        // One argument: the phone's shell runs it (sh -c), so its stderr is
+        // dropped there. exec-out sends stderr down the same stream, and on
+        // Android 14+ with two displays (foldables) screencap warns there
+        // before the picture, which would break the header.
+        .args(["-s", &dev.serial, "exec-out", "screencap 2>/dev/null"])
         .output()
         .map_err(|e| format!("screencap: {e}"))?;
     let b = out.stdout;
