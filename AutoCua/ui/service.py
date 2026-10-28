@@ -1960,7 +1960,7 @@ def _js_id(value):
 
 def send_cli_event_to_frontend(event_type, *args):
     """Forward CLI agent streaming events to the frontend (window.cli*()), and
-    the browser / iOS sub-agents' live view to their boxes (window.subAgents)."""
+    the browser / iOS / Android sub-agents' live view to their boxes (window.subAgents)."""
     global webview_window
     if not webview_window:
         return
@@ -2035,7 +2035,7 @@ def send_cli_event_to_frontend(event_type, *args):
             webview_window.evaluate_js(
                 f"window.cliPillWebLoadingEnd && window.cliPillWebLoadingEnd('{task_id}')"
             )
-        # A browser / iOS sub-agent's box in the chat, keyed by its sub-agent
+        # A browser / iOS / Android sub-agent's box in the chat, keyed by its sub-agent
         # id. Its watcher in the controller relays what the child writes.
         elif event_type == "sub_start":
             agent_id = _js_id(args[0] if len(args) > 0 else None)
@@ -2236,7 +2236,7 @@ def start_agent():
                 # events CLOSE the coder card and unpin the stage, so they must
                 # land even for a retired run - otherwise the terminal is stuck
                 # mid-run forever. Keyed by task_id, so a stale one is a no-op.
-                # A browser / iOS sub-agent's box closes the same way (sub_end),
+                # A browser / iOS / Android sub-agent's box closes the same way (sub_end),
                 # but its id is a small number a newer run can use again, so it
                 # stops once a newer run is on (sending it cleared the old boxes).
                 if (event_type in ("task_end", "await_end", "minion_end") or run_is_current()
@@ -4509,13 +4509,13 @@ def main():
     # A browser agent still at work when the app closes: it acts on websites
     # and calls the model, so it must not go on with nobody left to report to.
     # The same for an ios_agent run on the phone (macOS), which also closes the
-    # phone window and lets the phone go.
+    # phone window and lets the phone go, and for an android_agent run.
     # On the closing event because not every quit runs atexit (Cmd+Q on macOS).
     # Looked up at closing time: a module is only loaded once it has been used.
     # Returns None, so the close is never cancelled.
     try:
         def _stop_browser_agents():
-            for name in ("browser_agent", "ios_agent"):
+            for name in ("browser_agent", "ios_agent", "android_agent"):
                 launcher = sys.modules.get(f"AutoCua.{PLATFORM_PKG}.controller.tool.{name}")
                 if launcher is not None:
                     launcher.stop_all()

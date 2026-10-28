@@ -31,8 +31,10 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-# Agent types the `sub_agent` tool can start on this platform
-SUB_AGENT_TYPES = ("coder_agent", "browser_agent")
+# Agent types the `sub_agent` tool can start on this platform. android_agent
+# is listed as online only while the request's Android phone checked out
+# (android_state).
+SUB_AGENT_TYPES = ("coder_agent", "browser_agent", "android_agent")
 
 
 def _read_new_lines(path: Path, live: dict, key: str) -> list:
@@ -124,7 +126,9 @@ class ControllerView:
         self._sub_agents = []         # [{"id": int, "agent": str, "task": str, "status": str}]
         self.sub_agent_last_id = 0
         self._browser_tasks = []      # Browser agents at work: [{"id": int, "task": str, "run": dict}]
-        self._sub_ended = set()       # Browser ids whose box in the chat got its sub_end (sent once)
+        self._android_tasks = []      # android_agent runs at work: [{"id": int, "task": str, "run": dict}]
+        self._sub_ended = set()       # Browser / Android ids whose box in the chat got its sub_end (sent once)
+        self.android = None           # The request's AndroidLink (tool/android_agent.py), set by the main driver
         self.speed = None             # The main agent's speed, so a browser agent runs the same way
         self.scan_on = True           # The `scan` tool's switch; the main driver reads it each step
 
@@ -353,7 +357,7 @@ class ControllerView:
                 row["status"] = status
 
     def _end_sub_box(self, agent_id: int, status: str):
-        """Close a browser sub-agent's box in the chat, once: Stop and the
+        """Close a browser / Android sub-agent's box in the chat, once: Stop and the
         run's watcher can both get here."""
         with self._cli_agent_lock:
             if agent_id in self._sub_ended:
@@ -362,7 +366,7 @@ class ControllerView:
         self._safe_cli_emit("sub_end", agent_id, status)
 
     def _relay_sub_agent(self, agent_id: int, live: dict):
-        """One pass of a browser run's live view to its box in the chat: the
+        """One pass of a browser / Android run's live view to its box in the chat: the
         tool-flow events and the newest screen its child wrote to the run's
         folder (events.jsonl and frame.jpg, see browser_agent_child.py), and
         the new lines of its notes. Any read may fail: stop() and outcome()
@@ -425,6 +429,60 @@ class ControllerView:
             self._report_sub_agent(agent_id, "browser_agent", task["task"], summary, status)
             logger.info(f"Browser Agent {agent_id} finished: {status}")
 
+    def _watch_android_agent(self, agent_id: int, run: dict):
+        """Watcher thread: shows one android_agent run live in its box in the
+        chat, about three times a second, then reports it. A phone that goes
+        away mid-run ends the run at once."""
+        from .tool import android_agent
+        # Its notes are the Android agent's one shared scratchpad, wiped when
+        # the child starts: a file older than this run is an earlier run's
+        live = {"dir": run["result_file"].parent, "since": run["started"],
+                "notes": android_agent._ANDROID_SCRATCHPAD / "milestone" / "milestone.md"}
+        while True:
+            # Stop reaches the phone at once, not only when the run unwinds
+            # (the main agent may be parked in a model call for a while).
+            if self.stop_event and self.stop_event.is_set() and not run.get("stopped"):
+                android_agent.stop(run)
+            self._relay_sub_agent(agent_id, live)
+            outcome = android_agent.outcome(run, phone_online=(self.android_state() == "online"))
+            if outcome is not None:
+                break
+            time.sleep(0.3)
+        # The child is gone: the last of what it wrote (outcome() keeps the notes)
+        self._relay_sub_agent(agent_id, live)
+        summary, status = outcome
+        # Its box closes however the run ended, also when Stop or the end of
+        # the request already cleared the list below
+        self._end_sub_box(agent_id, status)
+        with self._cli_agent_lock:
+            task = next((t for t in self._android_tasks if t["id"] == agent_id), None)
+            if task is None:
+                return   # the run was stopped and its list cleared: nobody is left to tell
+            self._android_tasks = [t for t in self._android_tasks if t["id"] != agent_id]
+            self._report_sub_agent(agent_id, "android_agent", task["task"], summary, status)
+            logger.info(f"Android Agent {agent_id} finished: {status}")
+
+    def android_state(self) -> str:
+        """android_agent's line in <sub_agents>: online, checking or offline."""
+        try:
+            return self.android.state() if self.android is not None else "offline"
+        except Exception:
+            return "offline"
+
+    def release_android(self):
+        """End of the main agent's request: android_agent runs stop and the
+        phone check is let go."""
+        with self._cli_agent_lock:
+            android_runs = [t["run"] for t in self._android_tasks]
+            self._android_tasks.clear()
+        link, self.android = self.android, None
+        if android_runs:
+            from .tool import android_agent
+            for run in android_runs:
+                android_agent.stop(run)
+        if link is not None:
+            link.release()
+
     def _register_sub_agent(self, agent: str, task: str) -> int:
         """Add a started sub-agent to the registry and return its id"""
         with self._cli_agent_lock:
@@ -476,9 +534,11 @@ class ControllerView:
                     terminated_ids.append(rf.stem)
             self._cli_tasks.clear()
             self._cli_completed.clear()
-            box_ids = [t["id"] for t in self._browser_tasks]
+            box_ids = [t["id"] for t in self._browser_tasks + self._android_tasks]
             browser_runs = [t["run"] for t in self._browser_tasks]
             self._browser_tasks.clear()
+            android_runs = [t["run"] for t in self._android_tasks]
+            self._android_tasks.clear()
 
         # Their boxes in the chat close at once: a child can take seconds to stop
         for agent_id in box_ids:
@@ -489,6 +549,11 @@ class ControllerView:
             from .tool import browser_agent
             for run in browser_runs:
                 browser_agent.stop(run)
+        # So do android_agent runs (their helper goes with the child)
+        if android_runs:
+            from .tool import android_agent
+            for run in android_runs:
+                android_agent.stop(run)
 
         # Notify frontend that any pills for these tasks are done (stopped)
         for task_id in terminated_ids:
@@ -847,6 +912,60 @@ class ControllerView:
                             "task": task_description,
                             "message": "Browser Agent started in parallel. Continue with other tasks."
                         })
+
+                elif action_type == "sub_agent" and action_item.get("agent_type") == "android_agent":
+                    # DISPATCH MODE: start the Android agent on the checked phone.
+                    # Not online yet (still checking) or no phone: say so and start nothing.
+                    task_description = action_item.get("value", "")
+                    android_state = self.android_state()
+                    if android_state != "online":
+                        if android_state == "checking":
+                            message = ("android_agent is still checking the connection to the phone. "
+                                       "Carry on with other work: once the phone is connected it is "
+                                       "listed under online in <sub_agents>.")
+                        else:
+                            reason = getattr(self.android, "reason", "") or "no Android phone is connected"
+                            message = f"android_agent is currently offline: {reason}."
+                        results.append({
+                            "status": "error",
+                            "action": "tool",
+                            "tool": "sub_agent",
+                            "agent_type": "android_agent",
+                            "message": message
+                        })
+                    else:
+                        logger.info(f"Starting Android Agent for task: {task_description}")
+                        from .tool import android_agent
+                        try:
+                            run = android_agent.start(task_description, self.provider, self.model,
+                                                      api_key=self.api_key, speed=self.speed,
+                                                      link=self.android)
+                        except android_agent.AndroidAgentError as e:
+                            results.append({
+                                "status": "error",
+                                "action": "tool",
+                                "tool": "sub_agent",
+                                "agent_type": "android_agent",
+                                "message": str(e)
+                            })
+                        else:
+                            agent_id = self._register_sub_agent("android_agent", task_description)
+                            # Its own box in the chat, under the main agent's
+                            self._safe_cli_emit("sub_start", agent_id, "android", task_description)
+                            with self._cli_agent_lock:
+                                self._android_tasks.append({"id": agent_id, "task": task_description, "run": run})
+                            threading.Thread(target=self._watch_android_agent, args=(agent_id, run),
+                                             daemon=True).start()
+                            results.append({
+                                "status": "success",
+                                "action": "tool",
+                                "tool": "sub_agent",
+                                "agent_type": "android_agent",
+                                "id": agent_id,
+                                "task": task_description,
+                                "message": (f"Android Agent started in parallel on {self.android.name}. "
+                                            f"Continue with other tasks.")
+                            })
 
                 elif action_type == "sub_agent":
                     # DISPATCH MODE: spawn CLI agent
@@ -1212,7 +1331,8 @@ class ControllerView:
                             self.controller_service.release_all_inputs()
                             return {"status": "stopped", "action": "stop", "message": "Stopped by user"}
                         with self._cli_agent_lock:
-                            if len(self._cli_tasks) == 0 and len(self._browser_tasks) == 0:
+                            if len(self._cli_tasks) == 0 and len(self._browser_tasks) == 0 \
+                                    and len(self._android_tasks) == 0:
                                 break
                         time.sleep(1)
                     

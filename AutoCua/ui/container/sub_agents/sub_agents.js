@@ -9,7 +9,7 @@
 // (or stopped) it closes the same way and the boxes under it slide up. A
 // box opening or closing at the chat's end takes the chat along
 // (chat_scroll.js follow). The live turn is never archived with them.
-//   window.subAgents.start(id, kind, task)      a browser ('browser') or iOS ('ios') agent started
+//   window.subAgents.start(id, kind, task)      a browser ('browser'), iOS ('ios') or Android ('android') agent started
 //   window.subAgents.flow(id, event, payload)    its tool chain's events (agent.js createToolFlow)
 //   window.subAgents.frame(id, b64)              its screen, a JPEG (base64)
 //   window.subAgents.note(id, html)              a scratchpad line for its tracking progress
@@ -24,13 +24,13 @@
 (function () {
     'use strict';
 
-    var BOTS = { browser: 'webuse', ios: 'mobileuse', coder: 'coderuse' };   // ui/bots/<bot>*.webp
-    var FLOWS = { browser: 'web', ios: 'mobile' };    // their chain's click and scroll logos
+    var BOTS = { browser: 'webuse', ios: 'mobileuse', android: 'mobileuse', coder: 'coderuse' };   // ui/bots/<bot>*.webp
+    var FLOWS = { browser: 'web', ios: 'mobile', android: 'mobile' };    // their chain's click and scroll logos
     var MOVE_MS = 350;            // a box opens or closes (sub_agents.css .sub-slot)
     var TYPE_MS = 5;              // the tracking progress's typing (tracking_progress.js)
     var CHARS_PER_TICK = 2;
 
-    var boxes = new Map();        // 'b' + id (browser, iOS) or 'c' + taskId (coder) -> box
+    var boxes = new Map();        // 'b' + id (browser, iOS, Android) or 'c' + taskId (coder) -> box
     var closing = [];             // boxes on their way out
 
     function div(cls) {
