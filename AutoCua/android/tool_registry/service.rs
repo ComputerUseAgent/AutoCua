@@ -246,8 +246,9 @@ pub fn claude_reasoning_tool(final_tool: &str, work: &str, batched: bool) -> Val
 /// Claude the `agent_memory` tool. All share each action tool's text.
 ///
 /// Phone-specific vs the macOS registry: `scroll` and `vault` carry `value`
-/// (not macOS's `direction`), `click` has no `clicks` field, and `vault` /
-/// `back` exist here only (`back` takes the iPhone's video_player's place).
+/// (not macOS's `direction`), `click` has no `clicks` field, and `vault`,
+/// `back` and `video_player` exist here only (`back` is how a player closes,
+/// the iPhone's video_player close).
 fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
     let mut tools: Vec<Value> = Vec::new();
     if let Some(t) = notes {
@@ -307,6 +308,13 @@ fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
         2. back {"value": "1"} - go back to the previous page
     3. On YouTube one Back only leaves full screen; a second one shrinks the video to the small player.
     4. An error result means the screen did not change after a Back."##, track),
+        tool("video_player", &[("value", json!({"type": "string"}))],
+             r##"Check and control video playback by watching the screen (content that is not DRM-blocked). Commands: streaming (check whether content is playing), pause, play. To close a full-screen video player, use back.
+    1. Format: video_player {"value": "one of: streaming/pause/play"}
+    2. Examples:
+        1. video_player {"value": "streaming"}
+        2. video_player {"value": "pause"}
+    3. If play or pause fails, ground_click the video to bring up its controls, then call video_player again (it checks the state first)."##, track),
         tool("scratchpad", &[("value", json!({"type": "string"}))],
              r##"Record a verified checkpoint or any critical fact (file path, metric, finding). Follow <scratchpad> rules.
     1. Write `value` in Markdown - inline only (`**bold**`, backticks), never a line break.
@@ -390,6 +398,7 @@ pub fn main_action_defaults() -> &'static Value {
             "todo_list": {"value": ""},
             "update_todo": {"value": ""},
             "back": {"value": "1"},
+            "video_player": {"value": ""},
             "scratchpad": {"value": ""},
             "done": {"value": ""},
         })

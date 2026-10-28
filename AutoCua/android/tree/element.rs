@@ -266,6 +266,7 @@ impl UIElementScanner {
             .map_err(PyRuntimeError::new_err)?;
         controller_service().set_phone(&device.adb, &device.serial, device.density);
         use_helper(tree_port);
+        *stream().lock().unwrap() = Some(Arc::clone(&shared));
         Ok(UIElementScanner {
             frontend_callback,
             shared,
@@ -405,6 +406,19 @@ fn decode_loop(mut sock: TcpStream, shared: &Shared) -> Result<(), String> {
         latest.frames += 1;
         shared.changed.notify_all();
     }
+}
+
+/// The screen stream: one per process, as there is one scanner. The video
+/// player watches it for movement.
+fn stream() -> &'static Mutex<Option<Arc<Shared>>> {
+    static STREAM: OnceLock<Mutex<Option<Arc<Shared>>>> = OnceLock::new();
+    STREAM.get_or_init(|| Mutex::new(None))
+}
+
+/// The newest frame of the screen stream: RGB, width, height.
+pub fn latest_frame() -> Result<(Vec<u8>, usize, usize), String> {
+    let shared = stream().lock().unwrap().clone().ok_or("no screen stream")?;
+    frame(&shared)
 }
 
 /// A copy of the newest frame (a few ms), so the decode thread never waits.
@@ -1103,7 +1117,7 @@ fn flag(n: Node, key: &str) -> bool {
 }
 
 /// "[x1,y1][x2,y2]" as (x, y, width, height).
-fn bounds(s: &str) -> Option<(f64, f64, f64, f64)> {
+pub(crate) fn bounds(s: &str) -> Option<(f64, f64, f64, f64)> {
     let mut nums = s.split(['[', ']', ',']).filter(|p| !p.is_empty()).map(|p| p.parse::<f64>());
     let (x1, y1, x2, y2) = (nums.next()?.ok()?, nums.next()?.ok()?, nums.next()?.ok()?, nums.next()?.ok()?);
     Some((x1, y1, x2 - x1, y2 - y1))
