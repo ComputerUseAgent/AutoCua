@@ -50,8 +50,8 @@ export function ChatInput() {
                 <div className="input-toolbar">
                     {/* Wireless / Wired flip: Mobile use only (chat_input.css shows it from
                         the composer's data-agent-mode), in the Fast / Quality pill's own
-                        look: Wi-Fi = Wireless, plug = Wired. How the Android phone connects
-                        (link_toggle.js). Left of Fast / Quality, so nothing else moves when
+                        look: Wi-Fi = Wireless, plug = Wired. How the phone connects, Android
+                        or iPhone (link_toggle.js). Left of Fast / Quality, so nothing else moves when
                         it shows. Defaults to Wireless. */}
                     <button className="fast-quality-toggle link-toggle" id="linkToggle" type="button" role="switch" aria-checked="false" aria-label="Wireless / Wired">
                         <span className="fq-label lk-label-wireless" aria-hidden="true">Wireless</span>

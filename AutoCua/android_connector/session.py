@@ -21,8 +21,9 @@ ios_connector/session.py remembers a paired iPhone. The chat box's Android
 pick then starts the helper on the newest remembered phone that is plugged in
 (confirm with keep=True).
 
-A remembered phone works over Wi-Fi too, when it is not plugged in and has
-Wireless debugging on (Android 11 and up, the same Wi-Fi as this computer):
+In the desktop app (WIRELESS, which ui/service.py turns on; a terminal run is
+cable only) a remembered phone works over Wi-Fi too, when it is not plugged in
+and has Wireless debugging on (Android 11 and up, the same Wi-Fi as this computer):
 activate() finds it by its USB serial in the name it announces and connects
 it (adb.py's wifi_addresses and wifi_connect); its adb serial is then
 "ip:port", and "phone" keeps its USB serial. Only remembered phones: a phone
@@ -48,6 +49,10 @@ from AutoCua.android_connector.stream import Stream
 # Picks one phone when several are plugged in (adb's serial). Unset: the one
 # USB phone.
 SERIAL_ENV = "AutoCua_ANDROID_SERIAL"
+# A phone over Wi-Fi is the desktop app's only (owner, 2026-10-29): its
+# Wireless / Wired toggle and its computer-use runs. ui/service.py turns this
+# on at start; a terminal run leaves it off and is cable only.
+WIRELESS = False
 
 # How long the app's Connect waits for a phone that is not ready (the
 # terminal's run waits a minute, saying what to do on the phone).
@@ -160,7 +165,8 @@ def _link(serial):
 
 def _reach(serial, wait, link=None):
     """(adb, adb serial, phone serial) for activate(). USB first, as connect()
-    finds a phone. A remembered phone that is not on USB is looked for on
+    finds a phone; with none named, the newest remembered phone that is
+    plugged in. A remembered phone that is not on USB is looked for on
     Wi-Fi: `serial` when it names one, else (no serial, no phone on USB at
     all) the newest one there. A Wi-Fi address named as `serial` is used only
     when the phone there is a remembered one. No other phone is ever reached
@@ -174,8 +180,8 @@ def _reach(serial, wait, link=None):
         raise RuntimeError(f"adb start-server failed: {started.stderr.strip()}")
     usb = [s for s, _ in devices(adb) if not _wireless(s)]
     saved = [d["serial"] for d in paired_devices()]
-    if link == "wired":
-        wanted = []
+    if link == "wired" or (link is None and not WIRELESS):
+        wanted = []                             # the cable only: Wired, or a terminal run
     elif link == "wireless":
         wanted = ([serial] if serial in saved else []) if serial else saved
     elif serial:
@@ -188,6 +194,11 @@ def _reach(serial, wait, link=None):
             return adb, wifi_connect(adb, phone, found[phone]), phone
     if link == "wireless":
         raise RuntimeError("The phone is not on Wi-Fi")
+    # No phone named: the newest remembered one that is plugged in, as the
+    # chat box and android_agent pick. A phone never connected in Settings
+    # is still used when it is the only one on USB (connect() finds it).
+    if not serial:
+        serial = next((s for s in saved if s in usb), None)
     adb, ready = connect(serial, wait)
     if not _wireless(ready):
         return adb, ready, ready

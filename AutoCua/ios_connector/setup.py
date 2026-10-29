@@ -660,6 +660,7 @@ class Handler(BaseHTTPRequestHandler):
 
         buf = b""
         alive = True
+        quiet_since = time.monotonic()
         try:
             while True:
                 try:
@@ -673,6 +674,7 @@ class Handler(BaseHTTPRequestHandler):
                         data = b""
                     if not data:
                         break
+                    quiet_since = time.monotonic()
                     buf += data
                     while b"\n" in buf:
                         raw, buf = buf.split(b"\n", 1)
@@ -700,6 +702,19 @@ class Handler(BaseHTTPRequestHandler):
                         buf += data
                         continue
                     break
+                elif time.monotonic() - quiet_since > 20:
+                    # xcodebuild prints nothing while WDA idles, and an app's
+                    # Wi-Fi session (ios_connector/session.py) reads this stream
+                    # for hours: an SSE comment every 20 s of silence keeps its
+                    # read timeout from ending a live session, and a reader that
+                    # is gone stops the run, as a failed line write does.
+                    quiet_since = time.monotonic()
+                    try:
+                        self.wfile.write(b": keepalive\n\n")
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError, ValueError, OSError):
+                        alive = False
+                        break
         finally:
             if buf and alive:
                 tail = buf.decode("utf-8", "replace").rstrip("\r\n")

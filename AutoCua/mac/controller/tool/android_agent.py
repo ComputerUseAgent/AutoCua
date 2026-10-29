@@ -182,6 +182,7 @@ class AndroidLink:
     def _check(self, adb):
         try:
             from AutoCua.android_connector.adb import HINTS
+            from AutoCua.android_connector import session as connector
             from AutoCua.android_connector.session import android_session, paired_devices, wifi_saved
             plugged = _usb_phones(adb)
             ready = [s for s, state in plugged.items() if state == "device"]
@@ -200,16 +201,17 @@ class AndroidLink:
                            "Settings → Connect Device → Android")
                 return
             else:
-                # Nothing to use on USB: a phone Settings connected may be on
-                # Wi-Fi (Wireless debugging on). Only those, never another.
-                serial = wifi_saved(adb)
+                # Nothing to use on USB: in the app a phone Settings connected
+                # may be on Wi-Fi (Wireless debugging on), only those, never
+                # another. A terminal run is cable only (connector.WIRELESS).
+                serial = wifi_saved(adb) if connector.WIRELESS else None
                 if serial is None:
                     if plugged:
                         state = next(iter(plugged.values()))
                         self._fail(HINTS.get(state, f"the phone is in the {state!r} state"))
                     else:
-                        self._fail("no Android phone is plugged in by USB with USB debugging on, "
-                                   "and none connected in Settings is on Wi-Fi")
+                        self._fail("no Android phone is plugged in by USB with USB debugging on"
+                                   + (", and none connected in Settings is on Wi-Fi" if connector.WIRELESS else ""))
                     return
             self.serial = serial
             _log(f"checking {serial}")

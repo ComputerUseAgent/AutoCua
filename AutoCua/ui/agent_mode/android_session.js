@@ -52,7 +52,7 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             // Wireless or Wired: the chat box's toggle (chat_input/link_toggle.js)
-            body: JSON.stringify({ link: window.androidLink ? window.androidLink() : 'wireless' })
+            body: JSON.stringify({ link: window.phoneLink ? window.phoneLink() : 'wireless' })
         })
             .then(function (r) { return r.json(); })
             .then(function (d) {
@@ -271,7 +271,7 @@
     // helper is stopped first and the new one asked for only then, so the two
     // never cross on the backend, and a new way that fails leaves nothing
     // running.
-    document.addEventListener('androidlink:changed', function () {
+    document.addEventListener('phonelink:changed', function () {
         if (!androidActive || pairing) return;
         pairing = true;
         failed = false;

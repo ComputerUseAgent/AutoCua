@@ -1550,7 +1550,9 @@ def api_ios_activate():
     try:
         data = request.get_json(silent=True) or {}
         from AutoCua.ios_connector.session import wda_session
-        return jsonify(wda_session.activate(data.get("udid")))
+        # The chat box's Wireless / Wired toggle: Wi-Fi through Xcode, or the cable
+        link = data.get("link")
+        return jsonify(wda_session.activate(data.get("udid"), link=link if link in ("wireless", "wired") else None))
     except Exception:
         debug_exception("api_ios_activate")
         return jsonify({"ok": False, "state": "error", "error": "activate failed"}), 500
@@ -4342,6 +4344,13 @@ def main():
         except Exception:
             debug_exception("Banner mode")
         return
+
+    # A phone over Wi-Fi is the app's only (owner, 2026-10-29): the chat box's
+    # Wireless / Wired toggle and the computer-use phone agents run here; a
+    # terminal run never gets here and stays on the cable.
+    from AutoCua.android_connector import session as _android_connector
+    from AutoCua.ios_connector import session as _ios_connector
+    _android_connector.WIRELESS = _ios_connector.WIRELESS = True
 
     # The Chromium desktop shell when it is installed: it starts this module
     # again as its backend (--desktop), which runs everything below. Before
