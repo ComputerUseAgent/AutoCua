@@ -923,8 +923,15 @@ impl AgentService {
             system_prompt.push_str(ASYNC_TOOLS_ADDENDUM);
         }
 
-        // Clear previous conversation/debug/raw_reasoning folders (CWD-relative).
-        for folder in ["conversation", "debug", "raw_reasoning"] {
+        // Clear the previous debug folder (CWD-relative), and the conversation
+        // and raw_reasoning ones only when this run saves its conversation:
+        // one that does not leaves the last saved run where it is.
+        let folders: &[&str] = if save_conversation {
+            &["conversation", "debug", "raw_reasoning"]
+        } else {
+            &["debug"]
+        };
+        for &folder in folders {
             let p = PathBuf::from(folder);
             if p.exists() {
                 std::fs::remove_dir_all(&p)
