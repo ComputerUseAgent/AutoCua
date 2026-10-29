@@ -8,7 +8,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/AutoCua?color=4c6ef5&label=pypi)](https://pypi.org/project/AutoCua/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-4c6ef5)](https://pypi.org/project/AutoCua/)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20iOS%20%7C%20Chrome-6c757d)](https://github.com/AutoCua/AutoCua/blob/main/README.md#requirements-and-setup)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20iOS%20%7C%20Android%20%7C%20Chrome-6c757d)](https://github.com/AutoCua/AutoCua/blob/main/README.md#requirements-and-setup)
 [![License](https://img.shields.io/badge/license-MIT-31a24c)](https://github.com/AutoCua/AutoCua/blob/main/LICENSE)
 
 [![Desktop input](https://img.shields.io/badge/desktop%20input-real%20hardware%20events-e8590c)](https://github.com/AutoCua/AutoCua/blob/main/README.md#how-it-acts-on-a-screen)
@@ -30,6 +30,7 @@ pip install AutoCua
 | **Shell use** — a coding agent in a real terminal | ✓ | ✓ | ✓ |
 | **Web use** — your own Chrome, driven through the AutoCua extension | ✓ | ✓ | ✓ |
 | **Mobile use** — your iPhone, iPad or an iOS Simulator | — | — | ✓ |
+| **Mobile use** — your Android phone, over USB or Wi-Fi | ✓ | ✓ | ✓ |
 
 <sub>Windows 10 and 11 · Linux with GNOME · macOS on Apple Silicon or Intel</sub>
 
@@ -83,7 +84,7 @@ run_agent(mode="web use", provider="openrouter", model="gemini-3.8-flash",
 | `"shell use"` | A coding agent, straight into a real terminal | macOS, Windows or Linux |
 | `"web use"` | Your own Chrome through the AutoCua extension; headless runs on a debugging port | Any host with Chrome, installed for you when it is missing |
 | `"mobile use, ios"` | An iOS Simulator by default, or your paired iPhone or iPad | macOS host |
-| `"mobile use, android"` | Not available yet | |
+| `"mobile use, android"` | Your Android phone, over USB, or over Wi-Fi once you connected it in the app's Settings | macOS, Windows or Linux host |
 
 On Linux, computer use needs a GNOME desktop (tested on Wayland), and computer use and shell use
 both need a few distro packages that pip cannot install. See [Linux, from pip](#linux-from-pip).
@@ -125,6 +126,7 @@ to Telegram if you connect it yourself.
 - [The agent team](#the-agent-team)
 - [The browser agent](#the-browser-agent)
 - [iPhone and iPad](#iphone-and-ipad)
+- [Android](#android)
 - [Windows, UAC and the kernel driver](#windows-uac-and-the-kernel-driver)
 - [Automation testing and workflows](#automation-testing-and-workflows)
 - [Running tasks in parallel](#running-tasks-in-parallel)
@@ -156,8 +158,8 @@ That is the whole API.
 
 ### What the wheel brings, and what it cannot
 
-Two of the native pieces arrive on their own, and one, the desktop app's Electron, when you
-say yes to it. Two cannot: a Windows kernel driver, which `pip`
+Three of the native pieces arrive on their own, one builds itself on first use, and one, the
+desktop app's Electron, arrives when you say yes to it. Two cannot: a Windows kernel driver, which `pip`
 is structurally unable to install, and on Linux the desktop's accessibility and input bindings,
 which come from your distro.
 
@@ -165,6 +167,8 @@ which come from your distro.
 |---|---|
 | **Browser agent** — Rust | Ships **prebuilt** in the Windows x64, Apple Silicon macOS and Linux x86_64 wheels. On any other platform pip builds it from the source distribution, which needs [Rust](https://rustup.rs) and a C compiler. |
 | **WebDriverAgent** — iOS | **Cloned automatically** the first time you run a `"mobile use, ios"` task. Needs full Xcode and git. Nothing to do by hand. |
+| **adb and scrcpy's server** — Android | **Downloaded automatically** the first time an Android phone is used: Google's platform-tools, unless an `adb` is already on your PATH, and Genymobile's scrcpy server, both pinned by size and SHA-256. Nothing is installed on the phone. |
+| **Android agent** — Rust | **Built on the first Android run** from the sources in the wheel, about a minute, once. Needs [Rust](https://rustup.rs) and a C++ compiler. |
 | **Electron** — the desktop app's Chromium window | **Downloaded only if you say yes.** The first `ui=True` launch from a terminal asks (120 to 160 MB, once) on macOS 13+, Windows 10+ and Linux, except stock Ubuntu 23.10+ ([below](#the-desktop-app)); without it the app opens in pywebview. `python -m AutoCua.utils.electron` fetches it any time. No Node.js needed. |
 | **Interception** — Windows UAC | **Not installed by pip.** One manual step, once — below. |
 | **AT-SPI, GTK and the desktop portal** — Linux | **Not installed by pip.** One `apt` line, once — [below](#linux-from-pip). |
@@ -394,7 +398,7 @@ runtime changes behaviour:
 | Type | `input`, `typewrite` | same |
 | Navigate | `scroll`, `hotkey`, `screenshot`, `drag_drop` | `scroll`, `hotkey`, `screenshot` |
 | System | `open_app`, `shell` (zsh), `applescript` | `open_app`, `shell` (PowerShell) |
-| Delegate | `sub_agent` (coder_agent, browser_agent), `agent_wait`, `web` | same |
+| Delegate | `sub_agent` (coder_agent, browser_agent, ios_agent, android_agent), `agent_wait`, `web` | `sub_agent` (coder_agent, browser_agent, android_agent), `agent_wait`, `web` |
 | State | `todo_list`, `update_todo`, `scratchpad`, `wait`, `done` | same |
 
 19 tools on macOS, 17 on Windows. The names are a frozen allow-list. Anything else the model
@@ -608,6 +612,70 @@ dark it drives play, pause, close and streaming checks from the accessibility tr
 
 ---
 
+## Android
+
+The same loop drives a real Android phone, plugged in by USB or, once you connected it in the
+app's Settings, over Wi-Fi. Nothing is installed on the phone. While AutoCua uses it, one helper
+runs there, in a single `app_process` started over adb. In it, Genymobile's
+[scrcpy](https://github.com/Genymobile/scrcpy) server streams the screen as H.264, so a
+screenshot is the newest frame, already on your computer. AutoCua's own `Helper.java` reads the
+accessibility tree through UiAutomation, in the same process. It keeps that connection open, so
+there is none of `uiautomator dump`'s one-second wait for a still screen, and a scan takes about
+0.1 to 0.3 s. The model gets the iPhone's view, the same numbered elements and
+annotated screenshot, and taps, swipes and keys go through Android's own `input` tool.
+
+| | USB | Wi-Fi |
+|---|---|---|
+| Needs | USB debugging on, and **Allow** tapped with "Always allow from this computer" ticked | The phone connected once over USB in Settings, Connect Device, Android. Then Android 11 or newer, **Wireless debugging** on, and the same Wi-Fi as your computer. No pairing code: the phone takes the key it already trusts from USB |
+| Which phone | The one plugged in, or the one Settings connected | **Only phones you connected in the app's Settings**, found by their USB serial in the name they announce on the network |
+| Best for | Everything | A phone on your desk |
+
+```python
+run_agent(
+    mode="mobile use, android",
+    provider="anthropic", model="claude-sonnet-5",
+    task="Open Settings and tell me the Android version.",
+)
+```
+
+USB comes first: a phone that is plugged in is used over USB. With several plugged in,
+`AutoCua_ANDROID_SERIAL` names the one to use. Emulators are not supported, but a running one
+counts as a phone plugged in: close it before a run, or AutoCua may use it. Over Wi-Fi the phone must report the serial it
+was saved with once it connects, or it is dropped again. Android is tested on a Mac host with
+Android 10 and Android 16 phones so far.
+
+**Four details worth knowing.**
+
+scrcpy sends a frame only when the screen changes, so a still screen may send none at the
+start. After a second, one raw `screencap` stands in, scaled to the stream's size, until the
+stream's own frames take over.
+
+Android's "visible to user" ignores views drawn on top, so the scanner hit-tests each element
+against the tappable ones drawn over it, from the tree's drawing order. Keys hidden under a
+calculator's number pad are listed without a number, with the element that covers them, so they
+cannot be tapped by mistake.
+
+Wireless debugging turns itself off when the phone changes Wi-Fi or access point, and often
+after a restart, and its port changes every time. Turn it on again, or plug the phone in. On a
+Mac, the app that starts adb needs **Local Network** access, under Privacy and Security; without
+it a Wi-Fi connect fails with "No route to host", and AutoCua says where to allow it.
+
+Typing goes through `input text`, which takes ASCII only for now. The vault fills any text,
+through the helper.
+
+**15 tools:** `open_app`, `click`, `ground_click`, `input`, `scroll`, `back`, `wait`, `shell`,
+`web`, `vault`, `video_player`, `todo_list`, `update_todo`, `scratchpad`, `done`. `back` is the
+system Back button. `video_player` tells streaming from paused by watching the picture move.
+Unlike the iPhone's, it does not work on a DRM player, which is black on the stream.
+
+In computer use, the main agent can hand phone work to an **android_agent** sub-agent, on macOS,
+Windows and Linux, the way it hands iPhone work to `ios_agent` on a Mac. It shows up once adb is
+on the computer: after one Android run or the Settings check, or with an `adb` on your PATH. In the app, Settings,
+Connect Device, Android checks a phone once and remembers it, and **Mobile use, Android** in the
+chat box starts it for the run.
+
+---
+
 ## Windows, UAC and the kernel driver
 
 Windows UAC runs on a **separate secure desktop**. User-mode `SendInput` cannot reach it and
@@ -659,12 +727,12 @@ agent finds the button again because it reads the screen the way a person does.
 
 | Need | How AutoCua covers it |
 |---|---|
-| End-to-end across surfaces | One harness covers a desktop app, a website and an iPhone. Change one string to move between them |
+| End-to-end across surfaces | One harness covers a desktop app, a website, an iPhone and an Android phone. Change one string to move between them |
 | A device or browser matrix | `extra_tasks=[...]` runs N tasks at once. One Chrome with a tab each, or one simulator each |
 | Unattended runs | `headless=True` for Chrome. Desktop and iOS runs still need a logged-in graphical session |
 | An audit trail | `save_conversation=True` writes exactly what the model saw and answered at every step |
 | A result you can branch on | `run_agent` returns a status dict, and every parallel child writes its own `result.json` |
-| Credentials in a test | On iOS the vault types the secret. The value never enters the model's context |
+| Credentials in a test | On the web, iOS and Android the vault fills the secret. The value never enters the model's context |
 | Site or app specific rules | Skills are Markdown files loaded only when that site or app is in front |
 | Long flows | Memory compression keeps a long checkout or onboarding flow inside the context window |
 
@@ -879,8 +947,9 @@ conversation, and undelivered commands are re-queued if a run dies before it see
 background thread asks a second model to write a handoff document, and the controller splices
 it into the transcript **in place**, on the main thread, guarded by a generation counter so a
 stale result can never land and a re-arm delay so it cannot thrash. Every agent uses it: the
-macOS and Windows desktop agents, iOS, the coder, and the Rust browser agent, which calls the
-same Python controller across the language boundary. It is why the memory ring's count in the
+macOS and Windows desktop agents, iOS, the coder, and the two Rust agents, the browser agent and
+the Android agent, which call the same Python controller across the language boundary. It is
+why the memory ring's count in the
 app *falls* mid-run instead of only climbing.
 
 **The vault fills credentials without showing them to the model.** The agent says "fill element
@@ -891,7 +960,8 @@ JSON on your disk, and a field that renders its value back to the screen, a user
 than a masked password, will appear in the next element scan like any other text. PIN pads
 with a separate key per digit, like the iPhone lock screen, work the same way: the runtime taps
 the keys, checks that every press registered, and never logs which keys it pressed. It is wired
-into the iOS agent today.
+into the browser, iOS and Android agents today. On Android it fills fields through the phone helper and
+takes PIN pads inside apps, never the phone's own lock screen.
 
 **Chats live outside the install folder** in `AutoCua_data/`, so an uninstall cannot take them.
 They resume with the agent's full per-step reasoning paired to its tool results, plus a note
@@ -899,14 +969,15 @@ recording how the previous run ended, on every path including stop and crash. Re
 are a feature of the desktop app. A terminal run with `save_conversation=True` writes readable
 per-step logs instead, which is what you want for auditing rather than resuming.
 
-**Skills are Markdown files matched to what is on screen**, on the desktop and iOS agents. The
+**Skills are Markdown files matched to what is on screen**, on the desktop, iOS and Android agents. The
 browser agent has the slot but does not fill it yet. A router maps hostnames and app
 names to files, so opening Google Colab loads the browser rules with Colab guidance nested
 inside them, and nothing else. Hostnames match on the longest domain suffix, app names on the
 longest substring. AutoCua ships browser, Google, Microsoft, Colab, LibreOffice Calc,
 Skyscanner and Wikipedia knowledge read-only in `AutoCua/default_skills/`, plus Apple Maps on
-macOS and Instagram on iOS. Your own skills live beside them in `AutoCua_data/skills/`, where
-you can add, edit and delete them from the app while it runs. Skills are injected only on
+macOS and Instagram on iOS and Android. Your own skills live beside them in `AutoCua_data/skills/`, where
+you can add, edit and delete them from the app while it runs. Android's go in
+`AutoCua_data/skills/android/` by hand for now. Skills are injected only on
 steps that actually looked at a screen.
 
 The browser skill also carries the scraping and safety rules: record findings every iteration,
@@ -949,17 +1020,17 @@ run_agent(..., provider="openai",     model="gpt-6-astra")
 
 Nine providers, all supported on every surface.
 
-| Provider | Desktop, macOS | Desktop, Windows | Browser | iOS |
-|---|:--:|:--:|:--:|:--:|
-| Anthropic | yes | yes | yes | yes |
-| AWS Bedrock | yes | yes | yes | yes |
-| Cerebras | yes | yes | yes | yes |
-| Google, including Vertex | yes | yes | yes | yes |
-| Groq | yes | yes | yes | yes |
-| OpenAI | yes | yes | yes | yes |
-| OpenRouter | yes | yes | yes | yes |
-| Perplexity | yes | yes | yes | yes |
-| Together AI | yes | yes | yes | yes |
+| Provider | Desktop, macOS | Desktop, Windows | Browser | iOS | Android |
+|---|:--:|:--:|:--:|:--:|:--:|
+| Anthropic | yes | yes | yes | yes | yes |
+| AWS Bedrock | yes | yes | yes | yes | yes |
+| Cerebras | yes | yes | yes | yes | yes |
+| Google, including Vertex | yes | yes | yes | yes | yes |
+| Groq | yes | yes | yes | yes | yes |
+| OpenAI | yes | yes | yes | yes | yes |
+| OpenRouter | yes | yes | yes | yes | yes |
+| Perplexity | yes | yes | yes | yes | yes |
+| Together AI | yes | yes | yes | yes | yes |
 
 48 model names are listed in **[model_list.txt](https://github.com/AutoCua/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
 that is not on the list gets no validation. It is forwarded verbatim and comes back as a 404.
@@ -986,6 +1057,7 @@ chosen model, and Perplexity Sonar.
 - *For the browser agent from source:* **Rust** and a C toolchain — the setup scripts install these for you
 - *For the browser agent:* **Google Chrome**, installed for you on the first web run when it is missing
 - *For iOS:* macOS with **full Xcode**, not just the Command Line Tools
+- *For Android:* a phone with **USB debugging** on. adb and scrcpy's server are fetched for you, and the Android agent builds on its first run with **Rust** and a C++ compiler, which the setup scripts install
 
 ### macOS
 
@@ -1087,6 +1159,31 @@ signing for you, opens Xcode on the Accounts pane, and streams the build live.
 > A free Apple ID works, but its provisioning profiles expire after 7 days, so you re-sign
 > weekly. A paid developer account lasts a year.
 
+### Android, optional
+
+On the phone, once:
+
+1. **Settings, About phone**: tap **Build number** seven times, which turns on Developer options.
+2. **Developer options**: turn on **USB debugging**.
+3. Plug the phone in with a data cable, unlock it, and tap **Allow** on "Allow USB debugging?"
+   with **Always allow from this computer** ticked.
+
+The first Android run fetches two things into `AutoCua/android_connector/`, both pinned by size
+and SHA-256: Google's platform-tools (not when an `adb` is already on your PATH) and
+Genymobile's scrcpy server. It also builds the Android agent with cargo, once, in about a
+minute. From pip that needs [Rust](https://rustup.rs) and a C++ compiler on your machine; the
+setup scripts install both for a checkout. `python -m AutoCua.android_connector.adb` fetches adb
+and shows the phone on its own.
+On Windows the phone may need its maker's USB driver, and on Linux Android's udev rules (for
+example `sudo apt install android-sdk-platform-tools-common`).
+
+**For Wi-Fi**, connect the phone once over USB in the app's Settings, Connect Device, Android.
+Then, on Android 11 or newer, turn on **Wireless debugging** in Developer options with the phone
+on the same Wi-Fi as your computer, and unplug it: Mobile use, Android finds it on the network,
+with no pairing code. Android 10 and older have no Wireless debugging, so those phones stay on
+USB. On Windows the first look for a phone on Wi-Fi may bring up a one-time Windows Firewall
+prompt for Python; either answer works.
+
 ### Where your data lives
 
 Everything the agent keeps is in one `AutoCua_data/` folder that no installer owns: chats, your
@@ -1107,7 +1204,9 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
 - An id the model was never shown **is refused before anything moves**, and so is a fully
   hidden element, which returns "scroll to make it visible first" instead of a blind click.
 - Vault credentials are typed by the runtime, so **the value is never shown to the model**.
-  Wired into the iOS agent today.
+  Wired into the browser, iOS and Android agents today.
+- An Android phone is reached over Wi-Fi **only after you connected it over USB in the app's
+  Settings**, and only when it answers with the serial it was saved with as it connects.
 - The scraping ruleset carries a **prompt-injection defence**: follow only your request, and
   log anything that tries to give instructions from inside a page or an image.
 - **Stop is checked** before every action, between characters while typing, and inside waits.
@@ -1136,6 +1235,9 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
 - On macOS the consent-dialog watcher clicks Allow on permission prompts it finds while a shell
   command or AppleScript runs. It keeps a run from deadlocking, and it does mean a first-time
   permission grant can happen without you being asked.
+- Over Wi-Fi, adb does not check which device answered. The serial check catches a mix-up, but
+  a device on the same network that copies your phone's serial would pass it, so on a network
+  you share, keep Wireless debugging off on the phone and use USB.
 - The Telegram bot obeys only the first chat that messages it after you connect; Disconnect releases it.
 - There is **no automated test suite** in this repository.
 - AutoCua drives *your* real machine, *your* real browser profile and *your* real logins. That
@@ -1167,6 +1269,8 @@ AutoCua/
   web/                     the Rust browser agent, one crate; browser/AutoCuaBridge/ is the AutoCua Chrome extension
   ios/                     the iPhone and iPad agent
   ios_connector/           WebDriverAgent transport: hardware and simulator sessions
+  android/                 the Android agent, one Rust crate: loop, controller, tool registry, screen reader
+  android_connector/       adb, scrcpy's server and the phone helper (Helper.java): USB and Wi-Fi sessions
   linux/tree/              the Linux accessibility scanner, see Roadmap
   memory_compression/      context gauge and rolling handoff compression
   agent_conversation/      resumable chat persistence
@@ -1207,7 +1311,9 @@ python3 -m AutoCua.linux.tree.test 5 -v          # scan: annotated screenshot + 
 python3 -m AutoCua.linux.controller.test         # click + typing through the portal
 ```
 
-**Android** is not available yet. `"mobile use, android"` raises a clear error.
+**Android is new.** `"mobile use, android"` drives a real phone over USB, or over Wi-Fi once you
+connected it in the app's Settings; see [Android](#android). It is tested on a Mac host with Android 10
+and 16 phones so far.
 
 ---
 
@@ -1233,6 +1339,8 @@ this repository. They are fetched from their authors at setup time or on first u
 | **Interception**, a Windows kernel input driver by [Francisco Lopes da Silva](https://github.com/oblitum/Interception) | `setup_windows.bat` downloads the author's signed `v1.0.1` release and verifies its SHA-256 | **Dual:** LGPL v3.0 non-commercial. **Commercial use needs a paid licence from the author** |
 | **PP-OCRv6** text detection and recognition models, by [PaddlePaddle](https://huggingface.co/PaddlePaddle) | `AutoCua/utils/ocr_models.py` downloads the two ONNX models from the author's Hugging Face repositories at pinned commits, SHA-256 verified, the first time a Linux scan needs them | Apache 2.0 |
 | **Electron**, by the [Electron](https://github.com/electron/electron) project (OpenJS Foundation) | `AutoCua/utils/electron.py` downloads the official `v44.7.0` release zip for your OS, SHA-256 verified, into a per-user cache, only after you say yes at the first `ui=True` launch (or run `python -m AutoCua.utils.electron`); a checkout's `npm install` in `AutoCua/desktop` works too | MIT; the Chromium and Node.js it bundles keep their own licences |
+| **Android SDK Platform-Tools** (adb), by Google | `AutoCua/android_connector/adb.py` downloads the pinned `r37.0.1` zip for your OS from Google, size and SHA-256 verified, the first time an Android phone is used, unless an `adb` is already on your PATH | Google's Android SDK terms; adb itself is open source, Apache 2.0 |
+| **scrcpy server**, by [Genymobile](https://github.com/Genymobile/scrcpy) | `AutoCua/android_connector/stream.py` downloads the pinned `v5.0.1` server from Genymobile's GitHub release, size and SHA-256 verified, the first time an Android phone is used, and copies it to the phone for each session | Apache 2.0 |
 
 > If you ship or sell anything built on AutoCua that bundles or installs the Interception
 > driver, you must obtain a commercial Interception licence yourself. AutoCua's MIT licence
