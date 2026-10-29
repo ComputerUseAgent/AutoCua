@@ -323,6 +323,21 @@
             });
         }
 
+        // Wireless / Wired flip (Mobile use only): UI only for now, nothing reads it.
+        // Fast / Quality's behaviour: state in the .wired class, the floating label
+        // briefly after each flip.
+        const linkToggle = (root || document).querySelector('#linkToggle');
+        if (linkToggle) {
+            let labelTimer = null;
+            linkToggle.addEventListener('click', () => {
+                linkToggle.classList.toggle('wired');
+                linkToggle.setAttribute('aria-checked', linkToggle.classList.contains('wired') ? 'true' : 'false');
+                linkToggle.classList.add('show-label');
+                clearTimeout(labelTimer);
+                labelTimer = setTimeout(() => linkToggle.classList.remove('show-label'), 1200);
+            });
+        }
+
         // Enter (without Shift) starts the agent; Shift+Enter inserts a newline.
         chatInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {

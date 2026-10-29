@@ -2344,7 +2344,7 @@ def start_agent():
                 # scanner's minute-long wait for a phone.
                 if run_pkg == 'android':
                     from AutoCua.android_connector.session import APP_WAIT, android_session
-                    phone = android_session.activate(android_session.serial, wait=APP_WAIT)
+                    phone = android_session.activate(android_session.phone, wait=APP_WAIT)
                     if not phone.get("ok"):
                         raise RuntimeError(f"📱 Android connection failed: {phone.get('error')}")
 

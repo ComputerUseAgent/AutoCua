@@ -20,6 +20,15 @@ AutoCua_data/android_paired/paired_devices.json, the way
 ios_connector/session.py remembers a paired iPhone. The chat box's Android
 pick then starts the helper on the newest remembered phone that is plugged in
 (confirm with keep=True).
+
+A remembered phone works over Wi-Fi too, when it is not plugged in and has
+Wireless debugging on (Android 11 and up, the same Wi-Fi as this computer):
+activate() finds it by its USB serial in the name it announces and connects
+it (adb.py's wifi_addresses and wifi_connect); its adb serial is then
+"ip:port", and "phone" keeps its USB serial. Only remembered phones: a phone
+is never reached over Wi-Fi before it was connected over USB in Settings.
+USB comes first; the chat box's pick takes the newest remembered phone on
+Wi-Fi only when none is plugged in.
 """
 
 import atexit
@@ -29,7 +38,8 @@ import socket
 import threading
 import time
 
-from AutoCua.android_connector.adb import HINTS, NO_PERMISSIONS, _adb, _wireless, adb_path, connect, devices
+from AutoCua.android_connector.adb import (HINTS, NO_PERMISSIONS, _adb, _wireless, adb_path, connect, devices,
+                                           wifi_addresses, wifi_connect)
 from AutoCua.android_connector.stream import Stream
 
 # Picks one phone when several are plugged in (adb's serial). Unset: the one
@@ -132,6 +142,48 @@ def phones():
     return found
 
 
+def wifi_saved(adb):
+    """The newest remembered phone that is on Wi-Fi now (announcing Wireless
+    debugging), by its USB serial; None when none is."""
+    saved = [d["serial"] for d in paired_devices()]
+    found = wifi_addresses(adb, saved)
+    return next((s for s in saved if s in found), None)
+
+
+def _reach(serial, wait):
+    """(adb, adb serial, phone serial) for activate(). USB first, as connect()
+    finds a phone. A remembered phone that is not on USB is looked for on
+    Wi-Fi: `serial` when it names one, else (no serial, no phone on USB at
+    all) the newest one there. A Wi-Fi address named as `serial` is used only
+    when the phone there is a remembered one. No other phone is ever reached
+    over Wi-Fi."""
+    adb = adb_path()
+    if not adb:
+        raise RuntimeError("adb is not available")
+    started = _adb(adb, "start-server")
+    if started.returncode != 0:
+        raise RuntimeError(f"adb start-server failed: {started.stderr.strip()}")
+    usb = [s for s, _ in devices(adb) if not _wireless(s)]
+    saved = [d["serial"] for d in paired_devices()]
+    if serial:
+        wanted = [serial] if serial in saved and serial not in usb else []
+    else:
+        wanted = [] if usb else saved
+    found = wifi_addresses(adb, wanted)
+    for phone in wanted:                        # newest first
+        if phone in found:
+            return adb, wifi_connect(adb, phone, found[phone]), phone
+    adb, ready = connect(serial, wait)
+    if not _wireless(ready):
+        return adb, ready, ready
+    # A Wi-Fi address named directly (AutoCua_ANDROID_SERIAL; android_agent's
+    # child gets the one its check verified): only a remembered phone's.
+    phone = _adb(adb, "-s", ready, "shell", "getprop", "ro.serialno").stdout.strip()
+    if phone not in saved:
+        raise RuntimeError(f"Wi-Fi: the phone at {ready} is not one connected in Settings")
+    return adb, ready, phone
+
+
 def _recv(sock, n):
     data = b""
     while len(data) < n:
@@ -176,19 +228,23 @@ class AndroidSession:
     def __init__(self):
         self._lock = threading.Lock()
         self.adb = None
-        self.serial = None
+        self.serial = None      # adb's serial for it: the USB serial, or "ip:port" on Wi-Fi
+        self.phone = None       # the phone's USB serial, as remembered
         self.model = None
         self.stream = None
         atexit.register(self.deactivate)
 
     def activate(self, serial=None, wait=60.0):
-        """Connect the phone and start its helper. wait: how long a phone that
-        is not ready yet (Allow not tapped, still starting) gets.
+        """Connect the phone and start its helper. serial: the phone's USB
+        serial (a remembered phone that is not plugged in is looked for on
+        Wi-Fi). wait: how long a phone that is not ready yet (Allow not
+        tapped, still starting) gets.
 
-        Returns {"ok": True, "state": "connected", "serial", "model", "adb",
-        "port", "tree_port"}, or {"ok": False, "state": "error", "error"} when
-        the phone cannot be reached. While the helper is running, a second
-        call returns the same connection.
+        Returns {"ok": True, "state": "connected", "serial", "phone", "model",
+        "adb", "port", "tree_port"} ("serial" is adb's, "ip:port" on Wi-Fi;
+        "phone" the USB serial), or {"ok": False, "state": "error", "error"}
+        when the phone cannot be reached. While the helper is running, a
+        second call returns the same connection.
         """
         with self._lock:
             if self._alive():
@@ -196,12 +252,12 @@ class AndroidSession:
             if self.stream is not None:
                 self._stop()     # the helper died: its forwards go before a new one
             try:
-                adb, found = connect(serial or os.environ.get(SERIAL_ENV) or None, wait)
+                adb, found, phone = _reach(serial or os.environ.get(SERIAL_ENV) or None, wait)
                 model = _adb(adb, "-s", found, "shell", "getprop", "ro.product.model").stdout.strip()
                 stream = Stream.start(adb, found)
             except Exception as e:  # noqa: BLE001 - reported, not raised, like wda_session
                 return {"ok": False, "state": "error", "error": str(e)}
-            self.adb, self.serial, self.model, self.stream = adb, found, model or found, stream
+            self.adb, self.serial, self.phone, self.model, self.stream = adb, found, phone, model or found, stream
             return self._info()
 
     def confirm(self, serial=None, keep=True):
@@ -209,7 +265,8 @@ class AndroidSession:
         helper on `serial`, reads one tree through it, so the phone really
         answers, then stops it again. The chat box's Android pick (keep=True,
         no serial) does the same on the newest phone Settings connected that
-        is plugged in, and leaves the helper running for the run.
+        is plugged in, else the newest one on Wi-Fi, and leaves the helper
+        running for the run.
 
         Same answer as activate(), with "hint" on an error. A helper already
         running for the phone is left as it is: it serves one client at a
@@ -226,16 +283,26 @@ class AndroidSession:
                 return {"ok": False, "state": "error", "error": str(e)}
             phone = next((d for d in saved if d["serial"] in plugged), None)
             if phone is None:
-                return {"ok": False, "state": "error", "error": f"{saved[0]['name']} is not plugged in",
-                        "hint": "Plug it in with a USB cable and unlock it."}
-            if plugged[phone["serial"]]["state"] != "device":
+                # None of them plugged in: the newest one on Wi-Fi.
+                try:
+                    on_wifi = wifi_saved(adb_path())
+                except Exception as e:  # noqa: BLE001 - reported, like activate
+                    return {"ok": False, "state": "error", "error": str(e)}
+                phone = next((d for d in saved if d["serial"] == on_wifi), None)
+                if phone is None:
+                    return {"ok": False, "state": "error",
+                            "error": f"{saved[0]['name']} is not plugged in or on Wi-Fi",
+                            "hint": "Plug it in with a USB cable and unlock it, or turn on Wireless "
+                                    "debugging on it (Developer options, Android 11 and up, on the "
+                                    "same Wi-Fi as this computer)."}
+            elif plugged[phone["serial"]]["state"] != "device":
                 return {"ok": False, "state": "error", "error": f"{phone['name']} is not ready",
                         "hint": plugged[phone["serial"]]["hint"]}
             serial = phone["serial"]
 
         live = self.status()
         if live["state"] == "connected":
-            if live["serial"] == serial:
+            if live["phone"] == serial:
                 return live
             return {"ok": False, "state": "error", "error": f"Another phone ({live['model']}) is in use",
                     "hint": "Pick another mode in the chat box, or wait for its run to end."}
@@ -278,8 +345,9 @@ class AndroidSession:
         self.stream = None
 
     def _info(self):
-        return {"ok": True, "state": "connected", "serial": self.serial, "model": self.model,
-                "adb": self.adb, "port": self.stream.port, "tree_port": self.stream.tree_port}
+        return {"ok": True, "state": "connected", "serial": self.serial, "phone": self.phone,
+                "model": self.model, "adb": self.adb, "port": self.stream.port,
+                "tree_port": self.stream.tree_port}
 
 
 android_session = AndroidSession()

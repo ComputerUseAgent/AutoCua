@@ -10,6 +10,13 @@ iOS. An adb already on PATH is used as it is.
 The zip is pinned three ways: the release, its byte size and its SHA-256,
 checked before it is unpacked. A partial or altered download is never used.
 
+A phone on Wi-Fi works too, with Android 11's Wireless debugging turned on
+(Developer options): wifi_addresses() finds it by the name it announces on the
+network, and wifi_connect() connects it with the key it already trusts from
+USB ("Always allow from this computer"), so there is no pairing code. Which
+phones may go over Wi-Fi is session.py's call: only those connected once over
+USB in Settings.
+
 This file only connects: it finds adb, starts its server and waits until the
 phone is ready. Streaming the screen is stream.py's job, and saving
 screenshots element.rs's (AutoCua/android/tree/element.rs).
@@ -21,7 +28,9 @@ import hashlib
 import os
 import platform
 import shutil
+import socket
 import ssl
+import struct
 import subprocess
 import sys
 import threading
@@ -62,6 +71,15 @@ HINTS = {
 NO_PERMISSIONS = ("This user may not open the phone over USB. Add Android udev "
                   "rules (for example: apt install android-sdk-platform-tools-common) "
                   "and plug it in again.")
+
+# Wi-Fi: the phone announces Wireless debugging over mDNS as
+# adb-<its USB serial>-<6 random characters>, at a port that changes each
+# time the switch is turned on. adb's own mDNS starts with its server and
+# hears a phone within a second or so.
+WIFI_LOOK = 3.0
+# adb connect itself waits for the OS's TCP timeout (75 s on macOS) when
+# nothing answers.
+WIFI_CONNECT_WAIT = 10
 
 # One fetch per process, however many threads ask at once.
 _LOCK = threading.Lock()
@@ -219,6 +237,90 @@ def connect(serial=None, wait=60.0):
         if time.monotonic() > deadline:
             raise RuntimeError(f"No ready phone after {wait:.0f} s (last state: {state or 'none'})")
         time.sleep(1)
+
+
+def _ask_wifi():
+    """Ask the network once which phones have Wireless debugging on: one mDNS
+    question, sent from mDNS's own port so the phones answer to everyone
+    there, adb's own listener too. adb asks only now and then by itself:
+    measured on a moto g77, a phone that had dropped out of adb's list was
+    still missing 37 s later, and back 0.3 s after one question."""
+    name = b"".join(bytes([len(p)]) + p for p in (b"_adb-tls-connect", b"_tcp", b"local")) + b"\0"
+    question = struct.pack(">6H", 0, 0, 1, 0, 0, 0) + name + struct.pack(">2H", 12, 1)    # PTR, IN
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if hasattr(socket, "SO_REUSEPORT"):
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+            s.bind(("", 5353))
+            s.sendto(question, ("224.0.0.251", 5353))
+    except OSError:
+        pass        # the port taken for good, no network: adb's list as it is
+
+
+def wifi_addresses(adb, serials):
+    """{serial: "ip:port"} for those of `serials` whose phone announces
+    Wireless debugging on this network. While none is heard it asks the
+    network (_ask_wifi, once a second) and looks again for up to WIFI_LOOK
+    seconds: a server that has just started has not heard the phones yet,
+    and one that has may have let a phone drop out of its list."""
+    if not serials:
+        return {}
+    deadline = time.monotonic() + WIFI_LOOK
+    asked = None
+    while True:
+        found = {}
+        for line in _adb(adb, "mdns", "services").stdout.splitlines():
+            # "<instance>\t<service type>\t<ip>:<port>"; ":<port>" while only
+            # an IPv6 address is known, which adb cannot connect to.
+            parts = line.split("\t")
+            if len(parts) != 3 or not parts[1].startswith("_adb-tls-connect.") or parts[2].startswith(":"):
+                continue
+            for serial in serials:
+                # adb-<serial>-<6 letters or digits>, maybe " (2)" after it. A
+                # name that goes on with another "-" is a phone whose own
+                # serial only starts like this one.
+                prefix = f"adb-{serial}-"
+                if parts[0].startswith(prefix) and "-" not in parts[0][len(prefix):]:
+                    found.setdefault(serial, parts[2].strip())
+        if found or time.monotonic() > deadline:
+            return found
+        if asked is None or time.monotonic() - asked >= 1.0:
+            _ask_wifi()
+            asked = time.monotonic()
+        time.sleep(0.3)
+
+
+def wifi_connect(adb, serial, address):
+    """Connect the phone `serial` at `address` (from wifi_addresses) and return
+    the address, its adb serial from now on. RuntimeError when it does not
+    connect, or another phone answers there."""
+    # A connection that was there already may be another program's: only
+    # one made here is dropped again on failure.
+    mine = address not in dict(devices(adb))
+    try:
+        said = _adb(adb, "connect", address, timeout=WIFI_CONNECT_WAIT).stdout.strip()
+    except subprocess.TimeoutExpired:
+        said = f"no answer from {address} within {WIFI_CONNECT_WAIT} s"
+    # adb connect exits 0 either way: the row's state is what counts.
+    deadline = time.monotonic() + 3
+    while dict(devices(adb)).get(address) != "device":
+        if time.monotonic() > deadline:
+            if mine:
+                _adb(adb, "disconnect", address)
+            hint = ("Allow Local Network for this app in System Settings > Privacy & Security > Local Network."
+                    if sys.platform == "darwin" and "No route to host" in said
+                    else "Plug the phone in by USB once, then try again.")
+            raise RuntimeError(f"Wi-Fi: {said or f'no answer from {address}'}. {hint}")
+        time.sleep(0.3)
+    # The address came from the network: the phone there must be this one.
+    got = _adb(adb, "-s", address, "shell", "getprop", "ro.serialno").stdout.strip()
+    if got != serial:
+        if mine:
+            _adb(adb, "disconnect", address)
+        raise RuntimeError(f"Wi-Fi: the phone at {address} is not {serial} ({got or 'no serial'})")
+    return address
 
 
 if __name__ == "__main__":
