@@ -29,7 +29,7 @@ pip install AutoCua
 | **Browser skills** — Chrome, Firefox, Edge, Brave and Opera | ✓ | ✓ | ✓ |
 | **Shell use** — a coding agent in a real terminal | ✓ | ✓ | ✓ |
 | **Web use** — your own Chrome, driven through the AutoCua extension | ✓ | ✓ | ✓ |
-| **Mobile use** — your iPhone, iPad or an iOS Simulator | — | — | ✓ |
+| **Mobile use** — an iOS Simulator, or your iPhone or iPad, over USB, or Wi-Fi in the app | — | — | ✓ |
 | **Mobile use** — your Android phone, over USB, or Wi-Fi in the app | ✓ | ✓ | ✓ |
 
 <sub>Windows 10 and 11 · Linux with GNOME · macOS on Apple Silicon or Intel</sub>
@@ -61,7 +61,7 @@ https://github.com/user-attachments/assets/82bf6163-55c9-4cc4-95e7-9c6466f2a25d
 
 ## iOS agent: iPhone use
 
-A paired iPhone, driven over the USB cable. Agent mode: mobile use, iOS.
+A paired iPhone, driven over the USB cable, or Wi-Fi in the app. Agent mode: mobile use, iOS.
 
 https://github.com/user-attachments/assets/3c22eb45-d939-4742-9053-22ecc75b416f
 
@@ -782,8 +782,8 @@ holds the exact payload sent to the model at every step and `raw_reasoning/` hol
 reply, so a failed run is readable rather than guessed at. A parallel run additionally writes
 `result.json` per child and exits 0 when it returned, 1 on a crash and 130 on Ctrl+C.
 
-> Those folders are cleared at the start of every run, whether the flag is on or not. Copy out
-> anything you need to keep before running again.
+> A run with `save_conversation=True` clears those folders when it starts, and a run without
+> it leaves them alone. Copy out anything you need to keep before you run with the flag again.
 
 One design decision matters more than any of this for reliability: the agent is told that a
 tool result reports that a tool ran, never that the screen changed. Every step judges the
