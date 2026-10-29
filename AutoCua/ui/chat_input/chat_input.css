@@ -479,8 +479,8 @@ body.left-bar-animating .chat-container-wrapper {
     pointer-events: none;
 }
 
-/* ---------- Wireless / Wired flip (Mobile use only; UI only, nothing wired
-   behind it yet). The Fast / Quality pill itself (it carries
+/* ---------- Wireless / Wired flip (Mobile use only; how the Android phone
+   connects, link_toggle.js). The Fast / Quality pill itself (it carries
    .fast-quality-toggle, so the running fade above covers it too), with its own
    icons and colours: sky Wi-Fi = Wireless (left), green plug = Wired (right).
    display:none outside Mobile use, so it takes no room there; it fades in like
@@ -755,6 +755,26 @@ body.left-bar-animating .chat-container-wrapper {
 
 .chat-input::placeholder {
     color: rgba(90, 90, 90, 0.6);
+}
+
+/* Why a phone could not connect (ios_session.js, android_session.js put it in
+   the placeholder): a little smaller, and on the empty box's one line, cut
+   with "…" when longer, never half into a second line. */
+.chat-input.pair-note::placeholder {
+    font-size: clamp(12px, 1.15vw, 13px);
+    white-space: nowrap;
+    overflow: hidden;
+}
+/* The "…": Chromium shows it only with both set, WebKit with the note's. */
+.chat-input.pair-note,
+.chat-input.pair-note::placeholder {
+    text-overflow: ellipsis;
+}
+
+/* While a phone pairs, and after it did not pair till it does, the box is read
+   only (the same two files) and takes no clicks, as a disabled one. */
+.chat-input[readonly] {
+    pointer-events: none;
 }
 
 /* Orb slot: holds the send orb (send_button.html) and the stop orb (pc_button.html)

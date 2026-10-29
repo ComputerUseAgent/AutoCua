@@ -1643,10 +1643,13 @@ def api_android_paired_remove():
 
 @app.route('/api/android/activate', methods=['POST'])
 def api_android_activate():
-    """Android pick ON: the helper on the newest connected phone that is plugged in."""
+    """Android pick ON: the helper on the newest connected phone, the way the
+    chat box's Wireless / Wired toggle says ({"link": "wireless" | "wired"})."""
+    from flask import request
     try:
         from AutoCua.android_connector.session import android_session
-        return jsonify(android_session.confirm(keep=True))
+        link = (request.get_json(silent=True) or {}).get("link")
+        return jsonify(android_session.confirm(keep=True, link=link if link in ("wireless", "wired") else None))
     except Exception:
         debug_exception("api_android_activate")
         return jsonify({"ok": False, "state": "error", "error": "activate failed"}), 500
@@ -2338,13 +2341,14 @@ def start_agent():
                     else f"AutoCua.{run_pkg}.agent.computer_use.service"
                 ).AgentService
 
-                # Android: the phone the chat box's pick connected. Its helper
-                # is normally still up (this answers at once); a phone gone
-                # since stops the run in seconds with why, not after the
-                # scanner's minute-long wait for a phone.
+                # Android: the phone the chat box's pick connected, the way its
+                # toggle said. Its helper is normally still up (this answers at
+                # once); a phone gone since stops the run in seconds with why,
+                # not after the scanner's minute-long wait for a phone.
                 if run_pkg == 'android':
                     from AutoCua.android_connector.session import APP_WAIT, android_session
-                    phone = android_session.activate(android_session.phone, wait=APP_WAIT)
+                    phone = android_session.activate(android_session.phone, wait=APP_WAIT,
+                                                     link=android_session.link)
                     if not phone.get("ok"):
                         raise RuntimeError(f"📱 Android connection failed: {phone.get('error')}")
 

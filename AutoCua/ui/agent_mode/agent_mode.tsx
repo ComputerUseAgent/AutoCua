@@ -34,6 +34,8 @@ const ANDROID = <path d="M6,18C6,18.55 6.45,19 7,19H8V22.5C8,23.33 8.67,24 9.5,2
 const AUTO = <><path d="M12 8V4H8" /><rect x="4" y="8" width="16" height="12" rx="2" /><path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" /></>;
 const MANUAL = <><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M6 8h.01" /><path d="M10 8h.01" /><path d="M14 8h.01" /><path d="M18 8h.01" /><path d="M8 12h.01" /><path d="M12 12h.01" /><path d="M16 12h.01" /><path d="M7 16h10" /></>;
 const CHEV_UP = <path d="M18 15l-6-6-6 6" />;
+// Pair again: a circular arrow (lucide's rotate-cw).
+const RETRY = <><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /></>;
 
 function Check() { return <Stroke className="am-check" width="2.5"><path d="M5 12l5 5L20 7" /></Stroke>; }
 function SubChev() { return <Stroke className="am-subchev"><path d="M9 6l6 6-6 6" /></Stroke>; }
@@ -125,6 +127,18 @@ export function AgentMode() {
                 <Fill className="am-sub-icon am-sub-ios" hidden>{APPLE}</Fill>
                 <Fill className="am-sub-icon am-sub-android" hidden>{ANDROID}</Fill>
                 <svg className="am-chev" id="agentChev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{CHEV_UP}</svg>
+            </button>
+
+            {/* Mobile use: the phone's pairing. A circle that turns while it pairs;
+                if it did not pair, an arrow in its place that pairs again on a click
+                (ios_session.js / android_session.js set the wrap's data-pair and
+                answer the click; agent_mode.css). Nothing once paired. */}
+            <button className="pair-status" id="pairStatus" type="button" aria-label="Pair again" title="Pair again">
+                <svg className="ps-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" opacity="0.25" />
+                    <path d="M21 12a9 9 0 0 0-9-9" />
+                </svg>
+                <Stroke className="ps-retry" hidden>{RETRY}</Stroke>
             </button>
 
             {/* Shell use only: Auto / Manual. Auto: your message goes to the agent and the
