@@ -37,6 +37,7 @@ from pathlib import Path
 
 from AutoCua.ios_connector.build_paths import wda_build_root
 from AutoCua.ios_connector.session import WDA_PORT, active_target
+from AutoCua.utils.consent import allow_download
 
 _WDA_PROJECT = Path(__file__).resolve().parent / "WebDriverAgent" / "WebDriverAgent.xcodeproj"
 # OUTSIDE the repo on purpose — see build_paths: a checkout on the Desktop would
@@ -160,6 +161,13 @@ def _download_platform(version=None, log=print):
     cmd = ["xcodebuild", "-downloadPlatform", "iOS"]
     if version:
         cmd += ["-buildVersion", str(version)]
+    # Asked first, unless AutoCua_IOS_AUTO_DOWNLOAD says yes (1) or no (0) itself.
+    if os.environ.get("AutoCua_IOS_AUTO_DOWNLOAD") is None and not allow_download(
+            "the iOS{} Simulator platform".format(" " + str(version) if version else ""),
+            "Apple, through xcodebuild", "about 8.5 GB", log=lambda text: log("📱 " + text)):
+        return {"code": "download_declined",
+                "error": "The iOS Simulator platform is not installed, and is not downloaded without your yes.",
+                "hint": "Run it yourself: " + " ".join(cmd) + "   (or set AutoCua_IOS_AUTO_DOWNLOAD=1)"}
     log("📱 Installing the iOS{} simulator platform — multi-GB download, this "
         "takes a while.".format(" " + str(version) if version else ""))
     log("   {}   (AutoCua_IOS_AUTO_DOWNLOAD=0 turns this off)".format(" ".join(cmd)))

@@ -30,7 +30,7 @@ pip install AutoCua
 | **Shell use** — a coding agent in a real terminal | ✓ | ✓ | ✓ |
 | **Web use** — your own Chrome, driven through the AutoCua extension | ✓ | ✓ | ✓ |
 | **Mobile use** — an iOS Simulator, or your iPhone or iPad, over USB, or Wi-Fi in the app | — | — | ✓ |
-| **Mobile use** — your Android phone, over USB, or Wi-Fi in the app | ✓ | ✓ | ✓ |
+| **Mobile use** — an Android emulator, or your Android phone, over USB, or Wi-Fi in the app | ✓ | ✓ | ✓ |
 
 <sub>Windows 10 and 11 · Linux with GNOME · macOS on Apple Silicon or Intel</sub>
 
@@ -82,12 +82,13 @@ run_agent(mode="web use", provider="openrouter", model="gemini-3.8-flash",
 |---|---|---|
 | `"computer use"` | The desktop. Clicks, typing, hotkeys, apps, AppleScript | macOS, Windows or Linux, auto detected |
 | `"shell use"` | A coding agent, straight into a real terminal | macOS, Windows or Linux |
-| `"web use"` | Your own Chrome through the AutoCua extension; headless runs on a debugging port | Any host with Chrome, installed for you when it is missing |
+| `"web use"` | Your own Chrome through the AutoCua extension; headless runs on a debugging port | Any host with Chrome, offered for download when it is missing |
 | `"mobile use, ios"` | An iOS Simulator by default, or your paired iPhone or iPad over the cable | macOS host |
-| `"mobile use, android"` | Your Android phone over USB | macOS, Windows or Linux host |
+| `"mobile use, android"` | An Android emulator by default, or your Android phone over the cable | macOS, Windows or Linux host |
 
 From a script a phone always goes over the cable. Wi-Fi is the desktop app's: see
-[iPhone and iPad](#iphone-and-ipad) and [Android](#android).
+[iPhone and iPad](#iphone-and-ipad) and [Android](#android). A phone needs `device="hardware"`;
+the default, `device="simulation"`, is the simulator or the emulator.
 
 On Linux, computer use needs a GNOME desktop (tested on Wayland), and computer use and shell use
 both need a few distro packages that pip cannot install. See [Linux, from pip](#linux-from-pip).
@@ -161,16 +162,17 @@ That is the whole API.
 
 ### What the wheel brings, and what it cannot
 
-Three of the native pieces arrive on their own, one builds itself on first use, and one, the
-desktop app's Electron, arrives when you say yes to it. Two cannot: a Windows kernel driver, which `pip`
+Four of the native pieces are fetched when you say yes to them on the terminal, one builds itself
+on first use, and one, the desktop app's Electron, is offered the same way. Two cannot: a Windows kernel driver, which `pip`
 is structurally unable to install, and on Linux the desktop's accessibility and input bindings,
 which come from your distro.
 
 | | How it reaches you |
 |---|---|
 | **Browser agent** — Rust | Ships **prebuilt** in the Windows x64, Apple Silicon macOS and Linux x86_64 wheels. On any other platform pip builds it from the source distribution, which needs [Rust](https://rustup.rs) and a C compiler. |
-| **WebDriverAgent** — iOS | **Cloned automatically** the first time you run a `"mobile use, ios"` task. Needs full Xcode and git. Nothing to do by hand. |
-| **adb and scrcpy's server** — Android | **Downloaded automatically** the first time an Android phone is used: Google's platform-tools, unless an `adb` is already on your PATH, and Genymobile's scrcpy server, both pinned by size and SHA-256. Nothing is installed on the phone. |
+| **WebDriverAgent** — iOS | **Cloned when you say yes** on the terminal, the first time you run a `"mobile use, ios"` task. Needs full Xcode and git. Nothing to do by hand. |
+| **adb and scrcpy's server** — Android | **Downloaded when you say yes** on the terminal, the first time an Android phone or emulator is used: Google's platform-tools, unless an `adb` is already on your PATH, and Genymobile's scrcpy server, both pinned by size and SHA-256. Nothing is installed on the phone. |
+| **Android emulator** — Google's | **Downloaded on the first emulator run, after you accept Google's SDK terms on the terminal**: Google's emulator and the Android version it needs, about 2.5 GB, into a per-user folder. An Android Studio SDK that already has both is used instead. Needs the computer's hypervisor ([below](#android-optional)). |
 | **Android agent** — Rust | **Built on the first Android run** from the sources in the wheel, about a minute, once. Needs [Rust](https://rustup.rs) and a C++ compiler. |
 | **Electron** — the desktop app's Chromium window | **Downloaded only if you say yes.** The first `ui=True` launch from a terminal asks (120 to 160 MB, once) on macOS 13+, Windows 10+ and Linux, except stock Ubuntu 23.10+ ([below](#the-desktop-app)); without it the app opens in pywebview. `python -m AutoCua.utils.electron` fetches it any time. No Node.js needed. |
 | **Interception** — Windows UAC | **Not installed by pip.** One manual step, once — below. |
@@ -286,8 +288,8 @@ run_agent(
 
 Every optional flag goes straight into that call (`ui=True`, `speed="fast"`, …). All of them,
 `ui`, `save_conversation`, `speed`, `external_terminal`, `headless`, `browser_port`,
-`browser_profile`, `extra_tasks`, `device`, `ios_version`, `sim_device`, `app_build`, `api_key`
-and `os`, are documented in
+`browser_profile`, `extra_tasks`, `device`, `ios_version`, `android_version`, `sim_device`,
+`app_build`, `api_key` and `os`, are documented in
 **[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**.
 
 ---
@@ -467,7 +469,8 @@ parallel run included: Chrome is started with the flags that load it, or taken a
 is already running with it, and the agents drive your own browser, logged in as you are, with
 no debugging port open; each agent is on a line of its own to the extension. A headless run
 uses the **DevTools Protocol** on a Chrome of the agent's own. Every tool works the same way in
-both. When Chrome is missing it is downloaded from Google and installed on the first web run.
+both. When Chrome is missing, the first web run asks on the terminal before downloading it from
+Google and installing it.
 
 ### Raw CDP, hand written
 
@@ -628,8 +631,8 @@ run from a script (`run_agent`) always uses the cable.
 
 ## Android
 
-The same loop drives a real Android phone, plugged in by USB or, from the app, over Wi-Fi once
-you connected it in Settings. Nothing is installed on the phone. While AutoCua uses it, one helper
+The same loop drives an Android emulator, or a real Android phone, plugged in by USB or, from the
+app, over Wi-Fi once you connected it in Settings. Nothing is installed on the phone. While AutoCua uses it, one helper
 runs there, in a single `app_process` started over adb. In it, Genymobile's
 [scrcpy](https://github.com/Genymobile/scrcpy) server streams the screen as H.264, so a
 screenshot is the newest frame, already on your computer. AutoCua's own `Helper.java` reads the
@@ -638,6 +641,45 @@ there is none of `uiautomator dump`'s one-second wait for a still screen, and a 
 0.1 to 0.3 s. The model gets the iPhone's view, the same numbered elements and
 annotated screenshot, and taps, swipes and keys go through Android's own `input` tool.
 
+| | `device="simulation"` (default) | `device="hardware"` |
+|---|---|---|
+| Runs on | Google's Android emulator on your computer | Your Android phone |
+| Driven by | The emulator, on a virtual device AutoCua writes itself: no Java, no Android Studio | adb, over USB or, from the app, Wi-Fi (below) |
+| Needs | The computer's hypervisor: built into macOS, Windows Hypervisor Platform on Windows, KVM on Linux | USB debugging on, and **Allow** tapped |
+| Android version | `android_version="16"`, from 11 to 17, or the newest one already here | Whatever the phone runs |
+| Phone or tablet | `sim_device="phone"` (default) or `"tablet"` | Whatever it is |
+| Your own app build | `app_build="MyApp.apk"`, installed before the task starts | Not supported, the run stops with an error |
+| Best for | Testing your app, any Android version, parallel tasks | Your own apps and logins, Play Store, camera, cellular |
+
+```python
+run_agent(
+    mode="mobile use, android",
+    provider="anthropic", model="claude-sonnet-5",
+    device="simulation",        # or "hardware" for your phone
+    android_version=None,       # e.g. "15"; None picks the newest one already here
+    sim_device="phone",         # "phone" or "tablet"
+    app_build=None,             # simulation only: an .apk in AutoCua_data/app_build/
+    task="Open Settings and tell me the Android version.",
+)
+```
+
+**The emulator.** Every run is a fresh phone: Google's apps, your `.apk` if you gave one, and
+nothing from the last run, the way a tester wants it. The first run of an Android version does
+its one first boot (15 to 30 s on Apple Silicon) and saves that moment; every run after starts a
+read-only copy from it in about 5 s (12 s when several start at once) and stops in a second. The emulator (about 420 MB) and the
+Android it needs (1.2 to 2.1 GB, 4 to 6 GB unpacked) are Google's, fetched from Google's SDK
+repository the first time they are needed, pinned by size and SHA-1, into a per-user folder:
+`~/Library/Caches/AutoCua/android-sdk`, `%LOCALAPPDATA%\AutoCua\android-sdk` or
+`~/.cache/AutoCua/android-sdk`. Before that first download AutoCua asks you once, on the terminal,
+to accept Google's Android SDK terms, as Android Studio does; nothing of Google's is in this
+repository or the wheel. `python -m AutoCua.android_connector.emulator` does all of that ahead of
+time, with a check of what the computer has. An Android Studio SDK that already has the emulator
+and the image is used as it is. The images are Google APIs ones: Google's apps, no Play Store.
+Android 10 is not offered, because its emulator image can't stream its screen. The emulator shows
+its own window. Details in **[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**, Part 10.
+
+**A real phone** goes over USB or, from the app, over Wi-Fi:
+
 | | USB | Wi-Fi |
 |---|---|---|
 | Needs | USB debugging on, and **Allow** tapped with "Always allow from this computer" ticked | The phone connected once over USB in Settings, Connect Device, Android. Then Android 11 or newer, **Wireless debugging** on, and the same Wi-Fi as your computer. No pairing code: the phone takes the key it already trusts from USB |
@@ -645,21 +687,13 @@ annotated screenshot, and taps, swipes and keys go through Android's own `input`
 | Where | Everywhere, a script included | The desktop app only: Mobile use's Wireless / Wired toggle, and computer use's android_agent |
 | Best for | Everything | A phone on your desk |
 
-```python
-run_agent(
-    mode="mobile use, android",
-    provider="anthropic", model="claude-sonnet-5",
-    task="Open Settings and tell me the Android version.",
-)
-```
-
-A run from a script uses USB only. With several phones plugged in it takes the newest one you
-connected in Settings, or `AutoCua_ANDROID_SERIAL` names the one to use. In the app, Mobile use
+With `device="hardware"` a script uses USB only. With several phones plugged in it takes the newest
+one you connected in Settings, or `AutoCua_ANDROID_SERIAL` names the one to use; an emulator is
+never taken for a phone. In the app, Mobile use
 follows its Wireless / Wired toggle: Wireless, the default, reaches the phone over Wi-Fi only,
-also with its cable in, and Wired over USB only. Emulators are not supported, but a running one
-counts as a phone plugged in: close it before a run, or AutoCua may use it. Over Wi-Fi the phone must report the serial it
+also with its cable in, and Wired over USB only. Over Wi-Fi the phone must report the serial it
 was saved with once it connects, or it is dropped again. Android is tested on a Mac host with
-Android 10 and Android 16 phones so far.
+Android 10 and Android 16 phones so far, and the emulator with Android 11 to 17 on an Apple Silicon Mac.
 
 **Four details worth knowing.**
 
@@ -747,8 +781,8 @@ agent finds the button again because it reads the screen the way a person does.
 | Need | How AutoCua covers it |
 |---|---|
 | End-to-end across surfaces | One harness covers a desktop app, a website, an iPhone and an Android phone. Change one string to move between them |
-| A device or browser matrix | `extra_tasks=[...]` runs N tasks at once. One Chrome with a tab each, or one simulator each |
-| Unattended runs | `headless=True` for Chrome. Desktop and iOS runs still need a logged-in graphical session |
+| A device or browser matrix | `extra_tasks=[...]` runs N tasks at once. One Chrome with a tab each, or one simulator or emulator each |
+| Unattended runs | `headless=True` for Chrome. Desktop, iOS and Android emulator runs still need a logged-in graphical session |
 | An audit trail | `save_conversation=True` writes exactly what the model saw and answered at every step |
 | A result you can branch on | `run_agent` returns a status dict, and every parallel child writes its own `result.json` |
 | Credentials in a test | On the web, iOS and Android the vault fills the secret. The value never enters the model's context |
@@ -840,18 +874,19 @@ run_agent(
 )
 ```
 
-| | `"web use"` | `"mobile use, ios"` with `device="simulation"` |
-|---|---|---|
-| Each task gets | Its own agent pinned to **its own tab** | Its own **simulator** and its own WebDriverAgent port |
-| Shared | Your own Chrome, through the extension (headless: one browser of the agent's own on a debugging port); its front tab shows a cover page while the agents work in tabs behind it | Nothing. A phone screen cannot be split |
-| Isolation | A 13-tool single-tab registry. It cannot touch another agent's tab | Own port (8100, 8101, ...), own scratchpad, own build directory |
-| Ceiling | Tabs and RAM | Simulators, and it creates one when it needs another |
+| | `"web use"` | `"mobile use, ios"` with `device="simulation"` | `"mobile use, android"` with `device="simulation"` |
+|---|---|---|---|
+| Each task gets | Its own agent pinned to **its own tab** | Its own **simulator** and its own WebDriverAgent port | Its own **copy of the emulator**, read-only |
+| Shared | Your own Chrome, through the extension (headless: one browser of the agent's own on a debugging port); its front tab shows a cover page while the agents work in tabs behind it | Nothing. A phone screen cannot be split | The saved first boot, which every copy starts from and none changes |
+| Isolation | A 13-tool single-tab registry. It cannot touch another agent's tab | Own port (8100, 8101, ...), own scratchpad, own build directory | Own emulator (`emulator-5554`, `emulator-5556`, ...), own scratchpad |
+| Ceiling | Tabs and RAM | Simulators, and it creates one when it needs another | 16 emulators, and RAM: 2 to 4 GB each |
 
 Backgrounded tabs are told they are still focused, so pages that gate on focus keep behaving
 while another agent is in front. Output is prefixed per task, one Ctrl+C stops everything, and
 results land in `./parallel/task_N/`. On iOS every simulator the run booted is shut down at the
-end, whether it succeeded, failed or was interrupted. With `app_build`, every simulator installs
-your app at the same time, each as soon as it has booted.
+end, whether it succeeded, failed or was interrupted, and on Android every emulator copy. With
+`app_build`, every simulator or emulator installs your app at the same time, each as soon as it
+has booted. The emulator copies' windows open on top of each other; drag them apart to watch.
 
 > `./parallel/` is deleted and recreated on every parallel run. Copy out anything you want to
 > keep.
@@ -1075,9 +1110,9 @@ chosen model, and Perplexity Sonar.
 - **Python 3.10 or newer**
 - An **API key** from any supported provider
 - *For the browser agent from source:* **Rust** and a C toolchain — the setup scripts install these for you
-- *For the browser agent:* **Google Chrome**, installed for you on the first web run when it is missing
+- *For the browser agent:* **Google Chrome**, offered for download on the first web run when it is missing
 - *For iOS:* macOS with **full Xcode**, not just the Command Line Tools
-- *For Android:* a phone with **USB debugging** on. adb and scrcpy's server are fetched for you, and the Android agent builds on its first run with **Rust** and a C++ compiler, which the setup scripts install
+- *For Android:* for the emulator, the computer's hypervisor (built into macOS; Windows Hypervisor Platform on Windows; KVM on Linux), and the emulator fetches itself; for a phone, **USB debugging** on. adb and scrcpy's server are fetched for you, and the Android agent builds on its first run with **Rust** and a C++ compiler, which the setup scripts install
 
 ### macOS
 
@@ -1186,7 +1221,24 @@ and Security, to reach the phone's address.
 
 ### Android, optional
 
-On the phone, once:
+**Emulator**, the default, needs nothing by hand on macOS. The first emulator run asks you to
+accept Google's Android SDK terms on the terminal, then fetches Google's emulator and the Android
+it needs into a per-user folder (about 2.5 GB to download, 11 GB on disk; each further Android
+version is 2 GB more to download and about 10 GB more on disk, with its own first boot) and does
+the one first boot. To have it ready before, with a check of the computer first:
+
+```bash
+python -m AutoCua.android_connector.emulator              # the newest Android already here, else 17, as a phone
+python -m AutoCua.android_connector.emulator 15 tablet    # a version and kind of your choice
+```
+
+With no terminal to ask on (CI), `AutoCua_ANDROID_ACCEPT_SDK_TERMS=1` accepts the terms. On
+Windows, turn on **Windows Hypervisor Platform** once (Control Panel, Programs, Turn Windows
+features on or off) and restart. On Linux, give your user KVM: `sudo apt install qemu-kvm`,
+`sudo usermod -aG kvm $USER`, then log out and in. Without them the run stops before booting and
+says so. The setup scripts build the Android agent, and download nothing of this.
+
+**A real phone** (`device="hardware"`), on the phone, once:
 
 1. **Settings, About phone**: tap **Build number** seven times, which turns on Developer options.
 2. **Developer options**: turn on **USB debugging**.
@@ -1230,6 +1282,12 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
   hidden element, which returns "scroll to make it visible first" instead of a blind click.
 - Vault credentials are typed by the runtime, so **the value is never shown to the model**.
   Wired into the browser, iOS and Android agents today.
+- **Nothing is downloaded without your yes.** adb, scrcpy's server, WebDriverAgent, Chrome, the
+  OCR models, the iOS Simulator platform, the Android emulator and its images: each is fetched
+  from its maker's own server, and only after you answer y on the terminal (the emulator and the
+  images after Google's SDK terms). With no terminal to ask on, the run stops and says what to run.
+  `AutoCua_AUTO_DOWNLOAD=1` answers yes for a run nobody watches, such as CI. Only Electron asks
+  in its own way, since the app works without it.
 - Phones go over Wi-Fi **only from the desktop app**; a run from a script always uses the cable.
 - An Android phone is reached over Wi-Fi **only after you connected it over USB in the app's
   Settings**, and only when it answers with the serial it was saved with as it connects. An
@@ -1262,6 +1320,8 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
 - On macOS the consent-dialog watcher clicks Allow on permission prompts it finds while a shell
   command or AppleScript runs. It keeps a run from deadlocking, and it does mean a first-time
   permission grant can happen without you being asked.
+- The Android emulator is Google's program. AutoCua turns its usage metrics and crash reports off,
+  but it still checks Google for its own updates.
 - Over Wi-Fi, adb does not check which device answered. The serial check catches a mix-up, but
   a device on the same network that copies your phone's serial would pass it, so on a network
   you share, keep Wireless debugging off on the phone and use USB.
@@ -1297,7 +1357,7 @@ AutoCua/
   ios/                     the iPhone and iPad agent
   ios_connector/           WebDriverAgent transport: cable, Wi-Fi (through Xcode) and simulator sessions
   android/                 the Android agent, one Rust crate: loop, controller, tool registry, screen reader
-  android_connector/       adb, scrcpy's server and the phone helper (Helper.java): USB and Wi-Fi sessions
+  android_connector/       adb, scrcpy's server and the phone helper (Helper.java): USB, Wi-Fi and emulator sessions
   linux/tree/              the Linux accessibility scanner, see Roadmap
   memory_compression/      context gauge and rolling handoff compression
   agent_conversation/      resumable chat persistence
@@ -1340,7 +1400,9 @@ python3 -m AutoCua.linux.controller.test         # click + typing through the po
 
 **Android is new.** `"mobile use, android"` drives a real phone over USB, and the app over Wi-Fi
 too once you connected it in Settings; see [Android](#android). It is tested on a Mac host with Android 10
-and 16 phones so far. **An iPhone over Wi-Fi is new too**: in the app, Xcode starts
+and 16 phones so far. **So is the Android emulator**, now the default from a script: Android 11
+to 17, phone or tablet, your own `.apk` and parallel tasks, tested on an Apple Silicon Mac so far.
+**An iPhone over Wi-Fi is new too**: in the app, Xcode starts
 WebDriverAgent on a paired iPhone on the same Wi-Fi; see [iPhone and iPad](#iphone-and-ipad).
 
 ---
@@ -1369,6 +1431,7 @@ this repository. They are fetched from their authors at setup time or on first u
 | **Electron**, by the [Electron](https://github.com/electron/electron) project (OpenJS Foundation) | `AutoCua/utils/electron.py` downloads the official `v44.7.0` release zip for your OS, SHA-256 verified, into a per-user cache, only after you say yes at the first `ui=True` launch (or run `python -m AutoCua.utils.electron`); a checkout's `npm install` in `AutoCua/desktop` works too | MIT; the Chromium and Node.js it bundles keep their own licences |
 | **Android SDK Platform-Tools** (adb), by Google | `AutoCua/android_connector/adb.py` downloads the pinned `r37.0.1` zip for your OS from Google, size and SHA-256 verified, the first time an Android phone is used, unless an `adb` is already on your PATH | Google's Android SDK terms; adb itself is open source, Apache 2.0 |
 | **scrcpy server**, by [Genymobile](https://github.com/Genymobile/scrcpy) | `AutoCua/android_connector/stream.py` downloads the pinned `v5.0.1` server from Genymobile's GitHub release, size and SHA-256 verified, the first time an Android phone is used, and copies it to the phone for each session | Apache 2.0 |
+| **Android Emulator and system images**, by Google | `AutoCua/android_connector/emulator.py` downloads the pinned emulator `37.2.12` for your OS, and the Google APIs system image of each Android version a `device="simulation"` run needs, from Google's SDK repository, size and SHA-1 verified (the checksum Google's manifest lists), into a per-user cache | Google's Android SDK terms; the emulator is built on QEMU (GPL v2) |
 
 > If you ship or sell anything built on AutoCua that bundles or installs the Interception
 > driver, you must obtain a commercial Interception licence yourself. AutoCua's MIT licence

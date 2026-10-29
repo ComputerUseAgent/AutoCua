@@ -8,6 +8,12 @@ sublicensed by it. Each remains under its own terms, and the MIT grant in
 [LICENSE](LICENSE) — including the permission to sell or sublicense — applies
 only to AutoCua's own code, never to these components.
 
+None of the components fetched at run time is downloaded without the person's
+yes on the terminal (`AutoCua/utils/consent.py`; `AutoCua_AUTO_DOWNLOAD=1`
+answers yes where nobody can, and Google's Android SDK terms have their own
+acceptance). Each comes from its author's own server, pinned by size and
+checksum where the author publishes one.
+
 ---
 
 ## 1. Interception — **not redistributed; fetched at setup time**
@@ -165,6 +171,22 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+---
+
+## 7. Android Emulator and system images — **not redistributed; fetched on first use**
+
+| | |
+|---|---|
+| **Author** | Google LLC and the Android Open Source Project |
+| **Upstream** | Google's Android SDK repository, https://dl.google.com/android/repository/, the one Android Studio's SDK Manager uses: the emulator `37.2.12` (listed in `repository2-3.xml`) and the Google APIs system images (`sys-img/google_apis/sys-img2-3.xml`) |
+| **How it reaches you** | **Not vendored in this repository or in the wheel.** The first `"mobile use, android"` run with `device="simulation"` (or `python -m AutoCua.android_connector.emulator`, ahead of time) has `AutoCua/android_connector/emulator.py` ask the person, on the terminal, to accept Google's terms (below), once, the way Android Studio's `sdkmanager --licenses` does, and only then download the emulator zip for the machine and the system image of the Android version it needs from Google's own server, over TLS, into a per-user folder (`~/Library/Caches/AutoCua/android-sdk`, `%LOCALAPPDATA%\AutoCua\android-sdk`, `~/.cache/AutoCua/android-sdk`). With no terminal, nothing is downloaded unless `AutoCua_ANDROID_ACCEPT_SDK_TERMS=1` says the terms are accepted. Size and SHA-1 are verified before anything is unpacked; a mismatch is discarded. An Android SDK already on the machine that has them (Android Studio's) is used instead, and nothing is downloaded or asked. |
+| **Pinned checksums** | In `AutoCua/android_connector/emulator.py` (`EMULATOR_ARCHIVES`, `IMAGES`): each zip's byte size and the SHA-1 Google's manifest lists for it. For example the emulator for Apple Silicon `3af4fe44ce82b3d88ae5678a53735f27ad729c15`, the Android 17 image for arm64 `7a8bfff584798fe87caa4d4883f6ade4658a185b` |
+| **License** | Google's Android Software Development Kit License Agreement (https://developer.android.com/studio/terms), the terms Android Studio's SDK Manager shows for these packages. The emulator is built on QEMU (GPL v2); the open-source parts of both are in the Android Open Source Project, and the zips carry their `NOTICE` files. |
+| **Used by** | `device="simulation"` runs of `"mobile use, android"`. A `device="hardware"` run fetches none of it. |
+
+The emulator and the images are Google's, under Google's terms and their own
+licenses, and are not covered by AutoCua's MIT license.
 
 ---
 

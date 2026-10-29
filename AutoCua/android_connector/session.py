@@ -12,7 +12,9 @@ so a helper never outlives this process (the helper holds Android's one
 UiAutomation slot: a leftover one makes the next run's helper fail with
 "already registered").
 
-agent_launcher.run_agent does both around a "mobile use, android" run.
+agent_launcher.run_agent does both around a "mobile use, android" run. With
+device="simulation" it first boots an emulator (emulator.py) and names it
+here by its serial (emulator-<port>); a phone pick never takes an emulator.
 
 The desktop app has the iPhone's two steps too. Settings → Connect Device
 checks a phone once (confirm with keep=False) and remembers it in
@@ -42,8 +44,8 @@ import socket
 import threading
 import time
 
-from AutoCua.android_connector.adb import (HINTS, NO_PERMISSIONS, _adb, _wireless, adb_path, connect, devices,
-                                           wifi_addresses, wifi_connect)
+from AutoCua.android_connector.adb import (HINTS, NO_PERMISSIONS, _adb, _emulator, _wireless, adb_path, connect,
+                                           devices, wifi_addresses, wifi_connect)
 from AutoCua.android_connector.stream import Stream
 
 # Picks one phone when several are plugged in (adb's serial). Unset: the one
@@ -135,8 +137,8 @@ def phones():
         raise RuntimeError(f"adb start-server failed: {started.stderr.strip()}")
     found = []
     for serial, state in devices(adb):
-        if _wireless(serial):
-            continue                                # USB only for now, as connect()
+        if _wireless(serial) or _emulator(serial):
+            continue                                # USB phones only, as connect()
         phone = {"serial": serial, "state": state, "model": "", "version": "", "hint": ""}
         if state == "device":
             props = _adb(adb, "-s", serial, "shell", "getprop ro.product.model; "
@@ -178,7 +180,7 @@ def _reach(serial, wait, link=None):
     started = _adb(adb, "start-server")
     if started.returncode != 0:
         raise RuntimeError(f"adb start-server failed: {started.stderr.strip()}")
-    usb = [s for s, _ in devices(adb) if not _wireless(s)]
+    usb = [s for s, _ in devices(adb) if not _wireless(s) and not _emulator(s)]
     saved = [d["serial"] for d in paired_devices()]
     if link == "wired" or (link is None and not WIRELESS):
         wanted = []                             # the cable only: Wired, or a terminal run
