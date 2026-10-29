@@ -30,7 +30,7 @@ pip install AutoCua
 | **Shell use** — a coding agent in a real terminal | ✓ | ✓ | ✓ |
 | **Web use** — your own Chrome, driven through the AutoCua extension | ✓ | ✓ | ✓ |
 | **Mobile use** — your iPhone, iPad or an iOS Simulator | — | — | ✓ |
-| **Mobile use** — your Android phone, over USB or Wi-Fi | ✓ | ✓ | ✓ |
+| **Mobile use** — your Android phone, over USB, or Wi-Fi in the app | ✓ | ✓ | ✓ |
 
 <sub>Windows 10 and 11 · Linux with GNOME · macOS on Apple Silicon or Intel</sub>
 
@@ -83,8 +83,11 @@ run_agent(mode="web use", provider="openrouter", model="gemini-3.8-flash",
 | `"computer use"` | The desktop. Clicks, typing, hotkeys, apps, AppleScript | macOS, Windows or Linux, auto detected |
 | `"shell use"` | A coding agent, straight into a real terminal | macOS, Windows or Linux |
 | `"web use"` | Your own Chrome through the AutoCua extension; headless runs on a debugging port | Any host with Chrome, installed for you when it is missing |
-| `"mobile use, ios"` | An iOS Simulator by default, or your paired iPhone or iPad | macOS host |
-| `"mobile use, android"` | Your Android phone, over USB, or over Wi-Fi once you connected it in the app's Settings | macOS, Windows or Linux host |
+| `"mobile use, ios"` | An iOS Simulator by default, or your paired iPhone or iPad over the cable | macOS host |
+| `"mobile use, android"` | Your Android phone over USB | macOS, Windows or Linux host |
+
+From a script a phone always goes over the cable. Wi-Fi is the desktop app's: see
+[iPhone and iPad](#iphone-and-ipad) and [Android](#android).
 
 On Linux, computer use needs a GNOME desktop (tested on Wayland), and computer use and shell use
 both need a few distro packages that pip cannot install. See [Linux, from pip](#linux-from-pip).
@@ -607,6 +610,17 @@ There is a **`video_player`** tool because DRM players black out screenshots. Wh
 dark it drives play, pause, close and streaming checks from the accessibility tree, and proves
 "streaming" by watching the progress label advance across a four second window.
 
+**Over Wi-Fi, in the app.** Mobile use has a **Wireless / Wired** toggle, and Wireless is the
+default. Wired is the cable, as in the table. Wireless needs nothing beyond the pairing: Xcode
+already reaches a paired iPhone on the same Wi-Fi, so it builds and starts WebDriverAgent there,
+with the same `xcodebuild` run Settings makes, which also signs it again when a free profile has
+expired. The app then talks to it at the phone's Wi-Fi address. pymobiledevice3, the cable's
+transport, would need root or an extra setting on the phone for Wi-Fi. A start takes about 15 to 35 s,
+against about 5 s over the cable. With several paired iPhones on the Wi-Fi it takes an unlocked
+one first, the newest of those, and says so at once when they are all locked. In the app,
+computer use's `ios_agent` also finds a paired iPhone on the Wi-Fi when none is on the cable. A
+run from a script (`run_agent`) always uses the cable.
+
 **13 tools:** `open_app`, `click`, `input`, `scroll`, `wait`, `shell`, `web`, `vault`,
 `video_player`, `todo_list`, `update_todo`, `scratchpad`, `done`.
 
@@ -614,8 +628,8 @@ dark it drives play, pause, close and streaming checks from the accessibility tr
 
 ## Android
 
-The same loop drives a real Android phone, plugged in by USB or, once you connected it in the
-app's Settings, over Wi-Fi. Nothing is installed on the phone. While AutoCua uses it, one helper
+The same loop drives a real Android phone, plugged in by USB or, from the app, over Wi-Fi once
+you connected it in Settings. Nothing is installed on the phone. While AutoCua uses it, one helper
 runs there, in a single `app_process` started over adb. In it, Genymobile's
 [scrcpy](https://github.com/Genymobile/scrcpy) server streams the screen as H.264, so a
 screenshot is the newest frame, already on your computer. AutoCua's own `Helper.java` reads the
@@ -628,6 +642,7 @@ annotated screenshot, and taps, swipes and keys go through Android's own `input`
 |---|---|---|
 | Needs | USB debugging on, and **Allow** tapped with "Always allow from this computer" ticked | The phone connected once over USB in Settings, Connect Device, Android. Then Android 11 or newer, **Wireless debugging** on, and the same Wi-Fi as your computer. No pairing code: the phone takes the key it already trusts from USB |
 | Which phone | The one plugged in, or the one Settings connected | **Only phones you connected in the app's Settings**, found by their USB serial in the name they announce on the network |
+| Where | Everywhere, a script included | The desktop app only: Mobile use's Wireless / Wired toggle, and computer use's android_agent |
 | Best for | Everything | A phone on your desk |
 
 ```python
@@ -638,8 +653,10 @@ run_agent(
 )
 ```
 
-USB comes first: a phone that is plugged in is used over USB. With several plugged in,
-`AutoCua_ANDROID_SERIAL` names the one to use. Emulators are not supported, but a running one
+A run from a script uses USB only. With several phones plugged in it takes the newest one you
+connected in Settings, or `AutoCua_ANDROID_SERIAL` names the one to use. In the app, Mobile use
+follows its Wireless / Wired toggle: Wireless, the default, reaches the phone over Wi-Fi only,
+also with its cable in, and Wired over USB only. Emulators are not supported, but a running one
 counts as a phone plugged in: close it before a run, or AutoCua may use it. Over Wi-Fi the phone must report the serial it
 was saved with once it connects, or it is dropped again. Android is tested on a Mac host with
 Android 10 and Android 16 phones so far.
@@ -656,7 +673,8 @@ calculator's number pad are listed without a number, with the element that cover
 cannot be tapped by mistake.
 
 Wireless debugging turns itself off when the phone changes Wi-Fi or access point, and often
-after a restart, and its port changes every time. Turn it on again, or plug the phone in. On a
+after a restart, and its port changes every time. Turn it on again, or plug the phone in and pick
+Wired. On a
 Mac, the app that starts adb needs **Local Network** access, under Privacy and Security; without
 it a Wi-Fi connect fails with "No route to host", and AutoCua says where to allow it.
 
@@ -670,7 +688,8 @@ Unlike the iPhone's, it does not work on a DRM player, which is black on the str
 
 In computer use, the main agent can hand phone work to an **android_agent** sub-agent, on macOS,
 Windows and Linux, the way it hands iPhone work to `ios_agent` on a Mac. It shows up once adb is
-on the computer: after one Android run or the Settings check, or with an `adb` on your PATH. In the app, Settings,
+on the computer: after one Android run or the Settings check, or with an `adb` on your PATH. From
+a script it uses the cable; in the app it tries the cable first, then Wi-Fi. In the app, Settings,
 Connect Device, Android checks a phone once and remembers it, and **Mobile use, Android** in the
 chat box starts it for the run.
 
@@ -909,6 +928,7 @@ the agent runs would inherit it.
 | **Memory ring** | Context gauge beside the Skills icon, with the live token count inside. It breathes while compression runs and its count *falls* when the handoff lands |
 | **Fast / Quality** | Leaner prompt and fewer tokens per step, or full reasoning, which is the default |
 | **Mode picker** | Computer use, Mobile use, Shell use |
+| **Wireless / Wired** | Mobile use only: the phone over Wi-Fi, the default, or the cable. While it pairs, a circle turns beside the picker and the chat box is locked; if pairing fails, the box keeps the reason and the circle turns into an arrow that pairs again |
 | **Stop** | Retires the run id instantly, so a still-running model call can never repaint your next chat |
 
 Chats are saved and resumable. Reopening one restores its history and puts the memory ring back
@@ -1159,6 +1179,11 @@ signing for you, opens Xcode on the Accounts pane, and streams the build live.
 > A free Apple ID works, but its provisioning profiles expire after 7 days, so you re-sign
 > weekly. A paid developer account lasts a year.
 
+**For Wi-Fi** (the app only), pair the iPhone once as above, keep it on the same Wi-Fi as your
+Mac and unlocked, and pick Wireless in Mobile use. There is nothing to turn on: Xcode reaches a
+paired iPhone on the network by itself. The app needs **Local Network** access, under Privacy
+and Security, to reach the phone's address.
+
 ### Android, optional
 
 On the phone, once:
@@ -1177,10 +1202,10 @@ and shows the phone on its own.
 On Windows the phone may need its maker's USB driver, and on Linux Android's udev rules (for
 example `sudo apt install android-sdk-platform-tools-common`).
 
-**For Wi-Fi**, connect the phone once over USB in the app's Settings, Connect Device, Android.
-Then, on Android 11 or newer, turn on **Wireless debugging** in Developer options with the phone
-on the same Wi-Fi as your computer, and unplug it: Mobile use, Android finds it on the network,
-with no pairing code. Android 10 and older have no Wireless debugging, so those phones stay on
+**For Wi-Fi** (the app only; a script uses USB), connect the phone once over USB in the app's
+Settings, Connect Device, Android. Then, on Android 11 or newer, turn on **Wireless debugging**
+in Developer options with the phone on the same Wi-Fi as your computer, and pick Wireless in
+Mobile use: the app finds the phone on the network, with no pairing code. Android 10 and older have no Wireless debugging, so those phones stay on
 USB. On Windows the first look for a phone on Wi-Fi may bring up a one-time Windows Firewall
 prompt for Python; either answer works.
 
@@ -1205,8 +1230,10 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
   hidden element, which returns "scroll to make it visible first" instead of a blind click.
 - Vault credentials are typed by the runtime, so **the value is never shown to the model**.
   Wired into the browser, iOS and Android agents today.
+- Phones go over Wi-Fi **only from the desktop app**; a run from a script always uses the cable.
 - An Android phone is reached over Wi-Fi **only after you connected it over USB in the app's
-  Settings**, and only when it answers with the serial it was saved with as it connects.
+  Settings**, and only when it answers with the serial it was saved with as it connects. An
+  iPhone, only one paired with this Mac in the app's Settings.
 - The scraping ruleset carries a **prompt-injection defence**: follow only your request, and
   log anything that tries to give instructions from inside a page or an image.
 - **Stop is checked** before every action, between characters while typing, and inside waits.
@@ -1268,7 +1295,7 @@ AutoCua/
     tree/                    accessibility scanner and OCR
   web/                     the Rust browser agent, one crate; browser/AutoCuaBridge/ is the AutoCua Chrome extension
   ios/                     the iPhone and iPad agent
-  ios_connector/           WebDriverAgent transport: hardware and simulator sessions
+  ios_connector/           WebDriverAgent transport: cable, Wi-Fi (through Xcode) and simulator sessions
   android/                 the Android agent, one Rust crate: loop, controller, tool registry, screen reader
   android_connector/       adb, scrcpy's server and the phone helper (Helper.java): USB and Wi-Fi sessions
   linux/tree/              the Linux accessibility scanner, see Roadmap
@@ -1311,9 +1338,10 @@ python3 -m AutoCua.linux.tree.test 5 -v          # scan: annotated screenshot + 
 python3 -m AutoCua.linux.controller.test         # click + typing through the portal
 ```
 
-**Android is new.** `"mobile use, android"` drives a real phone over USB, or over Wi-Fi once you
-connected it in the app's Settings; see [Android](#android). It is tested on a Mac host with Android 10
-and 16 phones so far.
+**Android is new.** `"mobile use, android"` drives a real phone over USB, and the app over Wi-Fi
+too once you connected it in Settings; see [Android](#android). It is tested on a Mac host with Android 10
+and 16 phones so far. **An iPhone over Wi-Fi is new too**: in the app, Xcode starts
+WebDriverAgent on a paired iPhone on the same Wi-Fi; see [iPhone and iPad](#iphone-and-ipad).
 
 ---
 
