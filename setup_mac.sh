@@ -260,7 +260,7 @@ fi
 # surfaces during setup while the user is still watching, instead of minutes
 # into an agent run. Importing the package is the build: the loader compiles
 # whenever the .so is missing or older than any .rs source.
-print_step "STEP 5: Building the web agent"
+print_step "STEP 5: Building the web agent and the Android agent"
 
 if [ "$WEB_AGENT_READY" = "1" ]; then
     print_info "The first build takes a few minutes..."
@@ -271,9 +271,22 @@ if [ "$WEB_AGENT_READY" = "1" ]; then
         print_info  "Everything else still works — computer use, shell use and"
         print_info  "mobile use don't need it. Fix the error above and re-run."
     fi
+    # The Android agent (AutoCua/android, Rust like the web agent) is built the
+    # same way, so the first "mobile use, android" run does not stop for a
+    # build. The emulator and the Android images are NOT fetched here (2.5 GB,
+    # Google's terms): the first emulator run does that, or
+    # python -m AutoCua.android_connector.emulator ahead of time.
+    print_info "Building the Android agent, about a minute..."
+    if "$VENV_PYTHON" -c "import AutoCua.android.agent"; then
+        print_ok "Android agent built"
+    else
+        print_error "The Android agent did not build."
+        print_info  "Everything else still works — only \"mobile use, android\" needs it."
+        print_info  "Fix the error above and re-run."
+    fi
 else
     print_info "Skipped — see the step above."
-    print_info "Computer use, shell use and mobile use are unaffected."
+    print_info "Computer use, shell use and mobile use on iOS are unaffected."
 fi
 
 # -----------------------------------------------------------------------------

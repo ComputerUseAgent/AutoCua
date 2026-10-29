@@ -31,6 +31,7 @@ import zipfile
 from pathlib import Path
 
 from AutoCua.android_connector.adb import HERE, _download, _unzip
+from AutoCua.utils.consent import allow_download
 
 SOURCE = HERE / "Helper.java"
 JAR = HERE / "autocua-helper.jar"
@@ -146,6 +147,9 @@ def _fetch(url, size, digest, dest):
     """One pinned download into the cache, under a private name until whole."""
     if dest.is_file():
         return dest
+    if not allow_download(f"{url.rsplit('/', 1)[-1]}, to build the phone helper", f"its maker ({url.split('/')[2]})",
+                          size, log=lambda text: print(f"🤖 {text}", flush=True)):
+        raise RuntimeError(f"{url.rsplit('/', 1)[-1]} was not downloaded")
     CACHE.mkdir(parents=True, exist_ok=True)
     print(f"🤖 Fetching {url.rsplit('/', 1)[-1]} ({size / 1e6:.0f} MB), one time...", flush=True)
     part = dest.with_name(f".{dest.name}.{os.getpid()}")

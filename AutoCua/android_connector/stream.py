@@ -34,6 +34,7 @@ import threading
 
 from AutoCua.android_connector.adb import HERE, _adb, _download
 from AutoCua.android_connector.build_helper import ensure_helper
+from AutoCua.utils.consent import allow_download
 
 # Pinned scrcpy release. Recorded 2026-10-25 from the GitHub release's asset
 # list (size + sha256 digest) and the file as downloaded.
@@ -67,6 +68,9 @@ def ensure_server() -> bool:
     with _LOCK:
         if SERVER.is_file():
             return True
+        if not allow_download(f"scrcpy's server {VERSION}", "Genymobile's scrcpy release on GitHub", SIZE,
+                              log=lambda text: print(f"🤖 {text}", flush=True)):
+            return False
         # Written under a private name and renamed into place, so a partial
         # download is never seen as the server.
         staging = HERE / f".scrcpy-server.incoming.{os.getpid()}"
