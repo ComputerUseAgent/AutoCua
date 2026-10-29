@@ -24,6 +24,7 @@ on "repair" the chat toggle (ios_session.js) re-runs that same pairing.
 """
 
 import os
+import re
 import sys
 import json
 import time
@@ -33,11 +34,17 @@ import socket
 import tempfile
 import threading
 import subprocess
+import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 WDA_BUNDLE_ID = "com.AutoCua.WebDriverAgentRunner.xctrunner"
 WDA_PORT = 8100
+# A phone over Wi-Fi is the desktop app's only (owner, 2026-10-29): its
+# Wireless / Wired toggle and its computer-use runs (ios_agent). ui/service.py
+# turns this on at start; a terminal run leaves it off and is cable only.
+WIRELESS = False
 WDA_STATUS_URL = f"http://127.0.0.1:{WDA_PORT}/status"
 # WDA's live screen stream (MJPEG) on the phone. The runner always serves it;
 # the Mac reads it through a second cable forward (WDASession.screen_stream).
@@ -184,6 +191,264 @@ def plugged_in_udids():
     return udids
 
 
+def wifi_udids():
+    """UDIDs of the paired iPhones Xcode can start WebDriverAgent on: on this
+    Mac's Wi-Fi network, or on the cable (devicectl's device list, about
+    0.2 s). None when devicectl could not be asked (no Xcode), so the caller
+    can just try."""
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "devices.json"
+            subprocess.run(["xcrun", "devicectl", "list", "devices", "--json-output", str(out)],
+                           capture_output=True, timeout=20)
+            devices = json.loads(out.read_text())["result"]["devices"]
+    except Exception:
+        return None
+    return {str(dev.get("hardwareProperties", {}).get("udid")) for dev in devices
+            if dev.get("hardwareProperties", {}).get("reality") == "physical"
+            and dev.get("connectionProperties", {}).get("pairingState") == "paired"
+            and dev.get("connectionProperties", {}).get("transportType") in ("localNetwork", "wired")}
+
+
+def _unlocked(udid):
+    """True when the phone is unlocked right now, False when locked, None when
+    Xcode could not say (devicectl's lockState, 1.5-2.5 s over Wi-Fi; a phone
+    asleep or away may not answer, so it gets 5 s)."""
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "lock.json"
+            subprocess.run(["xcrun", "devicectl", "device", "info", "lockState", "--device", udid,
+                            "--timeout", "5", "--json-output", str(out)], capture_output=True, timeout=8)
+            res = json.loads(out.read_text()).get("result") or {}
+    except Exception:
+        return None
+    return None if "passcodeRequired" not in res else not res["passcodeRequired"]
+
+
+class _TcpForward:
+    """127.0.0.1:port to host:dst_port inside this process, for a phone on
+    Wi-Fi (usbmux forwards only over the cable). Looks like a Popen to
+    WDASession: poll, terminate, kill, wait. The host may come later
+    (set_target); until then a connection is closed at once, so WDA reads as
+    not up yet."""
+
+    def __init__(self, port, dst_port, host=None):
+        self.port, self.dst_port, self.host = port, dst_port, host
+        self._open = True
+        self._socks = set()
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._sock.bind(("127.0.0.1", port))
+        self._sock.listen(16)
+        self._sock.settimeout(0.5)            # so the accept loop sees terminate()
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def set_target(self, host, port=None):
+        self.host = host
+        if port:
+            self.dst_port = port
+
+    def _accept(self):
+        while self._open:
+            try:
+                client, _ = self._sock.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            threading.Thread(target=self._serve, args=(client,), daemon=True).start()
+
+    def _serve(self, client):
+        client.settimeout(None)
+        try:
+            upstream = socket.create_connection((self.host, self.dst_port), timeout=5) if self.host else None
+        except OSError:
+            upstream = None
+        if upstream is None or not self._open:
+            client.close()
+            return
+        upstream.settimeout(None)
+        pair = (client, upstream)
+        self._socks.update(pair)
+
+        def pump(src, dst):
+            try:
+                while True:
+                    data = src.recv(65536)
+                    if not data:
+                        break
+                    dst.sendall(data)
+            except OSError:
+                pass
+            for s in pair:                    # one side done: both go
+                try:
+                    s.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+        back = threading.Thread(target=pump, args=(upstream, client), daemon=True)
+        back.start()
+        pump(client, upstream)
+        back.join(5)
+        for s in pair:
+            self._socks.discard(s)
+            s.close()
+
+    def poll(self):
+        return None if self._open else 0
+
+    def terminate(self):
+        self._open = False
+        self._sock.close()
+        for s in list(self._socks):
+            try:
+                s.close()
+            except OSError:
+                pass
+
+    kill = terminate
+
+    def wait(self, timeout=None):
+        return 0
+
+
+# The addresses a phone's WDA names when it has no Wi-Fi address: its own loopback
+_LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+
+class _XcodeRun:
+    """WebDriverAgent started on a phone over Wi-Fi by Xcode: the pairing
+    service's xcodebuild test (setup.py's /run, the run Settings → Connect
+    Device makes, which also signs WDA again when the free profile ran out;
+    pymobiledevice3 reaches a phone over Wi-Fi only with root). Looks like a
+    Popen to WDASession. `host` is the phone's address once WDA says where it
+    serves (ServerURLHere), `error` what went wrong when it ended without."""
+
+    def __init__(self, udid, log, on_host):
+        self.udid, self._log, self._on_host = udid, log, on_host
+        self.host = None
+        self.error = None
+        self._ended = False
+        self._base = None
+        self._streaming = False               # this run's /run stream is open: its xcodebuild may live
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _end(self, code, error, hint=""):
+        if not self._ended:
+            self._ended = True
+            self.error = {"code": code, "error": error, "hint": hint}
+
+    def _stop_run(self):
+        """Stop this run's xcodebuild (the pairing service's /stop ends its one
+        job). Only while this run's stream is open, so a job started after it
+        ended (a Settings pairing) is never stopped from here. The stream then
+        ends and its reader with it; it is not closed from here, as close()
+        can wait on the reader blocked in a read."""
+        if self._base and self._streaming:
+            self._streaming = False
+            try:
+                urllib.request.urlopen(self._base + "/stop", timeout=5).read()
+            except Exception:
+                pass
+
+    def _run(self):
+        from AutoCua.ios_connector import setup_server
+        try:
+            up = setup_server.ensure_running(wait=20)
+            if not up.get("ready"):
+                return self._end("failed", "the pairing service did not start")
+            self._base = up["url"]
+            with urllib.request.urlopen(self._base + "/detect", timeout=120) as r:
+                detected = json.loads(r.read().decode("utf-8"))
+            team = next((t["team_id"] for t in detected.get("teams", []) if t.get("signed_in") is not False), None)
+            if not team:
+                return self._end("needaccount", "No Apple Account in Xcode", "Add one in Settings → Connect Device.")
+            if self._ended:
+                return                        # stopped while it looked for the team: no run at all
+            query = urllib.parse.urlencode({"team": team, "udid": self.udid, "prefix": "com.AutoCua",
+                                            "mode": "test", "mount": "0"})   # the mount step needs the cable
+            self._streaming = True
+            # The service writes a comment every 20 s of silence, so the read
+            # timeout only ends a stream from a service that hangs.
+            resp = urllib.request.urlopen(self._base + "/run?" + query, timeout=120)
+            # xcodebuild's own reason ("error: ...", "... encountered an error
+            # (...)") beats its summary ("** TEST FAILED **")
+            event, last_error, last_failed = "message", "", ""
+            for raw in resp:
+                if self._ended:
+                    return
+                line = raw.decode("utf-8", "replace").rstrip("\r\n")
+                if line.startswith("event:"):
+                    event = line[6:].strip()
+                    continue
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                self._log.write((data if event == "log" else f"[{event}] {data}") + "\n")
+                self._log.flush()
+                if event == "log" and ("error:" in data.lower() or "encountered an error" in data.lower()):
+                    last_error = data
+                elif event == "log" and "failed" in data.lower():
+                    last_failed = data
+                elif event == "serverup":
+                    url = urllib.parse.urlparse(json.loads(data)["url"])
+                    port = url.port or WDA_PORT
+                    # WDA names 127.0.0.1 when the phone has no Wi-Fi address
+                    # (FBWebServer: fb_wifiIPAddress ?: 127.0.0.1): Xcode reached
+                    # it by the cable only, and 127.0.0.1 here is the forward
+                    # itself. On another network its address does not answer.
+                    try:
+                        if url.hostname in _LOOPBACK:
+                            raise OSError("no Wi-Fi address")
+                        socket.create_connection((url.hostname, port), timeout=5).close()
+                    except OSError:
+                        self._end("not_on_wifi", "The iPhone is not on this Mac's Wi-Fi",
+                                  "Join this Mac's Wi-Fi on the iPhone, or pick Wired. On a Mac the app also "
+                                  "needs Local Network access (System Settings > Privacy & Security).")
+                        return self._stop_run()
+                    self.host = url.hostname
+                    self._on_host(url.hostname, port)
+                elif event == "needtrust":
+                    self._end("needtrust", "trust AutoCua on the iPhone",
+                              "Settings → General → VPN & Device Management, then pick iOS again.")
+                    return self._stop_run()
+                elif event == "needaccount":
+                    self._end("needaccount", "the Apple Account is not signed into Xcode",
+                              "Open Settings → Connect Device.")
+                    return self._stop_run()
+                elif event == "fatal":
+                    return self._end("failed", data or "WebDriverAgent did not start over Wi-Fi",
+                                     "Open Settings → Connect Device.")
+                elif event == "done":
+                    break
+                event = "message"
+            self._streaming = False           # the run ended: its xcodebuild is gone
+            if self.host:
+                return self._end("failed", "WebDriverAgent stopped on the iPhone")
+            # xcodebuild's destination line ends "... name:<name>, error:<why> }"
+            reason = (last_error or last_failed).rsplit("error:", 1)[-1].strip(" }")
+            if "needs to be unlocked" in reason:
+                return self._end("locked", reason.split(" needs to be unlocked")[0] + " is locked",
+                                 "Unlock it and keep it unlocked while it starts, then try again.")
+            self._end("failed", reason[-160:] or "WebDriverAgent did not start over Wi-Fi",
+                      "Keep the iPhone unlocked and on this Mac's Wi-Fi, or pick Wired.")
+        except Exception as e:  # noqa: BLE001 - reported through status(), like the cable path
+            self._end("failed", f"the pairing service did not answer ({e})")
+            self._stop_run()
+
+    def poll(self):
+        return 0 if self._ended else None
+
+    def terminate(self):
+        """Stopped on purpose (no error to report), or ended already: either
+        way this run's xcodebuild goes, if it still runs."""
+        self._ended = True
+        self._stop_run()
+
+    kill = terminate
+
+    def wait(self, timeout=None):
+        return 0
 def mux_device_id(udid):
     """usbmuxd's id for the phone's CURRENT cable attachment, None when it is
     not on the cable (or usbmuxd could not be asked). The id changes every
@@ -317,6 +582,7 @@ class WDASession:
         # release hands the session back instead of stopping it.
         self._shared = False
         self._udid = None
+        self._link = None        # the live session's way: "wired" (usbmux) or "wireless" (_XcodeRun)
         self._log_path = None
         # The phone's usbmux attachment id at the last (re)start. A re-plug
         # (QuickTime picking the phone's screen, a cable glitch) gives it a
@@ -364,6 +630,11 @@ class WDASession:
     @staticmethod
     def _classify(tail):
         t = tail or ""
+        # The session asked for a phone usbmuxd does not have: unplugged, or
+        # gone right as the session started.
+        if "Device not found" in t:
+            return {"code": "not_plugged", "error": "The iPhone is not plugged in",
+                    "hint": "Plug it in with the cable and unlock it, then try again."}
         # Runner gone, or iOS refused to launch it. With a free Apple ID the
         # signing profile lasts 7 days and iOS then deletes it ("Profile Missing"
         # in the phone's syslog); only pairing again re-signs it. The chat
@@ -384,15 +655,21 @@ class WDASession:
             return {"code": "not_ready",
                     "error": "The iPhone isn't ready for automation",
                     "hint": "Unlock it, keep the cable in, check this Mac is online, then try again."}
-        last = t.splitlines()[-1][-160:] if t else "Session ended before the server started"
-        return {"code": "failed", "error": last}
+        # Else the last line that is not the port forward's (it only says WDA
+        # does not answer, a symptom), without pymobiledevice3's log prefix
+        # ("2026-10-29 14:00:00 Mac.Home pymobiledevice3.tcp_forwarder[71453] ERROR ").
+        lines = [ln for ln in t.splitlines() if "tcp_forwarder" not in ln] or t.splitlines()
+        last = re.sub(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \S+ \S+\[\d+\] [A-Z]+ ", "", lines[-1])[-160:] if lines else ""
+        return {"code": "failed", "error": last or "Session ended before the server started"}
 
     # -- public --
-    def activate(self, udid=None, owner=None):
+    def activate(self, udid=None, owner=None, link=None):
         """Fresh session for `udid` (default: newest paired device). `owner`
-        becomes the session's owner, also when a live one is reused."""
+        becomes the session's owner, also when a live one is reused. link,
+        the chat box's Wireless / Wired toggle: "wireless" has Xcode start
+        WebDriverAgent over Wi-Fi (_XcodeRun), anything else is the cable."""
         base = _pmd3_base()
-        if not base:
+        if not base and link != "wireless":
             # Name the interpreter: "not found" is almost always "found, but you
             # launched the app with a different Python", and only this line says so.
             return {"ok": False, "state": "error", "code": "no_pmd3",
@@ -407,6 +684,37 @@ class WDASession:
                 return {"ok": False, "state": "error", "code": "not_paired",
                         "error": "No paired device",
                         "hint": "Pair your iPhone in Settings → Connect Device."}
+            # The newest paired phone that is plugged in, as ios_agent's
+            # PhoneLink picks it: with two paired, the newest one may be away
+            # while the other is on the cable, and a session for a phone that
+            # is not there only fails ("Device not found"). None: usbmuxd did
+            # not answer, so just try the newest. Wireless: the newest paired
+            # one Xcode sees on the network the same way.
+            reachable = wifi_udids() if link == "wireless" else plugged_in_udids()
+            if reachable is not None:
+                devs = [d for d in devs if d["udid"] in reachable]
+                if not devs and link == "wireless":
+                    return {"ok": False, "state": "error", "code": "not_on_wifi",
+                            "error": "No paired iPhone is on Wi-Fi",
+                            "hint": "Keep it unlocked on this Mac's Wi-Fi, or pick Wired."}
+                if not devs:
+                    return {"ok": False, "state": "error", "code": "not_plugged",
+                            "error": "No paired iPhone is plugged in",
+                            "hint": "Plug it in with the cable and unlock it."}
+            if link == "wireless":
+                # A locked phone only fails, after a minute of xcodebuild, so
+                # of several on the Wi-Fi the unlocked one (the one in hand)
+                # goes first, the newest of them as everywhere; all locked:
+                # say so now. Xcode silent: just try the newest.
+                with ThreadPoolExecutor(max_workers=len(devs)) as pool:
+                    unlocked = list(pool.map(_unlocked, [d["udid"] for d in devs]))
+                if any(unlocked):
+                    devs = [d for d, u in zip(devs, unlocked) if u]
+                elif all(u is False for u in unlocked):
+                    return {"ok": False, "state": "error", "code": "locked",
+                            "error": (f"{devs[0]['name']} is locked" if len(devs) == 1
+                                      else "Every paired iPhone on Wi-Fi is locked"),
+                            "hint": "Unlock it and keep it unlocked while it starts, then try again."}
             udid = devs[0]["udid"]
         active_target.update({"kind": "hardware", "udid": udid})
         with self._lock:
@@ -427,7 +735,7 @@ class WDASession:
                 if self._alive(self._xctest) and self._alive(self._forward):
                     return {"ok": False, "state": "error", "code": "in_use",
                             "error": "the phone is in use by Mobile use in the app"}
-            if self._udid == udid and self._wda_up():
+            if self._udid == udid and self._wda_up() and link in (None, self._link):
                 self._owner = owner
                 self._relaunches = []
                 return {"ok": True, "state": "connected", "udid": udid}
@@ -452,8 +760,11 @@ class WDASession:
                                  "(a simulator session?)",
                         "hint": "Close it (quit Simulator / kill xcodebuild), then retry."}
             mark("port_check")
+            if link == "wireless":
+                return self._start_wifi_locked(udid, owner)
             self._udid = udid
             self._owner = owner
+            self._link = "wired"
             env = dict(os.environ)
             env["PYMOBILEDEVICE3_UDID"] = udid
             try:
@@ -524,7 +835,7 @@ class WDASession:
                             "error": "the phone keeps re-plugging on USB",
                             "hint": "Something keeps re-selecting the phone (QuickTime's screen "
                                     "mirror?). Leave it alone during a run, then try again."}
-                info = self._classify(self._log_tail())
+                info = getattr(self._xctest, "error", None) or self._classify(self._log_tail())
                 return {"state": "error", "udid": self._udid, **info}
             state = "connected" if self._wda_up() else "connecting"
             return {"state": state, "udid": self._udid}
@@ -573,6 +884,19 @@ class WDASession:
                 return None
             if self._alive(self._mjpeg_forward):
                 return self.mjpeg_port
+            if self._link == "wireless":
+                # Over Wi-Fi the phone serves it at its own address
+                host = getattr(self._xctest, "host", None)
+                if not host:
+                    return None
+                port = _free_local_port(MJPEG_PORT)
+                try:
+                    self._mjpeg_forward = _TcpForward(port, MJPEG_PORT, host)
+                except OSError:
+                    self._mjpeg_forward = None
+                    return None
+                self.mjpeg_port = port
+                return port
             base = _pmd3_base()
             if not base:
                 return None
@@ -645,9 +969,29 @@ class WDASession:
                 pass
             self._log_path = None
 
+    def _start_wifi_locked(self, udid, owner):
+        """The wireless start: Xcode runs WDA (_XcodeRun) and 127.0.0.1's WDA
+        port is forwarded to the phone's address once WDA reports it, so the
+        rest of the app talks to localhost as over the cable. No re-plug
+        watchdog: nothing usbmux is in it."""
+        if sys.platform != "darwin":
+            return {"ok": False, "state": "error", "code": "no_xcode",
+                    "error": "Wireless needs a Mac with Xcode", "hint": "Pick Wired."}
+        self._udid, self._owner, self._link = udid, owner, "wireless"
+        try:
+            log = tempfile.NamedTemporaryFile("w", prefix="AutoCua_wda_", suffix=".log", delete=False)
+            self._log_path = log.name
+            self._forward = _TcpForward(WDA_PORT, WDA_PORT)
+            self._xctest = _XcodeRun(udid, log, self._forward.set_target)
+        except Exception as e:  # noqa: BLE001 - reported, like the cable start
+            self._stop_locked()
+            return {"ok": False, "state": "error", "error": str(e)}
+        return {"ok": True, "state": "connecting", "udid": udid}
+
     def _stop_locked(self):
         self._kill_locked()
         self._udid = None
+        self._link = None
         self._owner = None
         self._shared = False
         self._mux_id = None
@@ -672,8 +1016,8 @@ class WDASession:
             time.sleep(2)
             try:
                 udid, seen = self._udid, self._mux_id
-                if udid is None:
-                    continue
+                if udid is None or self._link == "wireless":
+                    continue      # a Wi-Fi session has no usbmux attachment to mend
                 now = mux_device_id(udid)
                 if now is None:
                     continue      # off the cable: status and the link report that

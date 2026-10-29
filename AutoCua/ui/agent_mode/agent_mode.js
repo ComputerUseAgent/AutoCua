@@ -7,8 +7,8 @@
 // Each change dispatches 'agentmode:changed' (detail {mode, sub});
 // agent_mode/ios_session.js listens and drives the iPhone's WDA session
 // (Mobile use → iOS pairs it; anything else disconnects). 'agentmode:set'
-// (detail {mode, sub?}) sets the selection SILENTLY — used by ios_session.js
-// to revert the menu when pairing fails.
+// (detail {mode, sub?}) sets the selection SILENTLY — used by chat.js for New
+// chat and a reopened chat's lock.
 //
 // Shell use also shows an Auto / Manual pill right of the picker. Each real change
 // dispatches 'shellinput:changed' (detail {mode:'auto'|'manual'}); cli_stage.js gives
@@ -226,8 +226,8 @@
             paint();
         });
 
-        // Programmatic, SILENT selection (no agentmode:changed) — e.g. pairing
-        // failed and ios_session.js puts the menu back on Computer use.
+        // Programmatic, SILENT selection (no agentmode:changed) — e.g. New chat
+        // puts the menu back on Computer use (chat.js).
         document.addEventListener('agentmode:set', function (e) {
             var d = e.detail || {};
             if (d.mode && MODE_LABEL[d.mode]) {

@@ -48,6 +48,29 @@ export function ChatInput() {
                 <textarea className="chat-input" placeholder="Select a model in Settings to start..." rows={1} disabled></textarea>
 
                 <div className="input-toolbar">
+                    {/* Wireless / Wired flip: Mobile use only (chat_input.css shows it from
+                        the composer's data-agent-mode), in the Fast / Quality pill's own
+                        look: Wi-Fi = Wireless, plug = Wired. How the phone connects, Android
+                        or iPhone (link_toggle.js). Left of Fast / Quality, so nothing else moves when
+                        it shows. Defaults to Wireless. */}
+                    <button className="fast-quality-toggle link-toggle" id="linkToggle" type="button" role="switch" aria-checked="false" aria-label="Wireless / Wired">
+                        <span className="fq-label lk-label-wireless" aria-hidden="true">Wireless</span>
+                        <span className="fq-label lk-label-wired" aria-hidden="true">Wired</span>
+                        <span className="fq-thumb"></span>
+                        <span className="fq-icon lk-wifi">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" />
+                                <path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" />
+                            </svg>
+                        </span>
+                        <span className="fq-icon lk-plug">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M12 22v-5" /><path d="M9 8V2" /><path d="M15 8V2" />
+                                <path className="lk-plug-body" d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />
+                            </svg>
+                        </span>
+                    </button>
+
                     {/* Fast / Quality flip: UI-ONLY toggle (future feature slot, nothing
                         wired behind it yet). Amber bolt = Fast, purple sparkles = Quality;
                         the white thumb spring-bounces across and a small label floats up

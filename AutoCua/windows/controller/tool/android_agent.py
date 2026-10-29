@@ -1,17 +1,19 @@
 """The Android agent as a sub-agent of the main agent, on the person's
-Android phone plugged into this computer by USB (USB debugging on).
+Android phone plugged into this computer by USB (USB debugging on), or one
+Settings connected that is on the same Wi-Fi (Wireless debugging on).
 
 Two halves, as tool/ios_agent.py has:
 
 AndroidLink: the request's phone check. The moment the main agent starts a
 request, it looks for an Android phone on USB (the newest one Settings →
-Connect Device remembered, else the one plugged in) and checks it in the
-background: the phone answers over adb, its helper starts and reads one
-screen, then stops again (android_connector/session.py's confirm). Meanwhile
-<sub_agents> shows `checking connection: android_agent`; once the check
-passes, android_agent joins the `online:` line. No phone, or a check that
-fails, and it is simply not listed. While it is online the phone is looked at
-again every WATCH_SEC, so a pulled cable takes it off the line.
+Connect Device remembered, else the one plugged in), else a remembered one on
+Wi-Fi, and checks it in the background: the phone answers over adb, its
+helper starts and reads one screen, then stops again
+(android_connector/session.py's confirm). Meanwhile <sub_agents> shows
+`checking connection: android_agent`; once the check passes, android_agent
+joins the `online:` line. No phone, or a check that fails, and it is simply
+not listed. While it is online the phone is looked at again every WATCH_SEC,
+so a pulled cable (or a phone gone from the Wi-Fi) takes it off the line.
 
 The runs: `sub_agent {"agent_type": "android_agent"}` starts the Android agent
 on a task and returns at once; the controller polls `outcome` until the run is
@@ -130,6 +132,7 @@ class AndroidLink:
         self._lock = threading.Lock()
         self._state = "offline"
         self.serial = None
+        self.address = None     # adb's serial for it: the USB serial, or "ip:port" on Wi-Fi
         self.name = "Android phone"
         self.reason = "no Android phone is plugged in by USB with USB debugging on"
         self._released = False
@@ -179,7 +182,8 @@ class AndroidLink:
     def _check(self, adb):
         try:
             from AutoCua.android_connector.adb import HINTS
-            from AutoCua.android_connector.session import android_session, paired_devices
+            from AutoCua.android_connector import session as connector
+            from AutoCua.android_connector.session import android_session, paired_devices, wifi_saved
             plugged = _usb_phones(adb)
             ready = [s for s, state in plugged.items() if state == "device"]
             saved = [d["serial"] for d in paired_devices() if d.get("serial") in plugged]
@@ -197,12 +201,18 @@ class AndroidLink:
                            "Settings → Connect Device → Android")
                 return
             else:
-                if plugged:
-                    state = next(iter(plugged.values()))
-                    self._fail(HINTS.get(state, f"the phone is in the {state!r} state"))
-                else:
-                    self._fail("no Android phone is plugged in by USB with USB debugging on")
-                return
+                # Nothing to use on USB: in the app a phone Settings connected
+                # may be on Wi-Fi (Wireless debugging on), only those, never
+                # another. A terminal run is cable only (connector.WIRELESS).
+                serial = wifi_saved(adb) if connector.WIRELESS else None
+                if serial is None:
+                    if plugged:
+                        state = next(iter(plugged.values()))
+                        self._fail(HINTS.get(state, f"the phone is in the {state!r} state"))
+                    else:
+                        self._fail("no Android phone is plugged in by USB with USB debugging on"
+                                   + (", and none connected in Settings is on Wi-Fi" if connector.WIRELESS else ""))
+                    return
             self.serial = serial
             _log(f"checking {serial}")
             # A phone this process already reads (the app's own Mobile use →
@@ -213,11 +223,14 @@ class AndroidLink:
                            or "the phone could not be checked")
                 return
             self.name = res.get("model") or self.name
+            # What the watch looks for in `adb devices`: "ip:port" on Wi-Fi.
+            self.address = res.get("serial") or serial
             with self._lock:
                 if self._released:
                     return
                 self._state = "online"
-            _log(f"online after {self._elapsed()}: {self.name} ({serial})")
+            _log(f"online after {self._elapsed()}: {self.name} ({serial}"
+                 f"{'' if self.address == serial else ', Wi-Fi ' + self.address})")
             self._watch(adb)
         except Exception as e:
             self._fail(f"the phone check failed: {e}")
@@ -235,8 +248,9 @@ class AndroidLink:
             except Exception:
                 continue
             states = dict(line.split("\t", 1) for line in rows if "\t" in line)
-            if states.get(self.serial, "").strip() != "device":
-                self._fail("the phone was unplugged")
+            if states.get(self.address, "").strip() != "device":
+                self._fail("the phone was unplugged" if self.address == self.serial
+                           else "the phone left the Wi-Fi")
                 return
 
     def _fail(self, reason: str):
@@ -316,8 +330,9 @@ def start(task: str, provider: str, model: str, api_key: str = None, speed: str 
     env["PYTHONUNBUFFERED"] = "1"
     # The child's cwd is outside the repo, so make the package importable.
     env["PYTHONPATH"] = str(_REPO_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
-    # The phone this request checked, when several are plugged in.
-    env["AutoCua_ANDROID_SERIAL"] = link.serial
+    # The phone this request checked, on the connection the check used and
+    # the watch follows: its USB serial, or "ip:port" on Wi-Fi.
+    env["AutoCua_ANDROID_SERIAL"] = link.address or link.serial
     # This process: the child ends itself (and the phone helper) if it dies
     # without stopping the run (android_agent_child.py _watch_parent).
     env["AutoCua_ANDROID_PARENT"] = str(os.getpid())

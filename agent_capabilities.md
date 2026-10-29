@@ -390,10 +390,11 @@ Works in **every mode**.
 ## Default
 
 **`save_conversation=False`: no conversation log.** Two things still touch the
-disk either way: every `"computer use"`, `"web use"` and `"mobile use, ios"` run
-clears `./conversation/`, `./raw_reasoning/` and `./debug/` when it starts, so
-don't keep your own files there; and the coding agents that `"computer use"`
-hands work to always log under `./cli_conversation/`.
+disk either way: every `"computer use"`, `"web use"` and `"mobile use"` run
+clears `./debug/` when it starts, so don't keep your own files there; and the
+coding agents that `"computer use"` hands work to always log under
+`./cli_conversation/`. A run leaves `./conversation/` and `./raw_reasoning/`
+alone unless it saves its own conversation: with `True` it clears them first.
 
 ## What it writes (when `True`)
 
@@ -406,15 +407,16 @@ conversation/
 ├── conversation_1.txt      # step 1: full payload sent + response received
 ├── conversation_2.txt      # step 2 ...
 └── ...
-raw_reasoning/              # raw LLM outputs per step (cleared each run)
+raw_reasoning/              # raw LLM outputs per step (cleared each saving run)
 ```
 
 Each `conversation_N.txt` is a "memory snapshot", a faithful peek at what the
 agent could see at step N. You'll also see
 `Memory snapshot saved: conversation_N.txt` in the terminal after each step.
 
-⚠️ Both folders are **reset at the start of every run**, so copy anything you
-want to keep before running again.
+⚠️ Both folders are **reset at the start of every run that saves its
+conversation** (a run without it leaves them), so copy anything you want to
+keep before the next one.
 
 - **`"shell use"`** writes `./cli_conversation/<session id>/conversation_N.txt`
   with a `raw_reasoning/` folder inside it instead, one folder per run, and

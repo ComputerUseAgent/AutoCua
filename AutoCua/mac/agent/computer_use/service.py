@@ -183,23 +183,19 @@ class AgentService:
         if self.llm_manager.async_tools():
             self.system_prompt += ASYNC_TOOLS_ADDENDUM
         
-        # Clear previous conversation folder to start fresh
-        conversation_folder = Path("conversation")
-        if conversation_folder.exists():
-            shutil.rmtree(conversation_folder)
-        
         # Clear previous debug folder to start fresh
         debug_folder = Path("debug")
         if debug_folder.exists():
             shutil.rmtree(debug_folder)
         
-        # Clear previous raw_reasoning folder to start fresh
-        raw_reasoning_folder = Path("raw_reasoning")
-        if raw_reasoning_folder.exists():
-            shutil.rmtree(raw_reasoning_folder)
-        
-        # Create conversation directory and initialize fresh conversation file
+        # Create conversation directory and initialize fresh conversation file.
+        # Only a run that saves its conversation clears the previous
+        # conversation and raw_reasoning folders; one that does not leaves
+        # the last saved run where it is.
         if self.save_conversation:
+            for folder in (Path("conversation"), Path("raw_reasoning")):
+                if folder.exists():
+                    shutil.rmtree(folder)
             self.conversation_dir = Path("conversation")
             self.conversation_dir.mkdir(exist_ok=True)
             self.conversation_file = self.conversation_dir / "conversation.txt"

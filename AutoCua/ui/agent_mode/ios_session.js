@@ -1,12 +1,19 @@
 // iOS session connector — attaches the proven connect logic to the Agent-mode
-// menu. Selecting Mobile use → iOS activates the paired iPhone's WDA session
-// (fresh session over the cable — no rebuild, no reinstall); switching to
+// menu. Selecting Mobile use → iOS activates the paired iPhone's WDA session:
+// over the cable a fresh session (no rebuild, no reinstall), over Wi-Fi Xcode
+// starts it, as the chat box's Wireless / Wired toggle says
+// (chat_input/link_toggle.js; flipping it connects again); switching to
 // anything else (Computer use / Android) kills it instantly.
 //
-// While connecting, the chat box placeholder animates "Pairing." → "Pairing.."
-// → "Pairing..." on loop; on success it shows "Device connected" for a moment
-// and then returns to the normal "Type your task..." text. On failure the
-// placeholder explains, and the menu quietly reverts to Computer use.
+// While connecting, the chat box is read only (no typing, nothing sent), its
+// placeholder animates "Pairing." → "Pairing.." → "Pairing..." on loop and a
+// circle turns beside the picker (agent_mode.tsx's #pairStatus); on success
+// it shows "Device connected" for a moment and then returns to the normal
+// "Type your task..." text. On failure iOS stays picked and the box stays read
+// only until it pairs: the placeholder names the cause in a few words, a
+// little smaller and on one line, and the circle becomes an arrow that pairs
+// again. Another mode picked frees the box; so does New chat or a reopened
+// chat, which set the picker silently.
 //
 // Backend contract (all verified end-to-end):
 //   POST /api/ios/activate        -> starts forward + XCUITest on the newest
@@ -64,7 +71,7 @@
                     });
                     es.addEventListener('done', function () { end('pairing again did not finish. Open Settings → Connect Device'); });
                     es.addEventListener('needaccount', function () { end('the Apple Account is not signed into Xcode. Open Settings → Connect Device'); });
-                    es.addEventListener('needtrust', function () { end('trust AutoCua on the iPhone: Settings → General → VPN & Device Management, then pick iOS again'); });
+                    es.addEventListener('needtrust', function () { end('trust AutoCua on the iPhone (Settings → General → VPN & Device Management)'); });
                     es.addEventListener('fatal', function (e) { end(e.data || 'pairing again failed'); });
                 });
             })
@@ -80,28 +87,42 @@
         return [d.error, d.hint].filter(Boolean).join(' — ');
     }
 
+    // gen drops an answer that comes after the pick changed (a newer pick, or
+    // a switch away), as android_session.js does: a late one must not lock,
+    // free or relabel the chat box for a pick that is over.
+    var gen = 0;
+
     function activate(cb) {
         cb = cb || {};
         stopPoll();
+        var my = ++gen;
         function fail(why) {
+            if (my !== gen) return;
             stopPoll();
             fetch('/api/ios/deactivate', { method: 'POST' }).catch(function () {});
             if (cb.onFail) cb.onFail(why || '');
         }
+        // Wireless or Wired: the chat box's toggle (chat_input/link_toggle.js).
+        // Over Wi-Fi Xcode builds and starts WebDriverAgent, so it gets longer.
+        var link = window.phoneLink ? window.phoneLink() : 'wireless';
+        var wait = link === 'wireless' ? 180 : 90;
         fetch('/api/ios/activate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})            // backend picks the newest paired device
+            body: JSON.stringify({ link: link })   // backend picks the newest paired device it reaches
         }).then(function (r) { return r.json(); }).then(function (d) {
+            // iOS left meanwhile: a session that came up anyway goes again
+            if (my !== gen) { if (d.ok && !iosActive) fetch('/api/ios/deactivate', { method: 'POST' }).catch(function () {}); return; }
             if (d.state === 'connected') { if (cb.onConnected) cb.onConnected(); return; }
             if (!d.ok) { fail(reasonOf(d)); return; }
-            var deadline = Date.now() + 90000;
+            var deadline = Date.now() + wait * 1000;
             statusTimer = setInterval(function () {
                 if (Date.now() > deadline) {
-                    fail('timed out after 90s waiting for WebDriverAgent to answer');
+                    fail('timed out after ' + wait + 's waiting for WebDriverAgent to answer');
                     return;
                 }
                 fetch('/api/ios/session-status').then(function (r) { return r.json(); }).then(function (s) {
+                    if (my !== gen) return;
                     if (s.state === 'connected') { stopPoll(); if (cb.onConnected) cb.onConnected(); }
                     else if (s.state === 'error' && s.code === 'repair' && !cb.repaired) {
                         stopPoll();
@@ -122,6 +143,7 @@
     }
 
     function deactivate() {
+        gen++;                                  // an answer still on the way is dropped
         stopPoll();
         stopRepair();
         fetch('/api/ios/deactivate', { method: 'POST' }).catch(function () {});
@@ -181,6 +203,9 @@
         if (!el) return;
         clearTimeout(restoreTimer); restoreTimer = null;
         if (savedPlaceholder === null) savedPlaceholder = el.placeholder;
+        el.classList.remove('pair-note');           // a failure note still showing goes
+        el.readOnly = true;                         // no typing while pairing,
+        el.blur();                                  // and no focus, as a disabled box
         clearInterval(dotsTimer);
         var n = 1;
         el.placeholder = label + '.';
@@ -195,6 +220,7 @@
         clearInterval(dotsTimer); dotsTimer = null;
         var el = chatInput();
         if (!el) { savedPlaceholder = null; return; }
+        el.readOnly = false;                        // the box types again
         if (message) {
             el.placeholder = message;
             restoreTimer = setTimeout(restorePlaceholder, holdMs || 2000);
@@ -204,69 +230,140 @@
     }
     function restorePlaceholder() {
         var el = chatInput();
+        if (el) el.classList.remove('pair-note');
         if (el && savedPlaceholder !== null) el.placeholder = savedPlaceholder;
         savedPlaceholder = null;
         restoreTimer = null;
+    }
+    // A run starts while "Device connected" still shows: the normal hint comes
+    // back now, else agent_mode.js keeps "Device connected" as the hint it
+    // puts back after the run (chat_input.js calls this).
+    function settle() {
+        if (restoreTimer === null) return;
+        clearTimeout(restoreTimer);
+        restorePlaceholder();
+    }
+    // It did not pair: the reason stays in the placeholder, smaller and on one
+    // line (chat_input.css), and the box stays read only till it pairs or
+    // another mode is picked (endPairingAnim(null) then).
+    function failPairingAnim(message) {
+        stopBreathing(false);
+        clearInterval(dotsTimer); dotsTimer = null;
+        var el = chatInput();
+        if (!el) return;
+        el.classList.add('pair-note');
+        el.placeholder = message;
+    }
+    // The circle beside the picker turns ('pairing'), offers to pair again
+    // ('failed') or goes (''): agent_mode.css reads the wrap's data-pair.
+    function pairState(s) {
+        var wrap = document.getElementById('agentModeWrap');
+        if (wrap) wrap.dataset.pair = s;
     }
 
     // ---- wiring to the Agent-mode menu ----
     // iosActive: iOS is the selection and a session was asked for from here
     // (switching away must kill it). pairing: that activate() is still in
-    // flight, so a second click must not restart it half-way.
+    // flight, so a second click must not restart it half-way. failed: it did
+    // not pair, and iOS is still the selection.
     var iosActive = false;
     var pairing = false;
+    var failed = false;
+
+    // EVERY iOS pick (re)activates, not only the first. The session can die
+    // behind the picker's back: New chat kills it server-side, the cable can
+    // drop. Re-activating a live session is free: the backend answers
+    // 'connected' at once (session.py), so the box just confirms "Device
+    // connected". The circle's arrow pairs again the same way.
+    function pair() {
+        if (pairing) return;
+        iosActive = true;
+        pairing = true;
+        failed = false;
+        connect();
+    }
+
+    // Connect the picked iPhone: the pairing look, then activate().
+    function connect() {
+        pairState('pairing');
+        startPairingAnim();
+        activate({
+            onRepair: function () {
+                // free Apple ID signing lasts 7 days; say why this takes a minute
+                startPairingAnim('Signing expired, re-signing AutoCua (about a minute)');
+            },
+            onConnected: function () {
+                pairing = false;
+                pairState('');
+                // graceful: the current breath completes, THEN the glow settles
+                endPairingAnim('Device connected', 2200, true);
+            },
+            onFail: function (why) {
+                pairing = false;
+                failed = true;
+                pairState('failed');
+                // A placeholder holds a few words, not a paragraph: only the
+                // reason's first sentence, the cause, not what to do about it
+                // (the console gets it all). Naming the cause still beats
+                // sending people to a Settings pane that will not mention it.
+                var cause = why.split(/\. | — /)[0];
+                var msg = cause
+                    ? ('iOS: ' + (cause.length > 80 ? cause.slice(0, 79) + '…' : cause))
+                    : 'Pairing failed — check Settings → Connect Device';
+                if (why) { try { console.error('[ios] activate failed:', why); } catch (e) {} }
+                failPairingAnim(msg);
+            }
+        });
+    }
+
+    // Switched away: instant kill, and the box is free again.
+    function leave() {
+        iosActive = false;
+        pairing = false;
+        failed = false;
+        pairState('');
+        deactivate();
+        endPairingAnim(null);                    // stop any mid-pairing animation
+    }
 
     document.addEventListener('agentmode:changed', function (e) {
         var d = e.detail || {};
-        var wantIOS = (d.mode === 'mobile' && d.sub === 'ios');
-
-        if (wantIOS) {
-            // EVERY iOS pick (re)activates, not only the first. The session can
-            // die behind the picker's back: New chat kills it server-side and
-            // resets the picker with a SILENT agentmode:set (chat.js), a
-            // reopened chat clears the tick the same silent way, the cable can
-            // drop. Gating on iosActive here left the flag saying "live" after
-            // all of those, so the next iOS pick paired nothing. Re-activating
-            // a live session is free: the backend answers 'connected' at once
-            // (session.py), so the box just confirms "Device connected".
-            if (pairing) return;
-            iosActive = true;
-            pairing = true;
-            startPairingAnim();
-            activate({
-                onRepair: function () {
-                    // free Apple ID signing lasts 7 days; say why this takes a minute
-                    startPairingAnim('Signing expired, re-signing AutoCua (about a minute)');
-                },
-                onConnected: function () {
-                    pairing = false;
-                    // graceful: the current breath completes, THEN the glow settles
-                    endPairingAnim('Device connected', 2200, true);
-                },
-                onFail: function (why) {
-                    pairing = false;
-                    iosActive = false;
-                    // A placeholder cannot hold a paragraph, but it can hold the
-                    // sentence that names the cause — which beats sending people
-                    // to a Settings pane that will not mention it either.
-                    var msg = why
-                        ? ('iOS: ' + (why.length > 150 ? why.slice(0, 147) + '…' : why))
-                        : 'Pairing failed — check Settings → Connect Device';
-                    if (why) { try { console.error('[ios] activate failed:', why); } catch (e) {} }
-                    endPairingAnim(msg, why ? 9000 : 3200);
-                    // quietly put the menu back on Computer use (no re-dispatch)
-                    document.dispatchEvent(new CustomEvent('agentmode:set', {
-                        detail: { mode: 'computer' }
-                    }));
-                }
-            });
-        } else if (iosActive) {
-            iosActive = false;
-            pairing = false;
-            deactivate();                        // switched away -> instant kill
-            endPairingAnim(null);                // stop any mid-pairing animation
-        }
+        if (d.mode === 'mobile' && d.sub === 'ios') pair();
+        else if (iosActive) leave();
     });
 
-    window.iosSession = { activate: activate, deactivate: deactivate };
+    // The Wireless / Wired toggle flipped (chat_input/link_toggle.js): the
+    // picked iPhone connects again, the new way, also after one that did not
+    // pair. Its session is stopped first and the new one asked for only then,
+    // so the two never cross on the backend (android_session.js does the same).
+    document.addEventListener('phonelink:changed', function () {
+        if (!iosActive || pairing) return;
+        pairing = true;
+        failed = false;
+        stopPoll();
+        stopRepair();
+        var my = ++gen;                          // an answer still on the way is dropped
+        pairState('pairing');
+        startPairingAnim();
+        fetch('/api/ios/deactivate', { method: 'POST' }).catch(function () {}).then(function () {
+            if (my === gen && iosActive) connect();
+        });
+    });
+
+    // New chat and a reopened chat set the picker SILENTLY (chat.js): off
+    // iOS, that is a switch away too. A tick later, once agent_mode.js has
+    // painted the new selection on the wrap.
+    document.addEventListener('agentmode:set', function () {
+        setTimeout(function () {
+            var wrap = document.getElementById('agentModeWrap');
+            if (iosActive && !(wrap && wrap.dataset.mode === 'mobile' && wrap.dataset.sub === 'ios')) leave();
+        }, 0);
+    });
+
+    // The circle's arrow, after a pairing that did not work: pair again.
+    document.addEventListener('click', function (e) {
+        if (failed && iosActive && e.target.closest && e.target.closest('#pairStatus')) pair();
+    });
+
+    window.iosSession = { activate: activate, deactivate: deactivate, settle: settle };
 })();
