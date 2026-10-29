@@ -449,7 +449,7 @@ Remove the argument (or pass `False`) to stop writing logs.
 
 Each `AgentService.__init__` (e.g.
 [AutoCua/windows/agent/computer_use/service.py](AutoCua/windows/agent/computer_use/service.py))
-resets `conversation/` and `raw_reasoning/` and, when the flag is on, calls
+resets `conversation/` and `raw_reasoning/` only when the flag is on, then calls
 `_save_conversation_snapshot()` after every LLM step to write
 `conversation_N.txt`. The web agent does the same in Rust
 (`save_conversation_snapshot` in
