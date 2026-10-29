@@ -202,24 +202,23 @@ impl ControllerService {
         self.tap(center_x, center_y).map_err(|e| format!("Click failed: {e}"))
     }
 
-    /// Tap a raw point: x and y on a 0-1000 scale of the screenshot.
-    ///
-    /// For targets with no [id] (one chip inside a wide element, a switch
-    /// knob). The screenshot is the display, so a fraction of the image is
-    /// the same fraction of the display (set_screen); before the first scan
-    /// the Application element's box stands in for it, as on iOS.
-    pub fn ground_click(&self, x: &Value, y: &Value) -> Result<(), String> {
+    /// A 0-1000 spot on the screenshot as a display point, and the frame it
+    /// was mapped onto: (x, y, (frame x, y, width, height)). The screenshot
+    /// is the display, so a fraction of the image is the same fraction of
+    /// the display (set_screen); before the first scan the Application
+    /// element's box stands in for it, as on iOS.
+    fn ground_point(&self, x: &Value, y: &Value, tool: &str) -> Result<(i64, i64, (f64, f64, f64, f64)), String> {
         let (fx, fy) = match (py_float(x), py_float(y)) {
             (Ok(a), Ok(b)) => (a, b),
             _ => {
-                return Err(format!("ground_click needs x and y numbers, got ({}, {})", py_str_of(x), py_str_of(y)));
+                return Err(format!("{tool} needs x and y numbers, got ({}, {})", py_str_of(x), py_str_of(y)));
             }
         };
         if !(0.0..=1000.0).contains(&fx) || !(0.0..=1000.0).contains(&fy) {
-            return Err(format!("ground_click x and y must be 0-1000, got ({fx}, {fy})"));
+            return Err(format!("{tool} x and y must be 0-1000, got ({fx}, {fy})"));
         }
 
-        let (ox, oy, sw, sh) = match *self.screen.lock().unwrap() {
+        let frame = match *self.screen.lock().unwrap() {
             Some((w, h)) => (0.0, 0.0, w, h),
             None => {
                 let elements = self.elements.lock().unwrap();
@@ -231,10 +230,58 @@ impl ControllerService {
                 (screen.x as f64, screen.y as f64, screen.width as f64, screen.height as f64)
             }
         };
-        let tap_x = (ox + fx / 1000.0 * sw).round() as i64;
-        let tap_y = (oy + fy / 1000.0 * sh).round() as i64;
+        let (ox, oy, sw, sh) = frame;
+        Ok(((ox + fx / 1000.0 * sw).round() as i64, (oy + fy / 1000.0 * sh).round() as i64, frame))
+    }
 
+    /// Tap a raw point: x and y on a 0-1000 scale of the screenshot.
+    ///
+    /// For targets with no [id] (one chip inside a wide element, a switch
+    /// knob), at the display point ground_point gives.
+    pub fn ground_click(&self, x: &Value, y: &Value) -> Result<(), String> {
+        let (tap_x, tap_y, _frame) = self.ground_point(x, y, "ground_click")?;
         self.tap(tap_x, tap_y).map_err(|e| format!("Ground click failed: {e}"))
+    }
+
+    /// Swipe from a raw point: x and y on the 0-1000 scale of the screenshot
+    /// (ground_click's), `direction` the way the finger moves (up, down, left
+    /// or right, as scroll: "up" reveals what is below).
+    ///
+    /// For a list or a pane with no [id]. The swipe is 200 dp, or up to the
+    /// display's edge; a point too close to that edge is refused.
+    pub fn ground_scroll(&self, x: &Value, y: &Value, direction: &str) -> Result<(), String> {
+        let (start_x, start_y, (ox, oy, sw, sh)) = self.ground_point(x, y, "ground_scroll")?;
+        let (dx, dy) = match direction.to_lowercase().as_str() {
+            "up" => (0, -1),
+            "down" => (0, 1),
+            "left" => (-1, 0),
+            "right" => (1, 0),
+            other => return Err(format!("Invalid direction: {other}. Use: up, down, left, or right")),
+        };
+        let dp = self.dp();
+        let margin = (20.0 * dp).round() as i64;
+        let distance = (200.0 * dp).round() as i64;
+        let end_x = (start_x + dx * distance).max(ox as i64 + margin).min((ox + sw) as i64 - margin);
+        let end_y = (start_y + dy * distance).max(oy as i64 + margin).min((oy + sh) as i64 - margin);
+        if (end_x - start_x).abs() + (end_y - start_y).abs() < (50.0 * dp).round() as i64 {
+            return Err(format!(
+                "({}, {}) is too close to the screen's edge to swipe {direction} from",
+                py_str_of(x),
+                py_str_of(y)
+            ));
+        }
+
+        self.adb_shell(&[
+            "input",
+            "swipe",
+            &start_x.to_string(),
+            &start_y.to_string(),
+            &end_x.to_string(),
+            &end_y.to_string(),
+            "500",
+        ])
+        .map(|_| ())
+        .map_err(|e| format!("Ground scroll failed: {e}"))
     }
 
     /// Type text into element by number.

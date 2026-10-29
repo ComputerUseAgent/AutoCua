@@ -773,7 +773,11 @@ class EmulatorSession:
         logs = cache_root() / "logs"
         logs.mkdir(parents=True, exist_ok=True)
         env = dict(os.environ, ANDROID_SDK_ROOT=str(sdk), ANDROID_HOME=str(sdk), ANDROID_AVD_HOME=str(avd_home()))
-        cmd = [str(exe), "-avd", name, "-no-boot-anim", "-no-audio", "-no-metrics", "-crash-report-mode", "never"]
+        # -no-window: the emulator draws no window of its own; the run shows
+        # its screen in AutoCua's window, like an iOS Simulator (the preview
+        # stream of android/tree/element.rs, in ios_connector/sim_view.py).
+        cmd = [str(exe), "-avd", name, "-no-window", "-no-boot-anim", "-no-audio", "-no-metrics",
+               "-crash-report-mode", "never"]
         if not self._first_boot:
             cmd.append("-read-only")
         # A process group of its own: Ctrl+C in the terminal stops the run,

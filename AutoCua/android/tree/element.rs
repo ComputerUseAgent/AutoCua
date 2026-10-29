@@ -407,6 +407,11 @@ impl UIElementScanner {
                 shared
             }
         };
+        // The run's window (ios_connector/sim_view.py) shows this screen from
+        // the preview stream, when the launcher asked for one.
+        if let Some(port) = std::env::var(PREVIEW_PORT_ENV).ok().and_then(|p| p.trim().parse::<u16>().ok()) {
+            serve_preview(Arc::clone(&shared), port);
+        }
         // Size, density and home-screen app over adb (one call), then the
         // first frame, which can take a moment: nothing in Python waits for it.
         let device = py.detach(|| device_info(adb, serial));
@@ -576,6 +581,74 @@ fn decode_loop(mut sock: TcpStream, shared: &Shared) -> Result<(), String> {
 fn stream() -> &'static Mutex<Option<(u16, Arc<Shared>)>> {
     static STREAM: OnceLock<Mutex<Option<(u16, Arc<Shared>)>>> = OnceLock::new();
     STREAM.get_or_init(|| Mutex::new(None))
+}
+
+/// The launcher's port for the preview stream of this process's screen
+/// (agent_launcher sets it for an emulator run, one port per task).
+const PREVIEW_PORT_ENV: &str = "AutoCua_ANDROID_PREVIEW_PORT";
+/// The preview's frames per second at most, and their JPEG quality: a
+/// picture to watch, not the one the model reads.
+const PREVIEW_INTERVAL: Duration = Duration::from_millis(100);
+const PREVIEW_QUALITY: u8 = 70;
+
+/// Serve the screen stream as MJPEG on 127.0.0.1:`port`, the way WebDriverAgent
+/// serves a simulator's (port 9100), so the run's window shows an emulator
+/// like an iOS Simulator. One server per process; a client gets the newest
+/// frame at once (a still screen sends no new one for a while), then every
+/// new frame, PREVIEW_INTERVAL apart at most, until it hangs up.
+fn serve_preview(shared: Arc<Shared>, port: u16) {
+    static STARTED: OnceLock<()> = OnceLock::new();
+    if STARTED.set(()).is_err() {
+        return;
+    }
+    let listener = match std::net::TcpListener::bind(("127.0.0.1", port)) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("[preview] port {port}: {e}");
+            return;
+        }
+    };
+    thread::spawn(move || {
+        for client in listener.incoming().flatten() {
+            let shared = Arc::clone(&shared);
+            thread::spawn(move || preview_client(client, &shared));
+        }
+    });
+}
+
+fn preview_client(mut client: TcpStream, shared: &Shared) {
+    // The request line and headers, dropped: any path gets the stream.
+    let _ = client.set_read_timeout(Some(Duration::from_secs(2)));
+    let mut sink = [0u8; 1024];
+    let _ = client.read(&mut sink);
+    let head = b"HTTP/1.0 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n\
+                 Cache-Control: no-cache\r\nConnection: close\r\n\r\n";
+    if client.write_all(head).is_err() {
+        return;
+    }
+    let mut sent = 0;
+    loop {
+        let (rgb, w, h, frames) = {
+            let latest = shared.latest.lock().unwrap();
+            if latest.ended.is_some() {
+                return;
+            }
+            (latest.rgb.clone(), latest.width, latest.height, latest.frames)
+        };
+        if frames > 0 && frames != sent && w > 0 && h > 0 {
+            let Ok(jpeg) = encode_jpeg(&rgb, w, h, PREVIEW_QUALITY, SamplingFactor::F_2_2) else { return };
+            let part = format!("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n", jpeg.len());
+            if client.write_all(part.as_bytes()).is_err()
+                || client.write_all(&jpeg).is_err()
+                || client.write_all(b"\r\n").is_err()
+                || client.flush().is_err()
+            {
+                return;
+            }
+            sent = frames;
+        }
+        thread::sleep(PREVIEW_INTERVAL);
+    }
 }
 
 /// The newest frame of the screen stream: RGB, width, height.

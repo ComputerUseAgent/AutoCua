@@ -343,6 +343,9 @@ fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
         tool("ground_click", &[("x", json!({"type": "integer"})), ("y", json!({"type": "integer"}))],
              r##"Tap a raw point on the screenshot, for a target with no [id]: x and y on a 0-1000 scale of the image (0,0 top-left, 1000,1000 bottom-right).
     1. Example: ground_click {"x": 650, "y": 258}"##, track),
+        tool("ground_scroll", &[("x", json!({"type": "integer"})), ("y", json!({"type": "integer"})), ("value", json!({"type": "string"}))],
+             r##"Swipe from a raw point on the screenshot, for a list or pane with no [id]: x and y on the 0-1000 scale of the image (as ground_click), value the direction the finger moves (up/down/left/right, as scroll: "up" reveals what is below).
+    1. Example: ground_scroll {"x": 500, "y": 700, "value": "up"}"##, track),
         tool("input", &[("id", json!({"type": "integer"})), ("value", json!({"type": "string"}))],
              r##"Type into an element by its [id]. Existing text in the field is auto-deleted before typing.
     1. Examples:
@@ -388,6 +391,7 @@ pub fn main_action_defaults() -> &'static Value {
             "click": {"id": 0},
             // null, not 0: a coordinate the model left out must fail, not tap the edge.
             "ground_click": {"x": null, "y": null},
+            "ground_scroll": {"x": null, "y": null, "value": "up"},
             "input": {"id": 0, "value": ""},
             "scroll": {"id": 0, "value": "up"},
             "vault": {"id": 0, "value": ""},

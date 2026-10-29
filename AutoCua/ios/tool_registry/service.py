@@ -186,6 +186,9 @@ def _main_tools(track: dict, notes: dict = None) -> list:
         _tool("ground_click", {"x": {"type": "integer"}, "y": {"type": "integer"}},
               'Tap a raw point on the screenshot, for a target with no [id]: x and y on a 0-1000 scale of the image (0,0 top-left, 1000,1000 bottom-right).\n'
               '    1. Example: ground_click {"x": 650, "y": 258}', track=track),
+        _tool("ground_scroll", {"x": {"type": "integer"}, "y": {"type": "integer"}, "value": {"type": "string"}},
+              'Swipe from a raw point on the screenshot, for a list or pane with no [id]: x and y on the 0-1000 scale of the image (as ground_click), value the direction the finger moves (up/down/left/right, as scroll: "up" reveals what is below).\n'
+              '    1. Example: ground_scroll {"x": 500, "y": 700, "value": "up"}', track=track),
         _tool("input", {"id": {"type": "integer"}, "value": {"type": "string"}},
               'Type into an element by its [id]. Existing text in the field is auto-deleted before typing.\n'
               '    1. Examples:\n'
@@ -214,6 +217,7 @@ MAIN_ACTION_DEFAULTS = {
     "click": {"id": 0},
     # None, not 0: a coordinate the model left out must fail, not tap the edge.
     "ground_click": {"x": None, "y": None},
+    "ground_scroll": {"x": None, "y": None, "value": "up"},
     "input": {"id": 0, "value": ""},
     "scroll": {"id": 0, "value": "up"},
     "vault": {"id": 0, "value": ""},

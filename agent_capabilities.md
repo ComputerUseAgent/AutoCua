@@ -315,8 +315,9 @@ out anything you want to keep before running again.
 - **Android: every task starts the same.** Each copy of the emulator starts
   from the saved first boot, a fresh phone, and keeps nothing of its own, so
   the tasks can't change each other's start, or the next run's.
-- **Android: the windows.** Each copy shows the emulator's own window, and
-  they open on top of each other; drag them apart to watch them all.
+- **Android: watch them work.** Every copy shows in the one "Android Emulator"
+  window, side by side, the way the iOS simulators do; the emulators
+  themselves run with no window.
 - **Android: your own app on every emulator.** Pass `app_build` (Part 10): each
   copy installs it as soon as it has started, and no agent starts until every
   copy has it.
@@ -1083,6 +1084,9 @@ doesn't reach the emulator itself (a session of its own), only the run, which
 then stops it that way. Each emulator also gets a small watcher process: when
 the run dies without stopping it (a closed terminal, an IDE's Stop), the
 watcher stops it the same way. Each port is claimed with a lock file in the
-cache, so two runs starting at the same moment never share one. It shows
-the emulator's own window, and runs with `-no-metrics` and
-`-crash-report-mode never`.
+cache, so two runs starting at the same moment never share one. It runs with
+`-no-window`, `-no-metrics` and `-crash-report-mode never`: the run's window
+([sim_view.py](AutoCua/ios_connector/sim_view.py), the iOS simulators' one, over
+the same background video) shows the screen from an MJPEG preview the Android
+agent serves on `AutoCua_ANDROID_PREVIEW_PORT`, the way WebDriverAgent's
+stream shows a simulator.
