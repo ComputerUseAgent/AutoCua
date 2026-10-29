@@ -1,16 +1,24 @@
 // Android session connector — ios_session.js's twin for the Android phone,
 // attached to the Agent-mode menu. Selecting Mobile use → Android starts the
 // phone helper on the newest phone Settings → Connect Device connected (adb,
-// scrcpy's server and Helper.java over the cable; nothing is installed on the
-// phone); switching to anything else (Computer use / iOS) stops it.
+// scrcpy's server and Helper.java; nothing is installed on the phone), over
+// Wi-Fi or the cable as the chat box's Wireless / Wired toggle says
+// (chat_input/link_toggle.js; flipping it connects again); switching to
+// anything else (Computer use / iOS) stops it.
 //
-// While connecting, the chat box placeholder animates "Pairing." → "Pairing.."
-// → "Pairing..." on loop and the green glow breathes; on success it shows
-// "Device connected" for a moment and then returns to the normal text. On
-// failure the placeholder explains, and the menu quietly reverts to Computer use.
+// While connecting, the chat box is read only (no typing, nothing sent), its
+// placeholder animates "Pairing." → "Pairing.." → "Pairing..." on loop, the
+// green glow breathes and a circle turns beside the picker (agent_mode.tsx's
+// #pairStatus); on success it shows "Device connected" for a moment and then
+// returns to the normal text. On failure Android stays picked and the box
+// stays read only until it pairs: the placeholder names the cause in a few
+// words, a little smaller and on one line, and the circle becomes an arrow
+// that pairs again (flipping the toggle does too). Another mode picked frees
+// the box; so does New chat or a reopened chat, which set the picker silently.
 //
 // Backend contract:
-//   POST /api/android/activate    -> starts the helper and reads one screen
+//   POST /api/android/activate    -> {link: "wireless" | "wired"}: starts the
+//                                    helper and reads one screen
 //                                    through it, then answers: {ok, state:
 //                                    "connected"} or {ok: false, error, hint}
 //                                    (no status poll, unlike WDA)
@@ -40,7 +48,12 @@
     function activate(cb) {
         cb = cb || {};
         var my = ++gen;
-        fetch('/api/android/activate', { method: 'POST' })
+        fetch('/api/android/activate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            // Wireless or Wired: the chat box's toggle (chat_input/link_toggle.js)
+            body: JSON.stringify({ link: window.androidLink ? window.androidLink() : 'wireless' })
+        })
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (my !== gen) { if (d.ok && cb.stale && cb.stale()) stopHelper(); return; }
@@ -112,6 +125,9 @@
         if (!el) return;
         clearTimeout(restoreTimer); restoreTimer = null;
         if (savedPlaceholder === null) savedPlaceholder = el.placeholder;
+        el.classList.remove('pair-note');           // a failure note still showing goes
+        el.readOnly = true;                         // no typing while connecting,
+        el.blur();                                  // and no focus, as a disabled box
         clearInterval(dotsTimer);
         var n = 1;
         el.placeholder = label + '.';
@@ -126,6 +142,7 @@
         clearInterval(dotsTimer); dotsTimer = null;
         var el = chatInput();
         if (!el) { savedPlaceholder = null; return; }
+        el.readOnly = false;                        // the box types again
         if (message) {
             el.placeholder = message;
             restoreTimer = setTimeout(restorePlaceholder, holdMs || 2000);
@@ -136,64 +153,135 @@
     }
     function restorePlaceholder() {
         var el = chatInput();
+        if (el) el.classList.remove('pair-note');
         if (el && savedPlaceholder !== null) el.placeholder = savedPlaceholder;
         savedPlaceholder = null;
         restoreTimer = null;
+    }
+    // A run starts while "Device connected" still shows: the normal hint comes
+    // back now, else agent_mode.js keeps "Device connected" as the hint it
+    // puts back after the run (chat_input.js calls this).
+    function settle() {
+        if (restoreTimer === null) return;
+        clearTimeout(restoreTimer);
+        restorePlaceholder();
+    }
+    // It did not pair: the reason stays in the placeholder, smaller and on one
+    // line (chat_input.css), and the box stays read only till it pairs or
+    // another mode is picked (endPairingAnim(null) then).
+    function failPairingAnim(message) {
+        stopBreathing(false);
+        clearInterval(dotsTimer); dotsTimer = null;
+        var el = chatInput();
+        if (!el) return;
+        el.classList.add('pair-note');
+        el.placeholder = message;
+    }
+    // The circle beside the picker turns ('pairing'), offers to pair again
+    // ('failed') or goes (''): agent_mode.css reads the wrap's data-pair.
+    function pairState(s) {
+        var wrap = document.getElementById('agentModeWrap');
+        if (wrap) wrap.dataset.pair = s;
     }
 
     // ---- wiring to the Agent-mode menu ----
     // androidActive: Android is the selection and a helper was asked for from
     // here (switching away must stop it). pairing: that activate() is still on
-    // the way, so a second click must not restart it half-way.
+    // the way, so a second click must not restart it half-way. failed: it did
+    // not pair, and Android is still the selection.
     var androidActive = false;
     var pairing = false;
+    var failed = false;
+
+    // Connect the picked phone: the pairing look, then activate().
+    function connect() {
+        if (!androidActive) return;              // switched away meanwhile
+        pairState('pairing');
+        startPairingAnim();
+        activate({
+            stale: function () { return !androidActive; },
+            onConnected: function () {
+                pairing = false;
+                pairState('');
+                // graceful: the current breath completes, THEN the glow settles
+                endPairingAnim('Device connected', 2200, true);
+            },
+            onFail: function (why) {
+                pairing = false;
+                failed = true;
+                pairState('failed');
+                // The cause only, the reason's first sentence (as iOS does).
+                var cause = why.split(/\. | — /)[0];
+                var msg = cause
+                    ? ('Android: ' + (cause.length > 80 ? cause.slice(0, 79) + '…' : cause))
+                    : 'Connecting failed. Check Settings → Connect Device';
+                if (why) { try { console.error('[android] activate failed:', why); } catch (x) {} }
+                failPairingAnim(msg);
+            }
+        });
+    }
+
+    // EVERY Android pick (re)activates, as every iOS pick does: New chat stops
+    // the helper behind the picker's back, the cable can drop. A live helper
+    // answers at once ("Device connected"). The circle's arrow pairs again
+    // the same way.
+    function pair() {
+        if (pairing) return;
+        androidActive = true;
+        pairing = true;
+        failed = false;
+        // A tick later: iOS's listener (after this one) ends its own
+        // animation first, so the placeholder saved here is the real one.
+        setTimeout(connect, 0);
+    }
+
+    // Switched away: stop the helper, and the box is free again.
+    function leave() {
+        androidActive = false;
+        pairing = false;
+        failed = false;
+        pairState('');
+        deactivate();
+        endPairingAnim(null);                    // stop any mid-pairing animation
+    }
 
     document.addEventListener('agentmode:changed', function (e) {
         var d = e.detail || {};
-        var wantAndroid = (d.mode === 'mobile' && d.sub === 'android');
-
-        if (wantAndroid) {
-            // EVERY Android pick (re)activates, as every iOS pick does: New
-            // chat stops the helper behind the picker's back, the cable can
-            // drop. A live helper answers at once ("Device connected").
-            if (pairing) return;
-            androidActive = true;
-            pairing = true;
-            // A tick later: iOS's listener (after this one) ends its own
-            // animation first, so the placeholder saved here is the real one.
-            setTimeout(function () {
-                if (!androidActive) return;          // switched away meanwhile
-                startPairingAnim();
-                activate({
-                    stale: function () { return !androidActive; },
-                    onConnected: function () {
-                        pairing = false;
-                        // graceful: the current breath completes, THEN the glow settles
-                        endPairingAnim('Device connected', 2200, true);
-                    },
-                    onFail: function (why) {
-                        pairing = false;
-                        androidActive = false;
-                        // The sentence that names the cause, in the placeholder.
-                        var msg = why
-                            ? ('Android: ' + (why.length > 150 ? why.slice(0, 147) + '…' : why))
-                            : 'Connecting failed. Check Settings → Connect Device';
-                        if (why) { try { console.error('[android] activate failed:', why); } catch (x) {} }
-                        endPairingAnim(msg, why ? 9000 : 3200);
-                        // quietly put the menu back on Computer use (no re-dispatch)
-                        document.dispatchEvent(new CustomEvent('agentmode:set', {
-                            detail: { mode: 'computer' }
-                        }));
-                    }
-                });
-            }, 0);
-        } else if (androidActive) {
-            androidActive = false;
-            pairing = false;
-            deactivate();                        // switched away -> stop the helper
-            endPairingAnim(null);                // stop any mid-pairing animation
-        }
+        if (d.mode === 'mobile' && d.sub === 'android') pair();
+        else if (androidActive) leave();
     });
 
-    window.androidSession = { activate: activate, deactivate: deactivate };
+    // New chat and a reopened chat set the picker SILENTLY (chat.js): off
+    // Android, that is a switch away too. A tick later, once agent_mode.js
+    // has painted the new selection on the wrap.
+    document.addEventListener('agentmode:set', function () {
+        setTimeout(function () {
+            var wrap = document.getElementById('agentModeWrap');
+            if (androidActive && !(wrap && wrap.dataset.mode === 'mobile' && wrap.dataset.sub === 'android')) leave();
+        }, 0);
+    });
+
+    // The circle's arrow, after a pairing that did not work: pair again.
+    document.addEventListener('click', function (e) {
+        if (failed && androidActive && e.target.closest && e.target.closest('#pairStatus')) pair();
+    });
+
+    // The Wireless / Wired toggle flipped (link_toggle.js): the picked phone
+    // connects again, the new way, also after one that did not pair. Its
+    // helper is stopped first and the new one asked for only then, so the two
+    // never cross on the backend, and a new way that fails leaves nothing
+    // running.
+    document.addEventListener('androidlink:changed', function () {
+        if (!androidActive || pairing) return;
+        pairing = true;
+        failed = false;
+        pairState('pairing');
+        startPairingAnim();
+        var my = ++gen;                          // an answer still on the way is dropped
+        fetch('/api/android/deactivate', { method: 'POST' }).catch(function () {}).then(function () {
+            if (my === gen) connect();
+        });
+    });
+
+    window.androidSession = { activate: activate, deactivate: deactivate, settle: settle };
 })();

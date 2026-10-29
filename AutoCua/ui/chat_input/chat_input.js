@@ -64,6 +64,9 @@
         // Start the agent. Shared by Enter and the send orb's 'sendbtn:clicked' message.
         // Guard mirrors the old Enter behaviour: needs a message + a live provider/model.
         function startAgent() {
+            // A phone pairing, or not paired yet, holds the box read only
+            // (ios_session.js, android_session.js): nothing is sent till it is.
+            if (chatInput.readOnly) return;
             const message = chatInput.value.trim();
             // Live (provider, model) selection lives in script.js (Settings writes it).
             const sel = window.getModelSelection ? window.getModelSelection() : {};
@@ -112,6 +115,11 @@
             const agentText = document.getElementById('agentText');
             const sendBtnFrame = getSendFrame();
             const stopBtnFrame = getStopFrame();
+
+            // A phone's "Device connected" note ends now: agent_mode.js keeps
+            // the hint showing at run start and puts it back after the run.
+            if (window.iosSession) window.iosSession.settle();
+            if (window.androidSession) window.androidSession.settle();
 
             if (agentStrip) {
                 agentStrip.classList.add('active');
@@ -320,21 +328,6 @@
                 flipToggle.classList.add('show-label');
                 clearTimeout(labelTimer);
                 labelTimer = setTimeout(() => flipToggle.classList.remove('show-label'), 1200);
-            });
-        }
-
-        // Wireless / Wired flip (Mobile use only): UI only for now, nothing reads it.
-        // Fast / Quality's behaviour: state in the .wired class, the floating label
-        // briefly after each flip.
-        const linkToggle = (root || document).querySelector('#linkToggle');
-        if (linkToggle) {
-            let labelTimer = null;
-            linkToggle.addEventListener('click', () => {
-                linkToggle.classList.toggle('wired');
-                linkToggle.setAttribute('aria-checked', linkToggle.classList.contains('wired') ? 'true' : 'false');
-                linkToggle.classList.add('show-label');
-                clearTimeout(labelTimer);
-                labelTimer = setTimeout(() => linkToggle.classList.remove('show-label'), 1200);
             });
         }
 

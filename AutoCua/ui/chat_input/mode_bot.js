@@ -329,10 +329,10 @@
         var wrap = document.getElementById('agentModeWrap');
         lastMode = (wrap && wrap.dataset.mode) || '';
     });
-    // The menu set without a pick (a reopened chat's lock, a failed iPhone
-    // pairing going back to Computer use): the bot in a fresh chat becomes
-    // that mode's (also while it comes in), or goes. A frame later: New chat
-    // sets it too, and says so (chat:new) right after.
+    // The menu set without a pick (a reopened chat's lock, New chat): the
+    // bot in a fresh chat becomes that mode's (also while it comes in), or
+    // goes. A frame later: New chat sets it too, and says so (chat:new) right
+    // after.
     document.addEventListener('agentmode:set', function (e) {
         var mode = (e.detail || {}).mode;
         if (mode) lastMode = mode;

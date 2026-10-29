@@ -310,6 +310,48 @@
     .agent-mode-wrap[data-mode="shell"] .shell-input-wrap { animation: none; }
 }
 
+/* ---------- Mobile use: the phone's pairing, right of the picker ----------
+   A circle turns while the phone pairs; if it did not pair, a red arrow takes
+   its place and a click pairs again (data-pair on the wrap, set by
+   ios_session.js / android_session.js). Nothing once paired, nor outside
+   Mobile use, so the skills icon closes up. */
+.pair-status {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    margin-left: 2px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--am-text-muted);
+    pointer-events: none;
+    transition: background-color 0.2s ease;
+}
+.agent-mode-wrap[data-mode="mobile"][data-pair="pairing"] .pair-status,
+.agent-mode-wrap[data-mode="mobile"][data-pair="failed"] .pair-status { display: flex; }
+.pair-status svg { width: 16px; height: 16px; }
+.pair-status .ps-retry { display: none; }
+.agent-mode-wrap[data-pair="pairing"] .ps-spin { animation: psSpin 0.9s linear infinite; }
+.agent-mode-wrap[data-pair="failed"] .ps-spin { display: none; }
+.agent-mode-wrap[data-pair="failed"] .ps-retry { display: block; }
+.agent-mode-wrap[data-pair="failed"] .pair-status {
+    color: #e5484d;
+    cursor: pointer;
+    pointer-events: auto;
+}
+.agent-mode-wrap[data-pair="failed"] .pair-status:hover { background: rgba(229, 72, 77, 0.1); }
+.pair-status:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(29, 158, 117, 0.3);
+}
+@keyframes psSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+    .agent-mode-wrap[data-pair="pairing"] .ps-spin { animation-duration: 2.4s; }
+}
+
 /* =====================================================================
    Selection glow — the chat box's INNER edge softly glows in a neon
    two-tone gradient matching the Agent-mode selection (data-sub on the

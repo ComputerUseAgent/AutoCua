@@ -11,11 +11,11 @@ The zip is pinned three ways: the release, its byte size and its SHA-256,
 checked before it is unpacked. A partial or altered download is never used.
 
 A phone on Wi-Fi works too, with Android 11's Wireless debugging turned on
-(Developer options): wifi_addresses() finds it by the name it announces on the
-network, and wifi_connect() connects it with the key it already trusts from
-USB ("Always allow from this computer"), so there is no pairing code. Which
-phones may go over Wi-Fi is session.py's call: only those connected once over
-USB in Settings.
+(Developer options): wifi_addresses() finds it on a connection adb already
+has to it, else by the name it announces on the network, and wifi_connect()
+connects it with the key it already trusts from USB ("Always allow from this
+computer"), so there is no pairing code. Which phones may go over Wi-Fi is
+session.py's call: only those connected once over USB in Settings.
 
 This file only connects: it finds adb, starts its server and waits until the
 phone is ready. Streaming the screen is stream.py's job, and saving
@@ -80,6 +80,9 @@ WIFI_LOOK = 3.0
 # adb connect itself waits for the OS's TCP timeout (75 s on macOS) when
 # nothing answers.
 WIFI_CONNECT_WAIT = 10
+# A Wi-Fi connection adb already has is asked which phone it is: a dozing
+# phone answers in under a second, one gone without a word may never.
+WIFI_ASK_WAIT = 3
 
 # One fetch per process, however many threads ask at once.
 _LOCK = threading.Lock()
@@ -260,17 +263,29 @@ def _ask_wifi():
 
 
 def wifi_addresses(adb, serials):
-    """{serial: "ip:port"} for those of `serials` whose phone announces
+    """{serial: "ip:port"} for those of `serials` whose phone is on Wi-Fi:
+    on a connection adb already has (its ro.serialno says which phone it is:
+    a dozing phone keeps it but may not answer the network), or announcing
     Wireless debugging on this network. While none is heard it asks the
     network (_ask_wifi, once a second) and looks again for up to WIFI_LOOK
     seconds: a server that has just started has not heard the phones yet,
     and one that has may have let a phone drop out of its list."""
     if not serials:
         return {}
+    live = {}
+    for address, state in devices(adb):
+        if state != "device" or not _wireless(address):
+            continue
+        try:
+            said = _adb(adb, "-s", address, "shell", "getprop", "ro.serialno", timeout=WIFI_ASK_WAIT)
+        except subprocess.TimeoutExpired:
+            continue
+        if said.stdout.strip() in serials:
+            live.setdefault(said.stdout.strip(), address)
     deadline = time.monotonic() + WIFI_LOOK
     asked = None
     while True:
-        found = {}
+        found = dict(live)
         for line in _adb(adb, "mdns", "services").stdout.splitlines():
             # "<instance>\t<service type>\t<ip>:<port>"; ":<port>" while only
             # an IPv6 address is known, which adb cannot connect to.
