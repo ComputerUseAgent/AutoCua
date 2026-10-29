@@ -1,6 +1,8 @@
 // iOS session connector — attaches the proven connect logic to the Agent-mode
-// menu. Selecting Mobile use → iOS activates the paired iPhone's WDA session
-// (fresh session over the cable — no rebuild, no reinstall); switching to
+// menu. Selecting Mobile use → iOS activates the paired iPhone's WDA session:
+// over the cable a fresh session (no rebuild, no reinstall), over Wi-Fi Xcode
+// starts it, as the chat box's Wireless / Wired toggle says
+// (chat_input/link_toggle.js; flipping it connects again); switching to
 // anything else (Computer use / Android) kills it instantly.
 //
 // While connecting, the chat box is read only (no typing, nothing sent), its
@@ -100,19 +102,23 @@
             fetch('/api/ios/deactivate', { method: 'POST' }).catch(function () {});
             if (cb.onFail) cb.onFail(why || '');
         }
+        // Wireless or Wired: the chat box's toggle (chat_input/link_toggle.js).
+        // Over Wi-Fi Xcode builds and starts WebDriverAgent, so it gets longer.
+        var link = window.phoneLink ? window.phoneLink() : 'wireless';
+        var wait = link === 'wireless' ? 180 : 90;
         fetch('/api/ios/activate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})            // backend picks the newest paired device
+            body: JSON.stringify({ link: link })   // backend picks the newest paired device it reaches
         }).then(function (r) { return r.json(); }).then(function (d) {
             // iOS left meanwhile: a session that came up anyway goes again
             if (my !== gen) { if (d.ok && !iosActive) fetch('/api/ios/deactivate', { method: 'POST' }).catch(function () {}); return; }
             if (d.state === 'connected') { if (cb.onConnected) cb.onConnected(); return; }
             if (!d.ok) { fail(reasonOf(d)); return; }
-            var deadline = Date.now() + 90000;
+            var deadline = Date.now() + wait * 1000;
             statusTimer = setInterval(function () {
                 if (Date.now() > deadline) {
-                    fail('timed out after 90s waiting for WebDriverAgent to answer');
+                    fail('timed out after ' + wait + 's waiting for WebDriverAgent to answer');
                     return;
                 }
                 fetch('/api/ios/session-status').then(function (r) { return r.json(); }).then(function (s) {
@@ -274,6 +280,11 @@
         iosActive = true;
         pairing = true;
         failed = false;
+        connect();
+    }
+
+    // Connect the picked iPhone: the pairing look, then activate().
+    function connect() {
         pairState('pairing');
         startPairingAnim();
         activate({
@@ -319,6 +330,24 @@
         var d = e.detail || {};
         if (d.mode === 'mobile' && d.sub === 'ios') pair();
         else if (iosActive) leave();
+    });
+
+    // The Wireless / Wired toggle flipped (chat_input/link_toggle.js): the
+    // picked iPhone connects again, the new way, also after one that did not
+    // pair. Its session is stopped first and the new one asked for only then,
+    // so the two never cross on the backend (android_session.js does the same).
+    document.addEventListener('phonelink:changed', function () {
+        if (!iosActive || pairing) return;
+        pairing = true;
+        failed = false;
+        stopPoll();
+        stopRepair();
+        var my = ++gen;                          // an answer still on the way is dropped
+        pairState('pairing');
+        startPairingAnim();
+        fetch('/api/ios/deactivate', { method: 'POST' }).catch(function () {}).then(function () {
+            if (my === gen && iosActive) connect();
+        });
     });
 
     // New chat and a reopened chat set the picker SILENTLY (chat.js): off

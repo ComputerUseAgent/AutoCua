@@ -1,11 +1,12 @@
 // The Wireless / Wired toggle (chat_input.tsx's #linkToggle, shown in Mobile
-// use): how the Android phone connects. Wireless, the default, reaches it
-// over Wi-Fi only, also with its cable in; Wired over USB only. Either way
-// only a phone connected once in Settings → Connect Device.
+// use): how the phone connects, Android or iPhone. Wireless, the default,
+// reaches it over Wi-Fi, also with its cable in; Wired over USB only. Either
+// way only a phone connected once in Settings → Connect Device.
 //
-// android_session.js asks window.androidLink() when the Android pick
-// connects, and connects again when the toggle flips ('androidlink:changed').
-// The backend side is android_connector/session.py's link (confirm, activate).
+// android_session.js and ios_session.js ask window.phoneLink() when their
+// pick connects, and connect again when the toggle flips ('phonelink:changed').
+// The backend side is the link of android_connector/session.py (confirm,
+// activate) and ios_connector/session.py (activate: Xcode over Wi-Fi).
 // The toggle holds still while a phone pairs (the picker's wrap says
 // data-pair="pairing") and while a run goes (chat_input.css fades it and takes
 // its clicks). After a pairing that did not work it flips: that pairs again.
@@ -13,7 +14,7 @@
     'use strict';
 
     // 'wireless' or 'wired': the toggle's .wired class.
-    window.androidLink = function () {
+    window.phoneLink = function () {
         var toggle = document.getElementById('linkToggle');
         return toggle && toggle.classList.contains('wired') ? 'wired' : 'wireless';
     };
@@ -32,8 +33,8 @@
             toggle.classList.add('show-label');
             clearTimeout(labelTimer);
             labelTimer = setTimeout(function () { toggle.classList.remove('show-label'); }, 1200);
-            document.dispatchEvent(new CustomEvent('androidlink:changed', {
-                detail: { link: window.androidLink() }
+            document.dispatchEvent(new CustomEvent('phonelink:changed', {
+                detail: { link: window.phoneLink() }
             }));
         });
     }

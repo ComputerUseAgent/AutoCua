@@ -187,6 +187,7 @@ class PhoneLink:
         self._lock = threading.Lock()
         self._state = "offline"
         self.udid = None
+        self._link = None        # "wireless": none on the cable, the app's session over Wi-Fi
         self.name = "iPhone"
         self.reason = "no iPhone or iPad is plugged into this Mac"
         self._deadline = 0.0
@@ -206,6 +207,7 @@ class PhoneLink:
             link.reason = "ios_agent is unavailable in the packaged app"
             return link
         try:
+            from AutoCua.ios_connector import session as connector
             from AutoCua.ios_connector.session import paired_devices, plugged_in_udids
             paired = paired_devices()            # newest first
             plugged = plugged_in_udids()         # None: usbmuxd did not answer, so just try
@@ -213,18 +215,25 @@ class PhoneLink:
             return link
         if plugged is not None:
             paired = [d for d in paired if d.get("udid") in plugged]
-        if not paired:
+        if not paired and connector.WIRELESS and paired_devices():
+            # Nothing paired on the cable: in the app one on the Wi-Fi works
+            # too, Xcode starting it there, and activate() picks which (the
+            # unlocked one first) in the connect thread. A terminal run is
+            # cable only (connector.WIRELESS).
+            link._link = "wireless"
+        elif not paired:
             _log("offline at start: no paired phone is plugged in "
                  f"(paired: {[d.get('name') for d in paired_devices()]}, plugged in: {sorted(plugged or [])})")
             return link                          # nothing paired is plugged in: offline at once
-        link.udid = paired[0]["udid"]
-        link.name = paired[0].get("name") or "iPhone"
+        else:
+            link.udid = paired[0]["udid"]
+            link.name = paired[0].get("name") or "iPhone"
         link._state = "checking"
         link._deadline = time.monotonic() + CHECK_SEC
         link._give_up = time.monotonic() + LATE_SEC
         link._t0 = time.monotonic()
         _links.append(link)
-        _log(f"checking {link.name} ({link.udid}), up to {CHECK_SEC}s; this process runs at "
+        _log(f"checking {link.name} ({link.udid or 'on Wi-Fi'}), up to {CHECK_SEC}s; this process runs at "
              f"{_priority()} priority")
         threading.Thread(target=link._connect, daemon=True).start()
         return link
@@ -286,7 +295,7 @@ class PhoneLink:
             if lock is not None and lock.locked():
                 _log("waiting: the phone session is busy with another caller (its lock is held)")
             try:
-                res = wda_session.activate(self.udid, owner=self)
+                res = wda_session.activate(self.udid, owner=self, link=self._link)
             finally:
                 with self._lock:
                     self._busy = False
@@ -295,6 +304,12 @@ class PhoneLink:
             if not res.get("ok"):
                 self._fail(_reason(res) or "the phone could not be connected")
                 return
+            if not self.udid:
+                # Over Wi-Fi activate() picked the phone: its name for the label
+                from AutoCua.ios_connector.session import paired_devices
+                self.udid = res.get("udid")
+                self.name = next((d.get("name") for d in paired_devices() if d.get("udid") == self.udid),
+                                 None) or self.name
             last = None
             past_check = False
             while True:
@@ -422,7 +437,10 @@ class PhoneLink:
             # "connecting": WDA did not answer in time. It answers /status on
             # the same queue as the agent's own requests, and a dense screen
             # can keep it busy for a while, so a slow answer means nothing on
-            # its own. Off the cable is what counts.
+            # its own. Off the cable is what counts (over Wi-Fi status() says
+            # when Xcode's run ended).
+            if self._link == "wireless":
+                continue
             plugged = plugged_in_udids()
             if plugged is not None and self.udid not in plugged:
                 # A re-plug (QuickTime's screen mirror picking the phone) takes

@@ -479,8 +479,8 @@ body.left-bar-animating .chat-container-wrapper {
     pointer-events: none;
 }
 
-/* ---------- Wireless / Wired flip (Mobile use only; how the Android phone
-   connects, link_toggle.js). The Fast / Quality pill itself (it carries
+/* ---------- Wireless / Wired flip (Mobile use only; how the phone connects,
+   Android or iPhone, link_toggle.js). The Fast / Quality pill itself (it carries
    .fast-quality-toggle, so the running fade above covers it too), with its own
    icons and colours: sky Wi-Fi = Wireless (left), green plug = Wired (right).
    display:none outside Mobile use, so it takes no room there; it fades in like
