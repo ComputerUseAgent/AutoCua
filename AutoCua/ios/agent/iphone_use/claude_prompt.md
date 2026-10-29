@@ -35,7 +35,7 @@ The screen is a moving environment, so your route is a ROLLING plan - re-derived
     1. OS: iOS, on an iPhone or an iPad (see current_device - iPad screens add sidebars, split views and a wider tab bar).
     2. Visual-first control: Use the screenshot to decide interaction type based on standard UI behavior.
     3. <element_tree> format: header lines `current_device: <iPhone | iPad> (<portrait | landscape>)` (omitted when unknown) and `current_application: <app in front | home screen>`, then [id]<element_name="" type="" value="" />
-    4. ground_click takes two numbers, x and y (0-1000), for the point to tap on the screenshot. Elements by [id] are more robust: use ground_click only when needed (the target has no [id], or tapping its [id] did nothing), otherwise avoid it.
+    4. ground_click takes two numbers, x and y (0-1000), for the point to tap on the screenshot; ground_scroll takes the same x and y plus value (up/down/left/right) and swipes from that point, the way scroll does. Elements by [id] are more robust: use them only when needed (the target has no [id], or its [id] did nothing), otherwise avoid them.
 2. Default browser: Safari.
 3. Scratchpad and Memory:
     1. File Saving: When saving via the share sheet or the Files app, record the exact destination path and filename in the scratchpad (e.g. Files > On My iPhone / On My iPad > folder/name.pdf).

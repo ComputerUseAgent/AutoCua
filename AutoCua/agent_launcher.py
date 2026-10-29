@@ -181,6 +181,11 @@ def _connect_android(serial=None):
     return android_session
 
 
+# The port the Android agent serves its screen on as MJPEG (android/tree/
+# element.rs), for the run's window: set before the agent is built.
+PREVIEW_ENV = "AutoCua_ANDROID_PREVIEW_PORT"
+
+
 def _pin_android_serial(serial):
     """Set AutoCua_ANDROID_SERIAL to serial (None unsets it); returns what it
     was. A simulation run pins its emulator there, so the screen reader, when
@@ -534,7 +539,7 @@ def run_agent(mode, provider, model, task, os=None,
 
     phone = None
     sim_window = None
-    emulator = pinned = None
+    emulator = pinned = preview = None
     if (kind, mobile_os) == ("mobile", "ios"):
         target = _device_target(device)
         if target == "hardware":
@@ -568,17 +573,29 @@ def run_agent(mode, provider, model, task, os=None,
                       'the phone runs whatever Android it has')
             phone = _connect_android()
         else:
-            emulator = _connect_emulator(android_version, sim_device=sim_device, build=build)
-            pinned = _pin_android_serial(emulator.serial)
+            # The emulator draws no window of its own: the iOS Simulator's
+            # window shows its screen, from the agent's preview stream, once
+            # the agent is built below.
+            from AutoCua.ios_connector.sim_view import open_view, close_view
+            from AutoCua.android_connector.stream import _free_ports
+            sim_window = open_view(title="Android Emulator")
             try:
-                phone = _connect_android(emulator.serial)
+                emulator = _connect_emulator(android_version, sim_device=sim_device, build=build)
+                pinned = _pin_android_serial(emulator.serial)
+                try:
+                    phone = _connect_android(emulator.serial)
+                except BaseException:
+                    _pin_android_serial(pinned)
+                    emulator.deactivate()
+                    raise
             except BaseException:
-                _pin_android_serial(pinned)
-                emulator.deactivate()
+                close_view(sim_window)
                 raise
+            preview = _free_ports(1)[0]
+            os.environ[PREVIEW_ENV] = str(preview)
     agent_glow = None
     try:
-        if sim_window is not None:
+        if sim_window is not None and emulator is None:
             from AutoCua.ios_connector.sim_view import show_phones
             show_phones(sim_window, [{"name": phone.status().get("name") or "Simulator",
                                       "port": phone.mjpeg_port}])
@@ -597,6 +614,10 @@ def run_agent(mode, provider, model, task, os=None,
         if agent_glow is not None:
             agent_glow.start()
         agent = AgentService(**_supported_kwargs(AgentService, kwargs))
+        if sim_window is not None and emulator is not None:
+            # The agent's scanner is up, and with it the preview stream.
+            from AutoCua.ios_connector.sim_view import show_phones
+            show_phones(sim_window, [{"name": f"Android {emulator.version} {emulator.kind}", "port": preview}])
         return agent.process_request(task)
     finally:
         if agent_glow is not None:
@@ -611,6 +632,7 @@ def run_agent(mode, provider, model, task, os=None,
             phone.deactivate()
             print(f"📱 {'Android' if mobile_os == 'android' else 'iOS'} connection closed")
         if emulator is not None:
+            os.environ.pop(PREVIEW_ENV, None)
             _pin_android_serial(pinned)
             emulator.deactivate()
             print("📱 Emulator closed")
@@ -889,7 +911,15 @@ def run_parallel_emulator_agents(tasks, provider, model, save_conversation=False
     prepare(android_version, sim_device)
 
     sessions = [(i, EmulatorSession()) for i in range(1, n + 1)]
+    sim_window = None
     try:
+        # Every copy in one window, side by side, as the iOS simulators: the
+        # emulators draw none of their own. It opens now ("Preparing
+        # simulation") and gets the screens once the agents stream them.
+        from AutoCua.ios_connector.sim_view import open_view, show_phones
+        from AutoCua.android_connector.stream import _free_ports
+        sim_window = open_view(title="Android Emulator")
+
         # 1. Boot them ALL AT ONCE; each installs the app as soon as it is up.
         outcomes = {}
 
@@ -927,8 +957,9 @@ def run_parallel_emulator_agents(tasks, provider, model, save_conversation=False
         # which can't print them in the child or read them here.
         base_env["PYTHONIOENCODING"] = "utf-8"
 
+        previews = _free_ports(n)   # one preview stream per copy, for the window
         procs = []  # (index, task_text, Popen, result_file)
-        for (i, session), task_text in zip(sessions, tasks):
+        for (i, session), task_text, preview in zip(sessions, tasks, previews):
             task_dir = run_root / f"task_{i}"
             task_dir.mkdir(parents=True, exist_ok=True)
             result_file = task_dir / "result.json"
@@ -944,10 +975,12 @@ def run_parallel_emulator_agents(tasks, provider, model, save_conversation=False
             if save_conversation:
                 cmd += ["--save-conversation"]
             # The serial pins the child's phone helper to its own emulator;
-            # the session scopes its scratchpad to scratchpad/task_N/.
+            # the session scopes its scratchpad to scratchpad/task_N/; the
+            # preview port is where its agent streams the screen for the window.
             env = dict(base_env)
             env["AutoCua_ANDROID_SERIAL"] = session.serial
             env["AutoCua_ANDROID_SESSION"] = f"task_{i}"
+            env[PREVIEW_ENV] = str(preview)
             # Deliberately NO start_new_session: children stay in this
             # terminal's process group, so one Ctrl+C interrupts every agent.
             proc = subprocess.Popen(cmd, cwd=str(task_dir), env=env, encoding="utf-8", errors="replace",
@@ -955,6 +988,10 @@ def run_parallel_emulator_agents(tasks, provider, model, save_conversation=False
             procs.append((i, str(task_text), proc, result_file))
             head = " ".join(str(task_text).split())[:70]
             print(f"[task {i}] started: {head}")
+
+        # The window connects to each stream as its agent comes up.
+        show_phones(sim_window, [{"name": f"Android {session.version} {session.kind}", "port": preview, "task": i}
+                                 for (i, session), preview in zip(sessions, previews)])
 
         def pump(index, stream):
             for line in stream:
@@ -1018,6 +1055,9 @@ def run_parallel_emulator_agents(tasks, provider, model, save_conversation=False
         # Every copy this run booted is stopped — success, error or Ctrl+C.
         # deactivate() also stops a copy whose boot is still going in its
         # thread, and a second Ctrl+C here still reaches every copy.
+        if sim_window is not None:
+            from AutoCua.ios_connector.sim_view import close_view
+            close_view(sim_window)
         for _i, session in sessions:
             try:
                 session.deactivate()

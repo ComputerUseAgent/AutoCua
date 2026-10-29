@@ -320,6 +320,23 @@ impl ControllerView {
                     }
                 }
 
+                "ground_scroll" => {
+                    let (x, y, direction) = (get("x"), get("y"), get("value"));
+                    let way = py_str_of(&direction);
+                    let result = match py.detach(|| self.controller_service.ground_scroll(&x, &y, &way)) {
+                        Ok(()) => json!({"status": "success", "action": "ground_scroll", "x": x, "y": y, "direction": direction}),
+                        Err(e) => {
+                            eprintln!("✗ Ground scroll failed: {e}");
+                            json!({"status": "error", "action": "ground_scroll", "x": x, "y": y, "message": e})
+                        }
+                    };
+                    let failed = result["status"] == "error";
+                    results.push(result.clone());
+                    if failed {
+                        return Ok(result);
+                    }
+                }
+
                 "input" => {
                     let element_id = get("id");
                     let text_value = get("value");

@@ -624,8 +624,10 @@ one first, the newest of those, and says so at once when they are all locked. In
 computer use's `ios_agent` also finds a paired iPhone on the Wi-Fi when none is on the cable. A
 run from a script (`run_agent`) always uses the cable.
 
-**13 tools:** `open_app`, `click`, `input`, `scroll`, `wait`, `shell`, `web`, `vault`,
-`video_player`, `todo_list`, `update_todo`, `scratchpad`, `done`.
+**15 tools:** `open_app`, `click`, `ground_click`, `ground_scroll`, `input`, `scroll`, `wait`,
+`shell`, `web`, `vault`, `video_player`, `todo_list`, `update_todo`, `scratchpad`, `done`.
+`ground_click` taps and `ground_scroll` swipes from a raw point of the screenshot (x and y on a
+0 to 1000 scale), for a target that has no number.
 
 ---
 
@@ -675,8 +677,9 @@ to accept Google's Android SDK terms, as Android Studio does; nothing of Google'
 repository or the wheel. `python -m AutoCua.android_connector.emulator` does all of that ahead of
 time, with a check of what the computer has. An Android Studio SDK that already has the emulator
 and the image is used as it is. The images are Google APIs ones: Google's apps, no Play Store.
-Android 10 is not offered, because its emulator image can't stream its screen. The emulator shows
-its own window. Details in **[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**, Part 10.
+Android 10 is not offered, because its emulator image can't stream its screen. The emulator draws no
+window of its own: the run shows its screen in AutoCua's own window, the one iOS Simulator runs
+use, one device in the middle or several side by side. Details in **[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**, Part 10.
 
 **A real phone** goes over USB or, from the app, over Wi-Fi:
 
@@ -715,9 +718,10 @@ it a Wi-Fi connect fails with "No route to host", and AutoCua says where to allo
 Typing goes through `input text`, which takes ASCII only for now. The vault fills any text,
 through the helper.
 
-**15 tools:** `open_app`, `click`, `ground_click`, `input`, `scroll`, `back`, `wait`, `shell`,
-`web`, `vault`, `video_player`, `todo_list`, `update_todo`, `scratchpad`, `done`. `back` is the
-system Back button. `video_player` tells streaming from paused by watching the picture move.
+**16 tools:** `open_app`, `click`, `ground_click`, `ground_scroll`, `input`, `scroll`, `back`,
+`wait`, `shell`, `web`, `vault`, `video_player`, `todo_list`, `update_todo`, `scratchpad`, `done`.
+`back` is the system Back button; `ground_click` and `ground_scroll` work on a raw point of the
+screenshot, as on the iPhone. `video_player` tells streaming from paused by watching the picture move.
 Unlike the iPhone's, it does not work on a DRM player, which is black on the stream.
 
 In computer use, the main agent can hand phone work to an **android_agent** sub-agent, on macOS,
@@ -886,7 +890,7 @@ while another agent is in front. Output is prefixed per task, one Ctrl+C stops e
 results land in `./parallel/task_N/`. On iOS every simulator the run booted is shut down at the
 end, whether it succeeded, failed or was interrupted, and on Android every emulator copy. With
 `app_build`, every simulator or emulator installs your app at the same time, each as soon as it
-has booted. The emulator copies' windows open on top of each other; drag them apart to watch.
+has booted. Emulator copies show side by side in the same window as the iOS simulators do.
 
 > `./parallel/` is deleted and recreated on every parallel run. Copy out anything you want to
 > keep.

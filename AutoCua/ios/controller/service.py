@@ -112,29 +112,33 @@ class ControllerService:
             logger.error(f"✗ Click exception: {str(e)}")
             raise Exception(f"Click failed: {e}")
 
-    def ground_click(self, x, y):
-        """Tap a raw point: x and y on a 0-1000 scale of the screenshot.
-
-        For targets with no [id] (one chip inside a wide element, a switch
-        knob). The scanner draws the screenshot from the app frame (the
-        Application element), so a fraction of the image is the same fraction
-        of that frame, in the points WDA taps in.
-        """
+    def _ground_point(self, x, y, tool):
+        """A 0-1000 spot on the screenshot as WDA's points, and the frame it
+        was mapped onto: (point x, point y, frame bounds). The scanner draws
+        the screenshot from the app frame (the Application element), so a
+        fraction of the image is the same fraction of that frame."""
         try:
             x, y = float(x), float(y)
         except (TypeError, ValueError):
-            raise ValueError(f"ground_click needs x and y numbers, got ({x}, {y})")
+            raise ValueError(f"{tool} needs x and y numbers, got ({x}, {y})")
         if not (0 <= x <= 1000 and 0 <= y <= 1000):
-            raise ValueError(f"ground_click x and y must be 0-1000, got ({x:g}, {y:g})")
+            raise ValueError(f"{tool} x and y must be 0-1000, got ({x:g}, {y:g})")
 
         screen = next((e['bounds'] for e in self.elements.values()
                        if e.get('type') == 'Application'), None)
         if not screen:
             raise Exception("No scanned screen to map the point onto")
-        tap_x = int(round(x / 1000 * screen['width']))
-        tap_y = int(round(y / 1000 * screen['height']))
+        return int(round(x / 1000 * screen['width'])), int(round(y / 1000 * screen['height'])), screen
 
-        logger.debug(f"Ground clicking ({x:g}, {y:g}) at ({tap_x}, {tap_y})")
+    def ground_click(self, x, y):
+        """Tap a raw point: x and y on a 0-1000 scale of the screenshot.
+
+        For targets with no [id] (one chip inside a wide element, a switch
+        knob), in the points WDA taps in (_ground_point).
+        """
+        tap_x, tap_y, _screen = self._ground_point(x, y, "ground_click")
+
+        logger.debug(f"Ground clicking ({x}, {y}) at ({tap_x}, {tap_y})")
 
         # Get or create session
         session = self.get_session()
@@ -171,6 +175,58 @@ class ControllerService:
         except Exception as e:
             logger.error(f"✗ Ground click exception: {str(e)}")
             raise Exception(f"Ground click failed: {e}")
+
+    def ground_scroll(self, x, y, direction):
+        """Swipe from a raw point: x and y on the 0-1000 scale of the
+        screenshot (ground_click's), `direction` the way the finger moves
+        (up, down, left or right, as scroll: "up" reveals what is below).
+
+        For a list or a pane with no [id]. The swipe is 200 points, or up to
+        the screen's edge; a point too close to that edge is refused.
+        """
+        start_x, start_y, screen = self._ground_point(x, y, "ground_scroll")
+        moves = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}
+        direction = str(direction or "").lower()
+        if direction not in moves:
+            raise ValueError(f"Invalid direction: {direction}. Use: up, down, left, or right")
+        dx, dy = moves[direction]
+        margin, distance = 20, 200
+        end_x = min(max(start_x + dx * distance, margin), screen['width'] - margin)
+        end_y = min(max(start_y + dy * distance, margin), screen['height'] - margin)
+        if abs(end_x - start_x) + abs(end_y - start_y) < 50:
+            raise ValueError(f"({x}, {y}) is too close to the screen's edge to swipe {direction} from")
+
+        logger.debug(f"Ground scrolling {direction} from ({start_x}, {start_y}) to ({end_x}, {end_y})")
+
+        session = self.get_session()
+        if not session:
+            raise Exception("Failed to create WDA session")
+
+        # The same W3C swipe as scroll()
+        try:
+            response = requests.post(
+                f"{self.wda_url}/session/{session}/actions",
+                json={
+                    "actions": [{
+                        "type": "pointer",
+                        "id": "finger1",
+                        "parameters": {"pointerType": "touch"},
+                        "actions": [
+                            {"type": "pointerMove", "duration": 0, "x": start_x, "y": start_y},
+                            {"type": "pointerDown", "button": 0},
+                            {"type": "pause", "duration": 100},
+                            {"type": "pointerMove", "duration": 500, "x": end_x, "y": end_y},
+                            {"type": "pointerUp", "button": 0}
+                        ]
+                    }]
+                },
+                timeout=5
+            )
+            if response.status_code == 200:
+                return True
+            raise Exception(f"WDA swipe failed: {response.text}")
+        except Exception as e:
+            raise Exception(f"Ground scroll failed: {e}")
 
     def type_text(self, element_number, text, check=None):
         """Type text into element by number
