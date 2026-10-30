@@ -164,7 +164,7 @@ def _connect_iphone(poll_every=2.0, deadline=90.0):
 
 
 def _connect_android(serial=None):
-    """Start the Android phone's helper (adb, scrcpy's server, the tree reader)
+    """Start the Android phone's helper (adb, then Helper.java: screenshots and the tree)
     and wait until the phone is ready. The counterpart of _connect_iphone.
     serial: the emulator's, for a device="simulation" run.
 
@@ -457,7 +457,7 @@ def run_agent(mode, provider, model, task, os=None,
 
     build = None
     if (kind, mobile_os) == ("mobile", "ios"):
-        # setup_ios.sh clones WebDriverAgent for a checkout; a pip install runs
+        # setup_mac.sh --ios clones WebDriverAgent for a checkout; a pip install runs
         # no shell script, so fetch it the first time iOS is used. ABOVE the
         # extra_tasks branch below, which returns without ever reaching the
         # single-task path — simulation and hardware, one task or ten, all

@@ -42,4 +42,4 @@ ordered-set
 zstandard
 
 # Optional iOS path: use standalone requirements_ios.txt instead
-# (full app stack + pymobiledevice3 — installed by setup_ios.sh).
+# (full app stack + pymobiledevice3 — installed by setup_mac.sh --ios).

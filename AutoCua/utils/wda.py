@@ -1,6 +1,6 @@
 """Clone WebDriverAgent if it isn't already here.
 
-`setup_ios.sh` does this for a checkout. A `pip install AutoCua` runs no shell
+`setup_mac.sh --ios` does this for a checkout. A `pip install AutoCua` runs no shell
 script — a wheel is unpacked, never executed — so the same clone has to happen
 the first time an iOS run asks for it.
 
@@ -24,11 +24,11 @@ from pathlib import Path
 
 from AutoCua.utils.consent import allow_download
 
-# Pinned tag — keep in step with setup_ios.sh and THIRD_PARTY_NOTICES.md.
+# Pinned tag — keep in step with setup_mac.sh and THIRD_PARTY_NOTICES.md.
 VERSION = "v15.1.1"
 REPO = "https://github.com/appium/WebDriverAgent.git"
 
-# Where setup_ios.sh has always put it, so a checkout that already ran the
+# Where setup_mac.sh --ios (setup_ios.sh before it) puts it, so a checkout that already ran the
 # script keeps using the copy it has already signed and built.
 WDA_DIR = Path(__file__).resolve().parent.parent / "ios_connector" / "WebDriverAgent"
 XCODEPROJ = WDA_DIR / "WebDriverAgent.xcodeproj"

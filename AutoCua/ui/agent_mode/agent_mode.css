@@ -105,9 +105,6 @@
 }
 .agent-opt.selected .am-check { opacity: 1; }
 
-/* filled brand marks (Apple / Android) sit alongside the stroked icons */
-.am-icon-fill { fill: currentColor; stroke: none; }
-
 /* the > submenu hint at a row's right edge */
 .am-subchev {
     width: 13px;
@@ -259,14 +256,22 @@
 
 .am-cur-label { white-space: nowrap; }
 
-/* SUB logo only (no text), after the mode name: chain / Apple / robot.
-   This PC (or no sub picked) shows nothing — data-sub drives it. */
+/* SUB marker after the mode name: the chain for Daisy chain, the words iOS /
+   Android for those (no logos). This PC (or no sub picked) shows nothing —
+   data-sub drives it. */
 .am-sub-icon {
     width: 14px;
     height: 14px;
     flex-shrink: 0;
     color: rgba(110, 110, 110, 0.8);
     display: none;
+}
+.am-sub-icon.am-sub-text {
+    width: auto;
+    height: auto;
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
 }
 .agent-mode-wrap[data-sub="daisy"]   .am-sub-daisy   { display: block; }
 .agent-mode-wrap[data-sub="ios"]     .am-sub-ios     { display: block; }
