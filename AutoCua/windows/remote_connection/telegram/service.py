@@ -218,8 +218,9 @@ def _get_models_for_provider(provider_id: str) -> list:
 #   "queue":            list[str],  # tasks waiting to run, FIFO
 #   "pending":          dict[str, str],  # pending_id → task awaiting Yes/No
 #   "pending_counter":  int,         # monotonic id source for pending + pending_continue
-#   "history":          dict | None,  # prior-run agent memory, RAM only (the
-#                                     # AgentService prior_history contract shape)
+#   "history":          dict | None,  # the app chat to go on with: {"session_id",
+#                                     # "task", "done_message"}; the memory itself
+#                                     # is that saved chat
 #   "pending_continue": dict[str, str],  # pending_id → task awaiting Continue/Fresh
 # }
 _chat_state: dict = {}
@@ -269,52 +270,6 @@ def _maybe_run_next_queued(chat_id: int, bot, loop) -> None:
         daemon=True,
         name=f"telegram-agent-{chat_id}-queued",
     ).start()
-
-
-def _build_prior_history(task, assistant_messages, tool_responses,
-                         status, message, prior_task=None,
-                         sub_agent_last_id=None):
-    """In-RAM twin of agent_conversation's _build_history — that one persists
-    to disk and surfaces in the desktop chat sidebar, which the Telegram
-    surface deliberately avoids. Packages a finished run's memory lists into
-    the prior_history dict AgentService expects, capped with the synthetic
-    terminal bridge step + None tool slot. The bridge JSON must contain
-    computer_use's _BRIDGE_SIGNATURE ('"next_goal": "Previous run concluded.')
-    verbatim, or the <updated_user_request> run-marker logic silently stops
-    firing on resume. Returns None when the run produced no
-    steps — the caller keeps the previous memory then. prior_task freezes the
-    ORIGINAL run-1 objective across continuations."""
-    full_assistant = list(assistant_messages or [])
-    if not full_assistant:
-        return None
-    tools = list(tool_responses or [])
-    if len(tools) < len(full_assistant):
-        tools += [None] * (len(full_assistant) - len(tools))
-    else:
-        tools = tools[:len(full_assistant)]
-    message = message or ""
-    if status == "success":
-        done_message = f"Task completed: {message}".strip().rstrip(":")
-    elif status == "error":
-        done_message = f"Agent terminated (error / provider): {message}".strip().rstrip(":")
-    else:
-        done_message = f"Agent stopped before completing: {message}".strip().rstrip(":")
-    full_assistant.append(json.dumps({
-        "memory": done_message,
-        "next_goal": "Previous run concluded. Awaiting the user's next request; resume from this point.",
-    }, ensure_ascii=False, indent=2))
-    tools.append(None)
-    history = {
-        "version": 1,
-        "task": prior_task or task,
-        "assistant_messages": full_assistant,
-        "tool_responses": tools,
-        "done_message": done_message,
-    }
-    # The last sub-agent id handed out, so the ids keep counting on the next task
-    if sub_agent_last_id is not None:
-        history["sub_agent_last_id"] = int(sub_agent_last_id)
-    return history
 
 
 # ── Telegram handlers ────────────────────────────────────────────────────────
@@ -498,6 +453,13 @@ async def text_handler(update, ctx):
     task = (update.message.text or "").strip()
     if not task:
         return
+    # The chat to go on with is the app's; deleted there, there is nothing
+    # to continue, so the task starts fresh and the question is not asked.
+    history = state.get("history")
+    if history:
+        from AutoCua.agent_conversation.service import conversation
+        if not conversation.get_session(history.get("session_id")):
+            state["history"] = None
     if state.get("history"):
         # Memory from a previous session exists — ask before running. Phase
         # stays "ready"; the task is parked until the user answers. Multiple
@@ -767,17 +729,17 @@ def _run_agent(task, provider, model, chat_id, bot, loop, prior_history=None,
                run_state=None):
     """Run the agent and ping the chat when done. Streams scratchpad milestones
     back to the chat live while the agent works. Pops a compact pill so the
-    Windows user can see a Telegram task is running, and overlays the main app
-    window with a "Currently occupied by Telegram" state. Restores phase to
-    'ready'. prior_history seeds the agent with the previous run's memory
-    (continue-session flow); the finished run's memory is captured back into
+    Windows user can see a Telegram task is running, and the app shows the task as a
+    message sent from its chat box, "sent via: Telegram" over it, and runs it
+    like one (ui/service.py start_run_from_telegram). Restores phase to
+    'ready'. prior_history names the chat to go on with (continue-session flow:
+    its session_id); the finished run's chat and done line are kept in
     _chat_state["history"] for the next task. run_state is the chat's state
     dict at spawn time — the finally block only writes back if it is still
     the live dict (identity check), so a /reset mid-run can't be undone by
     this run finishing later."""
-    # Compact "Telegram task in progress" indicator + "occupied" overlay on
-    # the main window. Both are best-effort — never let UI fluff block the
-    # actual task.
+    # Compact "Telegram task in progress" indicator. Best-effort — never let
+    # UI fluff block the actual task.
     from AutoCua.windows.remote_connection.banner import StatusBanner, CoderBannerManager
     task_banner = StatusBanner(compact=True)
     try:
@@ -788,20 +750,6 @@ def _run_agent(task, provider, model, chat_id, bot, loop, prior_history=None,
     # todo checklist + minion spinner rows) while the main agent is halted in
     # cli_await, then collapses back. Drives the same task_banner. Best-effort.
     coder_mgr = CoderBannerManager(task_banner)
-    # Fade the AutoCua UI away and show the Telegram "occupied" overlay (orb +
-    # message) on the main window instead of minimising it. We talk to pywebview
-    # directly via its global `windows` list rather than importing from app.py —
-    # `python app.py` makes app.py the __main__ module, so `from app import …`
-    # would re-import a *second* copy of app.py whose webview_window is still
-    # None, and the call would silently no-op. evaluate_js from this worker
-    # thread is the same path app.py's send_*_to_frontend helpers already use.
-    try:
-        import webview as _webview
-        if _webview.windows:
-            _webview.windows[0].evaluate_js(
-                "window.telegramOccupiedShow && window.telegramOccupiedShow()")
-    except Exception:
-        logger.warning("could not show Telegram occupied overlay", exc_info=True)
 
     # Reset the milestone scratchpad to empty before starting the monitor.
     # AgentService.__init__ wipes the entire scratchpad/ directory in
@@ -818,7 +766,7 @@ def _run_agent(task, provider, model, chat_id, bot, loop, prior_history=None,
     except Exception:
         logger.warning("could not reset milestone scratchpad", exc_info=True)
     start_pos = 0
-    agent = None
+    outcome = {}            # the app's ending: status, message, the chat's session_id
     run_status = "error"
     run_message = ""
     stop_event = threading.Event()
@@ -831,25 +779,6 @@ def _run_agent(task, provider, model, chat_id, bot, loop, prior_history=None,
     monitor.start()
 
     try:
-        # Imported lazily — pulls in tree/element → skimage etc., which we
-        # don't want to load until a task actually runs.
-        from AutoCua.windows.agent.computer_use.service import AgentService
-
-        # Look up the runtime API key for the chosen provider so
-        # LLMManager doesn't fall back to an os.getenv() that the user
-        # never set. Mirrors app.py's get_provider_api_key path —
-        # Telegram users edit api_key.txt (or use the AutoCua Settings
-        # panel), they don't export env vars, so without passing
-        # `api_key=` here the agent dies before its first scan with
-        # "X API key not provided and not found in .env file".
-        # _get_available_providers already gated the picker to non-
-        # empty keys, so the lookup is guaranteed to return a value.
-        provider_key_name = PROVIDER_KEY_MAP.get(provider)
-        provider_keys = _read_all_keys(_API_KEY_FILE)
-        provider_api_key = (
-            provider_keys.get(provider_key_name) if provider_key_name else None
-        )
-
         # Pipe each step's formatted response (thinking + next_goal +
         # memory, with action stripped) into the compact banner.
         # The agent already calls text_callback at
@@ -863,20 +792,30 @@ def _run_agent(task, provider, model, chat_id, bot, loop, prior_history=None,
             except Exception:
                 logger.warning("banner.update failed", exc_info=True)
 
-        agent = AgentService(
-            provider=provider,
-            model=model,
-            save_conversation=False,
-            api_key=provider_api_key,
+        # The run goes through the app, as a message sent from its chat box
+        # does: the page shows the task with "sent via: Telegram" over it, the
+        # run's screens and reply, and keeps the chat. The bot only adds its
+        # banner and the reply to the phone. The chat goes on from the last
+        # run's (continue) or starts new (fresh): prior_history's session_id.
+        from AutoCua.ui import service as app_service
+        finished = threading.Event()
+
+        def _done(run_outcome, session_id):
+            outcome.update(run_outcome or {})
+            outcome["session_id"] = session_id
+            finished.set()
+
+        code, started = app_service.start_run_from_telegram(
+            task, provider, model,
+            session_id=(prior_history or {}).get("session_id"),
             text_callback=_banner_update,
             cli_callback=coder_mgr.handle_event,
-            prior_history=prior_history,
+            on_done=_done,
         )
-        # process_request returns {"status", "message"}: "success" only when a
-        # `done` action ran, "error" on a critical failure (e.g. the API key is
-        # wrong and every attempt 401s), "incomplete" otherwise. Without this we
-        # always sent "✅ Done." even when the agent never actually ran.
-        result = agent.process_request(task)
+        if code != 200 or started.get("status") != "started":
+            raise RuntimeError(started.get("error") or f"the app did not start the run ({code})")
+        finished.wait()
+        result = {"status": outcome.get("status") or "error", "message": outcome.get("message") or ""}
         # Stop the monitor BEFORE the done message so the final scratchpad
         # sweep happens first — keeps the chat in correct chronological order.
         stop_event.set()
@@ -916,30 +855,20 @@ def _run_agent(task, provider, model, chat_id, bot, loop, prior_history=None,
             coder_mgr.close_all()
         except Exception:
             pass
-        # Restore the main UI — hide the "occupied" overlay. If a queued task
-        # follows, its _run_agent start re-shows it almost immediately (at worst
-        # a brief flicker between back-to-back tasks).
-        try:
-            import webview as _webview
-            if _webview.windows:
-                _webview.windows[0].evaluate_js(
-                    "window.telegramOccupiedHide && window.telegramOccupiedHide()")
-        except Exception:
-            pass
-        # Capture this run's memory for the next task — on EVERY ending
-        # (success / error / incomplete / exception), matching the desktop
-        # save_run semantics. Built outside the lock (pure function).
+        # What the next task needs of this run: the app keeps the memory (the
+        # saved chat); the bot keeps which chat to go on with, and how the run
+        # ended for the continue / start fresh question. None when the run
+        # never started: the previous chat stays.
         new_history = None
-        try:
-            if agent is not None:
-                new_history = _build_prior_history(
-                    task, agent.assistant_messages, agent.tool_responses,
-                    run_status, run_message,
-                    prior_task=(prior_history or {}).get("task"),
-                    sub_agent_last_id=getattr(agent, "sub_agent_last_id", None),
-                )
-        except Exception:
-            logger.warning("could not capture agent memory", exc_info=True)
+        if outcome.get("session_id"):
+            if run_status == "success":
+                done_message = f"Task completed: {run_message}"
+            elif run_status == "error":
+                done_message = f"Agent terminated (error / provider): {run_message}"
+            else:
+                done_message = f"Agent stopped before completing: {run_message}"
+            new_history = {"session_id": outcome["session_id"], "task": task,
+                           "done_message": done_message.strip().rstrip(":")}
         with _state_lock:
             state = _chat_state.get(chat_id)
             # "state is run_state" gates on THIS run still owning the chat:

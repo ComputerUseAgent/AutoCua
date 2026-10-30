@@ -104,7 +104,7 @@
         }
         // Wireless or Wired: the chat box's toggle (chat_input/link_toggle.js).
         // Over Wi-Fi Xcode builds and starts WebDriverAgent, so it gets longer.
-        var link = window.phoneLink ? window.phoneLink() : 'wireless';
+        var link = window.phoneLink ? window.phoneLink() : 'wired';
         var wait = link === 'wireless' ? 180 : 90;
         fetch('/api/ios/activate', {
             method: 'POST',

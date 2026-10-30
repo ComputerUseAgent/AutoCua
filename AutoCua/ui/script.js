@@ -1060,33 +1060,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // they swap in over the screenshot while their tool runs. The backend hooks
     // window.webSearchStart/End and window.shellStart/Result/End are defined there.
 
-    // ============================================
-    // TELEGRAM "OCCUPIED" OVERLAY
-    // Shown while a Telegram task runs (instead of minimizing the window).
-    // ============================================
-    const telegramTaskOverlay = document.getElementById('telegramTaskOverlay');
-    // The overlay's orb is the stop orb (chat_input/pc_button.html) — the one
-    // the composer and the setup banner show — so it looks the same everywhere.
-    // That page starts hidden and shows on 'pcbtn:show'; it may still be
-    // loading the first time the overlay opens, so the load handler catches up.
-    const telegramTaskOrb = document.getElementById('telegramTaskOrbFrame');
-    const telegramOrbPost = (msg) => {
-        try { telegramTaskOrb.contentWindow.postMessage(msg, '*'); } catch (e) {}
-    };
-    if (telegramTaskOrb) telegramTaskOrb.addEventListener('load', () => {
-        if (telegramTaskOverlay && telegramTaskOverlay.classList.contains('active')) telegramOrbPost('pcbtn:show');
-    });
-    window.telegramOccupiedShow = () => {
-        document.body.classList.add('tg-occupied');   // fade UI components away
-        if (telegramTaskOverlay) telegramTaskOverlay.classList.add('active');
-        if (telegramTaskOrb) telegramOrbPost('pcbtn:show');
-    };
-    window.telegramOccupiedHide = () => {
-        document.body.classList.remove('tg-occupied');
-        if (telegramTaskOverlay) telegramTaskOverlay.classList.remove('active');
-        if (telegramTaskOrb) telegramOrbPost('pcbtn:hide');
-    };
-
     // (shell terminal moved to container/screen/globe_shell.js — swaps over the screenshot)
 
     // =====================================================================

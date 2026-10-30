@@ -82,6 +82,68 @@
             if (agentMode === 'mobile' && !agentSub) return;
             // Shell use on Manual: the terminal is the input, not this box (agent_mode.js).
             if (agentMode === 'shell' && modeWrap.dataset.shellInput === 'manual') return;
+
+            const run = beginRun(message, agentMode, agentSub, '');
+
+            // Shell use bypasses the main agent: the task goes STRAIGHT to the
+            // coder agent (backend: run_shell_task in service.py) and the CLI
+            // stage is the UI it drives — but it IS a chat like the other modes:
+            // the backend mints/continues the session, seeds the coder with the
+            // chat's saved conversation, drives the memory bar, and returns
+            // session_id below. The composer, stop orb and completion teardown
+            // are shared between both endpoints.
+            const endpoint = (agentMode === 'shell') ? '/api/start-shell' : '/api/start-agent';
+            // Shell use: your command is the terminal's next line at once (cli_stage.js).
+            if (agentMode === 'shell' && window.cliShellSend) window.cliShellSend(message);
+
+            fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // session_id threads the active chat: null/"new" => fresh start,
+                // an existing id => continue that saved session (agent resumes).
+                body: JSON.stringify({
+                    provider: sel.provider,
+                    model: sel.model,
+                    task: message,
+                    session_id: window.currentSessionId || null,
+                    mode: agentMode,
+                    os: agentMode === 'mobile' ? agentSub : null,
+                    // ⚡/✨ toggle state lives only in the .quality class (read live at send)
+                    speed: (flipToggle && !flipToggle.classList.contains('quality')) ? 'fast' : 'quality'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    chatInput.value = '';   // box is collapsed; restored on teardown
+                    runStarted(data, run);
+                } else if (data.error) {
+                    const agentText = document.getElementById('agentText');
+                    agentText.textContent = `Error: ${data.error}`;
+                    // Shell use: the strip hides at once, the terminal says why
+                    if (agentMode === 'shell' && window.cliShellNote) window.cliShellNote(`Error: ${data.error}`);
+                    restoreIdle();          // roll the orb morph + box back
+                }
+            })
+            .catch(err => {
+                console.error('Failed to start agent:', err);
+                document.getElementById('agentText').textContent = 'Failed to start agent';
+                if (agentMode === 'shell' && window.cliShellNote) window.cliShellNote('Failed to start agent');
+                restoreIdle();
+            })
+            .finally(() => {
+                // Not on its way over (the run never started): the mode's bot goes.
+                if (window.modeBot) window.modeBot.drop();
+            });
+        }
+
+        // The page's side of a task that starts: the hero and the mode's bot go,
+        // the box collapses behind the strip and the stop orb, the message shows
+        // top right like a chat (with where it came from over it when it was not
+        // typed here: "sent via: Telegram"), and the chat makes room for the turn.
+        // Shared by this box's send and a task sent from elsewhere
+        // (window.remoteRunStarted). Returns what runStarted needs.
+        function beginRun(message, agentMode, agentSub, via) {
             // The run's own bot: beside the bottom container while it works
             // (chain_bot.js), then beside its reply (run_reply.css). Computer use's, Web use's, or
             // Mobile use's (iOS and Android alike).
@@ -90,7 +152,7 @@
             const replyBot = runBot;
             // Web use needs no sub-option and no gate: service.py routes
             // mode 'web' to run_pkg 'web' (the browser agent) and /api/start-agent
-            // below is the right endpoint for it, same as Computer and Mobile.
+            // is the right endpoint for it, same as Computer and Mobile.
 
             // The moment a task is sent, drop the empty-state hero, and the mode's
             // bot from the chat box: unless it is this run's bot, then it goes over
@@ -145,7 +207,7 @@
                 resetChatUi();
             }
             // The sent message, top right of the main area like a chat.
-            if (window.showUserMessage) window.showUserMessage(message);
+            if (window.showUserMessage) window.showUserMessage(message, via);
             // Its reply will have the mode's bot beside it (chat_scroll.js); the
             // run's bot will stand there while it runs, its room made now.
             if (chatGoesOn) window.chatScroll.setLiveBot(replyBot);
@@ -164,76 +226,60 @@
             // ...right below the last reply: the chat glides up to this turn.
             if (chatGoesOn) window.chatScroll.toLive(lastTurn);
 
-            // Shell use bypasses the main agent: the task goes STRAIGHT to the
-            // coder agent (backend: run_shell_task in service.py) and the CLI
-            // stage is the UI it drives — but it IS a chat like the other modes:
-            // the backend mints/continues the session, seeds the coder with the
-            // chat's saved conversation, drives the memory bar, and returns
-            // session_id below. The composer, stop orb and completion teardown
-            // are shared between both endpoints.
-            const endpoint = (agentMode === 'shell') ? '/api/start-shell' : '/api/start-agent';
-            // Shell use: your command is the terminal's next line at once (cli_stage.js).
-            if (agentMode === 'shell' && window.cliShellSend) window.cliShellSend(message);
-
-            fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                // session_id threads the active chat: null/"new" => fresh start,
-                // an existing id => continue that saved session (agent resumes).
-                body: JSON.stringify({
-                    provider: sel.provider,
-                    model: sel.model,
-                    task: message,
-                    session_id: window.currentSessionId || null,
-                    mode: agentMode,
-                    os: agentMode === 'mobile' ? agentSub : null,
-                    // ⚡/✨ toggle state lives only in the .quality class (read live at send)
-                    speed: (flipToggle && !flipToggle.classList.contains('quality')) ? 'fast' : 'quality'
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'started') {
-                    chatInput.value = '';   // box is collapsed; restored on teardown
-                    // Adopt the backend's session id (a brand-new chat is minted
-                    // server-side) so the run-end save + future sends target it.
-                    if (data.session_id) window.currentSessionId = data.session_id;
-                    // Shell use: the run is this chat's (a brand-new one only has its id now)
-                    if (agentMode === 'shell' && window.cliShellStarted) window.cliShellStarted(data.session_id);
-                    // This run's id: its video finds its turn by it (chat_scroll.js).
-                    if (chatGoesOn && data.run_id) window.chatScroll.setLive(data.run_id, '');
-                    // Computer use, Web use, Mobile use: the moving background behind the
-                    // screen (run_bot.js), and the run's bot comes in at the bottom container.
-                    // Not when Stop came first (its reply is already up).
-                    if (runBot && !document.querySelector('#agentContainer.show-reply')) {
-                        if (window.screenStageStart) window.screenStageStart();
-                        if (window.chainBot) window.chainBot.enter(runBot);
-                    }
-                    // First run commits the chat to this mode — lock the picker.
-                    // Shell included: the lock fires only on a STARTED run (this
-                    // branch), so merely toggling to Shell use never locks — using
-                    // it does. New chat unlocks, same as the other modes.
-                    document.dispatchEvent(new CustomEvent('agentmode:lock', { detail: { mode: agentMode } }));
-                    // Show the just-created chat in the sidebar immediately.
-                    document.dispatchEvent(new CustomEvent('chats:refresh'));
-                } else if (data.error) {
-                    agentText.textContent = `Error: ${data.error}`;
-                    // Shell use: the strip hides at once, the terminal says why
-                    if (agentMode === 'shell' && window.cliShellNote) window.cliShellNote(`Error: ${data.error}`);
-                    restoreIdle();          // roll the orb morph + box back
-                }
-            })
-            .catch(err => {
-                console.error('Failed to start agent:', err);
-                agentText.textContent = 'Failed to start agent';
-                if (agentMode === 'shell' && window.cliShellNote) window.cliShellNote('Failed to start agent');
-                restoreIdle();
-            })
-            .finally(() => {
-                // Not on its way over (the run never started): the mode's bot goes.
-                if (window.modeBot) window.modeBot.drop();
-            });
+            return { runBot: runBot, chatGoesOn: chatGoesOn, agentMode: agentMode };
         }
+
+        // The run is on (the backend said 'started'): adopt its chat and run
+        // ids, bring the run's bot in, lock the mode.
+        function runStarted(data, run) {
+            const runBot = run.runBot, chatGoesOn = run.chatGoesOn, agentMode = run.agentMode;
+            // Adopt the backend's session id (a brand-new chat is minted
+            // server-side) so the run-end save + future sends target it.
+            if (data.session_id) window.currentSessionId = data.session_id;
+            // Shell use: the run is this chat's (a brand-new one only has its id now)
+            if (agentMode === 'shell' && window.cliShellStarted) window.cliShellStarted(data.session_id);
+            // This run's id: its video finds its turn by it (chat_scroll.js).
+            if (chatGoesOn && data.run_id) window.chatScroll.setLive(data.run_id, '');
+            // Computer use, Web use, Mobile use: the moving background behind the
+            // screen (run_bot.js), and the run's bot comes in at the bottom container.
+            // Not when Stop came first (its reply is already up).
+            if (runBot && !document.querySelector('#agentContainer.show-reply')) {
+                if (window.screenStageStart) window.screenStageStart();
+                if (window.chainBot) window.chainBot.enter(runBot);
+            }
+            // First run commits the chat to this mode — lock the picker.
+            // Shell included: the lock fires only on a STARTED run (this
+            // branch), so merely toggling to Shell use never locks — using
+            // it does. New chat unlocks, same as the other modes.
+            document.dispatchEvent(new CustomEvent('agentmode:lock', { detail: { mode: agentMode } }));
+            // Show the just-created chat in the sidebar immediately.
+            document.dispatchEvent(new CustomEvent('chats:refresh'));
+        }
+
+        // A task that did not come from this box and is running already (the
+        // Telegram bot's: service.py start_run_from_telegram): shown as if it
+        // had been sent here, with where it came from over the message. info:
+        // JSON {task, mode, os, session_id, run_id, via}.
+        window.remoteRunStarted = function (info) {
+            let d = info;
+            try { if (typeof info === 'string') d = JSON.parse(info); } catch (e) { return; }
+            if (!d || !d.task) return;
+            const mode = d.mode || 'computer';
+            // The picker follows the run's mode, silently (agent_mode.js), so
+            // the box and the lock agree with it.
+            document.dispatchEvent(new CustomEvent('agentmode:set', { detail: { mode: mode } }));
+            // The bot's chat is its own: a new one, or the one its last task ran
+            // in. When the page shows another chat, that one goes first, as a
+            // reopen clears it (chat.js openChat), so its turns do not stand over
+            // this one's. The page only: the run just started is left alone.
+            if (d.session_id && d.session_id !== window.currentSessionId) {
+                if (window.resetChatUi) window.resetChatUi();
+                if (window.chatScroll) window.chatScroll.clear();
+            }
+            const run = beginRun(String(d.task), mode, d.os || null, d.via || '');
+            runStarted(d, run);
+            if (window.modeBot) window.modeBot.drop();
+        };
 
         // Single, idempotent teardown back to the idle composer. Called from the manual
         // stop handler AND from script.js's agentComplete()/agentError() — every line is

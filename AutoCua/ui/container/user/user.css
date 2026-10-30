@@ -33,6 +33,24 @@
 }
 .user-message-text::-webkit-scrollbar { display: none; }
 
+/* Where the message came from, when it was not typed here ("sent via:
+   Telegram", a Telegram task): a small grey pill, white text, over the
+   message. Nothing for the chat box's own messages (hidden). */
+.user-message-via {
+    display: inline-block;
+    margin-bottom: clamp(5px, 0.6vw, 7px);
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: #9a9aa2;
+    color: #fff;
+    font-size: clamp(10px, 1vw, 11.5px);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+.user-message-via[hidden] { display: none; }
+
 /* No message yet (idle, new chat): no box, and no gap above the screen;
    the screen's height counts no message either (chat_scroll.css). */
 .user-container.is-empty { display: none; }

@@ -5,6 +5,8 @@
 export function UserContainer() {
     return (
         <div className="container-zone user-container is-empty" id="userContainer" aria-label="Your message">
+            {/* Where the message came from, when not this chat box: "sent via: Telegram" (user.js) */}
+            <div className="user-message-via" id="userMessageVia" hidden></div>
             <div className="user-message-text" id="userMessageText"></div>
         </div>
     );

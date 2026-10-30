@@ -613,16 +613,16 @@ There is a **`video_player`** tool because DRM players black out screenshots. Wh
 dark it drives play, pause, close and streaming checks from the accessibility tree, and proves
 "streaming" by watching the progress label advance across a four second window.
 
-**Over Wi-Fi, in the app.** Mobile use has a **Wireless / Wired** toggle, and Wireless is the
-default. Wired is the cable, as in the table. Wireless needs nothing beyond the pairing: Xcode
+**Over Wi-Fi, in the app.** Mobile use has a **Wireless / Wired** toggle. Wired, the default, is
+the cable, as in the table; Wireless you pick on purpose. It needs nothing beyond the pairing: Xcode
 already reaches a paired iPhone on the same Wi-Fi, so it builds and starts WebDriverAgent there,
 with the same `xcodebuild` run Settings makes, which also signs it again when a free profile has
 expired. The app then talks to it at the phone's Wi-Fi address. pymobiledevice3, the cable's
 transport, would need root or an extra setting on the phone for Wi-Fi. A start takes about 15 to 35 s,
 against about 5 s over the cable. With several paired iPhones on the Wi-Fi it takes an unlocked
-one first, the newest of those, and says so at once when they are all locked. In the app,
-computer use's `ios_agent` also finds a paired iPhone on the Wi-Fi when none is on the cable. A
-run from a script (`run_agent`) always uses the cable.
+one first, the newest of those, and says so at once when they are all locked. Nothing else
+reaches an iPhone over Wi-Fi: computer use's `ios_agent` and a run from a script (`run_agent`)
+always use the cable.
 
 **15 tools:** `open_app`, `click`, `ground_click`, `ground_scroll`, `input`, `scroll`, `wait`,
 `shell`, `web`, `vault`, `video_player`, `todo_list`, `update_todo`, `scratchpad`, `done`.
@@ -687,14 +687,14 @@ use, one device in the middle or several side by side. Details in **[agent_capab
 |---|---|---|
 | Needs | USB debugging on, and **Allow** tapped with "Always allow from this computer" ticked | The phone connected once over USB in Settings, Connect Device, Android. Then Android 11 or newer, **Wireless debugging** on, and the same Wi-Fi as your computer. No pairing code: the phone takes the key it already trusts from USB |
 | Which phone | The one plugged in, or the one Settings connected | **Only phones you connected in the app's Settings**, found by their USB serial in the name they announce on the network |
-| Where | Everywhere, a script included | The desktop app only: Mobile use's Wireless / Wired toggle, and computer use's android_agent |
+| Where | Everywhere, a script included | The desktop app only, when you pick Wireless on Mobile use's Wireless / Wired toggle |
 | Best for | Everything | A phone on your desk |
 
 With `device="hardware"` a script uses USB only. With several phones plugged in it takes the newest
 one you connected in Settings, or `AutoCua_ANDROID_SERIAL` names the one to use; an emulator is
 never taken for a phone. In the app, Mobile use
-follows its Wireless / Wired toggle: Wireless, the default, reaches the phone over Wi-Fi only,
-also with its cable in, and Wired over USB only. Over Wi-Fi the phone must report the serial it
+follows its Wireless / Wired toggle: Wired, the default, is USB only, and Wireless, picked on
+purpose, reaches the phone over Wi-Fi only, also with its cable in. Over Wi-Fi the phone must report the serial it
 was saved with once it connects, or it is dropped again. Android is tested on a Mac host with
 Android 10 and Android 16 phones so far, and the emulator with Android 11 to 17 on an Apple Silicon Mac.
 
@@ -727,7 +727,7 @@ Unlike the iPhone's, it does not work on a DRM player, which is black on the str
 In computer use, the main agent can hand phone work to an **android_agent** sub-agent, on macOS,
 Windows and Linux, the way it hands iPhone work to `ios_agent` on a Mac. It shows up once adb is
 on the computer: after one Android run or the Settings check, or with an `adb` on your PATH. From
-a script it uses the cable; in the app it tries the cable first, then Wi-Fi. In the app, Settings,
+a script and in the app alike it uses the cable, never Wi-Fi. In the app, Settings,
 Connect Device, Android checks a phone once and remembers it, and **Mobile use, Android** in the
 chat box starts it for the run.
 
@@ -967,7 +967,7 @@ the agent runs would inherit it.
 | **Memory ring** | Context gauge beside the Skills icon, with the live token count inside. It breathes while compression runs and its count *falls* when the handoff lands |
 | **Fast / Quality** | Leaner prompt and fewer tokens per step, or full reasoning, which is the default |
 | **Mode picker** | Computer use, Mobile use, Shell use |
-| **Wireless / Wired** | Mobile use only: the phone over Wi-Fi, the default, or the cable. While it pairs, a circle turns beside the picker and the chat box is locked; if pairing fails, the box keeps the reason and the circle turns into an arrow that pairs again |
+| **Wireless / Wired** | Mobile use only: the phone over the cable, the default, or over Wi-Fi when you pick Wireless. While it pairs, a circle turns beside the picker and the chat box is locked; if pairing fails, the box keeps the reason and the circle turns into an arrow that pairs again |
 | **Stop** | Retires the run id instantly, so a still-running model call can never repaint your next chat |
 
 Chats are saved and resumable. Reopening one restores its history and puts the memory ring back
@@ -1054,9 +1054,13 @@ Connect a bot in Settings, pick a provider and model from an inline keyboard, an
 from your phone. Only providers whose key you saved in Settings are offered, a key that lives
 only in `.env` will not appear there. Tasks sent
 mid-run are queued, the bot asks whether to continue the previous session or start fresh, and
-milestones stream back to your phone every two seconds. A small always-on-top pill shows
+milestones stream back to your phone every two seconds. A task sent while the app is already
+running one from its own chat box is not queued: the phone gets "AutoCua is busy with another
+task", and you send it again once that run is done. A small always-on-top pill shows
 status on the desktop, so a remotely started run is never invisible to whoever is sitting at
-the machine.
+the machine. In the app itself the task shows up like any typed message, with a small
+**sent via: Telegram** pill over it, and the run goes on like any other chat: screens, reply,
+saved chat.
 
 > The pill is a status cue and has no stop control. The bot obeys **only its owner**: the first
 > chat that messages it after you connect claims it, and every other chat is ignored. Disconnect
@@ -1292,7 +1296,8 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
   images after Google's SDK terms). With no terminal to ask on, the run stops and says what to run.
   `AutoCua_AUTO_DOWNLOAD=1` answers yes for a run nobody watches, such as CI. Only Electron asks
   in its own way, since the app works without it.
-- Phones go over Wi-Fi **only from the desktop app**; a run from a script always uses the cable.
+- Phones go over Wi-Fi **only when you pick Wireless** in the desktop app's Mobile use; a run from
+  a script, and computer use's phone sub-agents everywhere, always use the cable.
 - An Android phone is reached over Wi-Fi **only after you connected it over USB in the app's
   Settings**, and only when it answers with the serial it was saved with as it connects. An
   iPhone, only one paired with this Mac in the app's Settings.
