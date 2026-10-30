@@ -969,7 +969,7 @@ the agent runs would inherit it.
 | **Memory ring** | Context gauge beside the Skills icon, with the live token count inside. It breathes while compression runs and its count *falls* when the handoff lands |
 | **Fast / Quality** | Leaner prompt and fewer tokens per step, or full reasoning, which is the default |
 | **Mode picker** | Computer use, Mobile use, Shell use |
-| **Wireless / Wired** | Mobile use and Computer use: the phone over the cable, the default, or over Wi-Fi when you pick Wireless. In Mobile use, while it pairs, a circle turns beside the picker and the chat box is locked; if pairing fails, the box keeps the reason and the circle turns into an arrow that pairs again. In Computer use it says over what `android_agent` and `ios_agent` look for the phone at each request, and can be flipped any time, also while a run goes |
+| **Wireless / Wired** | Mobile use and Computer use: the phone over the cable, the default, or over Wi-Fi when you pick Wireless; its label reads *Mobile via: Wired* or *Mobile via: Wi-Fi*. In Mobile use, while it pairs, a circle turns beside the picker and the chat box is locked; if pairing fails, the box keeps the reason and the circle turns into an arrow that pairs again. In Computer use it says over what `android_agent` and `ios_agent` look for the phone at each request, and can be flipped any time, also while a run goes |
 | **Stop** | Retires the run id instantly, so a still-running model call can never repaint your next chat |
 
 Chats are saved and resumable. Reopening one restores its history and puts the memory ring back
