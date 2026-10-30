@@ -2742,33 +2742,57 @@ def _start_idle_bridge() -> None:
         debug_exception("idle bridge start")
 
 
-def _build_android_agent() -> None:
-    """The Android agent's Rust crate, built at start as the idle bridge's
-    import builds the web agent's, so a checkout's first Android run does not
-    stop for cargo. The native code only: the emulator and its images are
-    still fetched on first use, after their yes. Built, not imported: an
-    import keeps agent_native.pyd loaded for the app's whole life, and on
-    Windows a loaded .pyd cannot be replaced, so another process's rebuild
-    (computer use's android_agent child, a terminal run) would fail to
-    install. A checkout only: a pip wheel ships it prebuilt (a wheel built
-    from the sdist makes it on its first Android run), as does a packaged
-    app. Printed when it fails, since
-    debug_exception is silent in a checkout."""
-    if IS_COMPILED or not (_REPO_ROOT / "main.py").is_file():
+# In AutoCua_data once the person said no to adb at a start: not asked again
+# there (the setup scripts and `adb fetch` ask any time).
+_ADB_NOT_NOW = "adb-not-now"
+
+
+def _prepare_native() -> None:
+    """What the terminal sees before any window: a checkout's builds of the
+    two Rust agents (the first start, a minute or two, cargo's lines as it
+    goes), then adb for an Android phone, offered once (_offer_adb). Run by
+    the process the person started, before the desktop shell or the window,
+    so nothing builds or asks behind a window and the terminal shows it all,
+    in order. Built, not imported: an import keeps agent_native.pyd loaded
+    for the app's whole life, and on Windows a loaded .pyd cannot be
+    replaced, so another process's rebuild (computer use's android_agent
+    child, a terminal run) would fail to install. The emulator and its
+    images are still fetched on first use, after their yes. A pip wheel
+    ships both agents built, a packaged app too. Printed when a build fails,
+    since debug_exception is silent in a checkout."""
+    if IS_COMPILED:
         return
+    if (_REPO_ROOT / "main.py").is_file():
+        from AutoCua.utils import rust
+        for what, build in (("web", rust.ensure_web_agent_built), ("android", rust.ensure_android_agent_built)):
+            try:
+                build()
+            except Exception as e:
+                print(f"[{what}] AGENT NOT BUILT — {e}", flush=True)
+    _offer_adb()
+
+
+def _offer_adb() -> None:
+    """adb, for an Android phone: one on PATH or fetched before is used as it
+    is; otherwise its download is offered here, where the question can be
+    answered (the app window cannot ask it). A no is remembered
+    (_ADB_NOT_NOW), so a start never nags; with no terminal to ask on,
+    nothing is asked or remembered."""
     try:
-        from AutoCua.utils.rust import ensure_android_agent_built
-        ensure_android_agent_built()
-    except Exception as e:
-        print(f"[android] AGENT NOT BUILT — {e}", flush=True)
-
-
-def _start_native_agents() -> None:
-    """Both Rust crates on one thread, the web agent's first (the extension's
-    line waits on it): a checkout builds them one after the other, not as two
-    cargo runs at once."""
-    _start_idle_bridge()
-    _build_android_agent()
+        from AutoCua.android_connector.adb import FETCH, OWN_ADB, ensure_adb
+        from AutoCua.utils.consent import can_ask
+        if shutil.which("adb") or OWN_ADB.is_file() or not can_ask():
+            return
+        marker = data_root() / _ADB_NOT_NOW
+        if marker.is_file():
+            return
+        print("📱 An Android phone needs adb. Asked here, once, before the window opens:", flush=True)
+        if not ensure_adb():
+            marker.write_text(f"adb declined at a start on {time.strftime('%Y-%m-%d %H:%M')}; "
+                              f"fetch it any time with:  {FETCH}\n", encoding="utf-8")
+            print(f"📱 Android phones wait for adb: run  {FETCH}  whenever you want it.", flush=True)
+    except Exception:
+        debug_exception("adb offer")
 
 
 def _stop_idle_bridge() -> None:
@@ -4483,6 +4507,11 @@ def main():
         return
 
 
+    # Before the desktop shell or the window: the Rust agents' builds and adb,
+    # in the terminal, where they print and can ask (_prepare_native).
+    if not IS_SECONDARY_PROCESS and not IS_DESKTOP_SHELL:
+        _prepare_native()
+
     # The Chromium desktop shell when it is installed: it starts this module
     # again as its backend (--desktop), which runs everything below. Before
     # the Telegram bot, so there is never a second one polling from here.
@@ -4566,9 +4595,9 @@ def main():
     # Clear orphaned macOS TCC "ghost" entries from a previous build (once per
     # build identity; no-op on Windows / dev).
     repair_stale_tcc_entries()
-    # The extension's line while no run is on, for its Test button, then the
-    # Android agent: a checkout builds both Rust crates here, at start.
-    threading.Thread(target=_start_native_agents, daemon=True).start()
+    # The extension's line while no run is on, for its Test button (the web
+    # agent it imports was built before any window, _prepare_native).
+    threading.Thread(target=_start_idle_bridge, daemon=True).start()
     # macOS permissions are now driven one-by-one by the setup wizard (served at
     # /setup and gated via the initial window URL below), which also auto-repairs
     # stale ghost entries per-permission. The old bulk request_macos_permissions()
