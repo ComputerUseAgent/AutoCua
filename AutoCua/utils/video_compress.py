@@ -26,8 +26,11 @@ def ffmpeg():
     try:
         import imageio_ffmpeg
     except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "imageio-ffmpeg"])
-        import imageio_ffmpeg
+        # Never installed behind the person's back: imageio-ffmpeg is a
+        # dependency (pyproject.toml and every requirements file), so this is
+        # a broken install, and the fix is theirs to run.
+        raise RuntimeError("no ffmpeg: put one on PATH, or install imageio-ffmpeg "
+                           "(pip install imageio-ffmpeg)") from None
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 

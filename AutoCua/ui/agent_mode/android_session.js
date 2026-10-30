@@ -1,7 +1,7 @@
 // Android session connector — ios_session.js's twin for the Android phone,
 // attached to the Agent-mode menu. Selecting Mobile use → Android starts the
-// phone helper on the newest phone Settings → Connect Device connected (adb,
-// scrcpy's server and Helper.java; nothing is installed on the phone), over
+// phone helper on the newest phone Settings → Connect Device connected (adb
+// and Helper.java; nothing is installed on the phone), over
 // Wi-Fi or the cable as the chat box's Wireless / Wired toggle says
 // (chat_input/link_toggle.js; flipping it connects again); switching to
 // anything else (Computer use / iOS) stops it.

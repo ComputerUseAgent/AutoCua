@@ -9,8 +9,8 @@ names, numbered, as tree text plus one JSON entry each, and the screenshot
 with numbered boxes. This drives the very class the agent scans with,
 UIElementScanner, from the Android extension module (AutoCua/android/agent
 builds it on first import). The connection is the connector's: adb and the
-phone (android_connector/adb.py), then the phone helper (scrcpy's server for
-the screen, Helper.java for the tree, one process) forwarded to local ports
+phone (android_connector/adb.py), then the phone helper (Helper.java:
+screenshots and the tree, one process) forwarded to a local port
 (android_connector/stream.py), opened and closed by android_session
 (android_connector/session.py), as the agent does around a run.
 
@@ -25,10 +25,9 @@ On the phone, once:
     Plug in with a data cable, unlock, tap Allow on "Allow USB debugging?"
 
 Notes:
-    - First run fetches adb (Google's platform-tools) and scrcpy's server
-      (Genymobile's GitHub release) into AutoCua/android_connector/, and
-      builds the Android crate with cargo into AutoCua/android/target/ (the
-      first build compiles OpenH264, about a minute). All gitignored.
+    - First run fetches adb (Google's platform-tools) into
+      AutoCua/android_connector/, and builds the Android crate with cargo
+      into AutoCua/android/target/. Both gitignored.
     - autocua-helper.jar is built from Helper.java only when the source
       changes (android_connector/build_helper.py: a JDK and Android's d8,
       fetched once into ~/.AutoCua/android-build).
@@ -78,8 +77,7 @@ def main() -> None:
     try:
         from AutoCua.android.agent import UIElementScanner  # noqa: E402  (builds the crate first time)
         scanner = UIElementScanner()
-        w, h = scanner.frame_size
-        print(f"ready {w}x{h}  {(time.perf_counter() - t0) * 1000:.0f} ms")
+        print(f"ready  {(time.perf_counter() - t0) * 1000:.0f} ms")
         print(HELP)
         while True:
             try:

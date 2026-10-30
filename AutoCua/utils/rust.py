@@ -8,12 +8,22 @@ mirroring the old Python layout. Each compiles with plain
 the whole side.
 
 WHEN THIS ACTUALLY RUNS
-    Checkout  — Cargo.toml sits beside the package, so this compiles on the
-                first "web use" / "mobile use, android" and on any later run
-                where a .rs source is newer than the built module.
-    pip wheel — the extension ships prebuilt (agent_native.abi3.so) and the
-                crate sources are excluded, so there is no Cargo.toml to find
-                and cargo is never touched.
+    Checkout  — Cargo.toml sits beside the package, so this compiles when
+                the desktop app starts (ui/service.py _start_native_agents),
+                on a terminal run's first "web use" / "mobile use, android",
+                and on any later run where a .rs source is newer than the
+                built module.
+    pip wheel — both extensions ship prebuilt. maturin builds the web one
+                itself (agent_native.abi3.so / .pyd) and its crate sources
+                are excluded, so there is no Cargo.toml to find and cargo is
+                never touched for it. The Android one is built by THIS module
+                on the release machine, before maturin runs, and
+                pyproject.toml's `include` packs the result (agent_native.so
+                / .pyd) into the wheel — note/pypi-release.md. Its crate
+                sources ship too, so a wheel pip builds from the sdist, on a
+                platform without one of ours, gets the module on its first
+                Android run; a shipped module is trusted as it is (no
+                target/ beside it), never rebuilt from pip's own mtimes.
 
 Lives in utils/ beside wda.py because they are the same kind of thing: the
 one-time setup step a checkout gets from a shell script and a pip install has
@@ -21,6 +31,8 @@ to do for itself.
 """
 
 import os
+import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -85,7 +97,9 @@ def _ensure_built(crate_dir, what, others):
     run without it, for the error text.
 
     A no-op from a pip wheel: no Cargo.toml means the extension is already
-    built and shipped, so nothing here has anything to do.
+    built and shipped (the web crate), and a module with no target/ beside
+    it was shipped built (the Android crate, whose sources come along), so
+    nothing here has anything to do.
     """
     manifest = crate_dir / "Cargo.toml"
     if not manifest.is_file():
@@ -93,8 +107,18 @@ def _ensure_built(crate_dir, what, others):
     so = crate_dir / f"agent_native{_EXT_SUFFIX}"
     dylib = crate_dir / "target" / "release" / _CARGO_ARTIFACT
 
-    # Everything the crate compiles, wherever under its folder it lives.
-    sources = [manifest, *_rust_sources(crate_dir)]
+    # A shipped module, trusted as it is. Only a build here leaves target/
+    # behind, so a module without one came in the wheel; pip gives every
+    # file its install-time mtime, in archive order, so the stamps below
+    # would call a shipped module stale and ask a pip user for cargo.
+    if so.exists() and not (crate_dir / "target").exists():
+        return
+
+    # Everything the crate compiles, wherever under its folder it lives, and
+    # what pins its dependencies and its compiler: a `cargo update` or a
+    # toolchain bump changes the module too, with no .rs touched.
+    sources = [manifest, crate_dir / "Cargo.lock", _PACKAGE.parent / "rust-toolchain.toml",
+               *_rust_sources(crate_dir)]
     stamps = [p.stat().st_mtime for p in sources if p.exists()]
     if so.exists() and stamps and so.stat().st_mtime >= max(stamps):
         return
@@ -110,9 +134,9 @@ def _ensure_built(crate_dir, what, others):
             f"{others} run without it."
         )
 
-    # cargo links through the system C compiler, and the crates compile C
-    # sources of their own (ring's SHA-256 on the web side, OpenH264 on the
-    # Android side) — a Linux box straight from the installer has neither.
+    # cargo links through the system C compiler, and the web crate compiles C
+    # sources of its own (ring's SHA-256) — a Linux box straight from the
+    # installer has neither.
     # Caught here with a readable message rather than minutes later as
     # "linker `cc` not found" deep in cargo's output. macOS always has
     # /usr/bin/cc (Apple's shim, which offers the Command Line Tools itself),
@@ -132,6 +156,17 @@ def _ensure_built(crate_dir, what, others):
     # the result.
     env = dict(os.environ)
     env.setdefault("PYO3_PYTHON", sys.executable)
+    # Windows: rust-toolchain.toml at the repo root pins a version with no
+    # triple, and rustup completes it with its default host, MSVC unless
+    # setup_windows.bat set it. The MSVC build of that version cannot link
+    # this crate (no Visual Studio), so the GNU one is named outright for a
+    # checkout whose rustup predates the pin. Only x86-64: there is no GNU
+    # target for Windows on ARM.
+    pin = _PACKAGE.parent / "rust-toolchain.toml"
+    if sys.platform == "win32" and platform.machine() in ("AMD64", "x86_64") and pin.is_file():
+        m = re.search(r'^\s*channel\s*=\s*"([^"]+)"', pin.read_text(encoding="utf-8"), re.M)
+        if m and "-" not in m.group(1):
+            env.setdefault("RUSTUP_TOOLCHAIN", f"{m.group(1)}-x86_64-pc-windows-gnu")
     # macOS: the release profile's `strip = true` leaves a library that the
     # loader of macOS 26+ refuses ("mis-aligned LINKEDIT string pool", with
     # Xcode's current ld; re-signing does not help, "debuginfo" fails the same
@@ -147,6 +182,12 @@ def _ensure_built(crate_dir, what, others):
         cwd=str(crate_dir), env=env)
     if not dylib.exists():
         raise RuntimeError(f"build succeeded but {dylib} is missing")
+    # Another thread or process installed this very build while our cargo
+    # waited on cargo's lock (the app's start-up build vs an Android run, or
+    # computer use's android_agent child). copy2 kept the dylib's mtime on
+    # it, and on Windows a .pyd that is loaded cannot be replaced.
+    if so.exists() and so.stat().st_mtime >= dylib.stat().st_mtime:
+        return
     # Install through a NEW inode, never by overwriting the .so in place:
     # macOS keeps the previous code-signature blob registered on the old
     # vnode, and every process that then maps the rewritten file is
@@ -163,8 +204,6 @@ def ensure_web_agent_built() -> None:
 
 
 def ensure_android_agent_built() -> None:
-    """The Android agent's extension (AutoCua/android/agent_native), built
-    once. Its first build also compiles OpenH264 (the phone's screen stream),
-    the longer half of the minute."""
+    """The Android agent's extension (AutoCua/android/agent_native), built once."""
     _ensure_built(_ANDROID_DIR, "Android agent",
                   "Every other mode (computer use, shell use, web use, iOS)")

@@ -1,9 +1,9 @@
-"""Build AutoCua's half of the phone helper: Helper.java -> autocua-helper.jar.
+"""Build the phone helper: Helper.java -> autocua-helper.jar.
 
-The phone runs one helper (stream.py starts it): scrcpy's server streams the
-screen, and Helper.java, inside the same process, reads the UI tree. Java
-reaches a phone as dex, so BUILDING it takes a JDK (javac), Android's
-android.jar to compile against, and Google's d8 to turn classes into dex.
+The phone runs one helper (stream.py starts it): Helper.java, on its own,
+takes the screenshots and reads the UI tree. Java reaches a phone as dex, so
+BUILDING it takes a JDK (javac), Android's android.jar to compile against,
+and Google's d8 to turn classes into dex.
 RUNNING it takes none of them: the jar is a small file the phone loads.
 
 The three are fetched once, pinned by size and SHA-256 like adb.py's zip, into
@@ -147,7 +147,12 @@ def _fetch(url, size, digest, dest):
     """One pinned download into the cache, under a private name until whole."""
     if dest.is_file():
         return dest
-    if not allow_download(f"{url.rsplit('/', 1)[-1]}, to build the phone helper", f"its maker ({url.split('/')[2]})",
+    source = f"its maker ({url.split('/')[2]})"
+    if "/android/repository/" in url:
+        # Google's SDK repository (the platform zip with android.jar): its
+        # packages come under the SDK terms, so the question names them.
+        source += ", under Google's Android SDK terms (developer.android.com/studio/terms)"
+    if not allow_download(f"{url.rsplit('/', 1)[-1]}, to build the phone helper", source,
                           size, log=lambda text: print(f"🤖 {text}", flush=True)):
         raise RuntimeError(f"{url.rsplit('/', 1)[-1]} was not downloaded")
     CACHE.mkdir(parents=True, exist_ok=True)

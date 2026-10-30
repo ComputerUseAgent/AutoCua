@@ -284,12 +284,9 @@
         };
     }
 
-    // Apple terminal — window + ">" prompt + Apple logo (shape 'sh'). Build the
-    // glyph path once; single-colour so it rides the vecPainter wrapper.
-    var APPLE_PATH = (typeof Path2D !== 'undefined')
-        ? new Path2D("M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701z")
-        : null;
-    function vecApple(ctx) {
+    // Script — window + ">" prompt + two indented script lines (shape
+    // 'script', "executing applescript"). No logo: Apple's is not ours to draw.
+    function vecScript(ctx) {
         ctx.lineWidth = 3.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         ctx.beginPath();
         if (ctx.roundRect) ctx.roundRect(-35, -25, 70, 50, 4); else ctx.rect(-35, -25, 70, 50);
@@ -297,7 +294,9 @@
         ctx.beginPath(); ctx.moveTo(-35, -15); ctx.lineTo(35, -15); ctx.stroke();   // top bar
         ctx.lineWidth = 3;
         ctx.beginPath(); ctx.moveTo(-26, -9); ctx.lineTo(-21, -5); ctx.lineTo(-26, -1); ctx.stroke(); // ">"
-        if (APPLE_PATH) { ctx.save(); ctx.translate(0, 4); ctx.scale(1.3, 1.3); ctx.translate(-12, -12); ctx.fill(APPLE_PATH); ctx.restore(); }
+        [[-14, 18, -5], [-14, 8, 5], [-26, 12, 15]].forEach(function (L) {
+            ctx.beginPath(); ctx.moveTo(L[0], L[2]); ctx.lineTo(L[1], L[2]); ctx.stroke();
+        });
     }
 
     // Terminal shell — window + ">" prompt + three output lines (shape 'cl').
@@ -1628,7 +1627,7 @@
         globe:  globePainter,
         composing: composingPainter,                // undulating sash — the "thinking" beat
         agent:  agentPainter,                       // mascot head (blinking)
-        apple:  function () { return vecPainter(vecApple); },
+        script: function () { return vecPainter(vecScript); },
         shell:  function () { return vecPainter(vecShell); },
         clock:    function () { return vecPainter(vecClock); },
         keyboard: function () { return vecPainter(vecKeyboard); },
@@ -1695,7 +1694,7 @@
         { shape: 'keyboard',label: 'pressing hotkeys' },
         { shape: 'globe',   label: 'searching the web' },
         { shape: 'agent',   label: 'sub agent trigger' },
-        { shape: 'apple',   label: 'executing applescript' },
+        { shape: 'script',  label: 'executing applescript' },
         { shape: 'shell',   label: 'executing shell' },
         { shape: 'appbox',  label: 'opening app' },
         { shape: 'camera',  label: 'taking a snapshot' },
@@ -1737,7 +1736,7 @@
         minion:       { shape: 'agent',    label: 'sub agent trigger' },
         agent_wait:   { shape: 'clock',    label: 'waiting for sub-agents' },
         shell:        { shape: 'shell',    label: 'executing shell' },
-        applescript:  { shape: 'apple',    label: 'executing applescript' },
+        applescript:  { shape: 'script',   label: 'executing applescript' },
         todo_list:    { shape: 'todo',     label: 'created todo' },
         update_todo:  { shape: 'todoUpd',  label: 'updated todo' },
         scratchpad:   { shape: 'book',     label: 'saving to agent memory' },

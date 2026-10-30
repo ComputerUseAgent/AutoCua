@@ -572,7 +572,7 @@ No sampling parameter is sent.
 |---|---|---|
 | Runs on | An iOS Simulator on this Mac | The paired iPhone or iPad (the most recently paired one) |
 | iOS version | `ios_version` picks the runtime (e.g. `"26.5"`) | Whatever the device runs; `ios_version` is ignored |
-| Needs | Full Xcode plus its iOS simulator platform, a separate one-time download of about 8.5 GB (`bash setup_ios.sh` offers it, or `xcodebuild -downloadPlatform iOS`): no signing, no Apple account, no pairing | One-time pairing in Settings → Connect Device (Team ID signing, WDA install) |
+| Needs | Full Xcode plus its iOS simulator platform, a separate one-time download of about 8.5 GB (`bash setup_mac.sh --ios` offers it, or `xcodebuild -downloadPlatform iOS`): no signing, no Apple account, no pairing | One-time pairing in Settings → Connect Device (Team ID signing, WDA install) |
 | First start | Builds WebDriverAgent for the simulator once, a few minutes; later runs boot + attach in under a minute | Seconds (WDA is pre-installed at pairing) |
 | Agent behaviour | Same: identical WDA endpoints, tree, taps, screenshots | Same |
 
@@ -912,8 +912,8 @@ with a printed notice.
 - **`android_version`**: `"11"`, `"12"`, `"13"`, `"14"`, `"15"`, `"16"` or
   `"17"` (`16`, `"16.0"` and `"Android 16"` work too). **Default:** the newest
   one already downloaded, else `"17"`. A version that isn't here yet is
-  **downloaded** first. Android 10 isn't offered: its emulator image can't
-  stream its screen (a real Android 10 phone is fine).
+  **downloaded** first. Android 10 isn't offered yet: not tried with the
+  helper's screenshots (a real Android 10 phone is fine).
 - **`sim_device`**: `"phone"` (the default, a 1080 × 2400 screen) or `"tablet"`
   (2560 × 1600, landscape).
 
@@ -972,8 +972,8 @@ python -m AutoCua.android_connector.emulator              # the newest Android a
 python -m AutoCua.android_connector.emulator 15 tablet    # a version and kind of your choice
 ```
 
-It prints one line per item: the computer (supported, hypervisor, disk), adb
-and scrcpy's server, the Rust Android agent (built, on a checkout), then the
+It prints one line per item: the computer (supported, hypervisor, disk), adb,
+the phone helper, the Rust Android agent (built, on a checkout), then the
 terms question, the downloads with their progress, and the first boot. A
 failed item says what to do. Exit code 0 when the emulator is ready. From a
 checkout, `setup_mac.sh`, `setup_linux.sh` and `setup_windows.bat` build the
@@ -1088,5 +1088,6 @@ cache, so two runs starting at the same moment never share one. It runs with
 `-no-window`, `-no-metrics` and `-crash-report-mode never`: the run's window
 ([sim_view.py](AutoCua/ios_connector/sim_view.py), the iOS simulators' one, over
 the same background video) shows the screen from an MJPEG preview the Android
-agent serves on `AutoCua_ANDROID_PREVIEW_PORT`, the way WebDriverAgent's
+agent serves on `AutoCua_ANDROID_PREVIEW_PORT` (JPEGs the phone helper takes,
+about three a second while the window is open), the way WebDriverAgent's
 stream shows a simulator.

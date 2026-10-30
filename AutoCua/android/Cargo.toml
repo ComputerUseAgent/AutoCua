@@ -39,12 +39,12 @@ serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
 chrono = "0.4"
 # -- the phone reader (tree/element.rs) ----------------------------------
-# H.264 decoder for the phone's screen stream. Builds Cisco's OpenH264 (BSD-2)
-# from its bundled source with the system C++ compiler (Xcode tools, MSVC or
-# g++), instead of fetching a prebuilt library per OS.
-openh264 = "0.9"
-# Pure-Rust JPEG encoder for the screenshots, and base64 for the one the
-# model gets.
+# Pure-Rust JPEG decoder for the phone helper's screenshots (the scan draws
+# its marks on them; the video player looks at them). Its only dependency is
+# zune-core; the web crate locks the same version through image.
+zune-jpeg = "0.5"
+# Pure-Rust JPEG encoder for the marked screenshot, and base64 for the one
+# the model gets.
 jpeg-encoder = "0.7"
 base64 = "0.22"
 # Reads uiautomator's XML tree (no dependencies of its own). Pinned: 0.21.2

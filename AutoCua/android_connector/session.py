@@ -3,14 +3,14 @@ run and closed after it, the way ios_connector/session.py's wda_session is
 for the iPhone.
 
 activate() finds adb and waits for the phone (adb.py), then starts the helper
-on it (stream.py): scrcpy's server for the screen and Helper.java for the UI
-tree, one process, forwarded to two local ports. The scanner
-(android/tree/element.rs, UIElementScanner) reads those two ports; it calls
-activate() itself when nobody has, so it also works on its own.
-deactivate() stops the helper and drops the forwards. It also runs at exit,
-so a helper never outlives this process (the helper holds Android's one
-UiAutomation slot: a leftover one makes the next run's helper fail with
-"already registered").
+on it (stream.py): Helper.java, one process, for the screenshots and the UI
+tree, forwarded to one local port. The scanner (android/tree/element.rs,
+UIElementScanner) reads that port; it calls activate() itself when nobody
+has, so it also works on its own. deactivate() stops the helper and drops
+the forward. It also runs at exit, so a helper never outlives this process,
+and the helper ends on its own when this process's end closes its stdin,
+however it ends (the helper holds Android's one UiAutomation slot: a
+leftover one makes the next run's helper fail with "already registered").
 
 agent_launcher.run_agent does both around a "mobile use, android" run. With
 device="simulation" it first boots an emulator (emulator.py) and names it
@@ -46,7 +46,7 @@ import time
 
 from AutoCua.android_connector.adb import (HINTS, NO_PERMISSIONS, _adb, _emulator, _wireless, adb_path, connect,
                                            devices, wifi_addresses, wifi_connect)
-from AutoCua.android_connector.stream import Stream
+from AutoCua.android_connector.stream import Stream, _recv
 
 # Picks one phone when several are plugged in (adb's serial). Unset: the one
 # USB phone.
@@ -210,16 +210,6 @@ def _reach(serial, wait, link=None):
     return adb, ready, phone
 
 
-def _recv(sock, n):
-    data = b""
-    while len(data) < n:
-        chunk = sock.recv(n - len(data))
-        if not chunk:
-            raise ConnectionError("the helper closed the connection")
-        data += chunk
-    return data
-
-
 def _read_tree(port):
     """One tree through the helper, as element.rs reads it: the line "dump",
     then a 4-byte big-endian length and that many bytes. The forward takes a
@@ -248,8 +238,8 @@ def _read_tree(port):
 
 
 class AndroidSession:
-    """The helper on one phone, and the local ports its screen and tree come
-    out on. One per process."""
+    """The helper on one phone, and the local port its screenshots and tree
+    come out on. One per process."""
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -269,7 +259,7 @@ class AndroidSession:
         None for the cable.
 
         Returns {"ok": True, "state": "connected", "serial", "phone", "model",
-        "adb", "port", "tree_port"} ("serial" is adb's, "ip:port" on Wi-Fi;
+        "adb", "tree_port"} ("serial" is adb's, "ip:port" on Wi-Fi;
         "phone" the USB serial), or {"ok": False, "state": "error", "error"}
         when the phone cannot be reached. While the helper is running, a
         second call returns the same connection, unless it asks for the
@@ -299,9 +289,8 @@ class AndroidSession:
         ("wireless", also with a cable in) or plugged in ("wired").
 
         Same answer as activate(), with "hint" on an error. A helper already
-        running for the phone is left as it is (it serves one client at a
-        time, and a run may be reading through it), unless the toggle asks
-        for the other link.
+        running for the phone is left as it is (a run may be reading through
+        it), unless the toggle asks for the other link.
         """
         if link and keep:
             self.link = link    # the chat box's pick; a check (keep=False) leaves it
@@ -387,8 +376,7 @@ class AndroidSession:
 
     def _info(self):
         return {"ok": True, "state": "connected", "serial": self.serial, "phone": self.phone,
-                "model": self.model, "adb": self.adb, "port": self.stream.port,
-                "tree_port": self.stream.tree_port}
+                "model": self.model, "adb": self.adb, "tree_port": self.stream.tree_port}
 
 
 android_session = AndroidSession()

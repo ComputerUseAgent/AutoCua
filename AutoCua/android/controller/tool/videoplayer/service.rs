@@ -1,12 +1,12 @@
 //! The video player: the Android side of ios/controller/tool/videoplayer.py,
-//! for content that is not DRM-blocked (a DRM player is black on the
-//! screen stream). Closing a player is `back` here.
+//! for content that is not DRM-blocked (a DRM player is black in the
+//! phone's screenshots). Closing a player is `back` here.
 //!
-//! Everything comes from watching the screen stream for 2 s: the screen is
-//! cut into cells, and a cell changed between two looks when its SSIM fell
-//! or its difference hash moved, whichever comes true. A cell that keeps
-//! changing is movement, and the biggest patch of it is the video: content
-//! is playing when there is one.
+//! Everything comes from watching the screen for about 2 s, nine screenshots
+//! from the helper: the screen is cut into cells, and a cell changed between
+//! two looks when its SSIM fell or its difference hash moved, whichever
+//! comes true. A cell that keeps changing is movement, and the biggest patch
+//! of it is the video: content is playing when there is one.
 //!
 //! pause and play: if the screen is already in the wanted state, nothing is
 //! tapped. Else the play/pause button is tapped, the way a hand would: at
@@ -15,27 +15,27 @@
 //! the button tapped again until the state has turned.
 
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pyo3::prelude::*;
 use roxmltree::Node;
 
 use crate::controller::service::controller_service;
-use crate::tree::element::{bounds, latest_frame, read_tree};
+use crate::tree::element::{bounds, read_tree, screenshot_rgb};
 
 /// One look at the screen every quarter second, nine of them: 2 s.
 const LOOKS: usize = 9;
 const LOOK_EVERY: Duration = Duration::from_millis(250);
 
-/// Each look is the frame in grey, SHRINK x SHRINK pixels to one, cut into
-/// cells of CELL x CELL of those.
+/// Each look is the screenshot in grey, SHRINK x SHRINK pixels to one, cut
+/// into cells of CELL x CELL of those.
 const SHRINK: usize = 4;
 const CELL: usize = 16;
 
 /// A cell changed between two looks: its SSIM under SSIM_MIN, or its
 /// difference hash more than HASH_MAX of its 56 bits apart. A hash bit wants
-/// HASH_STEP grey levels between neighbours, so a flat cell's video noise
-/// flips none.
+/// HASH_STEP grey levels between neighbours, so a flat cell's compression
+/// noise flips none.
 const SSIM_MIN: f64 = 0.97;
 const HASH_MAX: u32 = 4;
 const HASH_STEP: f64 = 2.0;
@@ -61,7 +61,7 @@ const MAX_TAPS: usize = 3;
 /// The play/pause button's whole name, lowercase.
 const BUTTON_NAMES: [&str; 6] = ["play", "pause", "play video", "pause video", "play/pause", "play pause"];
 
-/// One look: the frame in grey, shrunk.
+/// One look: the screenshot in grey, shrunk.
 pub(crate) struct Grey {
     px: Vec<u8>,
     w: usize,
@@ -245,14 +245,17 @@ impl Watch {
     }
 }
 
-/// 2 s of the screen stream.
+/// About 2 s of the screen: LOOKS screenshots from the helper, LOOK_EVERY
+/// apart. Each look is a screenshot taken on the phone now, not a frame
+/// already here, so it waits only for what is left of its turn.
 fn watch() -> Result<Watch, String> {
-    let (rgb, frame_w, frame_h) = latest_frame()?;
+    let start = Instant::now();
+    let (rgb, frame_w, frame_h) = screenshot_rgb()?;
     let mut looks = vec![Grey::of(&rgb, frame_w, frame_h)];
     let mut size = (frame_w, frame_h);
-    for _ in 1..LOOKS {
-        sleep(LOOK_EVERY);
-        let (rgb, w, h) = latest_frame()?;
+    for i in 1..LOOKS {
+        sleep((start + LOOK_EVERY * i as u32).saturating_duration_since(Instant::now()));
+        let (rgb, w, h) = screenshot_rgb()?;
         size = (w, h);
         looks.push(Grey::of(&rgb, w, h));
     }

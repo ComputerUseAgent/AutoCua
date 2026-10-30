@@ -12,7 +12,7 @@
 #   1. validates team id / device / project
 #   2. rewrites WebDriverAgent.xcodeproj/project.pbxproj (Automatic signing, team, bundle ids)
 #      -> exactly the three targets you set by hand: Lib, Runner, IntegrationApp
-#   3. mounts the developer disk image (pymobiledevice3, best effort)
+#   3. mounts the developer disk image from Xcode's copy (pymobiledevice3, best effort; ddi.py)
 #   4. runs xcodebuild with -allowProvisioningUpdates  (this IS the "Test" click)
 #   5. streams every line back to the page, live
 #
@@ -60,7 +60,7 @@ PROJECT    = WDA_DIR / XCODEPROJ_NAME
 def ensure_project():
     """Clone WebDriverAgent if it isn't here yet, and report whether it is.
 
-    setup_ios.sh does this for a checkout; a `pip install AutoCua` runs no
+    setup_mac.sh --ios does this for a checkout; a `pip install AutoCua` runs no
     shell script, so the fetch has to happen on first use instead. This file
     runs as a SCRIPT (setup_server spawns `python setup.py` with cwd=this
     folder), so AutoCua is not necessarily importable — a wheel install finds
@@ -78,6 +78,17 @@ def ensure_project():
     except Exception as e:
         print(f"  (could not fetch WebDriverAgent: {e})")
     return PROJECT.exists()
+
+
+def _ddi():
+    """AutoCua.ios_connector.ddi, also when this file runs as a script from a
+    checkout (AutoCua is then not on sys.path, as for ensure_project)."""
+    try:
+        from AutoCua.ios_connector import ddi
+    except ImportError:
+        sys.path.insert(0, str(SCRIPT_DIR.parent.parent))
+        from AutoCua.ios_connector import ddi
+    return ddi
 try:                                            # package import (app.py embeds this UI)
     from AutoCua.ios_connector.build_paths import wda_build_root
 except ImportError:                             # standalone: python .../setup.py
@@ -855,7 +866,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._sse("fatal", "no device UDID -- pick one or type it in")
         rc, _ = sh(["ruby", "-e", "require 'xcodeproj'"])
         if rc != 0:
-            return self._sse("fatal", "ruby 'xcodeproj' gem missing.  run:  bash setup_ios.sh  "
+            return self._sse("fatal", "ruby 'xcodeproj' gem missing.  run:  bash setup_mac.sh --ios  "
                               "(or: gem install --user-install xcodeproj)")
 
         # --- preflight: is this team backed by an Apple Account signed into Xcode? ---
@@ -897,11 +908,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._sse("done", json.dumps({"code": code, "stage": "signing"}))
 
         # --- stage 2: mount developer disk image (best effort) ---
+        # From Xcode's copy, never a download (fetch=False): the xcodebuild
+        # below mounts Xcode's own image anyway when this did not.
         if mount:
             pmd3 = pymobiledevice3_path()
             if pmd3:
-                self._sse("log", "mounting developer disk image (pymobiledevice3)")
-                self._stream_cmd([pmd3, "mounter", "auto-mount"])
+                self._sse("log", "mounting developer disk image (Xcode's copy, pymobiledevice3)")
+                ddi = _ddi()
+                denv = dict(os.environ, PYMOBILEDEVICE3_UDID=udid)
+                if not ddi.mounted([pmd3], udid):
+                    ddi.mount([pmd3], udid, lambda cmd, timeout: self._stream_cmd(cmd, env=denv),
+                              lambda text: self._sse("log", text), fetch=False)
             else:
                 self._sse("log", "skipping DDI mount (pymobiledevice3 not installed)")
 
@@ -1007,12 +1024,12 @@ def main():
     print(f"WDA setup   ->  http://localhost:{PORT}")
     print(f"project     ->  {PROJECT}   exists={PROJECT.exists()}")
     if not PROJECT.exists():
-        # WebDriverAgent is not vendored in this repo — setup_ios.sh clones it
+        # WebDriverAgent is not vendored in this repo — setup_mac.sh --ios clones it
         # from the Appium project at a pinned tag. See THIRD_PARTY_NOTICES.md.
         # A pip install has no shell script to run, so the first /detect or
         # build below fetches it instead.
         print(f"  (no WebDriverAgent clone at {WDA_DIR} — fetching it on first use)")
-        print("   or run:  bash setup_ios.sh   # fetches it and checks the toolchain")
+        print("   or run:  bash setup_mac.sh --ios   # fetches it and checks the toolchain")
     srv = Server(("127.0.0.1", PORT), Handler)
     # When the desktop app embeds this UI in an iframe (AutoCua_EMBED=1) we don't
     # want a stray browser tab — the app loads http://localhost:PORT itself.

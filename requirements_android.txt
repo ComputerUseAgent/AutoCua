@@ -3,24 +3,26 @@
 # No pip packages yet. The connector (AutoCua/android_connector/) uses only
 # Python's standard library. Packages the Android side needs later go here.
 #
-# Needed outside pip, all fetched or built on first use:
+# Needed outside pip, fetched or built on first use (from a wheel, nothing
+# is built: both Rust agents ship prebuilt). adb is also offered by the setup
+# scripts, after a y (python -m AutoCua.android_connector.adb fetch), from
+# Google, never from this repo:
 #   adb            Google's platform-tools, into AutoCua/android_connector/
 #                  platform-tools/ (an adb on PATH wins).
-#   scrcpy server  Genymobile's scrcpy-server (Apache-2.0), into
-#                  AutoCua/android_connector/. Copied to the phone as half of
-#                  the helper: it streams the screen.
 #   autocua-helper.jar
-#                  The other half (android_connector/Helper.java): reads the
-#                  UI tree. Built only when Helper.java changes, by
+#                  The phone helper (android_connector/Helper.java): takes the
+#                  screenshots, as JPEG on the phone, and reads the UI tree.
+#                  Built only when Helper.java changes, by
 #                  android_connector/build_helper.py, which fetches a JDK,
 #                  Android's android.jar and d8 once into
 #                  ~/.AutoCua/android-build (about 300 MB). Commit the jar and
 #                  nobody else needs Java.
-#   Rust + cargo   builds AutoCua/android/tree/element.rs (https://rustup.rs).
-#                  Its crates (openh264, jpeg-encoder, roxmltree) are in
-#                  AutoCua/android/tree/Cargo.toml; openh264 compiles Cisco's
-#                  decoder with the system C++ compiler (Xcode tools on macOS,
-#                  MSVC on Windows, g++ on Linux).
+#   Rust + cargo   a checkout builds the Android crate, AutoCua/android, with
+#                  them (https://rustup.rs), like the web crate; the pip
+#                  wheels ship it prebuilt, so pip users need neither. Its
+#                  crates (zune-jpeg, jpeg-encoder, roxmltree, pyo3, ...) are
+#                  in AutoCua/android/Cargo.toml; none compiles C or C++,
+#                  cargo only links through the system C compiler.
 #
 #   uv pip install --python .venv/bin/python -r requirements_android.txt
 #   # or:  pip install -r requirements_android.txt

@@ -7,9 +7,14 @@
 # fetch a Python for you if this Mac doesn't already have a suitable one.
 # Then installs the Rust toolchain (if missing) and builds the web agent's
 # native extension, so the first "web use" run doesn't stop on a missing cargo.
+# Last, it offers iPhone / iPad control (WebDriverAgent, Xcode's checks), one
+# yes/no question that counts as no when nobody answers.
 #
 # How to run (any of these):
 #   bash setup_mac.sh          # simplest, works right after clone
+#   bash setup_mac.sh --ios    # also set up iPhone / iPad control, without asking
+#   bash setup_mac.sh --force  # ... and discard the WebDriverAgent clone, re-fetch it
+#   bash setup_mac.sh --yes    # ... and install Xcode's iOS platform without asking
 #   chmod +x setup_mac.sh && ./setup_mac.sh
 #   Finder → right-click setup_mac.sh → Open With → Terminal.app
 #
@@ -36,17 +41,63 @@ PYTHON_SPEC=">=$MIN_PYTHON,<$MAX_PYTHON"
 VENV_DIR=".venv"
 VENV_PROMPT="auto-cua"
 
+# WebDriverAgent, for step 7. Pinned on purpose: WebDriverAgent ships breaking
+# changes across majors (v15.0.0 alone carried several), and
+# AutoCua/ios_connector/setup.py targets a specific scheme and target list —
+# WebDriverAgentLib / WebDriverAgentRunner / IntegrationApp. Tracking
+# upstream's default branch would hand new users a version this connector was
+# never tested against. Bump this only after testing, together with
+# AutoCua/utils/wda.py and THIRD_PARTY_NOTICES.md.
+WDA_VERSION="v15.1.1"
+WDA_REPO="https://github.com/appium/WebDriverAgent.git"
+WDA_DIR="AutoCua/ios_connector/WebDriverAgent"
+IOS_REQUIREMENTS="requirements_ios.txt"
+
+# The flags are all step 7's. --force and --yes imply --ios: neither means
+# anything without it.
+IOS=0
+FORCE=0
+ASSUME_YES=0
+for _arg in "$@"; do
+    case "$_arg" in
+        --ios)     IOS=1 ;;
+        --force)   IOS=1; FORCE=1 ;;
+        --yes|-y)  IOS=1; ASSUME_YES=1 ;;
+    esac
+done
+
+# How long a yes/no question waits before it counts as no.
+ASK_SECONDS=30
+
 # -----------------------------------------------------------------------------
 # Print helpers (match the style used across the project's build scripts)
 # -----------------------------------------------------------------------------
 print_step()   { printf "\n============================================================\n  %s\n============================================================\n\n" "$1"; }
+print_sub()    { printf "\n  --- %s ---\n" "$1"; }
 print_ok()     { printf "  [OK] %s\n" "$1"; }
 print_info()   { printf "  [INFO] %s\n" "$1"; }
+print_warn()   { printf "  [!] %s\n" "$1"; }
 print_error()  { printf "  [ERROR] %s\n" "$1"; }
 
 # GUI popup so failures are visible even when launched from Finder
 gui_alert() {
     osascript -e "display dialog \"$1\" buttons {\"OK\"} default button 1 with icon caution with title \"AutoCua setup\"" >/dev/null 2>&1 || true
+}
+
+# A yes/no question with a countdown: y or yes is yes. Anything else, Enter,
+# no answer within $2 seconds, or no terminal to ask on (a piped run) is no.
+ask_yes_no() {
+    local reply=""
+    [ -t 0 ] || return 1
+    printf "  %s [y/N] (no in %s s) " "$1" "$2"
+    if ! read -r -t "$2" reply; then
+        printf "\n"
+        return 1
+    fi
+    case "$reply" in
+        y|Y|yes|YES|Yes) return 0 ;;
+    esac
+    return 1
 }
 
 # -----------------------------------------------------------------------------
@@ -194,6 +245,13 @@ if ! xcode-select -p >/dev/null 2>&1; then
     WEB_AGENT_READY=0
 fi
 
+# The repo pins its Rust (rust-toolchain.toml at the root): the first cargo
+# call, in have_cargo below, has rustup install that version, about 150 MB,
+# once, with no output of its own.
+if [ "$WEB_AGENT_READY" = "1" ] && command -v rustup >/dev/null 2>&1; then
+    print_info "Checking the Rust version the repo pins (rust-toolchain.toml); a first install is about 150 MB..."
+fi
+
 # A rustup that is installed but has no default toolchain is repaired in place.
 # Re-downloading rustup-init would work too, but this is the common leftover
 # state and one command fixes it.
@@ -290,6 +348,275 @@ else
 fi
 
 # -----------------------------------------------------------------------------
+# Step 6 — the Android phone tool: adb
+# -----------------------------------------------------------------------------
+# A real phone needs Google's adb (platform-tools) to talk to it. It is not
+# vendored in this repo: it is fetched from Google's dl.google.com,
+# version-pinned and SHA-256 verified, and only after the user answers y. An
+# adb already on PATH is used as it is. No (or no answer) skips it; only
+# phones need it.
+print_step "STEP 6: Android phone tool (adb)"
+print_info "For an Android phone. adb comes from Google, only after your y, and is"
+print_info "never shipped in this repo, under Google's Android SDK terms"
+print_info "(developer.android.com/studio/terms)."
+if "$VENV_PYTHON" -m AutoCua.android_connector.adb fetch; then
+    print_ok "adb is ready"
+else
+    print_info "Skipped — only an Android phone needs it. Re-run this script, or:"
+    print_info "  $VENV_PYTHON -m AutoCua.android_connector.adb fetch"
+fi
+
+# -----------------------------------------------------------------------------
+# Step 7 — iPhone / iPad control (optional)
+# -----------------------------------------------------------------------------
+# Behind one question, because iOS needs full Xcode and, for the simulator, a
+# one-time ~8.5 GB platform from Apple: a Mac that will never drive an iPhone
+# should pay for none of it. WebDriverAgent is third-party software (Facebook,
+# Inc. / the Appium project, BSD 3-Clause), deliberately NOT vendored in this
+# repo: it is cloned from the Appium project at the pinned tag above, so it
+# comes from its authors rather than from us. See THIRD_PARTY_NOTICES.md.
+#
+# Nothing here is fatal to the steps above. A hard blocker (no full Xcode, no
+# clone) ends the step; soft ones are collected in IOS_MISSING, so one run
+# reports everything that needs fixing. set -e does not apply inside
+# setup_ios, which runs as an `if` condition, so every command checks itself.
+
+# Whether Xcode can BUILD to a simulator, which is a different question from
+# whether simctl can boot one — and the only one that matters here, because
+# simulation mode compiles WebDriverAgent onto the device.
+sim_buildable() {
+    xcodebuild -project "$WDA_DIR/WebDriverAgent.xcodeproj" \
+        -scheme WebDriverAgentRunner -showdestinations 2>/dev/null \
+        | grep -q "platform:iOS Simulator, arch"
+}
+
+setup_ios() {
+    local xcode_out xcode_path
+
+    print_sub "Xcode"
+    if [ "$(uname -s)" != "Darwin" ]; then
+        print_error "iOS control only works on macOS — signing an iOS app requires Xcode."
+        return 1
+    fi
+    if ! command -v git >/dev/null 2>&1; then
+        print_error "git not found."
+        print_info  "Install the Command Line Tools, then re-run:  xcode-select --install"
+        gui_alert "git was not found.\n\nRun:  xcode-select --install\n\nThen run this script again."
+        return 1
+    fi
+    print_ok "git $(git --version | awk '{print $3}')"
+
+    # xcodebuild must come from a full Xcode.app. The Command Line Tools alone
+    # provide a stub that cannot build or sign an iOS app, and it fails much
+    # later with a confusing error if we let it through here. Captured whole,
+    # not piped through head: a pipeline's status is head's, so a failing
+    # xcodebuild (an unaccepted licence) would pass as a version.
+    if ! xcode_out="$(xcodebuild -version 2>&1)"; then
+        XCODE_VER="$(printf '%s\n' "$xcode_out" | head -1)"
+        print_error "xcodebuild failed: $XCODE_VER"
+        if printf '%s' "$xcode_out" | grep -qi "license"; then
+            print_info "Accept the Xcode license first:  sudo xcodebuild -license accept"
+        else
+            print_info "Install Xcode from the App Store, then run:"
+            print_info "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+        fi
+        gui_alert "Xcode is not usable yet.\n\n$XCODE_VER\n\nSee the Terminal output for the fix."
+        return 1
+    fi
+    XCODE_VER="$(printf '%s\n' "$xcode_out" | head -1)"
+
+    xcode_path="$(xcode-select -p 2>/dev/null || true)"
+    case "$xcode_path" in
+        *CommandLineTools*)
+            print_error "xcode-select points at the Command Line Tools, not a full Xcode."
+            print_info  "Install Xcode from the App Store, then run:"
+            print_info  "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+            gui_alert "AutoCua needs full Xcode, not just the Command Line Tools.\n\nInstall Xcode, then run:\nsudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+            return 1
+            ;;
+    esac
+    print_ok "$XCODE_VER  ($xcode_path)"
+
+    print_sub "WebDriverAgent $WDA_VERSION"
+    print_info "Source:  $WDA_REPO"
+    print_info "License: BSD 3-Clause (Facebook, Inc. / Appium) — not covered by"
+    print_info "         AutoCua's MIT license, never shipped in this repo."
+    print_info "         See THIRD_PARTY_NOTICES.md."
+
+    if [ -d "$WDA_DIR" ] && [ "$FORCE" = "1" ]; then
+        print_info "--force given — removing the existing clone"
+        rm -rf "$WDA_DIR"
+    fi
+
+    if [ -d "$WDA_DIR/WebDriverAgent.xcodeproj" ]; then
+        if [ -d "$WDA_DIR/.git" ]; then
+            WDA_ACTUAL="$(git -C "$WDA_DIR" describe --tags --always 2>/dev/null || echo unknown)"
+            print_ok "Already present at $WDA_DIR (version: $WDA_ACTUAL) — reusing"
+            if [ "$WDA_ACTUAL" != "$WDA_VERSION" ]; then
+                print_warn "That is not the pinned $WDA_VERSION."
+                print_info  "Re-fetch the tested version with:  bash setup_mac.sh --force"
+            fi
+        else
+            # A hand-placed copy. Report it as unverified rather than claiming
+            # the pinned version — we have no way to know what it actually is.
+            WDA_ACTUAL="unverified (existing copy, not a git clone)"
+            print_ok "Already present at $WDA_DIR (not a git clone) — reusing"
+            print_info "Replace it with the pinned clone using:  bash setup_mac.sh --force"
+        fi
+        print_info "Note: re-fetching resets project.pbxproj, so signing must be redone."
+    else
+        # --depth 1 on a single tag: ~4MB of working tree instead of the full history.
+        if ! git clone --depth 1 --branch "$WDA_VERSION" "$WDA_REPO" "$WDA_DIR"; then
+            print_error "Could not clone WebDriverAgent."
+            print_info  "Check your internet connection, or clone it manually:"
+            print_info  "  git clone --depth 1 --branch $WDA_VERSION $WDA_REPO $WDA_DIR"
+            gui_alert "Could not download WebDriverAgent.\n\nCheck your internet connection, then run this script again."
+            return 1
+        fi
+        if [ ! -d "$WDA_DIR/WebDriverAgent.xcodeproj" ]; then
+            print_error "Clone finished but $WDA_DIR/WebDriverAgent.xcodeproj is missing."
+            print_info  "Upstream layout may have changed for tag $WDA_VERSION."
+            return 1
+        fi
+        WDA_ACTUAL="$WDA_VERSION"
+        print_ok "Cloned WebDriverAgent $WDA_VERSION into $WDA_DIR"
+    fi
+
+    # ios_connector/setup.py rewrites WebDriverAgent.xcodeproj/project.pbxproj
+    # through Ruby's xcodeproj gem to switch the targets to automatic signing.
+    # No gem, no signing — so this is genuinely required, not a nicety.
+    print_sub "Signing toolchain"
+    if ! command -v ruby >/dev/null 2>&1; then
+        print_error "ruby not found — it normally ships with macOS."
+        IOS_MISSING=1
+    elif ruby -e "require 'xcodeproj'" >/dev/null 2>&1; then
+        print_ok "ruby $(ruby -e 'print RUBY_VERSION') with the xcodeproj gem"
+    else
+        print_info "The Ruby 'xcodeproj' gem is missing — installing it now."
+        # --user-install, deliberately NOT sudo: this lands in ~/.gem, which is
+        # already on Ruby's search path, instead of writing into the system
+        # Ruby that macOS owns and replaces on update. Every dependency is pure
+        # Ruby, so there is nothing to compile and nothing to elevate for.
+        printf "\n"
+        if gem install --user-install xcodeproj; then
+            printf "\n"
+            if ruby -e "require 'xcodeproj'" >/dev/null 2>&1; then
+                print_ok "xcodeproj installed in $(ruby -e 'require "rubygems"; print Gem.user_dir')"
+            else
+                print_warn "The gem installed but ruby still cannot load it."
+                print_info  "Something is overriding the gem path — compare:"
+                printf "    gem env | grep -A3 'GEM PATHS'\n"
+                IOS_MISSING=1
+            fi
+        else
+            printf "\n"
+            print_warn "Could not install the xcodeproj gem — signing cannot run without it."
+            print_info  "Try it by hand:  gem install --user-install xcodeproj"
+            IOS_MISSING=1
+        fi
+    fi
+
+    # Python packages for iOS are standalone in requirements_ios.txt (full app
+    # stack + device libs — not shared with requirements_mac.txt), installed
+    # into the same .venv/ on top of step 3's.
+    print_sub "Device tooling"
+    if [ ! -f "$IOS_REQUIREMENTS" ]; then
+        print_error "$IOS_REQUIREMENTS not found in $(pwd)"
+        print_info  "That file lists the iOS Python packages."
+        IOS_MISSING=1
+    elif "$VENV_PYTHON" -c "import pymobiledevice3" >/dev/null 2>&1; then
+        print_ok "pymobiledevice3 available in $VENV_DIR/"
+    else
+        print_info "Installing iOS Python packages from $IOS_REQUIREMENTS …"
+        if uv pip install --python "$VENV_PYTHON" -r "$IOS_REQUIREMENTS"; then
+            if "$VENV_PYTHON" -c "import pymobiledevice3" >/dev/null 2>&1; then
+                print_ok "Installed packages from $IOS_REQUIREMENTS"
+            else
+                print_warn "Install finished but pymobiledevice3 still does not import."
+                IOS_MISSING=1
+            fi
+        else
+            print_warn "Could not install $IOS_REQUIREMENTS."
+            print_info  "Install it by hand with:"
+            print_info  "  uv pip install --python $VENV_PYTHON -r $IOS_REQUIREMENTS"
+            IOS_MISSING=1
+        fi
+    fi
+
+    # Can Xcode actually TARGET a simulator? `xcrun simctl` reads the
+    # system-wide CoreSimulator runtime store, so it can list and boot devices
+    # that the SELECTED Xcode has no platform support for. xcodebuild then
+    # refuses those devices ("Unable to find a destination...") halfway
+    # through an agent run. One second here beats that every time.
+    print_sub "Simulator support"
+    if sim_buildable; then
+        print_ok "Xcode can build for the iOS Simulator"
+        return 0
+    fi
+    print_warn "Xcode cannot target any iOS Simulator on this Mac."
+    print_info "\`xcrun simctl\` may still list and boot simulators — that store is"
+    print_info "system-wide — but the selected Xcode has no iOS platform support,"
+    print_info "so builds fail with \"Unable to find a destination\"."
+    printf "\n"
+    print_info "The missing piece is Xcode's iOS platform: an ~8.5 GB download from"
+    print_info "Apple, once. This is the right moment for it — the agent will never"
+    print_info "start a download of this size mid-run."
+    printf "\n"
+
+    # Setup is where a big one-time install belongs, so offer it here, as a
+    # yes/no with a countdown like every question in this script: no answer,
+    # or a run nobody can answer (CI, a pipe), declines and reports.
+    if [ "$ASSUME_YES" = "1" ] || ask_yes_no "Download and install it now (~8.5 GB from Apple)?" "$ASK_SECONDS"; then
+        print_info "Running: xcodebuild -downloadPlatform iOS"
+        printf "\n"
+        if xcodebuild -downloadPlatform iOS; then
+            printf "\n"
+            if sim_buildable; then
+                print_ok "iOS platform installed — Xcode can build for the iOS Simulator"
+            else
+                print_warn "The download finished but Xcode still targets no simulator."
+                print_info "Check that xcode-select points at the Xcode you expect:"
+                printf "    xcode-select -p\n"
+                printf "    sudo xcodebuild -runFirstLaunch\n"
+                IOS_MISSING=1
+            fi
+        else
+            printf "\n"
+            print_warn "xcodebuild -downloadPlatform iOS did not complete."
+            print_info "Re-run this script to try again, or install it from"
+            print_info "Xcode > Settings > Components."
+            IOS_MISSING=1
+        fi
+    else
+        print_info "Skipped. Install it later with either of:"
+        printf "    bash setup_mac.sh --yes               # re-run and install without asking\n"
+        printf "    xcodebuild -downloadPlatform iOS      # or Xcode > Settings > Components\n"
+        printf "    xcode-select -p                       # confirm the right Xcode is selected\n"
+        printf "\n"
+        print_info "Simulation mode (the default) needs this; hardware-only use does not."
+        IOS_MISSING=1
+    fi
+    return 0
+}
+
+print_step "STEP 7: iPhone / iPad control (optional)"
+print_info "Drives an iPhone or iPad, or the iOS Simulator. It needs full Xcode and"
+print_info "WebDriverAgent, cloned from the Appium project (BSD 3-Clause, never"
+print_info "shipped in this repo); the simulator also needs Xcode's iOS platform,"
+print_info "a one-time ~8.5 GB download from Apple, asked about separately."
+IOS_STATE="skipped"
+IOS_MISSING=0
+if [ "$IOS" = "1" ] || ask_yes_no "Set up iPhone / iPad control too?" "$ASK_SECONDS"; then
+    if setup_ios; then
+        if [ "$IOS_MISSING" = "0" ]; then IOS_STATE="ready"; else IOS_STATE="incomplete"; fi
+    else
+        IOS_STATE="failed"
+    fi
+else
+    print_info "Skipped. Set it up later with:  bash setup_mac.sh --ios"
+fi
+
+# -----------------------------------------------------------------------------
 # Done
 # -----------------------------------------------------------------------------
 print_step "SETUP COMPLETE"
@@ -301,10 +628,24 @@ printf "    source %s/bin/activate\n" "$VENV_DIR"
 [ -f "app.py" ]              && printf "    python app.py                # launch the GUI app\n"
 [ -f "mac_binary_build.py" ] && printf "    python mac_binary_build.py   # produce AutoCua.dmg\n"
 printf "\n"
-# iOS is optional and needs Xcode, so it lives in its own script rather than
-# making every install pay for a WebDriverAgent clone it may never use.
-if [ -f "setup_ios.sh" ]; then
-    print_info "Want to drive an iPhone or iPad? That needs Xcode and one extra step:"
-    printf "    bash setup_ios.sh            # fetches WebDriverAgent, checks the toolchain\n"
-    printf "\n"
-fi
+case "$IOS_STATE" in
+    ready)
+        print_ok "iPhone / iPad: WebDriverAgent ready at $WDA_DIR  (version: $WDA_ACTUAL)"
+        print_info "To sign it onto a device, open the sign & run UI, either way works:"
+        printf "    python main.py                             # the app: Settings > Connect Device > iPhone\n"
+        printf "    python AutoCua/ios_connector/setup.py      # or standalone, on port 8765\n"
+        print_info "You will need an Apple ID added in Xcode (Settings > Accounts), and"
+        print_info "the iPhone on USB, unlocked and trusting this Mac. A free Apple ID's"
+        print_info "profiles expire after 7 days, so re-signing is weekly; a paid"
+        print_info "developer account lasts a year."
+        ;;
+    incomplete|failed)
+        print_warn "iPhone / iPad: not ready yet — fix the items marked above, then re-run:"
+        printf "    bash setup_mac.sh --ios      # reuses everything already in place\n"
+        ;;
+    *)
+        print_info "Want to drive an iPhone or iPad later? It needs Xcode:"
+        printf "    bash setup_mac.sh --ios\n"
+        ;;
+esac
+printf "\n"
