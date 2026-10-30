@@ -25,6 +25,9 @@ import atexit
 import inspect
 import json
 import os
+# run_agent takes `os`, the phone's OS, as an argument, which hides the module
+# inside it: the environment comes in under its own name for that.
+from os import environ
 import platform
 import plistlib
 import shutil
@@ -554,7 +557,7 @@ def run_agent(mode, provider, model, task, os=None,
             # The simulator runs headless and shows in our own window instead
             # of Simulator.app. It opens right away ("Preparing simulation")
             # and gets the phone once it is ready, in the try below.
-            from AutoCua.ios_connector.sim_view import open_view, close_view
+            from AutoCua.utils.sim_view import open_view, close_view
             sim_window = open_view()
             try:
                 phone = _connect_simulator(ios_version, sim_device=sim_device, build=build)
@@ -576,7 +579,7 @@ def run_agent(mode, provider, model, task, os=None,
             # The emulator draws no window of its own: the iOS Simulator's
             # window shows its screen, from the agent's preview stream, once
             # the agent is built below.
-            from AutoCua.ios_connector.sim_view import open_view, close_view
+            from AutoCua.utils.sim_view import open_view, close_view
             from AutoCua.android_connector.stream import _free_ports
             sim_window = open_view(title="Android Emulator")
             try:
@@ -592,11 +595,11 @@ def run_agent(mode, provider, model, task, os=None,
                 close_view(sim_window)
                 raise
             preview = _free_ports(1)[0]
-            os.environ[PREVIEW_ENV] = str(preview)
+            environ[PREVIEW_ENV] = str(preview)
     agent_glow = None
     try:
         if sim_window is not None and emulator is None:
-            from AutoCua.ios_connector.sim_view import show_phones
+            from AutoCua.utils.sim_view import show_phones
             show_phones(sim_window, [{"name": phone.status().get("name") or "Simulator",
                                       "port": phone.mjpeg_port}])
         # Terminal mode's half of the desktop cue the UI sets in
@@ -616,7 +619,7 @@ def run_agent(mode, provider, model, task, os=None,
         agent = AgentService(**_supported_kwargs(AgentService, kwargs))
         if sim_window is not None and emulator is not None:
             # The agent's scanner is up, and with it the preview stream.
-            from AutoCua.ios_connector.sim_view import show_phones
+            from AutoCua.utils.sim_view import show_phones
             show_phones(sim_window, [{"name": f"Android {emulator.version} {emulator.kind}", "port": preview}])
         return agent.process_request(task)
     finally:
@@ -626,13 +629,13 @@ def run_agent(mode, provider, model, task, os=None,
             except Exception:
                 pass
         if sim_window is not None:
-            from AutoCua.ios_connector.sim_view import close_view
+            from AutoCua.utils.sim_view import close_view
             close_view(sim_window)
         if phone is not None:
             phone.deactivate()
             print(f"📱 {'Android' if mobile_os == 'android' else 'iOS'} connection closed")
         if emulator is not None:
-            os.environ.pop(PREVIEW_ENV, None)
+            environ.pop(PREVIEW_ENV, None)
             _pin_android_serial(pinned)
             emulator.deactivate()
             print("📱 Emulator closed")
@@ -669,7 +672,7 @@ def run_parallel_sim_agents(tasks, provider, model, save_conversation=False,
         # Every simulator in one window, side by side, instead of
         # Simulator.app's windows stacked on top of each other. It opens now
         # ("Preparing simulation") and gets the phones once they are ready.
-        from AutoCua.ios_connector.sim_view import open_view, show_phones
+        from AutoCua.utils.sim_view import open_view, show_phones
         sim_window = open_view()
 
         # 1. Claim a distinct simulator + port per task. Resolving is quick
@@ -863,7 +866,7 @@ def run_parallel_sim_agents(tasks, provider, model, save_conversation=False,
         # deactivate once more so a runner spawned in the last instant before
         # the cancel is reaped too.
         if sim_window is not None:
-            from AutoCua.ios_connector.sim_view import close_view
+            from AutoCua.utils.sim_view import close_view
             close_view(sim_window)
 
         def _close_all():
@@ -916,7 +919,7 @@ def run_parallel_emulator_agents(tasks, provider, model, save_conversation=False
         # Every copy in one window, side by side, as the iOS simulators: the
         # emulators draw none of their own. It opens now ("Preparing
         # simulation") and gets the screens once the agents stream them.
-        from AutoCua.ios_connector.sim_view import open_view, show_phones
+        from AutoCua.utils.sim_view import open_view, show_phones
         from AutoCua.android_connector.stream import _free_ports
         sim_window = open_view(title="Android Emulator")
 
@@ -1056,7 +1059,7 @@ def run_parallel_emulator_agents(tasks, provider, model, save_conversation=False
         # deactivate() also stops a copy whose boot is still going in its
         # thread, and a second Ctrl+C here still reaches every copy.
         if sim_window is not None:
-            from AutoCua.ios_connector.sim_view import close_view
+            from AutoCua.utils.sim_view import close_view
             close_view(sim_window)
         for _i, session in sessions:
             try:

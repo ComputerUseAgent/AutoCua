@@ -35,6 +35,9 @@
             shell: 'Shell use', web: 'Web use'
         };
         var SUB_LABEL = { thispc: 'This PC', daisy: 'Daisy chain', ios: 'iOS', android: 'Android' };
+        // iOS needs a Mac: its row is hidden elsewhere (agent_mode.css), and a
+        // selection that names it (a reopened chat's) is not restored.
+        var IOS_HERE = document.documentElement.dataset.host === 'mac';
 
         // Modes with NO sub-menu at all. They're selectable on their own, so
         // they must skip the "pick a sub-option first" gate below that Mobile
@@ -232,7 +235,7 @@
             var d = e.detail || {};
             if (d.mode && MODE_LABEL[d.mode]) {
                 state.mode = d.mode;
-                if (d.sub !== undefined) state.subs[d.mode] = d.sub;
+                if (d.sub !== undefined) state.subs[d.mode] = (d.sub === 'ios' && !IOS_HERE) ? null : d.sub;
             }
             if (state.mode !== 'mobile') state.subs.mobile = null;   // same rule as commit()
             setShellInput('auto');                                    // paints

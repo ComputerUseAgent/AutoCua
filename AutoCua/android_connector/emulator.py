@@ -622,21 +622,34 @@ def _first_boot_done(name):
 
 
 def _saved_first_boot(log_path, folder):
-    """True when the stopped first boot really saved its snapshot: its log
-    says the save took time (a boot that was cut short says "Not saving
-    state" and "took 0 ms"), and the snapshot's memory and record files are
-    there with their size."""
+    """None when the stopped first boot really saved its snapshot, else why
+    not, for the error: its log must say the save took time (a boot that was
+    cut short says "Not saving state" and "took 0 ms"), and the snapshot's
+    record and memory files must be there with their size. The memory is
+    ram.bin, or ram.img where the emulator keeps it file-backed (the
+    default on current emulators: the save then only flushes it)."""
     try:
         text = Path(log_path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return False
+    except OSError as e:
+        return f"its log could not be read ({e})"
     took = re.findall(r"Saving snapshot 'default_boot' took (\d+) ms", text)
+    if "Not saving state" in text:
+        return "the emulator said \"Not saving state\""
+    if not took:
+        return "its log has no line about saving the snapshot"
+    if int(took[-1]) == 0:
+        return "the save took 0 ms, so nothing was written"
     snap = folder / "snapshots" / "default_boot"
     try:
-        return (bool(took) and int(took[-1]) > 0 and "Not saving state" not in text
-                and (snap / "snapshot.pb").stat().st_size > 100 and (snap / "ram.bin").stat().st_size > 1_000_000)
-    except OSError:
-        return False
+        files = {p.name: p.stat().st_size for p in snap.iterdir()} if snap.is_dir() else {}
+    except OSError as e:
+        return f"the snapshot folder could not be read ({e})"
+    listing = ", ".join(f"{n} ({s} bytes)" for n, s in sorted(files.items())) or "nothing"
+    if files.get("snapshot.pb", 0) <= 100:
+        return f"the snapshot record is missing or empty (the folder holds: {listing})"
+    if max(files.get("ram.bin", 0), files.get("ram.img", 0)) <= 1_000_000:
+        return f"the snapshot's memory file is missing or empty (the folder holds: {listing})"
+    return None
 
 
 def _supported():
@@ -672,8 +685,10 @@ def _first_boot(name, key, kind, log, owner):
         if owner is not None and owner._stopping.is_set():
             raise RuntimeError("stopped while the emulator was starting")
         first.deactivate()
-        if not _saved_first_boot(first._log_path, folder):
-            raise RuntimeError(f"The emulator did not save {name}'s first boot (its log: {first._log_path})")
+        why = _saved_first_boot(first._log_path, folder)
+        if why:
+            raise RuntimeError(f"The emulator did not save {name}'s first boot: {why} "
+                               f"(its log: {first._log_path})")
         (folder / FIRST_BOOT_MARK).write_text(f"first boot saved on {time.strftime('%Y-%m-%d %H:%M')}\n")
     except BaseException:
         first.deactivate(save=False)
@@ -776,7 +791,7 @@ class EmulatorSession:
         env = dict(os.environ, ANDROID_SDK_ROOT=str(sdk), ANDROID_HOME=str(sdk), ANDROID_AVD_HOME=str(avd_home()))
         # -no-window: the emulator draws no window of its own; the run shows
         # its screen in AutoCua's window, like an iOS Simulator (the preview
-        # stream of android/tree/element.rs, in ios_connector/sim_view.py).
+        # stream of android/tree/element.rs, in utils/sim_view.py).
         cmd = [str(exe), "-avd", name, "-no-window", "-no-boot-anim", "-no-audio", "-no-metrics",
                "-crash-report-mode", "never"]
         if not self._first_boot:

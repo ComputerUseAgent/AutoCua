@@ -15,7 +15,7 @@ same session a "mobile use, ios" hardware run uses
 answer within CHECK_SEC, and ios_agent is simply not listed. The end of the
 request lets the phone go.
 
-The phone window (ios_connector/sim_view) opens only when a task is first
+The phone window (utils/sim_view) opens only when a task is first
 delegated to the phone: "iPhone connected" shimmering on the gradient, then
 the live screen. It stays for the rest of the request.
 
@@ -148,7 +148,7 @@ def _close_window(win) -> None:
     if win is None:
         return
     try:
-        from AutoCua.ios_connector.sim_view import close_view
+        from AutoCua.utils.sim_view import close_view
         close_view(win)
     except Exception:
         pass
@@ -382,7 +382,7 @@ class PhoneLink:
 
     def _open_window(self):
         """"iPhone connected" shimmering on the gradient, then the live screen."""
-        from AutoCua.ios_connector import sim_view
+        from AutoCua.utils import sim_view
         from AutoCua.ios_connector.session import wda_session
         win = sim_view.open_view(text=f"{self._model or 'Phone'} connected", title=self.name,
                                  device="ipad" if self._model.lower() == "ipad" else "iphone")

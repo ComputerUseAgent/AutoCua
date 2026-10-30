@@ -116,10 +116,11 @@ def _probe_tls() -> None:
     HTTPAdapter.init_poolmanager = _use_os_store
     try:
         requests.get(probe, timeout=6)
-        print("[tls] antivirus/proxy HTTPS interception detected -- using the "
-              "Windows certificate store so OpenRouter/OpenAI verify. To "
-              "restore default verification, turn off HTTPS/SSL scanning for "
-              "those API domains in your antivirus (e.g. Norton Web/Mail Shield).",
+        print("[tls] an antivirus or proxy re-signs HTTPS on this computer -- the "
+              "AI providers' API calls verify against the Windows certificate "
+              "store instead. Nothing to do; to go back to the default, turn off "
+              "HTTPS/SSL scanning for those domains in the antivirus (e.g. "
+              "Norton Web/Mail Shield).",
               file=sys.stderr, flush=True)
         try:
             import httpx
