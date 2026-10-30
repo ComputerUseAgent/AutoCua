@@ -52,7 +52,7 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             // Wireless or Wired: the chat box's toggle (chat_input/link_toggle.js)
-            body: JSON.stringify({ link: window.phoneLink ? window.phoneLink() : 'wireless' })
+            body: JSON.stringify({ link: window.phoneLink ? window.phoneLink() : 'wired' })
         })
             .then(function (r) { return r.json(); })
             .then(function (d) {

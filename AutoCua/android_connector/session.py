@@ -12,7 +12,9 @@ so a helper never outlives this process (the helper holds Android's one
 UiAutomation slot: a leftover one makes the next run's helper fail with
 "already registered").
 
-agent_launcher.run_agent does both around a "mobile use, android" run.
+agent_launcher.run_agent does both around a "mobile use, android" run. With
+device="simulation" it first boots an emulator (emulator.py) and names it
+here by its serial (emulator-<port>); a phone pick never takes an emulator.
 
 The desktop app has the iPhone's two steps too. Settings → Connect Device
 checks a phone once (confirm with keep=False) and remembers it in
@@ -21,18 +23,18 @@ ios_connector/session.py remembers a paired iPhone. The chat box's Android
 pick then starts the helper on the newest remembered phone that is plugged in
 (confirm with keep=True).
 
-In the desktop app (WIRELESS, which ui/service.py turns on; a terminal run is
-cable only) a remembered phone works over Wi-Fi too, when it is not plugged in
-and has Wireless debugging on (Android 11 and up, the same Wi-Fi as this computer):
-activate() finds it by its USB serial in the name it announces and connects
-it (adb.py's wifi_addresses and wifi_connect); its adb serial is then
-"ip:port", and "phone" keeps its USB serial. Only remembered phones: a phone
-is never reached over Wi-Fi before it was connected over USB in Settings.
-USB comes first; the chat box's pick takes the newest remembered phone on
-Wi-Fi only when none is plugged in. Except with the chat box's Wireless /
-Wired toggle (link="wireless" / "wired" on confirm and activate): Wireless,
-its default, reaches the phone over Wi-Fi only, also with its cable in, and
-Wired over USB only. The app's run then connects the way its pick did.
+A remembered phone works over Wi-Fi too, when the desktop app's Wireless /
+Wired toggle says so (link="wireless" on confirm and activate; Wired, its
+default, is USB only) and the phone has Wireless debugging on (Android 11 and
+up, the same Wi-Fi as this computer): activate() finds it by its USB serial in
+the name it announces and connects it (adb.py's wifi_addresses and
+wifi_connect); its adb serial is then "ip:port", and "phone" keeps its USB
+serial. Only remembered phones: a phone is never reached over Wi-Fi before it
+was connected over USB in Settings. Wireless reaches the phone over Wi-Fi
+only, also with its cable in, and Wired over USB only; with no link given (a
+terminal run, Settings' check) the cable is the only way. The app's run then
+connects the way its pick did. Computer use's android_agent follows the same
+toggle through WIRELESS below.
 """
 
 import atexit
@@ -42,16 +44,18 @@ import socket
 import threading
 import time
 
-from AutoCua.android_connector.adb import (HINTS, NO_PERMISSIONS, _adb, _wireless, adb_path, connect, devices,
-                                           wifi_addresses, wifi_connect)
+from AutoCua.android_connector.adb import (HINTS, NO_PERMISSIONS, _adb, _emulator, _wireless, adb_path, connect,
+                                           devices, wifi_addresses, wifi_connect)
 from AutoCua.android_connector.stream import Stream
 
 # Picks one phone when several are plugged in (adb's serial). Unset: the one
 # USB phone.
 SERIAL_ENV = "AutoCua_ANDROID_SERIAL"
-# A phone over Wi-Fi is the desktop app's only (owner, 2026-10-29): its
-# Wireless / Wired toggle and its computer-use runs. ui/service.py turns this
-# on at start; a terminal run leaves it off and is cable only.
+# The desktop app's Wireless / Wired toggle, for computer use's android_agent
+# (controller/tool/android_agent.py): ui/service.py sets it on every flip.
+# True is the Wi-Fi only (a remembered phone with Wireless debugging on),
+# False the cable only. Off by default, and a terminal run never turns it on,
+# so a script reaches a phone over Wi-Fi never (owner, 2026-10-30).
 WIRELESS = False
 
 # How long the app's Connect waits for a phone that is not ready (the
@@ -135,8 +139,8 @@ def phones():
         raise RuntimeError(f"adb start-server failed: {started.stderr.strip()}")
     found = []
     for serial, state in devices(adb):
-        if _wireless(serial):
-            continue                                # USB only for now, as connect()
+        if _wireless(serial) or _emulator(serial):
+            continue                                # USB phones only, as connect()
         phone = {"serial": serial, "state": state, "model": "", "version": "", "hint": ""}
         if state == "device":
             props = _adb(adb, "-s", serial, "shell", "getprop ro.product.model; "
@@ -164,30 +168,26 @@ def _link(serial):
 
 
 def _reach(serial, wait, link=None):
-    """(adb, adb serial, phone serial) for activate(). USB first, as connect()
+    """(adb, adb serial, phone serial) for activate(). The cable, as connect()
     finds a phone; with none named, the newest remembered phone that is
-    plugged in. A remembered phone that is not on USB is looked for on
-    Wi-Fi: `serial` when it names one, else (no serial, no phone on USB at
-    all) the newest one there. A Wi-Fi address named as `serial` is used only
-    when the phone there is a remembered one. No other phone is ever reached
-    over Wi-Fi. link, the chat box's toggle: "wireless" is Wi-Fi only (a
-    remembered phone, also with its cable in), "wired" USB only."""
+    plugged in. link, the chat box's toggle: "wireless" is Wi-Fi only (a
+    remembered phone, `serial` when it names one, else the newest one there,
+    also with its cable in); "wired", or no link (a terminal run, Settings'
+    check), is USB only. A Wi-Fi address named as `serial` is used only when
+    the phone there is a remembered one. No other phone is ever reached over
+    Wi-Fi."""
     adb = adb_path()
     if not adb:
         raise RuntimeError("adb is not available")
     started = _adb(adb, "start-server")
     if started.returncode != 0:
         raise RuntimeError(f"adb start-server failed: {started.stderr.strip()}")
-    usb = [s for s, _ in devices(adb) if not _wireless(s)]
+    usb = [s for s, _ in devices(adb) if not _wireless(s) and not _emulator(s)]
     saved = [d["serial"] for d in paired_devices()]
-    if link == "wired" or (link is None and not WIRELESS):
-        wanted = []                             # the cable only: Wired, or a terminal run
-    elif link == "wireless":
+    if link == "wireless":
         wanted = ([serial] if serial in saved else []) if serial else saved
-    elif serial:
-        wanted = [serial] if serial in saved and serial not in usb else []
     else:
-        wanted = [] if usb else saved
+        wanted = []                             # the cable only: Wired, or no link named
     found = wifi_addresses(adb, wanted)
     for phone in wanted:                        # newest first
         if phone in found:
@@ -266,7 +266,7 @@ class AndroidSession:
         serial (a remembered phone that is not plugged in is looked for on
         Wi-Fi). wait: how long a phone that is not ready yet (Allow not
         tapped, still starting) gets. link: "wireless" / "wired" (_reach's),
-        None for USB first.
+        None for the cable.
 
         Returns {"ok": True, "state": "connected", "serial", "phone", "model",
         "adb", "port", "tree_port"} ("serial" is adb's, "ip:port" on Wi-Fi;
@@ -303,8 +303,8 @@ class AndroidSession:
         time, and a run may be reading through it), unless the toggle asks
         for the other link.
         """
-        if link:
-            self.link = link
+        if link and keep:
+            self.link = link    # the chat box's pick; a check (keep=False) leaves it
         if not serial:
             saved = paired_devices()
             if not saved:

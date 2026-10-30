@@ -65,6 +65,18 @@ _live_lock = threading.Lock()
 _exiting = False      # set by finalize_all: no UI calls during teardown
 
 
+
+def _say(text):
+    """A line for the terminal, when there is one. The app may have swapped
+    or closed stdout (a run started from Telegram showed a closed one), and a
+    recorder thread must never die on its own log line: the video's finish
+    would be skipped with it."""
+    try:
+        print(text, flush=True)
+    except (ValueError, OSError):
+        pass
+
+
 def supported() -> bool:
     """True when this machine can record: macOS with OpenCV, or Linux and
     Windows with imageio-ffmpeg and the ffmpeg it bundles."""
@@ -95,7 +107,7 @@ def start(ui_window, kind, on_done=None):
         rec.begin()
         return rec
     except Exception as e:
-        print(f"[recorder] could not start: {e}")
+        _say(f"[recorder] could not start: {e}")
         return None
 
 
@@ -385,7 +397,7 @@ class _Stream:
                     wake = now + 1.0 / FPS
                 time.sleep(max(0.0, wake - time.monotonic()))
         except Exception as e:
-            print(f"[recorder] {self.path.name} stopped: {e}")
+            _say(f"[recorder] {self.path.name} stopped: {e}")
         finally:
             if self.writer is not None:
                 try:
@@ -393,7 +405,7 @@ class _Stream:
                     os.replace(self.part, self.path)
                     self.saved = True
                 except Exception as e:
-                    print(f"[recorder] could not save {self.path.name}: {e}")
+                    _say(f"[recorder] could not save {self.path.name}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +531,7 @@ class _PipeWireScreen:
                 if not self._open():
                     return None
             except Exception as e:
-                print(f"[recorder] no Linux screen stream: {e}")
+                _say(f"[recorder] no Linux screen stream: {e}")
                 self.failed = True
                 return None
         sample = self.sink.emit("try-pull-sample", 100_000_000)   # 100 ms, in ns
@@ -533,7 +545,7 @@ class _PipeWireScreen:
                 self.warned = True
                 msg = self.pipe.get_bus().pop_filtered(self.Gst.MessageType.ERROR)
                 why = msg.parse_error()[0].message if msg else "no error reported"
-                print(f"[recorder] no frame from the screen stream after 3 s ({why})")
+                _say(f"[recorder] no frame from the screen stream after 3 s ({why})")
             return None
         self.got, self.pending = True, None
         caps = sample.get_caps().get_structure(0)
@@ -581,7 +593,7 @@ class _Screencast:
         try:
             from websockets.sync.client import connect
         except Exception as e:
-            print(f"[recorder] no websocket client for Chrome's screencast: {e}")
+            _say(f"[recorder] no websocket client for Chrome's screencast: {e}")
             return
         # Chrome is on this machine: never go through an http(s)_proxy from
         # the environment (websockets 15+ would, and so would urllib).
@@ -958,7 +970,7 @@ class _Desktop:
             self.retry_at = time.monotonic() + self.RETRY
             if not self.warned:
                 self.warned = True
-                print(f"[recorder] screen through GDI while duplication is unavailable: {e}")
+                _say(f"[recorder] screen through GDI while duplication is unavailable: {e}")
 
     def _open(self):
         """The duplication of the output at the desktop's origin (the primary
@@ -1331,7 +1343,7 @@ class _Recorder:
     def _finish(self):
         saved = any(s.saved for s in self._streams)
         if saved:
-            print(f"[recorder] saved {self.path}")
+            _say(f"[recorder] saved {self.path}")
         else:
             try:
                 self.path.rmdir()       # nothing was ever captured: no empty folder

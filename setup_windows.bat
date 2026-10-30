@@ -352,7 +352,7 @@ echo [OK] Found !GCCLINE!
 :: already watching, rather than mid-task minutes into an agent run.
 echo.
 echo ============================================
-echo   Building the web agent
+echo   Building the web agent and the Android agent
 echo ============================================
 echo.
 echo [*] First build takes a few minutes...
@@ -364,6 +364,21 @@ if !errorlevel! neq 0 (
     echo     Re-run this script after fixing the error above to retry.
 ) else (
     echo [OK] Web agent built
+)
+:: The Android agent (AutoCua\android, Rust like the web agent) is built the
+:: same way, so the first "mobile use, android" run does not stop for a build.
+:: The emulator and the Android images are NOT fetched here (2.5 GB, Google's
+:: terms): the first emulator run does that, or
+:: python -m AutoCua.android_connector.emulator ahead of time.
+echo [*] Building the Android agent, about a minute...
+"venv\Scripts\python.exe" -c "import AutoCua.android.agent"
+if !errorlevel! neq 0 (
+    echo.
+    echo [^^!] The Android agent did not build. Everything else still works -
+    echo     only "mobile use, android" needs it.
+    echo     Re-run this script after fixing the error above to retry.
+) else (
+    echo [OK] Android agent built
 )
 
 :: --- 9. Fetch + install the Interception driver ---

@@ -9,9 +9,14 @@
 #                                WDA connection is opened before the run and
 #                                closed after it (ios_connector).
 #   mode = "mobile use, android" -> Android agent (AutoCua/android, Rust like the
-#                                web agent) driving the phone on USB: adb and the
-#                                phone helper are started before the run and
-#                                stopped after it (android_connector/session.py).
+#                                web agent). By default it runs on an Android
+#                                EMULATOR (device="simulation", android_version
+#                                picks the Android, sim_device "phone"/"tablet";
+#                                android_connector/emulator.py); pass
+#                                device="hardware" to drive the phone on USB.
+#                                Either way adb and the phone helper are started
+#                                before the run and stopped after it
+#                                (android_connector/session.py).
 #                                AutoCua_ANDROID_SERIAL picks one phone when
 #                                several are plugged in.
 #   mode = "web use"          -> browser agent driving CDP-controlled Chrome
@@ -158,9 +163,10 @@ def _connect_iphone(poll_every=2.0, deadline=90.0):
     raise RuntimeError(f"📱 iPhone connection timed out after {int(deadline)}s")
 
 
-def _connect_android():
+def _connect_android(serial=None):
     """Start the Android phone's helper (adb, scrcpy's server, the tree reader)
     and wait until the phone is ready. The counterpart of _connect_iphone.
+    serial: the emulator's, for a device="simulation" run.
 
     Returns the live android_session; raises RuntimeError if the phone can't
     be reached (adb.py already said what to do on the phone meanwhile).
@@ -168,11 +174,55 @@ def _connect_android():
     from AutoCua.android_connector.session import android_session
 
     print("📱 Connecting Android phone...")
-    res = android_session.activate()
+    res = android_session.activate(serial)
     if not res.get("ok"):
         raise RuntimeError(f"📱 Android connection failed: {res.get('error')}")
     print(f"📱 Android phone connected ({res.get('model')}, {res.get('serial')})")
     return android_session
+
+
+# The port the Android agent serves its screen on as MJPEG (android/tree/
+# element.rs), for the run's window: set before the agent is built.
+PREVIEW_ENV = "AutoCua_ANDROID_PREVIEW_PORT"
+
+
+def _pin_android_serial(serial):
+    """Set AutoCua_ANDROID_SERIAL to serial (None unsets it); returns what it
+    was. A simulation run pins its emulator there, so the screen reader, when
+    it starts the phone helper again mid-run, stays on that emulator and never
+    takes a phone that is plugged in too. The run puts the old value back."""
+    from AutoCua.android_connector.session import SERIAL_ENV
+
+    before = os.environ.get(SERIAL_ENV)
+    if serial is None:
+        os.environ.pop(SERIAL_ENV, None)
+    else:
+        os.environ[SERIAL_ENV] = serial
+    return before
+
+
+def _connect_emulator(android_version=None, sim_device=None, build=None):
+    """Boot an Android emulator (sim_device: "phone" / "tablet") for the run,
+    fetching Google's emulator and that Android the first time, and install
+    build (from _android_app_build) once Android has started. The counterpart
+    of _connect_simulator.
+
+    Returns the live EmulatorSession; raises RuntimeError if it can't start.
+    """
+    from AutoCua.android_connector.emulator import EmulatorSession
+
+    emulator = EmulatorSession()
+    res = emulator.activate(android_version, device=sim_device)
+    if not res.get("ok"):
+        raise RuntimeError(f"📱 Emulator failed to start: {res.get('error')}")
+    print(f"📱 Emulator ready — Android {res['version']} {res['device']} ({res['serial']})")
+    if build:
+        try:
+            _install_apk(res["serial"], build)
+        except BaseException:
+            emulator.deactivate()
+            raise
+    return emulator
 
 
 def _connect_simulator(ios_version=None, poll_every=2.0, deadline=600.0, sim_device=None,
@@ -314,7 +364,34 @@ def _install_in_background(udid, build):
     return wait
 
 
-def _ios_device_target(device):
+def _android_app_build(app_build):
+    """AutoCua_data/app_build/<app_build>, an .apk, ready to install on an
+    emulator: (file name, path). Raises if it is missing or not an .apk — the
+    agent can't run without it."""
+    from AutoCua import data_root
+
+    path = data_root() / "app_build" / app_build
+    if not path.is_file():
+        raise RuntimeError(f"📱 app_build not found: {path} — the agent can't run without it")
+    if path.suffix.lower() != ".apk":
+        raise RuntimeError(f"📱 app_build for Android must be an .apk — got {path.name}")
+    return path.name, path
+
+
+def _install_apk(serial, build):
+    """Install the .apk on one emulator. adb install waits until Android has
+    it, and says Success; anything else raises."""
+    from AutoCua.android_connector.adb import _adb, adb_path
+
+    name, path = build
+    print(f"📱 Installing {name} on {serial}...")
+    res = _adb(adb_path(), "-s", serial, "install", "-r", str(path), timeout=600)
+    if res.returncode != 0 or "Success" not in res.stdout:
+        raise RuntimeError(f"📱 Installing {name} failed: {(res.stderr or res.stdout).strip()}")
+    print(f"📱 {name} installed on {serial}")
+
+
+def _device_target(device):
     """Normalise the device flag to "simulation" (default) or "hardware"."""
     target = str(device or "simulation").strip().lower()
     if target == "simulator":
@@ -326,6 +403,7 @@ def _ios_device_target(device):
 
 def run_agent(mode, provider, model, task, os=None,
               device=None, ios_version=None, sim_device=None, app_build=None,
+              android_version=None,
               save_conversation=False, external_terminal=False,
               extra_tasks=None, ui=False, **agent_kwargs):
     """Create the AgentService for mode/os, run the task, return its response dict.
@@ -338,29 +416,37 @@ def run_agent(mode, provider, model, task, os=None,
     which the first launch asks about on the terminal), else in the
     pywebview window; AUTOCUA_UI=webview forces the pywebview one.
 
-    device ("mobile use, ios" only): "simulation" (the default) runs on an iOS
-    Simulator — ios_version picks the runtime (e.g. "26.5"; omitted = newest
-    installed) and sim_device picks the simulator: "iphone" (default), "ipad",
-    or an exact name such as "iPad Pro 11-inch (M5)" (an already-booted
-    simulator is reused only if it is that kind). "hardware" drives the paired
-    device - iPhone or iPad, whichever is paired - with whatever iOS it runs
-    (ios_version and sim_device are ignored). All three are ignored by every
-    other mode.
+    device ("mobile use, ios" and "mobile use, android"): "simulation" (the
+    default) runs on an iOS Simulator — ios_version picks the runtime (e.g.
+    "26.5"; omitted = newest installed) and sim_device picks the simulator:
+    "iphone" (default), "ipad", or an exact name such as "iPad Pro 11-inch
+    (M5)" (an already-booted simulator is reused only if it is that kind).
+    "hardware" drives the paired device - iPhone or iPad, whichever is paired
+    - with whatever iOS it runs (ios_version and sim_device are ignored).
+    On Android "simulation" runs on a fresh copy of an emulator
+    (android_connector/emulator.py, Google's emulator and images, fetched once
+    after Google's terms are accepted on the terminal; nothing survives a
+    run): android_version picks the Android ("11" to "17"; omitted = newest
+    one already here, else the newest) and sim_device "phone" (default) or
+    "tablet". "hardware" drives the phone on USB, with whatever Android it
+    runs. All of them are ignored by every other mode.
 
-    app_build ("mobile use, ios" simulation only): file name of a .app/.ipa in
-    AutoCua_data/app_build/, installed on the simulator once it is ready. The
-    run does not start unless the file exists and the app is installed.
+    app_build ("mobile use, ios" and "mobile use, android", simulation only):
+    file name of a .app/.ipa (iOS) or an .apk (Android) in
+    AutoCua_data/app_build/, installed on the simulator or emulator once it is
+    ready. The run does not start unless the file exists and the app is
+    installed.
 
-    extra_tasks ("web use", and "mobile use, ios" with device="simulation"):
-    optional list of additional task strings (main.py's task_2, task_3, ...).
-    Any non-empty entries make ALL tasks — including `task` — run in
-    parallel: on the web each as its own agent sharing one Chrome, pinned to
-    its own single tab; on iOS each on its own simulator.
+    extra_tasks ("web use", and "mobile use, ios" or "mobile use, android"
+    with device="simulation"): optional list of additional task strings
+    (main.py's task_2, task_3, ...). Any non-empty entries make ALL tasks —
+    including `task` — run in parallel: on the web each as its own agent
+    sharing one Chrome, pinned to its own single tab; on iOS each on its own
+    simulator; on Android each on its own copy of the emulator.
 
     For "mobile use, ios" and "mobile use, android" the device connection is
     opened first and always closed when the agent terminates (success, error,
-    or Ctrl+C). Android has no simulator: device, ios_version, sim_device and
-    app_build are ignored; the phone is the one on USB.
+    or Ctrl+C), and so are a simulator or an emulator the run started.
     """
     if ui:
         from AutoCua.ui.service import main as launch_ui
@@ -382,10 +468,16 @@ def run_agent(mode, provider, model, task, os=None,
         ensure_wda()
         if app_build:
             # No build, no run — checked before minutes of simulator booting.
-            if _ios_device_target(device) == "hardware":
+            if _device_target(device) == "hardware":
                 raise ValueError('app_build installs on the simulator only — use '
                                  'device="simulation" or set app_build=None')
             build = _unpack_app_build(app_build)
+    elif (kind, mobile_os) == ("mobile", "android") and app_build:
+        # The same before an emulator boots.
+        if _device_target(device) == "hardware":
+            raise ValueError('app_build installs on the emulator only — use '
+                             'device="simulation" or set app_build=None')
+        build = _android_app_build(app_build)
 
     extra = [str(t).strip() for t in (extra_tasks or []) if t and str(t).strip()]
     if extra:
@@ -401,7 +493,7 @@ def run_agent(mode, provider, model, task, os=None,
                 browser_profile=agent_kwargs.get("browser_profile"),
             )
         if (kind, mobile_os) == ("mobile", "ios"):
-            if _ios_device_target(device) == "hardware":
+            if _device_target(device) == "hardware":
                 raise ValueError(
                     'extra tasks (task_2, task_3, ...) need one device per task — '
                     'you only have one paired device. Use device="simulation" (the '
@@ -417,9 +509,26 @@ def run_agent(mode, provider, model, task, os=None,
                 sim_device=sim_device,
                 build=build,
             )
+        if (kind, mobile_os) == ("mobile", "android"):
+            if _device_target(device) == "hardware":
+                raise ValueError(
+                    'extra tasks (task_2, task_3, ...) need one device per task — '
+                    'a run drives one phone. Use device="simulation" (the '
+                    'default), which gives each task its own emulator.'
+                )
+            return run_parallel_emulator_agents(
+                [task] + extra,
+                provider=provider,
+                model=model,
+                save_conversation=save_conversation,
+                speed=agent_kwargs.get("speed"),
+                android_version=android_version,
+                sim_device=sim_device,
+                build=build,
+            )
         raise ValueError(
-            f'extra tasks (task_2, task_3, ...) are only supported in "web use" '
-            f'and "mobile use, ios" (device="simulation") — got "{mode}"'
+            f'extra tasks (task_2, task_3, ...) are only supported in "web use", '
+            f'"mobile use, ios" and "mobile use, android" (device="simulation") — got "{mode}"'
         )
 
     AgentService = resolve_agent_service(mode, os)
@@ -430,8 +539,9 @@ def run_agent(mode, provider, model, task, os=None,
 
     phone = None
     sim_window = None
+    emulator = pinned = preview = None
     if (kind, mobile_os) == ("mobile", "ios"):
-        target = _ios_device_target(device)
+        target = _device_target(device)
         if target == "hardware":
             if sim_device:
                 print('📱 sim_device is ignored with device="hardware" — the paired '
@@ -453,11 +563,39 @@ def run_agent(mode, provider, model, task, os=None,
                 raise
     elif (kind, mobile_os) == ("mobile", "android"):
         # The phone helper is up before the agent is built, and stopped in
-        # the finally below like the iOS connection.
-        phone = _connect_android()
+        # the finally below like the iOS connection; so is the emulator.
+        if _device_target(device) == "hardware":
+            if sim_device:
+                print('📱 sim_device is ignored with device="hardware" — the phone '
+                      'is whatever it is.')
+            if android_version:
+                print('📱 android_version is ignored with device="hardware" — '
+                      'the phone runs whatever Android it has')
+            phone = _connect_android()
+        else:
+            # The emulator draws no window of its own: the iOS Simulator's
+            # window shows its screen, from the agent's preview stream, once
+            # the agent is built below.
+            from AutoCua.ios_connector.sim_view import open_view, close_view
+            from AutoCua.android_connector.stream import _free_ports
+            sim_window = open_view(title="Android Emulator")
+            try:
+                emulator = _connect_emulator(android_version, sim_device=sim_device, build=build)
+                pinned = _pin_android_serial(emulator.serial)
+                try:
+                    phone = _connect_android(emulator.serial)
+                except BaseException:
+                    _pin_android_serial(pinned)
+                    emulator.deactivate()
+                    raise
+            except BaseException:
+                close_view(sim_window)
+                raise
+            preview = _free_ports(1)[0]
+            os.environ[PREVIEW_ENV] = str(preview)
     agent_glow = None
     try:
-        if sim_window is not None:
+        if sim_window is not None and emulator is None:
             from AutoCua.ios_connector.sim_view import show_phones
             show_phones(sim_window, [{"name": phone.status().get("name") or "Simulator",
                                       "port": phone.mjpeg_port}])
@@ -476,6 +614,10 @@ def run_agent(mode, provider, model, task, os=None,
         if agent_glow is not None:
             agent_glow.start()
         agent = AgentService(**_supported_kwargs(AgentService, kwargs))
+        if sim_window is not None and emulator is not None:
+            # The agent's scanner is up, and with it the preview stream.
+            from AutoCua.ios_connector.sim_view import show_phones
+            show_phones(sim_window, [{"name": f"Android {emulator.version} {emulator.kind}", "port": preview}])
         return agent.process_request(task)
     finally:
         if agent_glow is not None:
@@ -489,6 +631,11 @@ def run_agent(mode, provider, model, task, os=None,
         if phone is not None:
             phone.deactivate()
             print(f"📱 {'Android' if mobile_os == 'android' else 'iOS'} connection closed")
+        if emulator is not None:
+            os.environ.pop(PREVIEW_ENV, None)
+            _pin_android_serial(pinned)
+            emulator.deactivate()
+            print("📱 Emulator closed")
 
 
 def run_parallel_sim_agents(tasks, provider, model, save_conversation=False,
@@ -735,6 +882,190 @@ def run_parallel_sim_agents(tasks, provider, model, save_conversation=False,
             print("📱 simulators closed")
 
 
+def run_parallel_emulator_agents(tasks, provider, model, save_conversation=False,
+                                 speed=None, android_version=None, sim_device=None, build=None):
+    """Run N Android tasks in parallel — one EMULATOR per task, one agent each.
+
+    The emulator counterpart of run_parallel_sim_agents. Every task gets its
+    own fresh copy of the emulator (android_connector/emulator.py: each starts
+    from the saved first boot and keeps nothing), all booted at once, and its
+    own child process in ./parallel/task_N/ (so its
+    conversation/, raw_reasoning/ and debug/ never touch another task's),
+    pinned to its copy by AutoCua_ANDROID_SERIAL. build (from
+    _android_app_build) is installed on each copy the moment it has started.
+    Every copy is stopped afterwards.
+
+    Returns {"status", "message", "results": [{"task", "status", "message"}, ...]}.
+    """
+    from AutoCua.android_connector.emulator import EmulatorSession, prepare
+    # Importing the package builds the Rust extension ONCE here in the parent,
+    # before N children import it at the same time.
+    import AutoCua.android.agent  # noqa: F401
+
+    n = len(tasks)
+    print(f"Running {n} Android tasks in parallel — one emulator each")
+
+    # Everything the copies need, once, here in the main thread: the terms
+    # question (asked once, not per task), the downloads and the first boot,
+    # where Ctrl+C lands directly. The copies then only boot.
+    prepare(android_version, sim_device)
+
+    sessions = [(i, EmulatorSession()) for i in range(1, n + 1)]
+    sim_window = None
+    try:
+        # Every copy in one window, side by side, as the iOS simulators: the
+        # emulators draw none of their own. It opens now ("Preparing
+        # simulation") and gets the screens once the agents stream them.
+        from AutoCua.ios_connector.sim_view import open_view, show_phones
+        from AutoCua.android_connector.stream import _free_ports
+        sim_window = open_view(title="Android Emulator")
+
+        # 1. Boot them ALL AT ONCE; each installs the app as soon as it is up.
+        outcomes = {}
+
+        def _boot(index, session):
+            try:
+                outcomes[index] = session.activate(android_version, device=sim_device)
+                if build and outcomes[index].get("ok"):
+                    _install_apk(session.serial, build)
+            except BaseException as e:            # never lose a thread's failure
+                outcomes[index] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+        threads = [threading.Thread(target=_boot, args=(i, session), daemon=True)
+                   for i, session in sessions]
+        for t in threads:
+            t.start()
+        for t in threads:
+            # Ctrl+C lands here, and the finally stops the emulators. In short
+            # joins: on Windows before Python 3.14 a plain join() never sees it.
+            while t.is_alive():
+                t.join(0.5)
+        for i, _session in sessions:
+            res = outcomes.get(i) or {"ok": False, "error": "activate() returned nothing"}
+            if not res.get("ok"):
+                raise RuntimeError(f"📱 task {i}: {res.get('error')}")
+            print(f"[task {i}] Android {res['version']} {res['device']} on {res['serial']}")
+
+        # 2. One child process per task, each pinned to its own emulator.
+        run_root = Path.cwd() / "parallel"
+        shutil.rmtree(run_root, ignore_errors=True)
+
+        base_env = os.environ.copy()
+        base_env["PYTHONUNBUFFERED"] = "1"
+        base_env["PYTHONPATH"] = str(_REPO_ROOT) + os.pathsep + base_env.get("PYTHONPATH", "")
+        # The agent's lines carry emoji: UTF-8 both ways, never Windows' cp1252,
+        # which can't print them in the child or read them here.
+        base_env["PYTHONIOENCODING"] = "utf-8"
+
+        previews = _free_ports(n)   # one preview stream per copy, for the window
+        procs = []  # (index, task_text, Popen, result_file)
+        for (i, session), task_text, preview in zip(sessions, tasks, previews):
+            task_dir = run_root / f"task_{i}"
+            task_dir.mkdir(parents=True, exist_ok=True)
+            result_file = task_dir / "result.json"
+            cmd = [sys.executable, "-m", "AutoCua.android.agent",
+                   "--task", str(task_text),
+                   "--provider", provider,
+                   "--model", model,
+                   "--session-id", f"task_{i}",
+                   "--serial", session.serial,
+                   "--result", str(result_file)]
+            if speed:
+                cmd += ["--speed", str(speed)]
+            if save_conversation:
+                cmd += ["--save-conversation"]
+            # The serial pins the child's phone helper to its own emulator;
+            # the session scopes its scratchpad to scratchpad/task_N/; the
+            # preview port is where its agent streams the screen for the window.
+            env = dict(base_env)
+            env["AutoCua_ANDROID_SERIAL"] = session.serial
+            env["AutoCua_ANDROID_SESSION"] = f"task_{i}"
+            env[PREVIEW_ENV] = str(preview)
+            # Deliberately NO start_new_session: children stay in this
+            # terminal's process group, so one Ctrl+C interrupts every agent.
+            proc = subprocess.Popen(cmd, cwd=str(task_dir), env=env, encoding="utf-8", errors="replace",
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            procs.append((i, str(task_text), proc, result_file))
+            head = " ".join(str(task_text).split())[:70]
+            print(f"[task {i}] started: {head}")
+
+        # The window connects to each stream as its agent comes up.
+        show_phones(sim_window, [{"name": f"Android {session.version} {session.kind}", "port": preview, "task": i}
+                                 for (i, session), preview in zip(sessions, previews)])
+
+        def pump(index, stream):
+            for line in stream:
+                print(f"[task {index}] {line}", end="", flush=True)
+
+        pumps = []
+        for i, _task_text, proc, _rf in procs:
+            t = threading.Thread(target=pump, args=(i, proc.stdout), daemon=True)
+            t.start()
+            pumps.append(t)
+
+        try:
+            for _i, _task_text, proc, _rf in procs:
+                proc.wait()
+        except KeyboardInterrupt:
+            # The terminal already delivered SIGINT to the whole group; give
+            # each child a grace period to write its result file, then escalate.
+            print("\nStopping all tasks...")
+            for _i, _task_text, proc, _rf in procs:
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+
+        for t in pumps:
+            t.join(timeout=2)
+
+        results = []
+        ok = 0
+        for i, task_text, proc, result_file in procs:
+            try:
+                result = json.loads(result_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                result = {"status": "error",
+                          "message": f"child exited with code {proc.returncode} "
+                                     f"without writing a result"}
+            if result.get("status") == "success":
+                ok += 1
+            results.append({"task": task_text, **result})
+
+        print("=" * 60)
+        print(f"PARALLEL RUN SUMMARY — {ok}/{n} succeeded")
+        for i, r in enumerate(results, start=1):
+            message = " ".join(str(r.get("message", "")).split())
+            print(f"[task {i}] {r.get('status', '?'):<10} {message[:80]}")
+        print(f"Artifacts: ./parallel/task_N/  (result.json, conversation/, "
+              f"debug/, raw_reasoning/)")
+        print("=" * 60)
+
+        return {
+            "status": "success" if ok == n else "error",
+            "message": f"{ok}/{n} tasks succeeded",
+            "results": results,
+        }
+    finally:
+        # Every copy this run booted is stopped — success, error or Ctrl+C.
+        # deactivate() also stops a copy whose boot is still going in its
+        # thread, and a second Ctrl+C here still reaches every copy.
+        if sim_window is not None:
+            from AutoCua.ios_connector.sim_view import close_view
+            close_view(sim_window)
+        for _i, session in sessions:
+            try:
+                session.deactivate()
+            except BaseException:
+                pass
+        print("📱 emulators closed")
+
+
 def run_parallel_web_agents(tasks, provider, model, save_conversation=False,
                             speed=None, headless=False, browser_port=None,
                             browser_profile=None):
@@ -786,6 +1117,9 @@ def run_parallel_web_agents(tasks, provider, model, save_conversation=False,
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONPATH"] = str(_REPO_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+    # The agent's lines carry emoji: UTF-8 both ways, never Windows' cp1252,
+    # which can't print them in the child or read them here.
+    env["PYTHONIOENCODING"] = "utf-8"
 
     procs = []  # (index, task_text, Popen, result_file)
     for i, task_text in enumerate(tasks, start=1):
@@ -808,7 +1142,7 @@ def run_parallel_web_agents(tasks, provider, model, save_conversation=False,
             cmd += ["--save-conversation"]
         # Deliberately NO start_new_session: children stay in this terminal's
         # process group, so one Ctrl+C interrupts every agent at once.
-        proc = subprocess.Popen(cmd, cwd=str(task_dir), env=env, text=True,
+        proc = subprocess.Popen(cmd, cwd=str(task_dir), env=env, encoding="utf-8", errors="replace",
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         procs.append((i, str(task_text), proc, result_file))
         head = " ".join(str(task_text).split())[:70]

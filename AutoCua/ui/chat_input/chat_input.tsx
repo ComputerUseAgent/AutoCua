@@ -48,14 +48,15 @@ export function ChatInput() {
                 <textarea className="chat-input" placeholder="Select a model in Settings to start..." rows={1} disabled></textarea>
 
                 <div className="input-toolbar">
-                    {/* Wireless / Wired flip: Mobile use only (chat_input.css shows it from
-                        the composer's data-agent-mode), in the Fast / Quality pill's own
-                        look: Wi-Fi = Wireless, plug = Wired. How the phone connects, Android
-                        or iPhone (link_toggle.js). Left of Fast / Quality, so nothing else moves when
-                        it shows. Defaults to Wireless. */}
-                    <button className="fast-quality-toggle link-toggle" id="linkToggle" type="button" role="switch" aria-checked="false" aria-label="Wireless / Wired">
-                        <span className="fq-label lk-label-wireless" aria-hidden="true">Wireless</span>
-                        <span className="fq-label lk-label-wired" aria-hidden="true">Wired</span>
+                    {/* Wireless / Wired flip: Mobile use and Computer use (chat_input.css
+                        shows it from the composer's data-agent-mode), in the Fast / Quality
+                        pill's own look: Wi-Fi = Wireless, plug = Wired, the label over it saying
+                        "Mobile via: Wi-Fi" or "Mobile via: Wired". How the phone connects, Android
+                        or iPhone (link_toggle.js). Left of Fast / Quality, so nothing else moves
+                        when it shows. Defaults to Wired, the cable: Wi-Fi only when picked. */}
+                    <button className="fast-quality-toggle link-toggle wired" id="linkToggle" type="button" role="switch" aria-checked="true" aria-label="Mobile via: Wi-Fi / Wired">
+                        <span className="fq-label lk-label-wireless" aria-hidden="true">Mobile via: Wi-Fi</span>
+                        <span className="fq-label lk-label-wired" aria-hidden="true">Mobile via: Wired</span>
                         <span className="fq-thumb"></span>
                         <span className="fq-icon lk-wifi">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

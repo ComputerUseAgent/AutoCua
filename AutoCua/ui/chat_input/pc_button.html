@@ -12,7 +12,7 @@
     <style>
         /* Every animation below is phase-locked to the wall clock (see the
            script at the bottom): each copy of this orb — the composer's stop
-           button, the setup banner, the "occupied" overlay, even one living in
+           button, the setup banner, even one living in
            another process — then shows the same colour at the same instant.
            Without this, two copies loaded a second apart sat at different
            points of the 4 s colour cycle and never matched. The variables
@@ -298,8 +298,8 @@
         const stopBtn = document.getElementById('stopAgentBtn');
         // window.parent === window means the file was opened directly (not embedded) -> preview mode.
         const standalone = window.parent === window;
-        // ?zoom=N: lay the orb out N times bigger INSIDE the page, for hosts
-        // that want a big orb — the "occupied" overlay. CSS zoom, not a
+        // ?zoom=N: lay the orb out N times bigger INSIDE the page, for a host
+        // that wants a big orb. CSS zoom, not a
         // transform and not a scaled iframe: those two enlarge an already
         // rendered 42-px picture, and WebKitGTK's compositor turns the orb's
         // blur into a jagged, bleached disc that way (measured); zoom

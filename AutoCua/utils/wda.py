@@ -22,6 +22,8 @@ import sys
 import threading
 from pathlib import Path
 
+from AutoCua.utils.consent import allow_download
+
 # Pinned tag — keep in step with setup_ios.sh and THIRD_PARTY_NOTICES.md.
 VERSION = "v15.1.1"
 REPO = "https://github.com/appium/WebDriverAgent.git"
@@ -49,6 +51,9 @@ def ensure_wda() -> bool:
         # Another thread may have finished the clone while we waited.
         if XCODEPROJ.is_dir():
             return True
+        if not allow_download(f"WebDriverAgent {VERSION}", "the Appium project on GitHub, by git clone",
+                              log=lambda text: print(f"📱 {text}", flush=True)):
+            return False
 
         # Clone to a private staging name and rename it into place at the end.
         # Two PROCESSES can be here at once (each parallel task is its own

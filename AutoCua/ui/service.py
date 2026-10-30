@@ -38,6 +38,15 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+# The app runs as `python -m AutoCua.ui.service` (the desktop shell's backend,
+# relaunch_app), which makes this module __main__. A module that then does
+# `from AutoCua.ui import service` (the Telegram bot, to start a run) would
+# get a SECOND copy of this file, with its own webview_window = None: the
+# run would go, and be saved, but the page would never hear of it. One
+# module, under both names.
+if __name__ == "__main__":
+    sys.modules.setdefault("AutoCua.ui.service", sys.modules[__name__])
+
 from flask import Flask, jsonify, send_from_directory
 if platform.system() == "Linux":
     # pywebview's GTK backend runs `import gi` at import time, and gi is a
@@ -1026,6 +1035,9 @@ def get_provider_api_key(provider):
 webview_window = None
 active_agent_stop_event = None
 active_agent_session_id = None
+# The thread of the run going on (start-agent or start-shell), so a task from
+# elsewhere (Telegram) can tell the app is busy.
+_run_thread = None
 # The newest run's id. Unlike active_agent_session_id, Stop and New chat leave
 # it alone: an older run's late video must never land on a newer run's turn.
 _latest_run_id = None
@@ -1664,6 +1676,29 @@ def api_android_deactivate():
     return jsonify({"ok": True})
 
 
+@app.route('/api/phone-link', methods=['POST'])
+def api_phone_link():
+    """The chat box's Wireless / Wired toggle ({"link": "wireless" | "wired"}),
+    for computer use's phone sub-agents (controller/tool/android_agent.py and
+    mac's ios_agent.py): they look for the phone at the start of every
+    request, over the Wi-Fi only with Wireless, the cable only with Wired
+    (the connectors' WIRELESS). The page sends it on every flip and once when
+    it loads, so the app and the toggle agree. Mobile use's own pick carries
+    its link itself (/api/android/activate, /api/ios/activate)."""
+    from flask import request
+    link = (request.get_json(silent=True) or {}).get("link")
+    if link not in ("wireless", "wired"):
+        return jsonify({"ok": False, "error": "link must be 'wireless' or 'wired'"}), 400
+    from AutoCua.android_connector import session as android_connector
+    android_connector.WIRELESS = link == "wireless"
+    try:
+        from AutoCua.ios_connector import session as ios_connector
+        ios_connector.WIRELESS = link == "wireless"
+    except Exception:
+        debug_exception("api_phone_link ios")   # ios_agent is the Mac's; the Android side is set
+    return jsonify({"ok": True, "link": link})
+
+
 # =============================================================================
 # Flask routes — providers / keys / settings / vertex
 # =============================================================================
@@ -2133,10 +2168,24 @@ def recording_video(name):
 def start_agent():
     """Start the agent with the provided provider, model, and task"""
     from flask import request
-    global active_agent_stop_event, active_agent_session_id, _latest_run_id
+    return _start_agent_run(request.get_json() or {})
+
+
+def _start_agent_run(data, via=None, hooks=None):
+    """The run behind /api/start-agent, so a task from elsewhere (the Telegram
+    bot) starts the same way and the page shows it as a sent message. data:
+    the chat box's fields (provider, model, task, session_id, mode, os,
+    speed). via: where the task came from, named on the message's pill; the
+    page is told the run started (window.remoteRunStarted), since it did not
+    send it. hooks: {"text", "cli", "done"}, the caller's own callbacks beside
+    the page's (the bot's banner, and its reply to the phone: done(outcome,
+    chat session id)). Returns the route's response."""
+    global active_agent_stop_event, active_agent_session_id, _latest_run_id, _run_thread
 
     try:
-        data = request.get_json()
+        hooks = hooks or {}
+        if via and _run_thread is not None and _run_thread.is_alive():
+            return jsonify({'error': 'AutoCua is busy with another task'}), 409
         provider = data.get('provider')
         model = data.get('model')
         task = data.get('task')
@@ -2354,14 +2403,27 @@ def start_agent():
                     if not phone.get("ok"):
                         raise RuntimeError(f"📱 Android connection failed: {phone.get('error')}")
 
+                # The page's pushes, and the caller's own beside them (hooks).
+                page_text = only_if_current(send_text_to_frontend)
+
+                def text_push(text):
+                    page_text(text)
+                    if hooks.get("text"):
+                        hooks["text"](text)
+
+                def cli_push_all(event_type, *args):
+                    cli_push(event_type, *args)
+                    if hooks.get("cli"):
+                        hooks["cli"](event_type, *args)
+
                 agent = AgentService(
                     provider=provider,
                     model=model,
                     frontend_callback=only_if_current(send_image_to_frontend),
-                    text_callback=only_if_current(send_text_to_frontend),
+                    text_callback=text_push,
                     web_callback=only_if_current(send_web_status_to_frontend),
                     shell_callback=only_if_current(send_shell_status_to_frontend),
-                    cli_callback=cli_push,
+                    cli_callback=cli_push_all,
                     tool_callback=only_if_current(send_flow_to_frontend),
                     token_callback=only_if_current(send_token_to_frontend),
                     api_key=api_key,
@@ -2465,6 +2527,14 @@ def start_agent():
                     except Exception:
                         debug_exception("show run reply")
 
+                # The caller's own ending (the Telegram bot's reply to the
+                # phone), whatever happened to the run.
+                if hooks.get("done"):
+                    try:
+                        hooks["done"](run_outcome, chat_session_id)
+                    except Exception:
+                        debug_exception("run done hook")
+
                 # Last, so the video ends on the run's final UI (the done
                 # reply); the tail gives it time to paint.
                 # Already stopped if Stop or New chat retired this run.
@@ -2475,6 +2545,18 @@ def start_agent():
         thread = threading.Thread(target=run_agent)
         thread.daemon = True
         thread.start()
+        _run_thread = thread
+
+        if via and webview_window:
+            # The page did not send this task: it shows it as a sent message,
+            # with where it came from over it, and the run as started.
+            info = json.dumps({"task": task, "mode": agent_mode, "os": device_os or None, "speed": speed,
+                               "session_id": chat_session_id, "run_id": current_session_id, "via": via},
+                              ensure_ascii=False)
+            try:
+                webview_window.evaluate_js(f"window.remoteRunStarted && window.remoteRunStarted('{_js_escape(info)}')")
+            except Exception:
+                debug_exception("remote run started push")
 
         # Return the chat session id so a brand-new chat's id reaches the frontend,
         # and the run's id: its video finds its turn in the chat by it.
@@ -2483,6 +2565,25 @@ def start_agent():
     except Exception as e:
         debug_exception("start_agent API")
         return jsonify({'error': str(e)}), 500
+
+
+def start_run_from_telegram(task, provider, model, session_id=None, text_callback=None, cli_callback=None,
+                            on_done=None):
+    """A task from the Telegram bot (remote_connection/telegram/service.py),
+    run and shown exactly as a message sent from the chat box, with "sent
+    via: Telegram" over it. session_id: the chat to go on with, None for a new
+    one. text_callback and cli_callback feed the bot's desktop banner;
+    on_done(outcome, chat session id) is its reply to the phone. Returns
+    (status code, the response's fields): 'started' with session_id and
+    run_id, or 'error' (409 while the app runs another task)."""
+    with app.app_context():
+        resp = _start_agent_run(
+            {"provider": provider, "model": model, "task": task, "session_id": session_id or "new",
+             "mode": "computer", "speed": "quality"},
+            via="telegram",
+            hooks={"text": text_callback, "cli": cli_callback, "done": on_done})
+    body, code = resp if isinstance(resp, tuple) else (resp, 200)
+    return code, body.get_json()
 
 
 def _make_token_sender(token_tracker):
@@ -2811,7 +2912,7 @@ def start_shell():
     run so the stop orb (/api/stop-agent) and New chat work unchanged.
     """
     from flask import request
-    global active_agent_stop_event, active_agent_session_id, _latest_run_id
+    global active_agent_stop_event, active_agent_session_id, _latest_run_id, _run_thread
 
     try:
         data = request.get_json() or {}
@@ -2983,6 +3084,7 @@ def start_shell():
                         debug_exception("signaling shell run completion")
 
         thread = threading.Thread(target=run_shell)
+        _run_thread = thread
         thread.daemon = True
         thread.start()
 
@@ -3933,20 +4035,26 @@ if "--banner-mode" in sys.argv:
 # stdio above.
 # -----------------------------------------------------------------------------
 if "--banner-mode" not in sys.argv:
+    # The streams themselves are reconfigured, never wrapped again: a second
+    # wrapper over the same buffer dies with the first one. Nothing but
+    # sys.__stdout__ held the old wrapper, so when any module later rebinds
+    # sys.stdout, the wrapper is collected and its finaliser closes the buffer
+    # both share, and from then on every print in the app raises "I/O
+    # operation on closed file" (a run from Telegram did, 2026-10-30).
     if sys.stdout is None:
         sys.stdout = open(os.devnull, 'w', encoding='utf-8')
-    elif hasattr(sys.stdout, 'buffer'):
+    else:
         try:
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        except:
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, ValueError):
             pass
 
     if sys.stderr is None:
         sys.stderr = open(os.devnull, 'w', encoding='utf-8')
-    elif hasattr(sys.stderr, 'buffer'):
+    else:
         try:
-            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-        except:
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, ValueError):
             pass
 
 # -----------------------------------------------------------------------------
@@ -4345,12 +4453,6 @@ def main():
             debug_exception("Banner mode")
         return
 
-    # A phone over Wi-Fi is the app's only (owner, 2026-10-29): the chat box's
-    # Wireless / Wired toggle and the computer-use phone agents run here; a
-    # terminal run never gets here and stays on the cable.
-    from AutoCua.android_connector import session as _android_connector
-    from AutoCua.ios_connector import session as _ios_connector
-    _android_connector.WIRELESS = _ios_connector.WIRELESS = True
 
     # The Chromium desktop shell when it is installed: it starts this module
     # again as its backend (--desktop), which runs everything below. Before

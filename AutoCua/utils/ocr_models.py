@@ -30,6 +30,8 @@ import urllib.request
 from pathlib import Path
 from typing import NamedTuple
 
+from AutoCua.utils.consent import allow_download
+
 
 class Model(NamedTuple):
     commit: str      # Hugging Face commit the files are fetched from
@@ -182,6 +184,12 @@ def ensure_ocr_models(names=TIERS[DEFAULT_TIER]) -> bool:
         return True
 
     with _LOCK:
+        missing = [n for n in names if not _present(n)]
+        if missing and not allow_download("the OCR models, " + " and ".join(_describe(n) for n in missing),
+                                          "PaddlePaddle on Hugging Face (huggingface.co/PaddlePaddle)",
+                                          log=lambda text: print(f"🔤 {text}", flush=True)):
+            print("🔤 The scan goes on without OCR.", flush=True)
+            return False
         for name in names:
             # Another thread may have finished while we waited on the lock,
             # and another PROCESS may have written the files meanwhile —

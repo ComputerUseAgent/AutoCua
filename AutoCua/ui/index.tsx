@@ -352,19 +352,6 @@ function App() {
                 </div>
             </div>
 
-            {/* Shown while a Telegram task occupies the machine (fades the UI away) */}
-            <div className="telegram-task-overlay" id="telegramTaskOverlay">
-                <div className="telegram-task-content">
-                    <div className="telegram-task-orb">
-                        {/* The same stop orb the composer and the setup banner show
-                            (chat_input/pc_button.html); it starts hidden and pops in
-                            on 'pcbtn:show' from telegramOccupiedShow(). */}
-                        <iframe id="telegramTaskOrbFrame" src="chat_input/pc_button.html?zoom=2.8" scrolling="no" frameBorder="0"></iframe>
-                    </div>
-                    <div className="telegram-task-message">Currently occupied by Telegram</div>
-                </div>
-            </div>
-
             {/* The left bar and its collapse toggle, last like the old loader appended them. */}
             <LeftBar />
         </>

@@ -38,6 +38,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from AutoCua.utils.consent import allow_download
+
 MAC_DMG = "https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg"
 WIN_INSTALLER = "https://dl.google.com/chrome/install/latest/chrome_installer.exe"
 LINUX_DEB = "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
@@ -91,8 +93,11 @@ def ensure_chrome():
     if found or os.environ.get(TRIED):
         return found
     os.environ[TRIED] = "1"
-    _say("🌐 Google Chrome is not installed. Downloading it for the web agent "
-         "(about 280 MB, once)...")
+    if not allow_download("Google Chrome, for the web agent", "Google (dl.google.com/chrome)", "about 280 MB",
+                          log=lambda text: _say("🌐 " + text)):
+        _say("🌐 Install it from https://www.google.com/chrome/ (Chromium or Edge is used if one is installed).")
+        return None
+    _say("🌐 Downloading Google Chrome (about 280 MB, once)...")
     try:
         path = install_chrome()
     except Exception as e:

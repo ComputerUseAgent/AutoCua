@@ -27,7 +27,7 @@ run_agent(
 
 | Argument | What it is |
 |---|---|
-| `mode` | Which agent runs: `"computer use"` drives this desktop (Windows, macOS or Linux, detected automatically), `"shell use"` runs the coding agent straight in your terminal, `"web use"` drives Chrome, `"mobile use, ios"` drives an iPhone/iPad or an iOS Simulator. Case, underscores and commas don't matter; hyphens do: `"computer-use"` raises `ValueError`. |
+| `mode` | Which agent runs: `"computer use"` drives this desktop (Windows, macOS or Linux, detected automatically), `"shell use"` runs the coding agent straight in your terminal, `"web use"` drives Chrome, `"mobile use, ios"` drives an iPhone/iPad or an iOS Simulator, `"mobile use, android"` an Android emulator or your Android phone. Case, underscores and commas don't matter; hyphens do: `"computer-use"` raises `ValueError`. |
 | `provider` | `"openrouter"`, `"groq"`, `"openai"`, `"anthropic"`, `"google"`, `"perplexity"`, `"together"`, `"cerebras"` or `"aws"`. The key comes from `<PROVIDER>_API_KEY` in the environment or `.env` (e.g. `OPENROUTER_API_KEY`, or `AWS_API_KEY` for a Bedrock API key), or from `api_key=` (Part 9). Google's `-vertex` models take no key: they use `VERTEX_PROJECT_ID` / `VERTEX_LOCATION` and your Google Cloud credentials. |
 | `model` | A model name from [model_list.txt](model_list.txt), copied exactly. It isn't checked up front: an unknown name is sent to the provider as-is and fails at the first request. |
 | `task` | What the agent should do. |
@@ -45,11 +45,12 @@ All four are required even with `ui=True`, where the app ignores them (Part 7).
 | `headless` | `"web use"` | `False` (visible Chrome) | 1 |
 | `browser_port` | `"web use"` | `9222` | 1 |
 | `browser_profile` | `"web use"`, single task | the `"default"` profile | 1 |
-| `extra_tasks` | `"web use"`; `"mobile use, ios"` with `device="simulation"` | none (one task) | 2 |
-| `device` | `"mobile use, ios"` | `"simulation"` | 6 |
+| `extra_tasks` | `"web use"`; `"mobile use, ios"` and `"mobile use, android"` with `device="simulation"` | none (one task) | 2 |
+| `device` | `"mobile use, ios"`, `"mobile use, android"` | `"simulation"` | 6, 10 |
 | `ios_version` | `"mobile use, ios"` + simulation | newest installed runtime | 6 |
-| `sim_device` | `"mobile use, ios"` + simulation | `"iphone"` | 6 |
-| `app_build` | `"mobile use, ios"` + simulation | `None` (install nothing) | 6 |
+| `android_version` | `"mobile use, android"` + simulation | newest one already here (Android Studio's images count), else `"17"` | 10 |
+| `sim_device` | `"mobile use, ios"` or `"mobile use, android"` + simulation | `"iphone"` on iOS, `"phone"` on Android | 6, 10 |
+| `app_build` | `"mobile use, ios"` or `"mobile use, android"` + simulation | `None` (install nothing) | 6, 10 |
 | `api_key` | every mode, single task | `None` (key from `.env`) | 9 |
 | `os` | `mode="mobile use"` written without a device | `None` | 9 |
 
@@ -163,17 +164,17 @@ run_agent(
 
 # Part 2 — Running multiple tasks in parallel
 
-Works in two modes, with the same `extra_tasks` flag:
+Works in three modes, with the same `extra_tasks` flag:
 
-| | `"web use"` | `"mobile use, ios"` + `device="simulation"` |
-|---|---|---|
-| What each task gets | Its own web agent, pinned to **its own tab** | Its own **iOS Simulator** + its own WebDriverAgent |
-| Shared resource | **Your own Chrome**, through the AutoCua extension (headless: one browser of the agent's own) | Nothing shared, since a phone screen can't be split |
-| Ports | None with a window (each agent has a line of its own to the extension); one DevTools port headless | One WDA port per task (8100, 8101, 8102, …) |
-| Limit | Practical (tabs + RAM) | Practical (RAM): a simulator is created when every installed one is taken |
+| | `"web use"` | `"mobile use, ios"` + `device="simulation"` | `"mobile use, android"` + `device="simulation"` |
+|---|---|---|---|
+| What each task gets | Its own web agent, pinned to **its own tab** | Its own **iOS Simulator** + its own WebDriverAgent | Its own **copy of the emulator** (read-only) + its own phone helper |
+| Shared resource | **Your own Chrome**, through the AutoCua extension (headless: one browser of the agent's own) | Nothing shared, since a phone screen can't be split | The saved first boot, which every copy starts from and none changes |
+| Ports | None with a window (each agent has a line of its own to the extension); one DevTools port headless | One WDA port per task (8100, 8101, 8102, …) | One emulator per task (`emulator-5554`, `emulator-5556`, …) |
+| Limit | Practical (tabs + RAM) | Practical (RAM): a simulator is created when every installed one is taken | 16 emulators (adb's ports), and RAM: 2 to 4 GB each |
 
-Not supported with `device="hardware"`: there is only one paired device, so
-extras raise a `ValueError` telling you to use simulation.
+Not supported with `device="hardware"`: there is only one paired device (or
+one phone), so extras raise a `ValueError` telling you to use simulation.
 
 ## How it works
 
@@ -188,7 +189,8 @@ parallel, each as its own child process.
 - A summary prints when every task has finished.
 - On iOS the parent boots every simulator and starts every WebDriverAgent
   **before** any agent runs, and shuts them all down at the end: success,
-  error, or `Ctrl+C`.
+  error, or `Ctrl+C`. On Android it boots every copy of the emulator first,
+  all at once, and stops them all at the end the same way.
 
 ## How to write it in main.py
 
@@ -234,9 +236,26 @@ run_agent(
 )
 ```
 
+On Android the same, with the emulator flags:
+
+```python
+run_agent(
+    mode="mobile use, android",
+    provider="openrouter",
+    model="gemini-3.8-flash",
+    task=task,
+    extra_tasks=[task_2, task_3],
+    device="simulation",            # the default, and what parallel needs ("hardware" raises)
+    android_version="16",           # optional: "11" to "17"
+    sim_device="phone",             # optional: "phone" or "tablet"
+    app_build="MyApp.apk",          # optional: installed on every emulator at once (Part 10)
+)
+```
+
 Only some flags reach the parallel tasks. Web: `save_conversation`, `speed`,
 `headless` and `browser_port`. iOS: `save_conversation`, `speed`,
-`ios_version`, `sim_device` and `app_build`. Everything else
+`ios_version`, `sim_device` and `app_build`. Android: `save_conversation`,
+`speed`, `android_version`, `sim_device` and `app_build`. Everything else
 (`external_terminal`, `api_key`, `browser_profile`) is dropped, and each task
 reads its API key from `.env`.
 
@@ -293,6 +312,15 @@ out anything you want to keep before running again.
   simulator starts installing it the moment it has booted, all at the same
   time, never one after another, and no agent starts until every simulator
   has it.
+- **Android: every task starts the same.** Each copy of the emulator starts
+  from the saved first boot, a fresh phone, and keeps nothing of its own, so
+  the tasks can't change each other's start, or the next run's.
+- **Android: watch them work.** Every copy shows in the one "Android Emulator"
+  window, side by side, the way the iOS simulators do; the emulators
+  themselves run with no window.
+- **Android: your own app on every emulator.** Pass `app_build` (Part 10): each
+  copy installs it as soon as it has started, and no agent starts until every
+  copy has it.
 
 ## Under the hood
 
@@ -304,8 +332,12 @@ or `run_parallel_sim_agents()`, with one simulator + one WebDriverAgent
 (`WDA_PORT` 8100, 8101, …) + one `python -m AutoCua.ios.agent` child per task.
 Each iOS child gets its port via `AutoCua_WDA_PORT` and its own
 `AutoCua/ios/scratchpad/task_N/` via `AutoCua_IOS_SESSION`, so parallel agents
-never share a screen, a port, or a notes folder. You can also call either
-function directly from your own script.
+never share a screen, a port, or a notes folder. Android goes to
+`run_parallel_emulator_agents()`, with one read-only emulator copy + one
+`python -m AutoCua.android.agent` child per task; each child gets its
+emulator via `AutoCua_ANDROID_SERIAL` and its own
+`AutoCua/android/scratchpad/task_N/` via `AutoCua_ANDROID_SESSION`. You can
+also call any of these functions directly from your own script.
 
 ---
 
@@ -560,9 +592,10 @@ with a printed notice.
 - **`ios_version`** picks the runtime, matched by prefix: `"26"` takes any 26.x,
   `"26.5"` takes 26.5. **Default:** an already-booted simulator if one fits,
   otherwise the newest runtime your Xcode can build for. Naming a version
-  that isn't installed **downloads it** first (`xcodebuild -downloadPlatform`,
-  several GB, up to `AutoCua_IOS_DOWNLOAD_TIMEOUT` = 5400 s); set
-  `AutoCua_IOS_AUTO_DOWNLOAD=0` to make that an error instead.
+  that isn't installed **asks on the terminal, then downloads it**
+  (`xcodebuild -downloadPlatform`, several GB, up to
+  `AutoCua_IOS_DOWNLOAD_TIMEOUT` = 5400 s); `AutoCua_IOS_AUTO_DOWNLOAD=1` skips
+  the question, `=0` makes it an error instead.
 - **`sim_device`** picks the simulator: `"iphone"` (the default) or `"ipad"`
   take any free simulator of that kind and create one if there is none, or
   pass an exact simulator name such as `"iPad Pro 11-inch (M5)"` (any case).
@@ -843,3 +876,217 @@ Only for `mode="mobile use"` written **without** the device:
 device written in `mode` wins, and `os` never picks the host OS for
 `"computer use"` or `"shell use"`, which is always detected automatically.
 **Default: `None`.** Writing `mode="mobile use, ios"` is simpler.
+
+---
+
+# Part 10 — Android device target (`"mobile use, android"`)
+
+## What it is
+
+`device` picks WHAT the Android agent drives:
+
+| | `"simulation"` (default) | `"hardware"` |
+|---|---|---|
+| Runs on | Google's Android emulator on this computer | Your Android phone on USB (from the desktop app also over Wi-Fi) |
+| Android version | `android_version` picks it, `"11"` to `"17"` | Whatever the phone runs; `android_version` is ignored |
+| Phone or tablet | `sim_device`: `"phone"` (default) or `"tablet"` | Whatever it is; `sim_device` is ignored |
+| Needs | The computer's hypervisor (below). Nothing to install by hand: no Java, no Android Studio | USB debugging on, and **Allow** tapped once |
+| First start | Asks you to accept Google's SDK terms, fetches the emulator (about 420 MB) and that Android (1.2 to 2.1 GB), once, then one first boot of 15 to 30 s that is saved | Seconds |
+| Later starts | About 5 s (12 s when several start at once): a fresh copy, from the saved first boot | Seconds |
+| Between runs | Nothing is kept. Every run is a fresh phone: Google's apps, your `app_build`, nothing else | Everything stays on the phone |
+| Agent behaviour | Same: the same phone helper, tree, taps and screenshots | Same |
+
+`"simulator"` is accepted as another spelling of `"simulation"`; any other
+value raises `ValueError`.
+
+## Default
+
+**`device="simulation"`**, as on iOS. A script that should drive your phone
+says `device="hardware"`.
+
+## Choosing the emulator (`android_version`, `sim_device`)
+
+Both apply to `device="simulation"` only; with `"hardware"` they are ignored
+with a printed notice.
+
+- **`android_version`**: `"11"`, `"12"`, `"13"`, `"14"`, `"15"`, `"16"` or
+  `"17"` (`16`, `"16.0"` and `"Android 16"` work too). **Default:** the newest
+  one already downloaded, else `"17"`. A version that isn't here yet is
+  **downloaded** first. Android 10 isn't offered: its emulator image can't
+  stream its screen (a real Android 10 phone is fine).
+- **`sim_device`**: `"phone"` (the default, a 1080 × 2400 screen) or `"tablet"`
+  (2560 × 1600, landscape).
+
+Each Android version and kind is a virtual device of its own,
+`AutoCua_Android_<version>_<kind>`, made on its first run: one normal boot to
+the home screen, then a stop that saves that moment. Every run after that,
+single or parallel, starts a read-only copy from that moment, so a run can
+never leave anything behind for the next one. A tester's device: the same
+start every time, a login done by the agent during the run (the vault fills
+the password) and gone after it.
+
+## Google's terms, and what it downloads
+
+The emulator and the images are Google's, under Google's
+[Android SDK terms](https://developer.android.com/studio/terms). Nothing of
+them is in this repository or in the pip wheel. Before the first download,
+AutoCua asks you once, on the terminal, to accept the terms, the way Android
+Studio's `sdkmanager --licenses` does; your yes is remembered in a small file
+in the folder below. With no terminal to ask on (an IDE's run button, CI) the
+run stops and says the two ways to accept: run
+`python -m AutoCua.android_connector.emulator` once on a terminal, or set
+`AutoCua_ANDROID_ACCEPT_SDK_TERMS=1`.
+
+Everything comes from Google's SDK repository, the one Android Studio uses,
+pinned by release, size and SHA-1 (the checksum Google's manifest lists):
+
+| | Size | When |
+|---|---|---|
+| Android Emulator 37.2.12 | about 420 MB | once |
+| A Google APIs system image | 1.2 to 2.1 GB, 4 to 6 GB unpacked, plus about 5 GB for its virtual device after the first boot | once per Android version |
+
+Google APIs images have Google's apps and services and no Play Store. They go
+into a per-user cache, with the virtual devices and the emulator's logs:
+
+```
+macOS     ~/Library/Caches/AutoCua/android-sdk/
+Windows   %LOCALAPPDATA%\AutoCua\android-sdk\
+Linux     ~/.cache/AutoCua/android-sdk/
+```
+
+A virtual device takes about 5 GB more once it has its first boot (its data
+and the saved moment, 4 GB of it, which is what makes a start take about 5 s
+instead of a cold boot's 15 to 30). Deleting the folder removes everything,
+and the next run fetches it again. If Android Studio's SDK (`ANDROID_HOME`,
+or its default folder) already has the emulator and that version's Google APIs
+image, it is used as it is and nothing is downloaded or asked; AutoCua's
+virtual devices still live in its own folder, apart from yours.
+
+## Setting it up ahead of time
+
+The first emulator run does everything itself, but it takes minutes. To do it
+before, with a check of the computer first:
+
+```
+python -m AutoCua.android_connector.emulator              # the newest Android already here, else 17, as a phone
+python -m AutoCua.android_connector.emulator 15 tablet    # a version and kind of your choice
+```
+
+It prints one line per item: the computer (supported, hypervisor, disk), adb
+and scrcpy's server, the Rust Android agent (built, on a checkout), then the
+terms question, the downloads with their progress, and the first boot. A
+failed item says what to do. Exit code 0 when the emulator is ready. From a
+checkout, `setup_mac.sh`, `setup_linux.sh` and `setup_windows.bat` build the
+Android agent next to the web agent, and download none of the rest.
+
+## The hypervisor
+
+The emulator needs the computer's virtualization:
+
+- **macOS**, Apple Silicon or Intel: built in, nothing to do.
+- **Windows x64**: turn on **Windows Hypervisor Platform** (Control Panel →
+  Programs → Turn Windows features on or off), then restart.
+- **Linux x64**: KVM. `sudo apt install qemu-kvm`, `sudo usermod -aG kvm $USER`,
+  then log out and back in. In a virtual machine, turn on nested
+  virtualization.
+
+When it's missing, the run stops before booting and says which of these to
+do. Google builds no emulator for Windows or Linux on ARM.
+
+## How to use it in main.py
+
+```python
+run_agent(
+    mode="mobile use, android",
+    provider="openrouter",
+    model="gemini-3.8-flash",
+    task="open Settings and turn on Dark theme",
+    device="simulation",       # or "hardware" for your phone
+    android_version="16",      # simulation only; leave out for the newest one here
+    sim_device="phone",        # simulation only: "phone" or "tablet"
+)
+```
+
+These flags are ignored by every other mode, so they're safe to leave in
+place when you switch `mode`.
+
+`device="simulation"` is also what unlocks **parallel tasks** on Android,
+since each task gets its own copy of the emulator. See Part 2.
+
+## Installing your own app (`app_build`), simulation only
+
+> ⚠️ **`app_build` works with `device="simulation"` ONLY.** With
+> `device="hardware"` the run stops straight away with a `ValueError`; it
+> never installs anything on your phone.
+
+Put the `.apk` in `AutoCua_data/app_build/` (the same folder as iOS builds)
+and name the file:
+
+```python
+run_agent(
+    mode="mobile use, android",
+    provider="openrouter",
+    model="gemini-3.8-flash",
+    task="open MyApp and sign up with a test account",
+    app_build="MyApp.apk",       # exact file name in AutoCua_data/app_build/
+)
+```
+
+| | |
+|---|---|
+| Accepted files | One `.apk`. An `.aab` is a store bundle, not an app: build an APK, e.g. `./gradlew assembleDebug` |
+| Must be | Any APK; one with native code must carry the emulator's CPU: arm64-v8a on Apple Silicon, x86_64 elsewhere |
+| When it installs | As soon as Android has started, before the agent starts, on every run |
+| Parallel tasks (Part 2) | Every copy installs it as soon as it has started, all at once |
+| After the run | Gone, with everything else the run did: the next run starts fresh and installs it again |
+
+### No app, no run
+
+Each of these stops the run with the reason, and stops the emulator if it had
+started:
+
+- the file isn't in `AutoCua_data/app_build/`, or isn't an `.apk`, caught
+  **before** the emulator boots
+- `adb install` doesn't answer Success
+- `app_build` is set together with `device="hardware"`
+
+## When to use which
+
+- **`"simulation"` (default)**: testing your own app, any Android from 11 to
+  17, phone or tablet, parallel tasks, no phone on the desk.
+- **`"hardware"`**: anything that needs the real phone: your apps and logins,
+  Play Store apps, camera, cellular, notifications. From a script it uses the
+  cable; the desktop app can use Wi-Fi (README, Android).
+
+## Under the hood
+
+[AutoCua/android_connector/emulator.py](AutoCua/android_connector/emulator.py)'s
+`prepare()` asks for the terms, fetches the emulator and the image, writes the
+virtual device's `config.ini` itself (what avdmanager would write, without
+Java), checks the hypervisor with the emulator's `-accel-check`, and does the
+first boot: a normal boot, a wait for Android's `sys.boot_completed` and for
+its start-up broadcasts to settle, Home, then `adb emu kill`, which makes the
+emulator save that moment as its quick-boot snapshot. The save is checked
+(the emulator's log and the snapshot's files; the emulator writes an empty
+snapshot record the moment it starts, so the record alone proves nothing) and
+marked in the device's folder; a first boot that fails or is interrupted
+leaves no half snapshot behind and is done again next time. One process at a
+time per device, with a lock file beside it. Every run then starts a copy with
+`-read-only` on a free console port (5554, 5556, …), with `ANDROID_AVD_HOME`
+pointing at the folder's `avd/`; the copy loads the snapshot and writes
+nothing back. The launcher then starts the same phone helper a real phone
+gets ([session.py](AutoCua/android_connector/session.py)) on
+`emulator-<port>`, and pins that serial in `AutoCua_ANDROID_SERIAL` for the
+run, so the agent never lands on a phone that is plugged in at the same time;
+`device="hardware"` in turn never takes an emulator. At the end `adb emu kill`
+stops the copy, in about a second since there is nothing to save. Ctrl+C
+doesn't reach the emulator itself (a session of its own), only the run, which
+then stops it that way. Each emulator also gets a small watcher process: when
+the run dies without stopping it (a closed terminal, an IDE's Stop), the
+watcher stops it the same way. Each port is claimed with a lock file in the
+cache, so two runs starting at the same moment never share one. It runs with
+`-no-window`, `-no-metrics` and `-crash-report-mode never`: the run's window
+([sim_view.py](AutoCua/ios_connector/sim_view.py), the iOS simulators' one, over
+the same background video) shows the screen from an MJPEG preview the Android
+agent serves on `AutoCua_ANDROID_PREVIEW_PORT`, the way WebDriverAgent's
+stream shows a simulator.

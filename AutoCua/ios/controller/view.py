@@ -178,6 +178,19 @@ class ControllerView:
                     if result.get("status") == "error":
                         return result
 
+                elif action_type == "ground_scroll":
+                    x, y, direction = action_item.get("x"), action_item.get("y"), action_item.get("value")
+                    try:
+                        self.controller_service.ground_scroll(x, y, direction)
+                        logger.info(f"✓ Ground scrolled {direction} from ({x}, {y})")
+                        result = {"status": "success", "action": "ground_scroll", "x": x, "y": y, "direction": direction}
+                    except Exception as e:
+                        logger.error(f"✗ Ground scroll failed: {str(e)}")
+                        result = {"status": "error", "action": "ground_scroll", "x": x, "y": y, "message": str(e)}
+                    results.append(result)
+                    if result.get("status") == "error":
+                        return result
+
                 elif action_type == "input":
                     element_id = action_item.get("id")
                     text_value = action_item.get("value")

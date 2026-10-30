@@ -32,16 +32,10 @@
 .chat-turn.live:has(> .chain-bot.docked) > .agent-container.show-reply::before {
     visibility: hidden;
 }
-/* It goes where the container goes: under a full-size stage (Skills), and
-   while a Telegram task has the screen (style.css). */
+/* It goes where the container goes: under a full-size stage (Skills). */
 .main-grid:has(.big-center-zone.active) .chain-bot {
     visibility: hidden;
 }
-body.tg-occupied #liveTurn > .chain-bot {
-    opacity: 0;
-    transition: opacity 0.4s ease;
-}
-
 .chain-bot-body {
     position: absolute;
     inset: 0;

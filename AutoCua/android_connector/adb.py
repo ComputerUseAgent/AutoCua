@@ -17,6 +17,9 @@ connects it with the key it already trusts from USB ("Always allow from this
 computer"), so there is no pairing code. Which phones may go over Wi-Fi is
 session.py's call: only those connected once over USB in Settings.
 
+An emulator that emulator.py started is reached the same way, by its serial
+(emulator-<port>), and never picked as a phone.
+
 This file only connects: it finds adb, starts its server and waits until the
 phone is ready. Streaming the screen is stream.py's job, and saving
 screenshots element.rs's (AutoCua/android/tree/element.rs).
@@ -38,6 +41,8 @@ import time
 import urllib.request
 import zipfile
 from pathlib import Path
+
+from AutoCua.utils.consent import allow_download
 
 # Pinned platform-tools release. Recorded 2026-10-25 from Google's SDK
 # manifest (repository2-3.xml, which lists size + SHA-1) and the zips as
@@ -104,6 +109,9 @@ def ensure_adb() -> bool:
         # Another thread may have finished the fetch while we waited.
         if OWN_ADB.is_file():
             return True
+        if not allow_download("adb, Google's platform-tools", "Google (dl.google.com)", size,
+                              log=lambda text: print(f"🤖 {text}", flush=True)):
+            return False
 
         # Unpack under a private staging name and rename it into place at the
         # end, so a half-written folder is never seen as platform-tools/.
@@ -140,8 +148,10 @@ def ensure_adb() -> bool:
         return True
 
 
-def _download(url, dest, size, digest):
-    """Stream url into dest, then check it against the pinned size and SHA-256.
+def _download(url, dest, size, digest, algo="sha256", progress=None):
+    """Stream url into dest, then check it against the pinned size and digest:
+    SHA-256, or for the emulator's zips (emulator.py) the SHA-1 Google's SDK
+    manifest lists. progress(bytes so far) is called as it goes.
 
     Python's own certificate store can be empty (python.org builds on macOS
     until their certificate script is run), so certifi's bundle is used when
@@ -151,15 +161,17 @@ def _download(url, dest, size, digest):
         context = ssl.create_default_context(cafile=certifi.where())
     except ImportError:
         context = ssl.create_default_context()
-    sha = hashlib.sha256()
+    sha = hashlib.new(algo)
     req = urllib.request.Request(url, headers={"User-Agent": "AutoCua"})
     with urllib.request.urlopen(req, timeout=60, context=context) as r, open(dest, "wb") as out:
         while chunk := r.read(1 << 16):
             sha.update(chunk)
             out.write(chunk)
+            if progress:
+                progress(out.tell())
     got = dest.stat().st_size
     if got != size or sha.hexdigest() != digest:
-        raise ValueError(f"{url} is not the pinned file ({got} bytes, sha256 {sha.hexdigest()})")
+        raise ValueError(f"{url} is not the pinned file ({got} bytes, {algo} {sha.hexdigest()})")
 
 
 def _unzip(zip_path, dest):
@@ -193,6 +205,12 @@ def _wireless(serial):
     return ":" in serial or "._tcp" in serial
 
 
+def _emulator(serial):
+    """True for an emulator (emulator-<port>). Only device="simulation" runs
+    use one, by its serial; a phone is never picked from among them."""
+    return serial.startswith("emulator-")
+
+
 def devices(adb):
     """[(serial, state)] from `adb devices`. A ready phone's state is "device"."""
     rows = []
@@ -223,7 +241,7 @@ def connect(serial=None, wait=60.0):
         if serial:
             rows = [r for r in rows if r[0] == serial]
         else:
-            rows = [r for r in rows if not _wireless(r[0])]    # USB only for now
+            rows = [r for r in rows if not _wireless(r[0]) and not _emulator(r[0])]    # USB phones only
         ready = [s for s, state in rows if state == "device"]
         if len(ready) > 1:
             raise RuntimeError(f"More than one phone is ready ({', '.join(ready)}); pick one with serial.")

@@ -211,6 +211,11 @@
         if (t.msgH) turn.style.setProperty('--turn-msg-h', t.msgH);   // until it is measured in place
 
         var msg = div('container-zone user-container');
+        if (t.via) {                      // where it came from ("sent via: Telegram"), as the live box shows it
+            var via = div('user-message-via');
+            via.textContent = t.via;
+            msg.appendChild(via);
+        }
         var text = div('user-message-text');
         text.textContent = t.text || '';
         msg.appendChild(text);
@@ -278,8 +283,10 @@
         if (!replyEl && !vsrc && !isrc) return null;
         var top = live.getBoundingClientRect().top;
         var noScreen = live.classList.contains('no-screen');
+        var viaEl = byId('userMessageVia');
         var turn = buildTurn({
             text: msg.textContent,
+            via: (viaEl && !viaEl.hidden) ? viaEl.textContent : '',
             stage: !!(screen && screen.classList.contains('cu-stage')),
             ar: live.style.getPropertyValue('--screen-ar'),
             image: noScreen ? '' : isrc,
