@@ -304,8 +304,10 @@ def _see_through_titlebar(window):
 # the Mac; the window's three buttons are drawn by the page where the system
 # puts them (sim_view.html, .winbtns), and the strip they sit in drags the
 # window (pywebview's drag region). Windows gets its sizing frame back too
-# (_sizing_frame).
+# (_sizing_frame), and Linux its moving and sizing (_gtk_frame).
 _FRAMELESS = sys.platform != "darwin"
+# Linux, where pywebview runs on GTK.
+_GTK = sys.platform.startswith("linux")
 
 
 class _Buttons:
@@ -322,6 +324,12 @@ class _Buttons:
         self._window.minimize()
 
     def maximize(self):
+        if _GTK:
+            # pywebview's restore() on GTK only brings back a minimized
+            # window, never a maximized one: GTK's own state decides.
+            from gi.repository import GLib
+            GLib.idle_add(_toggle_maximized, self._window.native)
+            return
         if self._maximized:
             self._window.restore()
         else:
@@ -404,7 +412,133 @@ def _sizing_frame(window):
         pass
 
 
+def _toggle_maximized(native):
+    """GTK, on its main thread: maximize the window, or give it back its size.
+    False, so as a GLib.idle_add callback it runs once."""
+    if native.is_maximized():
+        native.unmaximize()
+    else:
+        native.maximize()
+    return False
+
+
+def _gtk_frame(window):
+    """Linux: what a title bar and its edges would do for the frameless
+    window, asked of the compositor the way GTK's own title bar asks
+    (begin_move_drag, begin_resize_drag). pywebview moves a frameless window
+    with gtk_window_move, which Wayland ignores (a client cannot place its
+    windows, as banner.py measured), and an undecorated window has no edges
+    to size it by.
+
+    A press anywhere but on the page's window buttons drags the window once
+    it has moved past GTK's drag threshold (Windows' easy drag does the
+    same); a double click on the top strip maximizes and restores; the outer
+    EDGE pixels size it, with the matching cursor. None of those presses
+    reach the page. Called once the window is shown; nothing happens
+    elsewhere."""
+    if not _GTK:
+        return
+    try:
+        from gi.repository import Gdk, GLib, Gtk, WebKit2
+        native = window.native
+        EDGE, CORNER = 6, 16            # the sizing band, and how far along it a corner reaches
+        # The page's window buttons (sim_view.html .winbtns: three of 46 x
+        # 32) stay the page's; the strip (.titlebar) is 30 high.
+        BUTTONS_W, BUTTONS_H, STRIP = 3 * 46, 32, 30
+        E = Gdk.WindowEdge
+        SIDES = ((E.NORTH_WEST, E.NORTH, E.NORTH_EAST),
+                 (E.WEST, None, E.EAST),
+                 (E.SOUTH_WEST, E.SOUTH, E.SOUTH_EAST))
+        CURSORS = {E.NORTH_WEST: "nw-resize", E.NORTH: "n-resize", E.NORTH_EAST: "ne-resize",
+                   E.WEST: "w-resize", E.EAST: "e-resize",
+                   E.SOUTH_WEST: "sw-resize", E.SOUTH: "s-resize", E.SOUTH_EAST: "se-resize"}
+        press = {}          # the press a drag starts from, until it moves or ends
+        showing = [None]    # the edge whose cursor is up
+
+        def on_buttons(view, event):
+            return event.x >= view.get_allocated_width() - BUTTONS_W and event.y < BUTTONS_H
+
+        def edge_at(view, event):
+            if native.is_maximized() or on_buttons(view, event):
+                return None
+            w, h = view.get_allocated_width(), view.get_allocated_height()
+            if EDGE <= event.x < w - EDGE and EDGE <= event.y < h - EDGE:
+                return None
+            row = 0 if event.y < CORNER else 2 if event.y >= h - CORNER else 1
+            col = 0 if event.x < CORNER else 2 if event.x >= w - CORNER else 1
+            return SIDES[row][col]
+
+        def on_press(view, event):
+            if event.button != 1 or on_buttons(view, event):
+                return False
+            press.clear()
+            if event.type == Gdk.EventType._2BUTTON_PRESS:
+                if event.y < STRIP:
+                    _toggle_maximized(native)
+            elif event.type == Gdk.EventType.BUTTON_PRESS:
+                side = edge_at(view, event)
+                if side is not None:
+                    native.begin_resize_drag(side, event.button, int(event.x_root), int(event.y_root),
+                                             event.time)
+                else:
+                    press.update(button=event.button, x=event.x_root, y=event.y_root)
+            return True
+
+        def on_motion(view, event):
+            if press and event.state & Gdk.ModifierType.BUTTON1_MASK:
+                # Past the threshold, so a click that wobbles is still a click.
+                if max(abs(event.x_root - press["x"]), abs(event.y_root - press["y"])) \
+                        > Gtk.Settings.get_default().props.gtk_dnd_drag_threshold:
+                    native.begin_move_drag(press["button"], int(press["x"]), int(press["y"]), event.time)
+                    press.clear()
+                return True
+            press.clear()       # no button down: its release went elsewhere
+            side = edge_at(view, event)
+            if side != showing[0] and view.get_window() is not None:
+                showing[0] = side
+                view.get_window().set_cursor(
+                    Gdk.Cursor.new_from_name(view.get_display(), CURSORS[side]) if side is not None else None)
+            # Kept from the page on an edge, or WebKit would put its own cursor back.
+            return side is not None
+
+        def on_release(view, event):
+            held = bool(press)
+            press.clear()
+            return held
+
+        def apply():
+            view = native.get_child()
+            while view is not None and not isinstance(view, WebKit2.WebView):
+                view = view.get_child() if isinstance(view, Gtk.Bin) else None
+            if view is not None:
+                # Ahead of WebKit's own handling (it runs last), so returning
+                # True keeps the event from the page.
+                view.connect("button-press-event", on_press)
+                view.connect("button-release-event", on_release)
+                view.connect("motion-notify-event", on_motion)
+            return False
+
+        GLib.idle_add(apply)        # GTK only from its main thread; this one is pywebview's event thread
+    except Exception:
+        pass
+
+
 def _main():
+    if _GTK:
+        # pywebview's GTK backend runs `import gi`, and gi is a system package
+        # a venv cannot see: without it pywebview finds no GUI at all and this
+        # process ended before any window showed. The Linux scanner puts it on
+        # sys.path when imported (element._add_system_gi_to_path), as
+        # ui/service.py does. A scanner that then fails (no Atspi typelib) has
+        # still added gi, which is all the window needs.
+        try:
+            import gi  # noqa: F401
+        except ImportError:
+            try:
+                import importlib
+                importlib.import_module("AutoCua.linux.tree.element")
+            except Exception:
+                pass
     import webview
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Files)
@@ -413,10 +547,13 @@ def _main():
 
     width, height = _window_size(webview.screens)
     buttons = _Buttons()
+    # No easy drag on GTK: it moves the window itself (which Wayland ignores),
+    # and would miss the release of a press _gtk_frame handed to the
+    # compositor, then move the window at the next mouse move (X11).
     window = webview.create_window(
         _TITLE, url=f"http://127.0.0.1:{server.server_address[1]}/",
         width=width, height=height, min_size=(200, 300) if _DEVICE else (520, 380),
-        background_color=_BACKGROUND, frameless=_FRAMELESS, js_api=buttons)
+        background_color=_BACKGROUND, frameless=_FRAMELESS, easy_drag=not _GTK, js_api=buttons)
     buttons._window = window
 
     # WKWebView won't autoplay a video without a user gesture, muted or not,
@@ -426,6 +563,7 @@ def _main():
         "startBackground()" + ("; frameless()" if _FRAMELESS else ""))
     window.events.before_show += lambda: _see_through_titlebar(window)
     window.events.shown += lambda: _sizing_frame(window)
+    window.events.shown += lambda: _gtk_frame(window)
 
     # Daemon threads, not webview.start(func): pywebview runs func on a
     # normal thread, and Python would wait on it after the user closes the
