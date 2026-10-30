@@ -108,9 +108,8 @@
 .reply-panel.is-ended {
     color: rgba(110, 110, 110, 0.9);
 }
-/* The fade is a filter, not opacity: a Telegram task fades the box's own
-   opacity away (style.css), and an opacity animation on it would cut that
-   fade short if the task starts while the reply is still coming in. */
+/* The fade is a filter, not opacity, so the box's own opacity stays free
+   for a rule that wants to fade it while the reply is still coming in. */
 @keyframes runReplyIn {
     from { filter: opacity(0); }
 }

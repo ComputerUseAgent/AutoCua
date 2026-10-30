@@ -12,8 +12,8 @@
    css/style.css on purpose (so other components share them):
      • :root vars — --glass-radius, --left-bar-w, --gap-size, …
      • the .liquidGlass-* layers and the unified font baseline
-     • cross-component fades — body.settings-open / body.tg-occupied /
-       body.cli-mode that target #chatWrapper or the LLM dropdown
+     • cross-component fades — body.settings-open / body.cli-mode that
+       target #chatWrapper or the LLM dropdown
    ===================================================================== */
 
 /* =====================================================================

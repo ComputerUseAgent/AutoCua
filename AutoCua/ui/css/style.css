@@ -504,56 +504,6 @@ body {
     box-shadow: none;
 }
 
-/* ── Telegram "occupied" overlay (shown while a Telegram task runs) ───────── */
-.telegram-task-overlay {
-    position: fixed;
-    inset: 0;
-    /* Transparent — the app's light background stays visible; only the UI
-       components fade out (see body.tg-occupied) while the orb fades in. */
-    background: transparent;
-    z-index: 101;
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    /* Center the orb + message over the SAME box as the "Made to do" hero
-       (.welcome-hero: content area right of the left bar, above the chat
-       input) so they land exactly where the hero title sits — the overlay
-       itself still spans the full window to block interaction. */
-    padding-left: calc(var(--left-bar-w) + clamp(10px, 2vw, 30px));
-    padding-right: clamp(10px, 2vw, 30px);
-    padding-top: clamp(5px, 0.7vw, 9px);
-    padding-bottom: clamp(118px, calc(30px + 10.2vw), 159px);
-
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition: opacity 0.4s ease, visibility 0.4s ease;
-}
-
-.telegram-task-overlay.active {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-}
-
-/* While a Telegram task occupies the machine: fade the app's UI components away.
-   The orb + message live in the transparent overlay above. We fade the whole
-   T-grid CELLS (#screenContainer / #userContainer / #agentContainer) rather than the
-   inner cards — the cell carries the chrome — and the chat's earlier turns. */
-body.tg-occupied #chatWrapper,
-body.tg-occupied #llmWrapper,
-body.tg-occupied #settingsBtn,
-body.tg-occupied #welcomeHero,
-body.tg-occupied #chatPast,
-body.tg-occupied #screenContainer,
-body.tg-occupied #userContainer,
-body.tg-occupied #agentContainer {
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.4s ease;
-}
-
 /* Transient top-center notification (window.showToast) — e.g. "Please set the
    provider in Settings". Hidden until .active, then fades in/out. */
 .app-toast {
@@ -589,47 +539,6 @@ body.tg-occupied #agentContainer {
 .app-toast.active {
     opacity: 1;
     transform: translate(-50%, 0);
-}
-
-.telegram-task-content {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 18px;
-
-    transform: scale(0.92);
-    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-.telegram-task-overlay.active .telegram-task-content {
-    transform: scale(1);
-}
-
-.telegram-task-orb {
-    width: 140px;
-    height: 140px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: visible;
-}
-
-/* The orb page lays itself out 2.8x inside a full-size frame (?zoom=2.8 in
-   index.html) rather than the frame being scaled up from outside: a scaled
-   iframe magnifies a 42px bitmap, and WebKitGTK's compositor renders the
-   orb's blur as a jagged, bleached disc that way. */
-.telegram-task-orb iframe {
-    width: 140px;
-    height: 140px;
-    border: 0;
-    background: transparent;
-    pointer-events: none;
-}
-
-.telegram-task-message {
-    font-size: 16px;
-    color: #8a8a92;
-    letter-spacing: 0.2px;
 }
 
 .settings-panel-content {
@@ -1340,7 +1249,7 @@ body.settings-open #chatWrapper {
     /* Down to the chat input (the agent-start text box): one gap (the
        frame's inner one) above its top while idle, the tallest it is without
        a long draft. Running, it is a slim line with the "Agent activated"
-       strip, both lower. The hero and the Telegram overlay share this box. */
+       strip, both lower. The hero sits in this box. */
     bottom: clamp(118px, calc(30px + 10.2vw), 159px);
     z-index: 13;
     display: grid;

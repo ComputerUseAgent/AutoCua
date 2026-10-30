@@ -1,7 +1,8 @@
 // The Wireless / Wired toggle (chat_input.tsx's #linkToggle, shown in Mobile
-// use): how the phone connects, Android or iPhone. Wireless, the default,
-// reaches it over Wi-Fi, also with its cable in; Wired over USB only. Either
-// way only a phone connected once in Settings → Connect Device.
+// use): how the phone connects, Android or iPhone. Wired, the default, is
+// USB only; Wireless, picked on purpose, reaches it over Wi-Fi, also with its
+// cable in. Either way only a phone connected once in Settings → Connect
+// Device, and nothing else in the app reaches a phone over Wi-Fi.
 //
 // android_session.js and ios_session.js ask window.phoneLink() when their
 // pick connects, and connect again when the toggle flips ('phonelink:changed').

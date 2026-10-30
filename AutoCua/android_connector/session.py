@@ -23,17 +23,17 @@ ios_connector/session.py remembers a paired iPhone. The chat box's Android
 pick then starts the helper on the newest remembered phone that is plugged in
 (confirm with keep=True).
 
-In the desktop app (WIRELESS, which ui/service.py turns on; a terminal run is
-cable only) a remembered phone works over Wi-Fi too, when it is not plugged in
-and has Wireless debugging on (Android 11 and up, the same Wi-Fi as this computer):
-activate() finds it by its USB serial in the name it announces and connects
-it (adb.py's wifi_addresses and wifi_connect); its adb serial is then
-"ip:port", and "phone" keeps its USB serial. Only remembered phones: a phone
-is never reached over Wi-Fi before it was connected over USB in Settings.
-USB comes first; the chat box's pick takes the newest remembered phone on
-Wi-Fi only when none is plugged in. Except with the chat box's Wireless /
-Wired toggle (link="wireless" / "wired" on confirm and activate): Wireless,
-its default, reaches the phone over Wi-Fi only, also with its cable in, and
+A remembered phone works over Wi-Fi too, when the desktop app's Wireless /
+Wired toggle says so (link="wireless" on confirm and activate; Wired, its
+default, is USB only) and the phone has Wireless debugging on (Android 11 and
+up, the same Wi-Fi as this computer): activate() finds it by its USB serial in
+the name it announces and connects it (adb.py's wifi_addresses and
+wifi_connect); its adb serial is then "ip:port", and "phone" keeps its USB
+serial. Only remembered phones: a phone is never reached over Wi-Fi before it
+was connected over USB in Settings. With no link given (a terminal run,
+computer use's android_agent) the cable is the only way, unless WIRELESS is
+turned on: then USB comes first and a remembered phone on Wi-Fi is taken when
+none is plugged in. Wireless reaches the phone over Wi-Fi only, also with its cable in, and
 Wired over USB only. The app's run then connects the way its pick did.
 """
 
@@ -51,9 +51,10 @@ from AutoCua.android_connector.stream import Stream
 # Picks one phone when several are plugged in (adb's serial). Unset: the one
 # USB phone.
 SERIAL_ENV = "AutoCua_ANDROID_SERIAL"
-# A phone over Wi-Fi is the desktop app's only (owner, 2026-10-29): its
-# Wireless / Wired toggle and its computer-use runs. ui/service.py turns this
-# on at start; a terminal run leaves it off and is cable only.
+# Wi-Fi for a pick that names no link (a terminal run, computer use's
+# android_agent): off everywhere (owner, 2026-10-30), so only the desktop
+# app's Mobile use reaches a phone over Wi-Fi, through its Wireless toggle,
+# picked on purpose. A switch left for a build that wants otherwise.
 WIRELESS = False
 
 # How long the app's Connect waits for a phone that is not ready (the

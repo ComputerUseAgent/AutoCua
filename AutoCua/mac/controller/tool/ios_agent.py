@@ -216,10 +216,12 @@ class PhoneLink:
         if plugged is not None:
             paired = [d for d in paired if d.get("udid") in plugged]
         if not paired and connector.WIRELESS and paired_devices():
-            # Nothing paired on the cable: in the app one on the Wi-Fi works
-            # too, Xcode starting it there, and activate() picks which (the
-            # unlocked one first) in the connect thread. A terminal run is
-            # cable only (connector.WIRELESS).
+            # Nothing paired on the cable. One on the Wi-Fi would work too,
+            # Xcode starting it there and activate() picking which (the
+            # unlocked one first), but only with the connector's WIRELESS
+            # switch, which is off: the cable is the only way here, in the
+            # app too; only Mobile use's own Wireless toggle reaches an
+            # iPhone over Wi-Fi.
             link._link = "wireless"
         elif not paired:
             _log("offline at start: no paired phone is plugged in "

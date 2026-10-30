@@ -52,8 +52,8 @@ export function ChatInput() {
                         the composer's data-agent-mode), in the Fast / Quality pill's own
                         look: Wi-Fi = Wireless, plug = Wired. How the phone connects, Android
                         or iPhone (link_toggle.js). Left of Fast / Quality, so nothing else moves when
-                        it shows. Defaults to Wireless. */}
-                    <button className="fast-quality-toggle link-toggle" id="linkToggle" type="button" role="switch" aria-checked="false" aria-label="Wireless / Wired">
+                        it shows. Defaults to Wired, the cable: Wi-Fi only when picked. */}
+                    <button className="fast-quality-toggle link-toggle wired" id="linkToggle" type="button" role="switch" aria-checked="true" aria-label="Wireless / Wired">
                         <span className="fq-label lk-label-wireless" aria-hidden="true">Wireless</span>
                         <span className="fq-label lk-label-wired" aria-hidden="true">Wired</span>
                         <span className="fq-thumb"></span>

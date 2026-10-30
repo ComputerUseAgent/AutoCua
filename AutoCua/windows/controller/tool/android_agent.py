@@ -201,9 +201,11 @@ class AndroidLink:
                            "Settings → Connect Device → Android")
                 return
             else:
-                # Nothing to use on USB: in the app a phone Settings connected
-                # may be on Wi-Fi (Wireless debugging on), only those, never
-                # another. A terminal run is cable only (connector.WIRELESS).
+                # Nothing to use on USB. A phone Settings connected may be on
+                # Wi-Fi (Wireless debugging on), but this agent takes it only
+                # with the connector's WIRELESS switch, which is off: the
+                # cable is the only way here, in the app too; only Mobile use's
+                # own Wireless toggle reaches a phone over Wi-Fi.
                 serial = wifi_saved(adb) if connector.WIRELESS else None
                 if serial is None:
                     if plugged:
