@@ -1,0 +1,12 @@
+# One Rust for every machine that builds the two extensions (AutoCua/web,
+# AutoCua/android): rustup reads this file from any folder below it and uses
+# this toolchain in place of the machine's default. THIRD_PARTY_LICENSES.txt
+# carries the standard library's notices for exactly this version, so a Mac or
+# Linux machine on another stable would ship a wheel the file does not describe.
+# Bump it together with that file (python third_party_licenses.py).
+#
+# No targets here: the host's. rustup installs this version on first use, with
+# the minimal profile (rustc, cargo, std), as the setup scripts install stable.
+[toolchain]
+channel = "1.97.1"
+profile = "minimal"

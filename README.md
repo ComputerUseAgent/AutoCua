@@ -162,8 +162,9 @@ That is the whole API.
 
 ### What the wheel brings, and what it cannot
 
-Four of the native pieces are fetched when you say yes to them on the terminal, one builds itself
-on first use, and one, the desktop app's Electron, is offered the same way. Two cannot: a Windows kernel driver, which `pip`
+Four of the native pieces are fetched when you say yes to them on the terminal, and one, the
+desktop app's Electron, is offered the same way; the two Rust agents come prebuilt in the wheel.
+Two cannot: a Windows kernel driver, which `pip`
 is structurally unable to install, and on Linux the desktop's accessibility and input bindings,
 which come from your distro.
 
@@ -171,9 +172,9 @@ which come from your distro.
 |---|---|
 | **Browser agent** — Rust | Ships **prebuilt** in the Windows x64, Apple Silicon macOS and Linux x86_64 wheels. On any other platform pip builds it from the source distribution, which needs [Rust](https://rustup.rs) and a C compiler. |
 | **WebDriverAgent** — iOS | **Cloned when you say yes** on the terminal, the first time you run a `"mobile use, ios"` task. Needs full Xcode and git. Nothing to do by hand. |
-| **adb and scrcpy's server** — Android | **Downloaded when you say yes** on the terminal, the first time an Android phone or emulator is used: Google's platform-tools, unless an `adb` is already on your PATH, and Genymobile's scrcpy server, both pinned by size and SHA-256. Nothing is installed on the phone. |
+| **adb** — Android | **Downloaded when you say yes** on the terminal, by the setup scripts or the first time an Android phone or emulator is used (the desktop app cannot ask; `python -m AutoCua.android_connector.adb fetch` asks on a terminal): Google's platform-tools, unless an `adb` is already on your PATH, from Google and pinned by size and SHA-256, never shipped in this repo. Nothing is installed on the phone. |
 | **Android emulator** — Google's | **Downloaded on the first emulator run, after you accept Google's SDK terms on the terminal**: Google's emulator and the Android version it needs, about 2.5 GB, into a per-user folder. An Android Studio SDK that already has both is used instead. Needs the computer's hypervisor ([below](#android-optional)). |
-| **Android agent** — Rust | **Built on the first Android run** from the sources in the wheel, about a minute, once. Needs [Rust](https://rustup.rs) and a C++ compiler. |
+| **Android agent** — Rust | Ships **prebuilt** in the same three wheels as the browser agent. On any other platform the source distribution carries its sources, and it builds on the first Android run, about a minute, once, which needs [Rust](https://rustup.rs) and a C compiler. |
 | **Electron** — the desktop app's Chromium window | **Downloaded only if you say yes.** The first `ui=True` launch from a terminal asks (120 to 160 MB, once) on macOS 13+, Windows 10+ and Linux, except stock Ubuntu 23.10+ ([below](#the-desktop-app)); without it the app opens in pywebview. `python -m AutoCua.utils.electron` fetches it any time. No Node.js needed. |
 | **Interception** — Windows UAC | **Not installed by pip.** One manual step, once — below. |
 | **AT-SPI, GTK and the desktop portal** — Linux | **Not installed by pip.** One `apt` line, once — [below](#linux-from-pip). |
@@ -245,7 +246,7 @@ pip install AutoCua
 python main.py                      # the main.py from Quick start
 ```
 
-The browser agent is prebuilt in the wheel, so you need no Rust or C compiler. On the first
+The browser and Android agents are prebuilt in the wheel, so you need no Rust or C compiler. On the first
 computer-use run GNOME asks for screen-share consent: turn **Allow Remote Interaction** on
 before you click **Share**, because GNOME leaves it off. Your choice is saved in `AutoCua_data/`.
 The first scan also downloads the PP-OCRv6 models that read text the desktop does not publish.
@@ -635,12 +636,11 @@ only on Wired, the Wi-Fi only on Wireless. A run from a script (`run_agent`) alw
 
 The same loop drives an Android emulator, or a real Android phone, plugged in by USB or, from the
 app, over Wi-Fi once you connected it in Settings. Nothing is installed on the phone. While AutoCua uses it, one helper
-runs there, in a single `app_process` started over adb. In it, Genymobile's
-[scrcpy](https://github.com/Genymobile/scrcpy) server streams the screen as H.264, so a
-screenshot is the newest frame, already on your computer. AutoCua's own `Helper.java` reads the
-accessibility tree through UiAutomation, in the same process. It keeps that connection open, so
-there is none of `uiautomator dump`'s one-second wait for a still screen, and a scan takes about
-0.1 to 0.3 s. The model gets the iPhone's view, the same numbered elements and
+runs there, in a single `app_process` started over adb. It is AutoCua's own `Helper.java`: it
+reads the accessibility tree through UiAutomation and keeps that connection open, so there is
+none of `uiautomator dump`'s one-second wait for a still screen, and it takes each screenshot
+through the same connection, compressed to JPEG on the phone, so a few hundred KB cross the
+cable instead of 10 MB of pixels. The model gets the iPhone's view, the same numbered elements and
 annotated screenshot, and taps, swipes and keys go through Android's own `input` tool.
 
 | | `device="simulation"` (default) | `device="hardware"` |
@@ -677,7 +677,7 @@ to accept Google's Android SDK terms, as Android Studio does; nothing of Google'
 repository or the wheel. `python -m AutoCua.android_connector.emulator` does all of that ahead of
 time, with a check of what the computer has. An Android Studio SDK that already has the emulator
 and the image is used as it is. The images are Google APIs ones: Google's apps, no Play Store.
-Android 10 is not offered, because its emulator image can't stream its screen. The emulator draws no
+Android 10 is not offered yet (not tried with the helper's screenshots). The emulator draws no
 window of its own: the run shows its screen in AutoCua's own window, the one iOS Simulator runs
 use, one device in the middle or several side by side. Details in **[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**, Part 10.
 
@@ -700,9 +700,8 @@ Android 10 and Android 16 phones so far, and the emulator with Android 11 to 17 
 
 **Four details worth knowing.**
 
-scrcpy sends a frame only when the screen changes, so a still screen may send none at the
-start. After a second, one raw `screencap` stands in, scaled to the stream's size, until the
-stream's own frames take over.
+Screens an app marks secure (banking apps, some password screens, Chrome's incognito tabs) come
+out black in the screenshot; the tree still lists their elements.
 
 Android's "visible to user" ignores views drawn on top, so the scanner hit-tests each element
 against the tappable ones drawn over it, from the tree's drawing order. Keys hidden under a
@@ -722,7 +721,7 @@ through the helper.
 `wait`, `shell`, `web`, `vault`, `video_player`, `todo_list`, `update_todo`, `scratchpad`, `done`.
 `back` is the system Back button; `ground_click` and `ground_scroll` work on a raw point of the
 screenshot, as on the iPhone. `video_player` tells streaming from paused by watching the picture move.
-Unlike the iPhone's, it does not work on a DRM player, which is black on the stream.
+Unlike the iPhone's, it does not work on a DRM player, which is black in the phone's screenshots.
 
 In computer use, the main agent can hand phone work to an **android_agent** sub-agent, on macOS,
 Windows and Linux, the way it hands iPhone work to `ios_agent` on a Mac. It shows up once adb is
@@ -1119,10 +1118,10 @@ chosen model, and Perplexity Sonar.
 - **macOS** on Apple Silicon or Intel, **Windows 10 and 11**, or **Linux** (GNOME; tested on Ubuntu with Wayland, X11 not tested yet)
 - **Python 3.10 or newer**
 - An **API key** from any supported provider
-- *For the browser agent from source:* **Rust** and a C toolchain — the setup scripts install these for you
+- *For the browser and Android agents from source* (a checkout; the wheels ship both prebuilt): **Rust** and a C toolchain — the setup scripts install these for you
 - *For the browser agent:* **Google Chrome**, offered for download on the first web run when it is missing
 - *For iOS:* macOS with **full Xcode**, not just the Command Line Tools
-- *For Android:* for the emulator, the computer's hypervisor (built into macOS; Windows Hypervisor Platform on Windows; KVM on Linux), and the emulator fetches itself; for a phone, **USB debugging** on. adb and scrcpy's server are fetched for you, and the Android agent builds on its first run with **Rust** and a C++ compiler, which the setup scripts install
+- *For Android:* for the emulator, the computer's hypervisor (built into macOS; Windows Hypervisor Platform on Windows; KVM on Linux), and the emulator fetches itself; for a phone, **USB debugging** on. adb is fetched for you; the Android agent comes prebuilt in the wheel, and a checkout builds it on its first run with **Rust** and a C compiler, which the setup scripts install
 
 ### macOS
 
@@ -1195,17 +1194,20 @@ are not asked again.
 
 ### iOS, optional
 
+`setup_mac.sh` asks at its last step, **Set up iPhone / iPad control too? [y/N]**, and counts
+no answer within 30 seconds as no. To set it up later, or without the question:
+
 ```bash
-bash setup_ios.sh
+bash setup_mac.sh --ios
 ```
 
 Clones **WebDriverAgent** at pinned tag `v15.1.1` into `AutoCua/ios_connector/`. It is not
-bundled here, you get it from the Appium project directly. The script checks your Xcode
+bundled here, you get it from the Appium project directly. The step checks your Xcode
 toolchain and installs the device dependencies.
 
 **Simulator**, the default, needs no Apple ID, no signing and no pairing. Xcode does need to be
-able to *target* a simulator, which on a fresh Mac is a separate one-time download the script
-offers to run:
+able to *target* a simulator, which on a fresh Mac is a separate one-time download the step
+offers to run, after its own yes (`--yes` answers it):
 
 ```bash
 xcodebuild -downloadPlatform iOS      # about 8.5 GB, once
@@ -1255,12 +1257,12 @@ says so. The setup scripts build the Android agent, and download nothing of this
 3. Plug the phone in with a data cable, unlock it, and tap **Allow** on "Allow USB debugging?"
    with **Always allow from this computer** ticked.
 
-The first Android run fetches two things into `AutoCua/android_connector/`, both pinned by size
-and SHA-256: Google's platform-tools (not when an `adb` is already on your PATH) and
-Genymobile's scrcpy server. It also builds the Android agent with cargo, once, in about a
-minute. From pip that needs [Rust](https://rustup.rs) and a C++ compiler on your machine; the
-setup scripts install both for a checkout. `python -m AutoCua.android_connector.adb` fetches adb
-and shows the phone on its own.
+The first Android run fetches Google's platform-tools into `AutoCua/android_connector/`, pinned
+by size and SHA-256 (not when an `adb` is already on your PATH). In a checkout it also builds the
+Android agent with cargo, once, in about a minute, with the [Rust](https://rustup.rs) and C
+compiler the setup scripts install; the pip wheels ship it prebuilt. The setup scripts also
+offer the download, after a y, and `python -m AutoCua.android_connector.adb fetch` offers it on
+any terminal; `python -m AutoCua.android_connector.adb` fetches adb and shows the phone on its own.
 On Windows the phone may need its maker's USB driver, and on Linux Android's udev rules (for
 example `sudo apt install android-sdk-platform-tools-common`).
 
@@ -1292,7 +1294,7 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
   hidden element, which returns "scroll to make it visible first" instead of a blind click.
 - Vault credentials are typed by the runtime, so **the value is never shown to the model**.
   Wired into the browser, iOS and Android agents today.
-- **Nothing is downloaded without your yes.** adb, scrcpy's server, WebDriverAgent, Chrome, the
+- **Nothing is downloaded without your yes.** adb, WebDriverAgent, Chrome, the
   OCR models, the iOS Simulator platform, the Android emulator and its images: each is fetched
   from its maker's own server, and only after you answer y on the terminal (the emulator and the
   images after Google's SDK terms). With no terminal to ask on, the run stops and says what to run.
@@ -1369,7 +1371,7 @@ AutoCua/
   ios/                     the iPhone and iPad agent
   ios_connector/           WebDriverAgent transport: cable, Wi-Fi (through Xcode) and simulator sessions
   android/                 the Android agent, one Rust crate: loop, controller, tool registry, screen reader
-  android_connector/       adb, scrcpy's server and the phone helper (Helper.java): USB, Wi-Fi and emulator sessions
+  android_connector/       adb and the phone helper (Helper.java: screenshots and the UI tree): USB, Wi-Fi and emulator sessions
   linux/tree/              the Linux accessibility scanner, see Roadmap
   memory_compression/      context gauge and rolling handoff compression
   agent_conversation/      resumable chat persistence
@@ -1431,19 +1433,26 @@ credit the author and link back to the project.
 
 ### Third-party components
 
-Some components are **not covered by the MIT licence above** and are **not redistributed** in
-this repository. They are fetched from their authors at setup time or on first use. Full details in
-[THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
+Some components are **not covered by the MIT licence above**. A few are redistributed in this
+repository or in the wheels: React, the Rust crates compiled into the prebuilt browser and Android
+agents, and ported UI code and icons; their licence texts ship with every wheel. The rest are fetched,
+installed or built on your machine, from their authors, at setup time or on first use. Full
+details in [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
 
 | Component | How it reaches you | Licence |
 |---|---|---|
-| **WebDriverAgent**, by Facebook, Inc. and the [Appium](https://github.com/appium/WebDriverAgent) project | [`setup_ios.sh`](https://github.com/AutoCua/AutoCua/blob/main/setup_ios.sh) clones it at pinned tag `v15.1.1` | BSD 3-Clause, some files Apache 2.0 |
+| **WebDriverAgent**, by Facebook, Inc. and the [Appium](https://github.com/appium/WebDriverAgent) project | [`setup_mac.sh`](https://github.com/AutoCua/AutoCua/blob/main/setup_mac.sh) clones it at pinned tag `v15.1.1`, in its iPhone / iPad step, after your yes | BSD 3-Clause, some files Apache 2.0 |
 | **Interception**, a Windows kernel input driver by [Francisco Lopes da Silva](https://github.com/oblitum/Interception) | `setup_windows.bat` downloads the author's signed `v1.0.1` release and verifies its SHA-256 | **Dual:** LGPL v3.0 non-commercial. **Commercial use needs a paid licence from the author** |
 | **PP-OCRv6** text detection and recognition models, by [PaddlePaddle](https://huggingface.co/PaddlePaddle) | `AutoCua/utils/ocr_models.py` downloads the two ONNX models from the author's Hugging Face repositories at pinned commits, SHA-256 verified, the first time a Linux scan needs them | Apache 2.0 |
 | **Electron**, by the [Electron](https://github.com/electron/electron) project (OpenJS Foundation) | `AutoCua/utils/electron.py` downloads the official `v44.7.0` release zip for your OS, SHA-256 verified, into a per-user cache, only after you say yes at the first `ui=True` launch (or run `python -m AutoCua.utils.electron`); a checkout's `npm install` in `AutoCua/desktop` works too | MIT; the Chromium and Node.js it bundles keep their own licences |
-| **Android SDK Platform-Tools** (adb), by Google | `AutoCua/android_connector/adb.py` downloads the pinned `r37.0.1` zip for your OS from Google, size and SHA-256 verified, the first time an Android phone is used, unless an `adb` is already on your PATH | Google's Android SDK terms; adb itself is open source, Apache 2.0 |
-| **scrcpy server**, by [Genymobile](https://github.com/Genymobile/scrcpy) | `AutoCua/android_connector/stream.py` downloads the pinned `v5.0.1` server from Genymobile's GitHub release, size and SHA-256 verified, the first time an Android phone is used, and copies it to the phone for each session | Apache 2.0 |
+| **Android SDK Platform-Tools** (adb), by Google | `AutoCua/android_connector/adb.py` downloads the pinned `r37.0.1` zip for your OS from Google, size and SHA-256 verified, after your yes in the setup scripts or the first time an Android phone is used, unless an `adb` is already on your PATH. Not shipped in this repo | Google's Android SDK terms; adb itself is open source, Apache 2.0 |
 | **Android Emulator and system images**, by Google | `AutoCua/android_connector/emulator.py` downloads the pinned emulator `37.2.12` for your OS, and the Google APIs system image of each Android version a `device="simulation"` run needs, from Google's SDK repository, size and SHA-1 verified (the checksum Google's manifest lists), into a per-user cache | Google's Android SDK terms; the emulator is built on QEMU (GPL v2) |
+| **Rust crates** in the browser agent (PyO3, serde, regex, url with ICU4X, image, ring and others) and in the Android agent (PyO3, serde, regex, zune-jpeg, jpeg-encoder, roxmltree and others) | Compiled into the two prebuilt `agent_native` modules every wheel ships; a checkout or a source build downloads them from crates.io | MIT / Apache 2.0 for most; also ISC, Unicode-3.0 and BSD; part of each JPEG encoder is IJG |
+| **Google Chrome**, by Google | `AutoCua/utils/chrome.py` installs Google's current stable release, after your yes, when a web run finds no Chrome | Google's Chrome terms |
+| **FFmpeg**, inside the `imageio-ffmpeg` package | Installed from PyPI as a dependency; AutoCua runs it to encode and compress recordings | GPL (the Windows build: v3 or later) |
+| **React** and its scheduler, by Meta | Built into the committed `AutoCua/ui/index.js` | MIT |
+| **thinking-orbs**, by Jakub Antalik; **Lucide** and **Feather** icons | Ported into the UI's code and glyphs | MIT; ISC (Lucide) |
+| **Rust, uv and WinLibs GCC** | Installed by the setup scripts when missing | MIT / Apache 2.0 (Rust, uv); GPL, runtime under the GCC Runtime Library Exception (GCC) |
 
 > If you ship or sell anything built on AutoCua that bundles or installs the Interception
 > driver, you must obtain a commercial Interception licence yourself. AutoCua's MIT licence

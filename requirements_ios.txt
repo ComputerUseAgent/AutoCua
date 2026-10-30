@@ -4,8 +4,9 @@
 # connector + agent). Does NOT share or depend on requirements_mac.txt —
 # install only this file if you want the iOS path.
 #
-#   bash setup_mac.sh          # creates .venv/ (desktop deps optional)
-#   bash setup_ios.sh            # installs this file + WebDriverAgent
+#   bash setup_mac.sh          # creates .venv/; answer y at its iPhone / iPad
+#                              # step to install this file + WebDriverAgent
+#   bash setup_mac.sh --ios    # the same, without asking
 #
 # Or install packages yourself into an existing venv:
 #   source .venv/bin/activate

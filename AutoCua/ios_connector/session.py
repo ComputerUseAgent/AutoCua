@@ -10,7 +10,7 @@ REGISTRY (AutoCua_data/ios_paired/paired_devices.json)
 
 SESSION (the Apple-logo toggle)
     activate()  -> fresh WDA session over the cable:
-                     pymobiledevice3 mounter auto-mount   (image is lost on reboot)
+                     the developer disk image, Xcode's copy (ddi.py; lost on reboot)
                      pymobiledevice3 usbmux forward 8100 8100
                      pymobiledevice3 developer dvt xcuitest --userspace <bundle>
                    then the phone answers on http://127.0.0.1:8100.
@@ -653,6 +653,12 @@ class WDASession:
             return {"code": "devmode",
                     "error": "Enable Developer Mode on the iPhone",
                     "hint": "iPhone: Settings → Privacy & Security → Developer Mode."}
+        # ddi.py's own line when the image did not mount, with what to do.
+        m = re.search(r"the developer disk image is not mounted: (.+)", t)
+        if m:
+            hint = m.group(1).strip()
+            return {"code": "no_ddi", "error": "The developer disk image is not mounted on the iPhone",
+                    "hint": (hint[:1].upper() + hint[1:])[:300]}
         if "Failed to start service" in t:
             return {"code": "not_ready",
                     "error": "The iPhone isn't ready for automation",
@@ -677,7 +683,7 @@ class WDASession:
             return {"ok": False, "state": "error", "code": "no_pmd3",
                     "error": "pymobiledevice3 not found",
                     "hint": (f"running under {sys.executable} — looked beside it, in the "
-                             "checkout's .venv/, and on PATH. Install it with:  bash setup_ios.sh  "
+                             "checkout's .venv/, and on PATH. Install it with:  bash setup_mac.sh --ios  "
                              "or start the app with the venv's Python:  "
                              "source .venv/bin/activate && python app.py")}
         if not udid:
@@ -774,13 +780,12 @@ class WDASession:
                 self._log_path = log.name
                 # The developer disk image is gone after every reboot or iOS
                 # update, and xcuitest can't start without it. Ask the phone
-                # first (one lockdown call, about a second): auto-mount is NOT
-                # a no-op when the image is already there. On iOS 17+ it
-                # compares its cached image's build id with a constant of its
-                # own, and when they differ (they do, the repository moved
-                # on) it downloads 15 MB from GitHub before it even looks at
-                # the phone: 20-30 s on slow Wi-Fi, which ate the whole
-                # connect budget, and GitHub's rate limit after an hour.
+                # first (one lockdown call, about a second), then mount it from
+                # Xcode's copy (ddi.py). Never `mounter auto-mount` by itself:
+                # on iOS 17+ it compares its cached image's build id with a
+                # constant of its own, and when they differ (they do, the
+                # repository moved on) it downloads 15 MB from GitHub, without
+                # asking and before it even looks at the phone.
                 # Two marks that split a slow mount check: a bare interpreter
                 # start and pymobiledevice3's own start (imports, no phone),
                 # so the log says whether the Mac or the phone was slow.
@@ -796,19 +801,26 @@ class WDASession:
                     except Exception:
                         pass
                     mark("pmd3_start")
-                try:
-                    listed = subprocess.run(base + ["mounter", "list"], capture_output=True,
-                                            text=True, env=env, timeout=30)
-                    mounted = "ImageSignature" in (listed.stdout or "")
-                except Exception:
-                    mounted = False
+                from AutoCua.ios_connector import ddi
+                mounted = ddi.mounted(base, udid)
                 mark("mount_check")
                 if not mounted:
-                    try:
-                        subprocess.run(base + ["mounter", "auto-mount"], stdout=log, stderr=log,
-                                       env=env, timeout=120)
-                    except subprocess.TimeoutExpired:
-                        pass
+                    def run(cmd, timeout):
+                        try:
+                            return subprocess.run(cmd, stdout=log, stderr=log, env=env,
+                                                  timeout=timeout).returncode
+                        except (OSError, subprocess.TimeoutExpired):
+                            return None
+
+                    def say(text):
+                        # The terminal, and the log _classify reads.
+                        print(f"📱 {text}", flush=True)
+                        log.write(f"AutoCua: {text}\n".encode("utf-8", "replace"))
+                        log.flush()
+
+                    # Best effort, as before: a check that missed a mounted
+                    # image must not stop a session that would start.
+                    ddi.mount(base, udid, run, say)
                     mark("mount")
                 self._forward = subprocess.Popen(
                     base + ["usbmux", "forward", str(WDA_PORT), str(WDA_PORT)],

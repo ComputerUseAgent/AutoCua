@@ -2742,6 +2742,35 @@ def _start_idle_bridge() -> None:
         debug_exception("idle bridge start")
 
 
+def _build_android_agent() -> None:
+    """The Android agent's Rust crate, built at start as the idle bridge's
+    import builds the web agent's, so a checkout's first Android run does not
+    stop for cargo. The native code only: the emulator and its images are
+    still fetched on first use, after their yes. Built, not imported: an
+    import keeps agent_native.pyd loaded for the app's whole life, and on
+    Windows a loaded .pyd cannot be replaced, so another process's rebuild
+    (computer use's android_agent child, a terminal run) would fail to
+    install. A checkout only: a pip wheel ships it prebuilt (a wheel built
+    from the sdist makes it on its first Android run), as does a packaged
+    app. Printed when it fails, since
+    debug_exception is silent in a checkout."""
+    if IS_COMPILED or not (_REPO_ROOT / "main.py").is_file():
+        return
+    try:
+        from AutoCua.utils.rust import ensure_android_agent_built
+        ensure_android_agent_built()
+    except Exception as e:
+        print(f"[android] AGENT NOT BUILT — {e}", flush=True)
+
+
+def _start_native_agents() -> None:
+    """Both Rust crates on one thread, the web agent's first (the extension's
+    line waits on it): a checkout builds them one after the other, not as two
+    cargo runs at once."""
+    _start_idle_bridge()
+    _build_android_agent()
+
+
 def _stop_idle_bridge() -> None:
     """The line goes with the window: its config.json entry comes off, so the
     extension stops dialling. Looked up rather than imported: never build the
@@ -4537,8 +4566,9 @@ def main():
     # Clear orphaned macOS TCC "ghost" entries from a previous build (once per
     # build identity; no-op on Windows / dev).
     repair_stale_tcc_entries()
-    # The extension's line while no run is on, for its Test button.
-    threading.Thread(target=_start_idle_bridge, daemon=True).start()
+    # The extension's line while no run is on, for its Test button, then the
+    # Android agent: a checkout builds both Rust crates here, at start.
+    threading.Thread(target=_start_native_agents, daemon=True).start()
     # macOS permissions are now driven one-by-one by the setup wizard (served at
     # /setup and gated via the initial window URL below), which also auto-repairs
     # stale ghost entries per-permission. The old bulk request_macos_permissions()

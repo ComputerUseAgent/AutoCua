@@ -259,7 +259,10 @@ if %errorlevel% neq 0 (
 :: modifiable so cargo is available in later shells, same as the uv install
 :: above; the prepend on the line before covers THIS session, which the
 :: registry write does not reach.
-"%RUSTUP_EXE%" -y --default-toolchain stable-x86_64-pc-windows-gnu --profile minimal
+:: --default-host too: rust-toolchain.toml at the repo root names a version
+:: without a triple, and rustup completes it with the default host, which
+:: rustup-init otherwise sets to MSVC on Windows.
+"%RUSTUP_EXE%" -y --default-toolchain stable-x86_64-pc-windows-gnu --default-host x86_64-pc-windows-gnu --profile minimal
 if %errorlevel% neq 0 (
     echo [ERROR] rustup-init failed. Fix the error above and re-run.
     pause
@@ -276,6 +279,13 @@ if not defined CARGO_EXE (
 )
 
 :rust_ready
+:: A rustup from before this script set the host (or installed by hand) has
+:: MSVC as its default host, so the repo's rust-toolchain.toml would fetch the
+:: MSVC build of the pinned version, which needs Visual Studio's linker.
+rustup set default-host x86_64-pc-windows-gnu >nul 2>&1
+:: The first cargo call installs the pinned toolchain (rust-toolchain.toml),
+:: about 150 MB, once.
+echo [i] Checking the Rust version the repo pins ^(rust-toolchain.toml^)...
 set "CARGOLINE="
 for /f "usebackq delims=" %%v in (`cargo --version 2^>^&1`) do set "CARGOLINE=%%v"
 echo [OK] Found !CARGOLINE!
@@ -379,6 +389,29 @@ if !errorlevel! neq 0 (
     echo     Re-run this script after fixing the error above to retry.
 ) else (
     echo [OK] Android agent built
+)
+
+:: --- Android phone tool: adb ---
+::
+:: A real phone needs Google's adb (platform-tools) to talk to it. Like the
+:: Interception driver below, it is not vendored in this repo: it is fetched
+:: from Google's dl.google.com, version-pinned and SHA-256 verified, and only
+:: after the user answers y. An adb already on PATH is used as it is. No (or
+:: no answer) skips it; only phones need it.
+echo.
+echo ============================================
+echo   Android phone tool ^(adb^)
+echo ============================================
+echo.
+echo [i] For an Android phone. adb comes from Google, only after your y, and is
+echo     never shipped in this repo, under Google's Android SDK terms
+echo     ^(developer.android.com/studio/terms^).
+"venv\Scripts\python.exe" -m AutoCua.android_connector.adb fetch
+if !errorlevel! neq 0 (
+    echo [i] Skipped - only an Android phone needs it. Re-run this script,
+    echo     or run: venv\Scripts\python.exe -m AutoCua.android_connector.adb fetch
+) else (
+    echo [OK] adb is ready
 )
 
 :: --- 9. Fetch + install the Interception driver ---

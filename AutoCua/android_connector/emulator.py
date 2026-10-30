@@ -114,9 +114,10 @@ IMAGES = {
     "11": ("android-30", {
         "arm64-v8a": ("arm64-v8a-30_r16.zip", 1244324730, "0e66987d6b4db2e278af83d453ce5d74a7e6ced3"),
         "x86_64": ("x86_64-30_r16.zip", 1438186618, "6ae21030eaadc041078444d3798e4b399f3e787d")}),
-    # No Android 10: its image's graphics memory won't let the software
-    # encoder read the screen (gralloc_ranchu "usage mismatch"), so scrcpy's
-    # server sends no video. A real Android 10 phone is fine.
+    # No Android 10 yet: its image's graphics memory could not be read by
+    # the screen streamer this used before (gralloc_ranchu "usage mismatch"),
+    # and it has not been tried with the helper's screenshots. A real
+    # Android 10 phone is fine.
 }
 NEWEST = max(IMAGES, key=int)
 
@@ -955,11 +956,11 @@ def _precheck(version=None, device=None):
         _say(f"🤖 adb: {adb}")
     except Exception as e:  # noqa: BLE001 - reported, the next items are still worth checking
         fail("adb", str(e))
-    from AutoCua.android_connector.stream import SERVER, ensure_server
-    if ensure_server():
-        _say(f"🤖 scrcpy's server: {SERVER}")
-    else:
-        fail("scrcpy's server", "could not be fetched")
+    try:
+        from AutoCua.android_connector.build_helper import ensure_helper
+        _say(f"🤖 Phone helper: {ensure_helper()}")
+    except Exception as e:  # noqa: BLE001 - reported, the next items are still worth checking
+        fail("Phone helper", str(e))
     try:
         # A checkout builds the Rust agent here, with cargo (a minute, once);
         # a wheel has it built.

@@ -328,6 +328,13 @@ if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1 && ! comm
     WEB_AGENT_READY=0
 fi
 
+# The repo pins its Rust (rust-toolchain.toml at the root): the first cargo
+# call, in have_cargo below, has rustup install that version, about 150 MB,
+# once, with no output of its own.
+if [ "$WEB_AGENT_READY" = "1" ] && command -v rustup >/dev/null 2>&1; then
+    print_info "Checking the Rust version the repo pins (rust-toolchain.toml); a first install is about 150 MB..."
+fi
+
 # A rustup that is installed but has no default toolchain is repaired in place.
 if [ "$WEB_AGENT_READY" = "1" ] && ! have_cargo && command -v rustup >/dev/null 2>&1; then
     print_info "rustup is installed but has no usable default toolchain — installing stable"
@@ -411,6 +418,25 @@ if [ "$WEB_AGENT_READY" = "1" ]; then
 else
     print_info "Skipped — see the step above."
     print_info "Computer use, shell use and mobile use on iOS are unaffected."
+fi
+
+# -----------------------------------------------------------------------------
+# Step 6 — the Android phone tool: adb
+# -----------------------------------------------------------------------------
+# A real phone needs Google's adb (platform-tools) to talk to it. It is not
+# vendored in this repo: it is fetched from Google's dl.google.com,
+# version-pinned and SHA-256 verified, and only after the user answers y. An
+# adb already on PATH (apt install adb) is used as it is; Google builds adb
+# for x86_64 Linux only. No (or no answer) skips it; only phones need it.
+print_step "STEP 6: Android phone tool (adb)"
+print_info "For an Android phone. adb comes from Google, only after your y, and is"
+print_info "never shipped in this repo, under Google's Android SDK terms"
+print_info "(developer.android.com/studio/terms)."
+if "$VENV_PYTHON" -m AutoCua.android_connector.adb fetch; then
+    print_ok "adb is ready"
+else
+    print_info "Skipped — only an Android phone needs it. Re-run this script, or:"
+    print_info "  $VENV_PYTHON -m AutoCua.android_connector.adb fetch"
 fi
 
 # -----------------------------------------------------------------------------

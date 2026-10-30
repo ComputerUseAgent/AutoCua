@@ -36,16 +36,18 @@ def _size(size):
     return f", {size / 1e9:.1f} GB" if size >= 1e9 else f", {size / 1e6:.0f} MB"
 
 
-def allow_download(what, source, size=None, log=print):
+def allow_download(what, source, size=None, log=print, how=None):
     """True when `what` may be downloaded now from `source` (a maker's own
     server, named so the person can see it), with `size` in bytes or words:
     the person answered y on the terminal, or AUTO_ENV=1. False otherwise,
-    after one line through `log` that says how to go on."""
+    after one line through `log` that says how to go on. `how` is a command
+    that asks again on a terminal, for when there is none to ask on here
+    (the desktop app's backend, whose stdin is the shell's pipe)."""
     if (os.environ.get(AUTO_ENV) or "").strip() == "1":
         return True
     if not can_ask():
         log(f"{what} is needed and is not installed, and nothing is downloaded without your yes. "
-            f"Run this on a terminal and answer y, or set {AUTO_ENV}=1.")
+            f"Run {f'{how!r}' if how else 'this'} on a terminal and answer y, or set {AUTO_ENV}=1.")
         return False
     log(f"{what} is needed and is not installed. It comes from {source}{_size(size)}.")
     if ask("    Download it now? [y/N] ") in ("y", "yes"):

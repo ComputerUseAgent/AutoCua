@@ -93,7 +93,9 @@ def ensure_chrome():
     if found or os.environ.get(TRIED):
         return found
     os.environ[TRIED] = "1"
-    if not allow_download("Google Chrome, for the web agent", "Google (dl.google.com/chrome)", "about 280 MB",
+    if not allow_download("Google Chrome, for the web agent",
+                          "Google (dl.google.com/chrome), under Google Chrome's terms "
+                          "(google.com/chrome/terms)", "about 280 MB",
                           log=lambda text: _say("🌐 " + text)):
         _say("🌐 Install it from https://www.google.com/chrome/ (Chromium or Edge is used if one is installed).")
         return None
