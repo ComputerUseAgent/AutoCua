@@ -1676,6 +1676,29 @@ def api_android_deactivate():
     return jsonify({"ok": True})
 
 
+@app.route('/api/phone-link', methods=['POST'])
+def api_phone_link():
+    """The chat box's Wireless / Wired toggle ({"link": "wireless" | "wired"}),
+    for computer use's phone sub-agents (controller/tool/android_agent.py and
+    mac's ios_agent.py): they look for the phone at the start of every
+    request, over the Wi-Fi only with Wireless, the cable only with Wired
+    (the connectors' WIRELESS). The page sends it on every flip and once when
+    it loads, so the app and the toggle agree. Mobile use's own pick carries
+    its link itself (/api/android/activate, /api/ios/activate)."""
+    from flask import request
+    link = (request.get_json(silent=True) or {}).get("link")
+    if link not in ("wireless", "wired"):
+        return jsonify({"ok": False, "error": "link must be 'wireless' or 'wired'"}), 400
+    from AutoCua.android_connector import session as android_connector
+    android_connector.WIRELESS = link == "wireless"
+    try:
+        from AutoCua.ios_connector import session as ios_connector
+        ios_connector.WIRELESS = link == "wireless"
+    except Exception:
+        debug_exception("api_phone_link ios")   # ios_agent is the Mac's; the Android side is set
+    return jsonify({"ok": True, "link": link})
+
+
 # =============================================================================
 # Flask routes — providers / keys / settings / vertex
 # =============================================================================

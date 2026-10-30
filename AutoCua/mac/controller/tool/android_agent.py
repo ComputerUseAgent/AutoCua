@@ -1,13 +1,16 @@
 """The Android agent as a sub-agent of the main agent, on the person's
-Android phone plugged into this computer by USB (USB debugging on), or one
-Settings connected that is on the same Wi-Fi (Wireless debugging on).
+Android phone plugged into this computer by USB (USB debugging on), or, when
+the desktop app's Wireless / Wired toggle says Wireless, one Settings
+connected that is on the same Wi-Fi (Wireless debugging on).
 
 Two halves, as tool/ios_agent.py has:
 
 AndroidLink: the request's phone check. The moment the main agent starts a
 request, it looks for an Android phone on USB (the newest one Settings →
-Connect Device remembered, else the one plugged in), else a remembered one on
-Wi-Fi, and checks it in the background: the phone answers over adb, its
+Connect Device remembered, else the one plugged in), or, with the app's
+toggle on Wireless, a remembered one on the Wi-Fi only (the connector's
+WIRELESS; a terminal run keeps the cable), and checks it in the background:
+the phone answers over adb, its
 helper starts and reads one screen, then stops again
 (android_connector/session.py's confirm). Meanwhile <sub_agents> shows
 `checking connection: android_agent`; once the check passes, android_agent
@@ -184,42 +187,48 @@ class AndroidLink:
             from AutoCua.android_connector.adb import HINTS
             from AutoCua.android_connector import session as connector
             from AutoCua.android_connector.session import android_session, paired_devices, wifi_saved
-            plugged = _usb_phones(adb)
-            ready = [s for s, state in plugged.items() if state == "device"]
-            saved = [d["serial"] for d in paired_devices() if d.get("serial") in plugged]
-            if saved:
-                # A phone Settings connected is plugged in: that one, never another.
-                serial = next((s for s in saved if s in ready), None)
+            link = "wireless" if connector.WIRELESS else "wired"
+            if link == "wireless":
+                # The app's toggle says Wireless: the Wi-Fi only, a phone
+                # Settings connected that announces Wireless debugging. The
+                # cable is left alone, so with none on the Wi-Fi the agent is
+                # offline, cable or not.
+                serial = wifi_saved(adb)
                 if serial is None:
-                    state = plugged[saved[0]]
+                    self._fail("no Android phone connected in Settings is on Wi-Fi (Wireless "
+                               "debugging on, the same Wi-Fi as this computer)")
+                    return
+            else:
+                # Wired, the default (and every terminal run): the cable only.
+                plugged = _usb_phones(adb)
+                ready = [s for s, state in plugged.items() if state == "device"]
+                saved = [d["serial"] for d in paired_devices() if d.get("serial") in plugged]
+                if saved:
+                    # A phone Settings connected is plugged in: that one, never another.
+                    serial = next((s for s in saved if s in ready), None)
+                    if serial is None:
+                        state = plugged[saved[0]]
+                        self._fail(HINTS.get(state, f"the phone is in the {state!r} state"))
+                        return
+                elif len(ready) == 1:
+                    serial = ready[0]
+                elif ready:
+                    self._fail("more than one Android phone is plugged in: connect the one to use in "
+                               "Settings → Connect Device → Android")
+                    return
+                elif plugged:
+                    state = next(iter(plugged.values()))
                     self._fail(HINTS.get(state, f"the phone is in the {state!r} state"))
                     return
-            elif len(ready) == 1:
-                serial = ready[0]
-            elif ready:
-                self._fail("more than one Android phone is plugged in: connect the one to use in "
-                           "Settings → Connect Device → Android")
-                return
-            else:
-                # Nothing to use on USB. A phone Settings connected may be on
-                # Wi-Fi (Wireless debugging on), but this agent takes it only
-                # with the connector's WIRELESS switch, which is off: the
-                # cable is the only way here, in the app too; only Mobile use's
-                # own Wireless toggle reaches a phone over Wi-Fi.
-                serial = wifi_saved(adb) if connector.WIRELESS else None
-                if serial is None:
-                    if plugged:
-                        state = next(iter(plugged.values()))
-                        self._fail(HINTS.get(state, f"the phone is in the {state!r} state"))
-                    else:
-                        self._fail("no Android phone is plugged in by USB with USB debugging on"
-                                   + (", and none connected in Settings is on Wi-Fi" if connector.WIRELESS else ""))
+                else:
+                    self._fail("no Android phone is plugged in by USB with USB debugging on")
                     return
             self.serial = serial
-            _log(f"checking {serial}")
+            _log(f"checking {serial}{' on Wi-Fi' if link == 'wireless' else ''}")
             # A phone this process already reads (the app's own Mobile use →
-            # Android pick) answers as it is: confirm() leaves it running.
-            res = android_session.confirm(serial, keep=False)
+            # Android pick) answers as it is: confirm() leaves it running,
+            # unless it reads it the other way.
+            res = android_session.confirm(serial, keep=False, link=link)
             if not res.get("ok"):
                 self._fail(" - ".join(str(p) for p in (res.get("error"), res.get("hint")) if p)
                            or "the phone could not be checked")

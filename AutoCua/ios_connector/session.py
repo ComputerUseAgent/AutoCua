@@ -41,10 +41,11 @@ from pathlib import Path
 
 WDA_BUNDLE_ID = "com.AutoCua.WebDriverAgentRunner.xctrunner"
 WDA_PORT = 8100
-# Wi-Fi for a pick that names no link (a terminal run, computer use's
-# ios_agent): off everywhere (owner, 2026-10-30), so only the desktop app's
-# Mobile use reaches an iPhone over Wi-Fi, through its Wireless toggle,
-# picked on purpose. A switch left for a build that wants otherwise.
+# The desktop app's Wireless / Wired toggle, for computer use's ios_agent
+# (mac/controller/tool/ios_agent.py): ui/service.py sets it on every flip.
+# True is the Wi-Fi only (a paired iPhone, through Xcode), False the cable
+# only. Off by default, and a terminal run never turns it on (owner,
+# 2026-10-30).
 WIRELESS = False
 WDA_STATUS_URL = f"http://127.0.0.1:{WDA_PORT}/status"
 # WDA's live screen stream (MJPEG) on the phone. The runner always serves it;

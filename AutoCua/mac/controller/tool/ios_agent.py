@@ -1,11 +1,14 @@
 """The iOS agent as a sub-agent of the main agent, on the person's REAL iPhone
-or iPad, plugged into this Mac by cable. Never a simulator.
+or iPad, plugged into this Mac by cable, or on the Wi-Fi when the desktop
+app's Wireless / Wired toggle says Wireless. Never a simulator.
 
 Two halves:
 
 PhoneLink: the request's phone connection. The moment the main agent starts
-a request, it looks for a paired phone plugged in by USB and connects it in
-the background, with the same session a "mobile use, ios" hardware run uses
+a request, it looks for a paired phone plugged in by USB (or, with the app's
+toggle on Wireless, one on the Wi-Fi, through Xcode: the connector's WIRELESS;
+a terminal run keeps the cable) and connects it in the background, with the
+same session a "mobile use, ios" hardware run uses
 (ios_connector/session.py). Meanwhile <sub_agents> shows
 `checking connection: ios_agent`. Once the phone answers, ios_agent joins the
 `online:` line, and that is all: no window yet. No phone plugged in, or no
@@ -213,21 +216,24 @@ class PhoneLink:
             plugged = plugged_in_udids()         # None: usbmuxd did not answer, so just try
         except Exception:
             return link
-        if plugged is not None:
-            paired = [d for d in paired if d.get("udid") in plugged]
-        if not paired and connector.WIRELESS and paired_devices():
-            # Nothing paired on the cable. One on the Wi-Fi would work too,
-            # Xcode starting it there and activate() picking which (the
-            # unlocked one first), but only with the connector's WIRELESS
-            # switch, which is off: the cable is the only way here, in the
-            # app too; only Mobile use's own Wireless toggle reaches an
-            # iPhone over Wi-Fi.
+        if connector.WIRELESS:
+            # The app's toggle says Wireless: the Wi-Fi only. Xcode starts
+            # WebDriverAgent there and activate() picks the phone (the
+            # unlocked one first); the cable is left alone.
+            if not paired:
+                link.reason = "no iPhone or iPad is paired with this Mac"
+                _log("offline at start: no iPhone is paired")
+                return link
             link._link = "wireless"
-        elif not paired:
-            _log("offline at start: no paired phone is plugged in "
-                 f"(paired: {[d.get('name') for d in paired_devices()]}, plugged in: {sorted(plugged or [])})")
-            return link                          # nothing paired is plugged in: offline at once
+            link.reason = "no paired iPhone or iPad answered over the Wi-Fi"   # till the connect says more
         else:
+            # Wired, the default (and every terminal run): the cable only.
+            if plugged is not None:
+                paired = [d for d in paired if d.get("udid") in plugged]
+            if not paired:
+                _log("offline at start: no paired phone is plugged in "
+                     f"(paired: {[d.get('name') for d in paired_devices()]}, plugged in: {sorted(plugged or [])})")
+                return link                      # nothing paired is plugged in: offline at once
             link.udid = paired[0]["udid"]
             link.name = paired[0].get("name") or "iPhone"
         link._state = "checking"
