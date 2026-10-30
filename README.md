@@ -613,16 +613,16 @@ There is a **`video_player`** tool because DRM players black out screenshots. Wh
 dark it drives play, pause, close and streaming checks from the accessibility tree, and proves
 "streaming" by watching the progress label advance across a four second window.
 
-**Over Wi-Fi, in the app.** Mobile use has a **Wireless / Wired** toggle. Wired, the default, is
-the cable, as in the table; Wireless you pick on purpose. It needs nothing beyond the pairing: Xcode
+**Over Wi-Fi, in the app.** Mobile use and Computer use have a **Wireless / Wired** toggle. Wired,
+the default, is the cable, as in the table; Wireless you pick on purpose. It needs nothing beyond the pairing: Xcode
 already reaches a paired iPhone on the same Wi-Fi, so it builds and starts WebDriverAgent there,
 with the same `xcodebuild` run Settings makes, which also signs it again when a free profile has
 expired. The app then talks to it at the phone's Wi-Fi address. pymobiledevice3, the cable's
 transport, would need root or an extra setting on the phone for Wi-Fi. A start takes about 15 to 35 s,
 against about 5 s over the cable. With several paired iPhones on the Wi-Fi it takes an unlocked
-one first, the newest of those, and says so at once when they are all locked. Nothing else
-reaches an iPhone over Wi-Fi: computer use's `ios_agent` and a run from a script (`run_agent`)
-always use the cable.
+one first, the newest of those, and says so at once when they are all locked. In Computer use the
+same toggle says over what `ios_agent` looks for the iPhone at the start of each request: the cable
+only on Wired, the Wi-Fi only on Wireless. A run from a script (`run_agent`) always uses the cable.
 
 **15 tools:** `open_app`, `click`, `ground_click`, `ground_scroll`, `input`, `scroll`, `wait`,
 `shell`, `web`, `vault`, `video_player`, `todo_list`, `update_todo`, `scratchpad`, `done`.
@@ -727,7 +727,9 @@ Unlike the iPhone's, it does not work on a DRM player, which is black on the str
 In computer use, the main agent can hand phone work to an **android_agent** sub-agent, on macOS,
 Windows and Linux, the way it hands iPhone work to `ios_agent` on a Mac. It shows up once adb is
 on the computer: after one Android run or the Settings check, or with an `adb` on your PATH. From
-a script and in the app alike it uses the cable, never Wi-Fi. In the app, Settings,
+a script it uses the cable, never Wi-Fi; in the app it looks for the phone over what the Wireless /
+Wired toggle says at the start of each request: the cable only on Wired, the default, or the Wi-Fi
+only on Wireless, a phone connected once in Settings with Wireless debugging on. In the app, Settings,
 Connect Device, Android checks a phone once and remembers it, and **Mobile use, Android** in the
 chat box starts it for the run.
 
@@ -967,7 +969,7 @@ the agent runs would inherit it.
 | **Memory ring** | Context gauge beside the Skills icon, with the live token count inside. It breathes while compression runs and its count *falls* when the handoff lands |
 | **Fast / Quality** | Leaner prompt and fewer tokens per step, or full reasoning, which is the default |
 | **Mode picker** | Computer use, Mobile use, Shell use |
-| **Wireless / Wired** | Mobile use only: the phone over the cable, the default, or over Wi-Fi when you pick Wireless. While it pairs, a circle turns beside the picker and the chat box is locked; if pairing fails, the box keeps the reason and the circle turns into an arrow that pairs again |
+| **Wireless / Wired** | Mobile use and Computer use: the phone over the cable, the default, or over Wi-Fi when you pick Wireless. In Mobile use, while it pairs, a circle turns beside the picker and the chat box is locked; if pairing fails, the box keeps the reason and the circle turns into an arrow that pairs again. In Computer use it says over what `android_agent` and `ios_agent` look for the phone at each request, and can be flipped any time, also while a run goes |
 | **Stop** | Retires the run id instantly, so a still-running model call can never repaint your next chat |
 
 Chats are saved and resumable. Reopening one restores its history and puts the memory ring back
@@ -1296,8 +1298,9 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
   images after Google's SDK terms). With no terminal to ask on, the run stops and says what to run.
   `AutoCua_AUTO_DOWNLOAD=1` answers yes for a run nobody watches, such as CI. Only Electron asks
   in its own way, since the app works without it.
-- Phones go over Wi-Fi **only when you pick Wireless** in the desktop app's Mobile use; a run from
-  a script, and computer use's phone sub-agents everywhere, always use the cable.
+- Phones go over Wi-Fi **only when you pick Wireless** in the desktop app, in Mobile use or in
+  Computer use, whose phone sub-agents then look for the phone over the Wi-Fi only; a run from a
+  script always uses the cable.
 - An Android phone is reached over Wi-Fi **only after you connected it over USB in the app's
   Settings**, and only when it answers with the serial it was saved with as it connects. An
   iPhone, only one paired with this Mac in the app's Settings.

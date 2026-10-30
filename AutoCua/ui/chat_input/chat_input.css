@@ -479,14 +479,22 @@ body.left-bar-animating .chat-container-wrapper {
     pointer-events: none;
 }
 
-/* ---------- Wireless / Wired flip (Mobile use only; how the phone connects,
-   Android or iPhone, link_toggle.js). The Fast / Quality pill itself (it carries
-   .fast-quality-toggle, so the running fade above covers it too), with its own
-   icons and colours: sky Wi-Fi = Wireless (left), green plug = Wired (right).
-   display:none outside Mobile use, so it takes no room there; it fades in like
-   Shell use's Auto / Manual pill. */
+/* ---------- Wireless / Wired flip (Mobile use and Computer use; how the phone
+   connects, Android or iPhone, link_toggle.js). The Fast / Quality pill itself
+   (it carries .fast-quality-toggle, so the running fade above covers it too),
+   with its own icons and colours: sky Wi-Fi = Wireless (left), green plug =
+   Wired (right). display:none in Shell use and Web use, so it takes no room
+   there; it fades in like Shell use's Auto / Manual pill. */
 .fast-quality-toggle.link-toggle { display: none; }
-.input-area-wrapper[data-agent-mode="mobile"] .link-toggle { display: flex; animation: lkIn 0.3s ease; }
+.input-area-wrapper[data-agent-mode="mobile"] .link-toggle,
+.input-area-wrapper[data-agent-mode="computer"] .link-toggle { display: flex; animation: lkIn 0.3s ease; }
+/* In Computer use the flip stays live while a run goes: it only says how the
+   phone sub-agents connect from the next request on (link_toggle.js). In
+   Mobile use it holds still, as flipping it pairs the phone again. */
+.input-area-wrapper[data-agent-mode="computer"]:has(.chat-input.agent-active) .fast-quality-toggle.link-toggle {
+    opacity: 1;
+    pointer-events: auto;
+}
 @keyframes lkIn { from { opacity: 0; } to { opacity: 1; } }
 .link-toggle.wired .fq-thumb { transform: translateX(100%); }
 .link-toggle:not(.wired) .lk-wifi { color: #0ea5e9; }
@@ -502,7 +510,8 @@ body.left-bar-animating .chat-container-wrapper {
     transform: translate(-50%, 0);
 }
 @media (prefers-reduced-motion: reduce) {
-    .input-area-wrapper[data-agent-mode="mobile"] .link-toggle { animation: none; }
+    .input-area-wrapper[data-agent-mode="mobile"] .link-toggle,
+    .input-area-wrapper[data-agent-mode="computer"] .link-toggle { animation: none; }
 }
 
 /* Transparent trigger so it BLENDS into the box (one tone, not a 2nd pill). */

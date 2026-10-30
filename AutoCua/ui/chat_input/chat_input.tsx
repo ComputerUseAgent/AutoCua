@@ -48,11 +48,12 @@ export function ChatInput() {
                 <textarea className="chat-input" placeholder="Select a model in Settings to start..." rows={1} disabled></textarea>
 
                 <div className="input-toolbar">
-                    {/* Wireless / Wired flip: Mobile use only (chat_input.css shows it from
-                        the composer's data-agent-mode), in the Fast / Quality pill's own
-                        look: Wi-Fi = Wireless, plug = Wired. How the phone connects, Android
-                        or iPhone (link_toggle.js). Left of Fast / Quality, so nothing else moves when
-                        it shows. Defaults to Wired, the cable: Wi-Fi only when picked. */}
+                    {/* Wireless / Wired flip: Mobile use and Computer use (chat_input.css
+                        shows it from the composer's data-agent-mode), in the Fast / Quality
+                        pill's own look: Wi-Fi = Wireless, plug = Wired. How the phone connects,
+                        Android or iPhone (link_toggle.js). Left of Fast / Quality, so nothing
+                        else moves when it shows. Defaults to Wired, the cable: Wi-Fi only when
+                        picked. */}
                     <button className="fast-quality-toggle link-toggle wired" id="linkToggle" type="button" role="switch" aria-checked="true" aria-label="Wireless / Wired">
                         <span className="fq-label lk-label-wireless" aria-hidden="true">Wireless</span>
                         <span className="fq-label lk-label-wired" aria-hidden="true">Wired</span>
