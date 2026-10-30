@@ -12,6 +12,11 @@
 }
 
 /* One selectable platform row (tile-like). */
+/* iOS needs a Mac (Xcode), so on Windows and Linux Connect Device lists the
+   Android phone alone (index.html sets data-host). */
+html:not([data-host="mac"]) #deviceOptioniOS,
+html:not([data-host="mac"]) #devicePaneliOS { display: none; }
+
 .device-option {
     display: flex;
     align-items: center;

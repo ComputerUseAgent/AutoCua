@@ -172,7 +172,7 @@ which come from your distro.
 |---|---|
 | **Browser agent** — Rust | Ships **prebuilt** in the Windows x64, Apple Silicon macOS and Linux x86_64 wheels. On any other platform pip builds it from the source distribution, which needs [Rust](https://rustup.rs) and a C compiler. |
 | **WebDriverAgent** — iOS | **Cloned when you say yes** on the terminal, the first time you run a `"mobile use, ios"` task. Needs full Xcode and git. Nothing to do by hand. |
-| **adb** — Android | **Downloaded when you say yes** on the terminal, by the setup scripts or the first time an Android phone or emulator is used (the desktop app cannot ask; `python -m AutoCua.android_connector.adb fetch` asks on a terminal): Google's platform-tools, unless an `adb` is already on your PATH, from Google and pinned by size and SHA-256, never shipped in this repo. Nothing is installed on the phone. |
+| **adb** — Android | **Downloaded when you say yes** on the terminal: by the setup scripts, by `python main.py` once before its window opens, or by `python -m AutoCua.android_connector.adb fetch` (the window itself cannot ask): Google's platform-tools, unless an `adb` is already on your PATH, from Google and pinned by size and SHA-256, never shipped in this repo. Nothing is installed on the phone. |
 | **Android emulator** — Google's | **Downloaded on the first emulator run, after you accept Google's SDK terms on the terminal**: Google's emulator and the Android version it needs, about 2.5 GB, into a per-user folder. An Android Studio SDK that already has both is used instead. Needs the computer's hypervisor ([below](#android-optional)). |
 | **Android agent** — Rust | Ships **prebuilt** in the same three wheels as the browser agent. On any other platform the source distribution carries its sources, and it builds on the first Android run, about a minute, once, which needs [Rust](https://rustup.rs) and a C compiler. |
 | **Electron** — the desktop app's Chromium window | **Downloaded only if you say yes.** The first `ui=True` launch from a terminal asks (120 to 160 MB, once) on macOS 13+, Windows 10+ and Linux, except stock Ubuntu 23.10+ ([below](#the-desktop-app)); without it the app opens in pywebview. `python -m AutoCua.utils.electron` fetches it any time. No Node.js needed. |
@@ -1257,12 +1257,15 @@ says so. The setup scripts build the Android agent, and download nothing of this
 3. Plug the phone in with a data cable, unlock it, and tap **Allow** on "Allow USB debugging?"
    with **Always allow from this computer** ticked.
 
-The first Android run fetches Google's platform-tools into `AutoCua/android_connector/`, pinned
-by size and SHA-256 (not when an `adb` is already on your PATH). In a checkout it also builds the
-Android agent with cargo, once, in about a minute, with the [Rust](https://rustup.rs) and C
-compiler the setup scripts install; the pip wheels ship it prebuilt. The setup scripts also
-offer the download, after a y, and `python -m AutoCua.android_connector.adb fetch` offers it on
-any terminal; `python -m AutoCua.android_connector.adb` fetches adb and shows the phone on its own.
+AutoCua talks to the phone through Google's adb. If you already have one, it is used as it is and
+nothing is downloaded: Android Studio's platform-tools, `brew install android-platform-tools` on a
+Mac, `sudo apt install adb` on Linux, any `adb` on your PATH. Without one, AutoCua offers to fetch
+Google's platform-tools into `AutoCua/android_connector/`, pinned by size and SHA-256, after your y:
+the setup scripts do, `python main.py` does once before its window opens (a no is remembered), and
+`python -m AutoCua.android_connector.adb fetch` does on any terminal. In a checkout, `python main.py`
+also builds the two Rust agents in the terminal before the window opens, once, in a minute or two,
+with the [Rust](https://rustup.rs) and C compiler the setup scripts install; the pip wheels ship them
+prebuilt. `python -m AutoCua.android_connector.adb` fetches adb and shows the phone on its own.
 On Windows the phone may need its maker's USB driver, and on Linux Android's udev rules (for
 example `sudo apt install android-sdk-platform-tools-common`).
 

@@ -355,44 +355,67 @@ def dialect_tools(provider: str, registry: list) -> list:
     return coder_tools_openai(registry)
 
 
+def _key(api_key, name):
+    """The API key for a provider, in order: the one the caller passed (the
+    app's Settings for a run from the app, api_key= for a script), the
+    environment and .env, then the key saved in the app's Settings
+    (AutoCua_data/api_key/api_key.txt, NAME=value lines), so a terminal run
+    uses the key the app already has. None when none of them has it."""
+    if api_key:
+        return api_key
+    value = os.getenv(name)
+    if value:
+        return value
+    try:
+        from AutoCua import api_key_file
+        for line in api_key_file().read_text(encoding="utf-8").splitlines():
+            found, _, saved = line.strip().partition("=")
+            if found == name and saved.strip():
+                return saved.strip()
+    except OSError:
+        pass
+    return None
+
+
 def build_provider(provider: str, model_short_name: str, model_info: dict, tools: list = None,
                    cli_agent: bool = False, max_tokens: int = None, api_key: str = None):
     """The provider object for one manager: `tools` already in the provider's
-    own format (None for mode="text"), and the API key (the runtime key from
-    the frontend first, then .env). Every platform's LLMManager builds its
+    own format (None for mode="text"), and the API key (_key: the runtime key
+    from the frontend first, then .env and the environment, then the one
+    saved in the app's Settings). Every platform's LLMManager builds its
     provider here, and so does the web agent's Rust manager. Runs the Windows
     TLS probe first (a no-op on macOS and Linux)."""
     _ensure_tls_works()
     if provider == "openrouter":
         # Priority: Runtime key > .env fallback
-        api_key = api_key or os.getenv('OPENROUTER_API_KEY')
+        api_key = _key(api_key, 'OPENROUTER_API_KEY')
         if not api_key:
-            raise ValueError("OpenRouter API key not provided and not found in .env file")
+            raise ValueError("OpenRouter API key not provided, not in .env, and not saved in the app's Settings")
         return OpenRouterProvider(api_key, cli_agent, model_info,
                                   tools=tools,
                                   max_tokens=max_tokens)
     elif provider == "groq":
         # Priority: Runtime key > .env fallback
-        api_key = api_key or os.getenv('GROQ_API_KEY')
+        api_key = _key(api_key, 'GROQ_API_KEY')
         if not api_key:
-            raise ValueError("Groq API key not provided and not found in .env file")
+            raise ValueError("Groq API key not provided, not in .env, and not saved in the app's Settings")
         return GroqProvider(api_key, cli_agent, model_info,
                             tools=tools,
                             max_tokens=max_tokens)
     elif provider == "openai":
         # Priority: Runtime key > .env fallback
-        api_key = api_key or os.getenv('OPENAI_API_KEY')
+        api_key = _key(api_key, 'OPENAI_API_KEY')
         if not api_key:
-            raise ValueError("OpenAI API key not provided and not found in .env file")
+            raise ValueError("OpenAI API key not provided, not in .env, and not saved in the app's Settings")
         return OpenAIProvider(api_key, cli_agent,
                               tools=tools,
                               max_tokens=max_tokens,
                               model_info=model_info)
     elif provider == "anthropic":
         # Priority: Runtime key > .env fallback
-        api_key = api_key or os.getenv('ANTHROPIC_API_KEY')
+        api_key = _key(api_key, 'ANTHROPIC_API_KEY')
         if not api_key:
-            raise ValueError("Anthropic API key not provided and not found in .env file")
+            raise ValueError("Anthropic API key not provided, not in .env, and not saved in the app's Settings")
         return AnthropicProvider(api_key, cli_agent,
                                  tools=tools,
                                  max_tokens=max_tokens,
@@ -430,40 +453,40 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
             )
         else:
             # AI Studio — needs API key
-            api_key = api_key or os.getenv('GOOGLE_API_KEY')
+            api_key = _key(api_key, 'GOOGLE_API_KEY')
             if not api_key:
-                raise ValueError("Google API key not provided and not found in .env file")
+                raise ValueError("Google API key not provided, not in .env, and not saved in the app's Settings")
             return GoogleProvider(api_key, cli_agent, model=model_short_name,
                                   tools=tools, model_info=model_info,
                                   max_tokens=max_tokens)
     elif provider == "perplexity":
-        api_key = api_key or os.getenv('PERPLEXITY_API_KEY')
+        api_key = _key(api_key, 'PERPLEXITY_API_KEY')
         if not api_key:
-            raise ValueError("Perplexity API key not provided and not found in .env file")
+            raise ValueError("Perplexity API key not provided, not in .env, and not saved in the app's Settings")
         return PerplexityProvider(api_key, cli_agent, model_info,
                                   tools=tools,
                                   max_tokens=max_tokens)
     elif provider == "together":
         # Priority: Runtime key > .env fallback
-        api_key = api_key or os.getenv('TOGETHER_API_KEY')
+        api_key = _key(api_key, 'TOGETHER_API_KEY')
         if not api_key:
-            raise ValueError("Together API key not provided and not found in .env file")
+            raise ValueError("Together API key not provided, not in .env, and not saved in the app's Settings")
         return TogetherProvider(api_key, cli_agent, model_info,
                                 tools=tools,
                                 max_tokens=max_tokens)
     elif provider == "cerebras":
         # Priority: Runtime key > .env fallback
-        api_key = api_key or os.getenv('CEREBRAS_API_KEY')
+        api_key = _key(api_key, 'CEREBRAS_API_KEY')
         if not api_key:
-            raise ValueError("Cerebras API key not provided and not found in .env file")
+            raise ValueError("Cerebras API key not provided, not in .env, and not saved in the app's Settings")
         return CerebrasProvider(api_key, cli_agent, model_info,
                                 tools=tools,
                                 max_tokens=max_tokens)
     elif provider == "aws":
         # Priority: Runtime key > .env fallback
-        api_key = api_key or os.getenv('AWS_API_KEY')
+        api_key = _key(api_key, 'AWS_API_KEY')
         if not api_key:
-            raise ValueError("AWS API key not provided and not found in .env file")
+            raise ValueError("AWS API key not provided, not in .env, and not saved in the app's Settings")
         return AWSProvider(api_key, cli_agent, model_info,
                            tools=tools,
                            max_tokens=max_tokens)

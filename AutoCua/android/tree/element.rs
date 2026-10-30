@@ -273,7 +273,7 @@ impl UIElementScanner {
         // activate() returned once the helper answered on this port
         // (stream.py's _wait_ready).
         use_helper(tree_port);
-        // The run's window (ios_connector/sim_view.py) shows this screen from
+        // The run's window (utils/sim_view.py) shows this screen from
         // the preview, when the launcher asked for one.
         if let Some(port) = std::env::var(PREVIEW_PORT_ENV).ok().and_then(|p| p.trim().parse::<u16>().ok()) {
             serve_preview(port);

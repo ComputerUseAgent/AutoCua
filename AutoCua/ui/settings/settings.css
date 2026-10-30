@@ -18,12 +18,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-
-    transition: transform 0.3s ease;
 }
 
-.settings-btn:hover {
-    transform: scale(1.08);
+/* The hover cue is the outline darkening (below), nothing that moves: a
+   scale or a turn of the cog ran backwards the moment the settings overlay
+   covered the button, so a click made it jiggle. */
+.settings-btn:hover .liquidGlass-shine-btn {
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
 }
 
 /* Flat, like the left bar it sits in (left_bar.css): no shadow, no glass
@@ -53,11 +54,10 @@
     width: clamp(16px, 1.8vw, 20px);
     height: clamp(16px, 1.8vw, 20px);
     color: rgba(90, 90, 90, 0.85);
-    transition: transform 0.4s ease;
 }
 
 .settings-btn:hover .settings-icon {
-    transform: rotate(45deg);
+    color: rgba(60, 60, 60, 0.95);
 }
 
 /* Hide the cog while CLI pills own the screen (preserves prior behavior). */
