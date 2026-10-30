@@ -687,7 +687,7 @@ use, one device in the middle or several side by side. Details in **[agent_capab
 |---|---|---|
 | Needs | USB debugging on, and **Allow** tapped with "Always allow from this computer" ticked | The phone connected once over USB in Settings, Connect Device, Android. Then Android 11 or newer, **Wireless debugging** on, and the same Wi-Fi as your computer. No pairing code: the phone takes the key it already trusts from USB |
 | Which phone | The one plugged in, or the one Settings connected | **Only phones you connected in the app's Settings**, found by their USB serial in the name they announce on the network |
-| Where | Everywhere, a script included | The desktop app only, when you pick Wireless on Mobile use's Wireless / Wired toggle |
+| Where | Everywhere, a script included | The desktop app only, when you pick Wireless on the Wireless / Wired toggle, in Mobile use or in Computer use (there for `android_agent`) |
 | Best for | Everything | A phone on your desk |
 
 With `device="hardware"` a script uses USB only. With several phones plugged in it takes the newest

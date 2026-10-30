@@ -253,8 +253,8 @@ class AndroidSession:
 
     def activate(self, serial=None, wait=60.0, link=None):
         """Connect the phone and start its helper. serial: the phone's USB
-        serial (a remembered phone that is not plugged in is looked for on
-        Wi-Fi). wait: how long a phone that is not ready yet (Allow not
+        serial (looked for on Wi-Fi only with link="wireless"; with no link,
+        the cable only). wait: how long a phone that is not ready yet (Allow not
         tapped, still starting) gets. link: "wireless" / "wired" (_reach's),
         None for the cable.
 
