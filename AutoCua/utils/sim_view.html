@@ -34,6 +34,19 @@
   /* Where the title bar was: the page runs under it now, so dragging here
      has to move the window (pywebview's drag region does). */
   .titlebar { position: fixed; top: 0; left: 0; right: 0; height: 30px; z-index: 10; }
+  /* Windows and Linux (body.frameless, set by frameless()): the window has no
+     title bar at all, so the page draws its three buttons where the system
+     puts them, Windows 11's shape (46 x 32, thin glyphs, red close). Above
+     the drag strip, so a press on a button never drags the window. */
+  .winbtns { position: fixed; top: 0; right: 0; display: none; z-index: 11; }
+  body.frameless .winbtns { display: flex; }
+  .winbtns button {
+    width: 46px; height: 32px; border: 0; padding: 0; background: transparent; color: #2a2a2a;
+    display: grid; place-items: center; cursor: default; outline: none;
+  }
+  .winbtns button:hover { background: rgba(0, 0, 0, 0.08); }
+  .winbtns button.close:hover { background: #c42b1c; color: #fff; }
+  .winbtns svg { width: 10px; height: 10px; stroke: currentColor; stroke-width: 1; fill: none; }
 
   /* "Preparing simulation": white, with a light sweeping across it. */
   .preparing {
@@ -117,7 +130,12 @@
 <body>
 <video id="bg" src="/background.mp4" autoplay muted loop playsinline preload="auto"></video>
 <div class="veil"></div>
-<div class="titlebar pywebview-drag-region"></div>
+<div class="titlebar pywebview-drag-region" id="titlebar"></div>
+<div class="winbtns">
+  <button class="min" title="Minimize" onclick="pywebview.api.minimize()"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button>
+  <button class="max" title="Maximize" onclick="pywebview.api.maximize()"><svg viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9"/></svg></button>
+  <button class="close" title="Close" onclick="pywebview.api.close()"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"/></svg></button>
+</div>
 <div class="preparing"><h1>Preparing simulation</h1></div>
 <div class="wall" id="wall"></div>
 <script>
@@ -128,6 +146,13 @@
   // under it stays instead.
   function startBackground() {
     if (!matchMedia('(prefers-reduced-motion: reduce)').matches) bg.play().catch(() => {});
+  }
+  // sim_view.py calls this on Windows and Linux, where the window has no
+  // title bar: the page's own buttons appear, and a double click on the
+  // strip where the bar would be maximizes and restores, as a bar's would.
+  function frameless() {
+    document.body.classList.add('frameless');
+    document.getElementById('titlebar').addEventListener('dblclick', () => pywebview.api.maximize());
   }
 
   const wall = document.getElementById('wall');

@@ -2,6 +2,14 @@
 <html>
 <head>
     <meta charset="utf-8">
+    <!-- The host OS, for what the page offers: iOS needs a Mac (Xcode), so
+         its rows hide elsewhere (agent_mode.css, device_connect.css). From
+         navigator.platform, which the app's own webview reports for the
+         machine it runs on; set here, before anything paints. -->
+    <script>
+        document.documentElement.dataset.host = /Mac/.test(navigator.platform) ? 'mac'
+            : /Win/.test(navigator.platform) ? 'windows' : 'linux';
+    </script>
     <link rel="stylesheet" href="css/style.css">
     <!-- Text shimmer (the thinking orb pill's): agent strip, "Preparing video" -->
     <link rel="stylesheet" href="thinking_orb/shimmer.css">

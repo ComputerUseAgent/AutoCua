@@ -277,6 +277,10 @@
 .agent-mode-wrap[data-sub="ios"]     .am-sub-ios     { display: block; }
 .agent-mode-wrap[data-sub="android"] .am-sub-android { display: block; }
 
+/* iOS needs a Mac (Xcode signs and runs WebDriverAgent), so on Windows and
+   Linux Mobile use offers Android alone (index.html sets data-host). */
+html:not([data-host="mac"]) .agent-subopt[data-sub="ios"] { display: none; }
+
 .am-chev {
     width: 14px;
     height: 14px;

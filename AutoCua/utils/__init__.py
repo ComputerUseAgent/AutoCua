@@ -15,11 +15,13 @@ reachable from the first run that needs it, which is what lives here.
 All are cheap no-ops once satisfied: a timestamp check, a directory check, a
 file-size check.
 
-One module here is not a setup step but sits with them because it is the same
-shape — something the whole app reaches for, owned by no single platform
+Two modules here are not setup steps but sit with them because they are the
+same shape — something the whole app reaches for, owned by no single platform
 package:
 
     agent_glow.py  the desktop look while an agent is driving the machine
                    (lavender cursor + breathing screen-edge glow), paired to
                    the start and stop of every run
+    sim_view.py    the window that shows the phones of a run: iOS simulators
+                   and Android emulators alike, and a connected phone
 """

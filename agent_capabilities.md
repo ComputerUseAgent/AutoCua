@@ -496,7 +496,7 @@ resets `conversation/` and `raw_reasoning/` only when the flag is on, then calls
 Together AI is an OpenAI-compatible provider with native tool calling and
 image input. Available in every mode, on every platform. Set
 `TOGETHER_API_KEY` in `.env` for a terminal run; a key saved in the app's
-Settings → API Keys is used only by the app (`ui=True`).
+Settings → API Keys is used too, after `.env`.
 
 | `model=` | Together model id |
 |---|---|
@@ -528,7 +528,7 @@ Implementation: `AutoCua/{mac,windows,linux,ios}/controller/tool/web/web_agent.p
 Cerebras works the same way: an OpenAI-compatible provider with native tool calling and image
 input on every platform, and no native web search, so its `web` tool also goes to the headless
 browser agent described above. Set `CEREBRAS_API_KEY` in `.env` for a terminal run; a key
-saved in the app's Settings → API Keys is used only by the app (`ui=True`).
+saved in the app's Settings → API Keys is used too, after `.env`.
 
 | `model=` | Cerebras model id |
 |---|---|
@@ -542,7 +542,7 @@ Every request sends `temperature` 1, `top_p` 0.95, `seed` 42 and `max_completion
 Amazon Bedrock through its Converse API, with native tool calling and image input on every
 platform. It has no native web search, so its `web` tool also goes to the headless browser
 agent described above. Set `AWS_API_KEY` (a Bedrock API key) in `.env` for a terminal run; a
-key saved in the app's Settings → API Keys is used only by the app (`ui=True`).
+key saved in the app's Settings → API Keys is used too, after `.env`.
 
 Every model is a `global.` cross-Region inference profile: the call goes in through one
 regional endpoint, `AWS_BEDROCK_REGION` in `.env` (default `eu-west-2`), and AWS runs it in
@@ -714,7 +714,7 @@ xcuitest launch of the pre-installed WDA). Simulation uses
 `localhost:8100` the agent already talks to, so the whole agent stack is
 unchanged. App scanning switches from `pymobiledevice3 apps list` to
 `xcrun simctl listapps` automatically. The simulator runs headless: the run
-is shown in our own window ([sim_view.py](AutoCua/ios_connector/sim_view.py)),
+is shown in our own window ([sim_view.py](AutoCua/utils/sim_view.py)),
 one device in the middle or several side by side, each screen being that
 WDA's live MJPEG stream (port 9100, 9101, ...). On teardown the window
 closes, WDA is stopped and the simulator is **shut down**: it's not a real
@@ -1086,7 +1086,7 @@ the run dies without stopping it (a closed terminal, an IDE's Stop), the
 watcher stops it the same way. Each port is claimed with a lock file in the
 cache, so two runs starting at the same moment never share one. It runs with
 `-no-window`, `-no-metrics` and `-crash-report-mode never`: the run's window
-([sim_view.py](AutoCua/ios_connector/sim_view.py), the iOS simulators' one, over
+([sim_view.py](AutoCua/utils/sim_view.py), the iOS simulators' one, over
 the same background video) shows the screen from an MJPEG preview the Android
 agent serves on `AutoCua_ANDROID_PREVIEW_PORT` (JPEGs the phone helper takes,
 about three a second while the window is open), the way WebDriverAgent's

@@ -1,4 +1,5 @@
-"""Our own window for iOS Simulator runs, in place of Simulator.app.
+"""Our own window for the phone runs: iOS simulators, in place of
+Simulator.app, and Android emulators, which draw no window of their own.
 
 Simulator.app opens one window per booted simulator, and a parallel run ends
 up with them stacked on top of each other. Instead the simulators run headless
@@ -55,6 +56,13 @@ _DEVICE = (os.environ.get("AutoCua_VIEW_DEVICE") or "").strip().lower()
 _COMPACT_SHAPE = {"iphone": 0.476, "ipad": 0.76}
 _COMPACT_PAD_X, _COMPACT_PAD_Y = 140, 86
 _TITLE_BAR = 28
+# The simulator window: the desktop app's own size (ui/service.py: 1140 of
+# width, the 900 of content plus the 240 left bar, by 700), so the two look
+# like one set, capped to the screen.
+_APP_WINDOW = (1140, 700)
+# The video's own colour: the window's background, so it never flashes black
+# or white before the page is up.
+_BACKGROUND = "#b7c3f4"
 
 
 def open_view(text=None, title=None, device=None):
@@ -79,7 +87,7 @@ def open_view(text=None, title=None, device=None):
         env["AutoCua_VIEW_DEVICE"] = str(device)
     try:
         return subprocess.Popen(
-            [sys.executable, "-m", "AutoCua.ios_connector.sim_view"],
+            [sys.executable, "-m", "AutoCua.utils.sim_view"],
             env=env, stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             # Its own session, so Ctrl+C stops the run and not the window;
@@ -183,24 +191,39 @@ class _Files(http.server.BaseHTTPRequestHandler):
                 left -= len(chunk)
 
 
-def _window_size(screens):
-    """Landscape, about three quarters of the screen's width. One real phone
-    (_DEVICE): portrait, just around the device, about half the screen tall."""
+def _logical_screen(screens):
+    """The screen in the points windows are sized in. Windows reports it in
+    physical pixels, and pywebview then scales a window's size by the
+    display's DPI once more, so a size taken from that screen came out 1.5x
+    too big there (2560 px wide at 150 %: the window filled the screen).
+    macOS and GTK report points already."""
     try:
-        screen_w, screen_h = screens[0].width, screens[0].height
+        width, height = screens[0].width, screens[0].height
     except Exception:
-        screen_w, screen_h = 1440, 900
+        return 1440, 900
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            scale = ctypes.windll.user32.GetDpiForSystem() / 96
+            width, height = int(width / scale), int(height / scale)
+        except Exception:
+            pass
+    return width, height
+
+
+def _window_size(screens):
+    """The desktop app's window size (_APP_WINDOW), kept inside the screen.
+    One real phone (_DEVICE): portrait, just around the device, about half
+    the screen tall."""
+    screen_w, screen_h = _logical_screen(screens)
     if _DEVICE:
         device_h = min(int(screen_h * 0.56), 640)
         shape = _COMPACT_SHAPE.get(_DEVICE, _COMPACT_SHAPE["iphone"])
         return (int(device_h * shape) + _COMPACT_PAD_X,
                 device_h + _COMPACT_PAD_Y + _TITLE_BAR)
-    width = int(screen_w * 0.72)
-    height = int(width / 1.5)
-    if height > screen_h * 0.85:
-        height = int(screen_h * 0.85)
-        width = int(height * 1.5)
-    return width, height
+    width, height = _APP_WINDOW
+    fit = min(screen_w * 0.85 / width, screen_h * 0.85 / height, 1.0)
+    return int(width * fit), int(height * fit)
 
 
 def _watch_stream(window, index, port):
@@ -276,6 +299,111 @@ def _see_through_titlebar(window):
     AppHelper.callAfter(apply)
 
 
+# Windows and Linux have no see-through title bar to offer, so there the window
+# has none at all (frameless) and the page runs to its very top, as it does on
+# the Mac; the window's three buttons are drawn by the page where the system
+# puts them (sim_view.html, .winbtns), and the strip they sit in drags the
+# window (pywebview's drag region). Windows gets its sizing frame back too
+# (_sizing_frame).
+_FRAMELESS = sys.platform != "darwin"
+
+
+class _Buttons:
+    """The page's window buttons, as pywebview's js_api: the page calls
+    pywebview.api.minimize(), .maximize() (a toggle) and .close()."""
+
+    def __init__(self):
+        # Private on purpose: pywebview offers every public attribute of a
+        # js_api object to the page, and would walk the whole native window.
+        self._window = None
+        self._maximized = False
+
+    def minimize(self):
+        self._window.minimize()
+
+    def maximize(self):
+        if self._maximized:
+            self._window.restore()
+        else:
+            self._window.maximize()
+        self._maximized = not self._maximized
+
+    def close(self):
+        self._window.destroy()
+
+
+# The subclass procedure of _sizing_frame, kept so the callback outlives it.
+_KEEP = []
+
+
+def _sizing_frame(window):
+    """Windows: pywebview's frameless window is a bare one (FormBorderStyle
+    None), which cannot be resized from its edges. Windows' own sizing frame
+    gives that back: the frame stays (WS_THICKFRAME: edges and corners
+    resize, Aero Snap works), only the caption goes, and WM_NCCALCSIZE puts
+    the client area at the very top, so the page runs under where the bar
+    was. Maximized, the frame hangs off the screen, and the default inset
+    stays so the page starts at the screen's edge. Called once the window is
+    shown, when its handle exists; nothing happens elsewhere."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32, comctl = ctypes.windll.user32, ctypes.windll.comctl32
+        LRESULT = ctypes.c_ssize_t
+        SUBCLASSPROC = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPARAM,
+                                          wintypes.LPARAM, ctypes.c_size_t, ctypes.c_size_t)
+        comctl.DefSubclassProc.restype = LRESULT
+        comctl.DefSubclassProc.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+        user32.SetWindowLongPtrW.restype = ctypes.c_ssize_t
+        user32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+        WM_NCDESTROY, WM_NCCALCSIZE = 0x82, 0x83
+        WS_CAPTION, WS_THICKFRAME = 0x00C00000, 0x00040000
+        WS_MINIMIZEBOX, WS_MAXIMIZEBOX = 0x00020000, 0x00010000
+
+        @SUBCLASSPROC
+        def proc(hwnd, msg, wparam, lparam, _uid, _ref):
+            if msg == WM_NCDESTROY:
+                # The window is going: step out of its message chain first,
+                # or Windows calls back into a procedure that is being torn
+                # down with the interpreter (an access violation at exit).
+                comctl.RemoveWindowSubclass(hwnd, proc, 1)
+                return comctl.DefSubclassProc(hwnd, msg, wparam, lparam)
+            if msg == WM_NCCALCSIZE and wparam:
+                # rgrc[0]: the window's rect on the way in, the client's on the way out.
+                rect = ctypes.cast(lparam, ctypes.POINTER(wintypes.RECT)).contents
+                top = rect.top
+                comctl.DefSubclassProc(hwnd, msg, wparam, lparam)       # the frame's inset, every side
+                if not user32.IsZoomed(hwnd):
+                    rect.top = top                                        # none at the top
+                return 0
+            return comctl.DefSubclassProc(hwnd, msg, wparam, lparam)
+
+        def apply():
+            hwnd = int(window.native.Handle.ToInt32())
+            _KEEP.append(proc)
+            # Refused from any thread but the window's own (hence Invoke):
+            # then the frame stays off too, or its top would show as a bar.
+            if not comctl.SetWindowSubclass(hwnd, proc, 1, 0):
+                return
+            style = user32.GetWindowLongPtrW(hwnd, -16)                       # GWL_STYLE
+            user32.SetWindowLongPtrW(hwnd, -16, (style & ~WS_CAPTION) | WS_THICKFRAME
+                                     | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)
+            # SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004 | 0x0010)
+
+        import System                      # pythonnet, loaded by pywebview's WinForms backend
+        form = window.native
+        if form.InvokeRequired:
+            form.Invoke(System.Action(apply))
+        else:
+            apply()
+    except Exception:
+        pass
+
+
 def _main():
     import webview
 
@@ -284,22 +412,32 @@ def _main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     width, height = _window_size(webview.screens)
+    buttons = _Buttons()
     window = webview.create_window(
         _TITLE, url=f"http://127.0.0.1:{server.server_address[1]}/",
         width=width, height=height, min_size=(200, 300) if _DEVICE else (520, 380),
-        # The video's own colours, so the window never flashes black or white.
-        background_color="#b7c3f4")
+        background_color=_BACKGROUND, frameless=_FRAMELESS, js_api=buttons)
+    buttons._window = window
 
     # WKWebView won't autoplay a video without a user gesture, muted or not,
     # and pywebview has no setting for it; script run from here counts as one.
-    window.events.loaded += lambda: window.evaluate_js("startBackground()")
+    # frameless() shows the page's window buttons where there is no title bar.
+    window.events.loaded += lambda: window.evaluate_js(
+        "startBackground()" + ("; frameless()" if _FRAMELESS else ""))
     window.events.before_show += lambda: _see_through_titlebar(window)
+    window.events.shown += lambda: _sizing_frame(window)
 
     # Daemon threads, not webview.start(func): pywebview runs func on a
     # normal thread, and Python would wait on it after the user closes the
     # window, leaving a frozen app in the Dock until the run ends.
     threading.Thread(target=_listen, args=(window,), daemon=True).start()
     webview.start()
+    # The window is gone, and so is everything this process was for. Closed
+    # by its button (or the Mac's red one) rather than by the launcher, the
+    # _listen thread is still blocked on stdin, and a thread stuck in a read
+    # while the interpreter shuts down crashes it on Windows (an access
+    # violation at exit). Nothing here needs flushing: out at once.
+    os._exit(0)
 
 
 if __name__ == "__main__":
