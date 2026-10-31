@@ -9,9 +9,11 @@ import difflib
 import json
 import os
 import subprocess
+import tempfile
 import time
 import requests
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +28,20 @@ class AppLauncherService:
         self.apps_dict = {}
         
     def scan_apps(self):
-        """Scan all installed apps using pymobiledevice3 (same CLI the WDA session uses)"""
+        """Scan all installed apps using pymobiledevice3 (same CLI the WDA session
+        uses), or devicectl for a phone on Wi-Fi only"""
         try:
-            from AutoCua.ios_connector.session import _pmd3_base, active_target
+            from AutoCua.ios_connector.session import _pmd3_base, active_target, plugged_in_udids
 
             # Simulator runs have no USB device — list apps via simctl instead.
             if active_target.get("kind") == "simulation":
                 return self._scan_apps_simulator(active_target.get("udid") or "booted")
+            # A phone on Wi-Fi only (the app's Wireless toggle): pymobiledevice3
+            # reaches a phone over the cable alone, Xcode's devicectl over both.
+            udid = active_target.get("udid")
+            plugged = plugged_in_udids()
+            if udid and plugged is not None and udid not in plugged:
+                return self._scan_apps_devicectl(udid)
             base = _pmd3_base()
             if not base:
                 logger.error("❌ Error: pymobiledevice3 not found.")
@@ -47,7 +56,8 @@ class AppLauncherService:
                 timeout=30,
                 env={**os.environ, "NO_COLOR": "1"},
             )
-            if result.returncode != 0:
+            # No phone it can reach: exit 0, nothing on stdout, the reason on stderr.
+            if result.returncode != 0 or not result.stdout.strip():
                 tail = (result.stderr or '').strip().splitlines()
                 logger.error(f"❌ App scan failed: {tail[-1] if tail else 'pymobiledevice3 error'}")
                 return False
@@ -87,6 +97,37 @@ class AppLauncherService:
                 logger.error("❌ App scan failed: could not parse simctl output")
                 return False
             self.parse_apps(as_json.stdout)
+            logger.info(f"✅ Found {len(self.apps_dict)} apps")
+            return True
+        except subprocess.TimeoutExpired:
+            logger.error("❌ Timeout while scanning apps")
+            return False
+        except Exception as e:
+            logger.error(f"❌ Error scanning apps: {e}")
+            return False
+
+    def _scan_apps_devicectl(self, udid):
+        """`devicectl device info apps` writes its own JSON; it is turned into
+        the same bundle-id-keyed shape `pymobiledevice3 apps list` gives, so
+        parse_apps handles both."""
+        try:
+            logger.info("📱 Scanning installed apps (Wi-Fi)...")
+            with tempfile.TemporaryDirectory() as d:
+                out = Path(d) / "apps.json"
+                listed = subprocess.run(["xcrun", "devicectl", "device", "info", "apps", "--device", udid,
+                                         "--include-all-apps", "--json-output", str(out)],
+                                        capture_output=True, text=True, timeout=30)
+                apps = (json.loads(out.read_text()).get("result") or {}).get("apps") if out.exists() else None
+            if listed.returncode != 0 or apps is None:
+                tail = (listed.stderr or '').strip().splitlines()
+                logger.error(f"❌ App scan failed: {tail[-1].strip() if tail else 'devicectl error'}")
+                return False
+            self.parse_apps(json.dumps({
+                a["bundleIdentifier"]: {"CFBundleDisplayName": a.get("name"),
+                                        "CFBundleShortVersionString": a.get("version") or "",
+                                        "CFBundleVersion": a.get("bundleVersion") or "",
+                                        "SBAppTags": ["hidden"] if a.get("hidden") else []}
+                for a in apps if a.get("bundleIdentifier")}))
             logger.info(f"✅ Found {len(self.apps_dict)} apps")
             return True
         except subprocess.TimeoutExpired:
