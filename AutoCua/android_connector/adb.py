@@ -312,7 +312,8 @@ def wifi_addresses(adb, serials):
     Wireless debugging on this network. While none is heard it asks the
     network (_ask_wifi, once a second) and looks again for up to WIFI_LOOK
     seconds: a server that has just started has not heard the phones yet,
-    and one that has may have let a phone drop out of its list."""
+    and one that has may have let a phone drop out of its list. Still none,
+    and adb has no phone at all: adb is restarted once and looked at again."""
     if not serials:
         return {}
     live = {}
@@ -327,6 +328,7 @@ def wifi_addresses(adb, serials):
             live.setdefault(said.stdout.strip(), address)
     deadline = time.monotonic() + WIFI_LOOK
     asked = None
+    restarted = False
     while True:
         found = dict(live)
         for line in _adb(adb, "mdns", "services").stdout.splitlines():
@@ -342,8 +344,20 @@ def wifi_addresses(adb, serials):
                 prefix = f"adb-{serial}-"
                 if parts[0].startswith(prefix) and "-" not in parts[0][len(prefix):]:
                     found.setdefault(serial, parts[2].strip())
-        if found or time.monotonic() > deadline:
+        if found:
             return found
+        if time.monotonic() > deadline:
+            # adb's own discovery can go deaf after the computer sleeps (moto
+            # g77: a server started before a night's sleep heard nothing after
+            # it, while the phone kept announcing; a fresh one found it in
+            # 0.4 s). With no phone on adb, restarting it cuts nothing.
+            if restarted or devices(adb):
+                return found
+            _adb(adb, "kill-server")
+            _adb(adb, "start-server")
+            restarted, asked = True, None
+            deadline = time.monotonic() + WIFI_LOOK
+            continue
         if asked is None or time.monotonic() - asked >= 1.0:
             _ask_wifi()
             asked = time.monotonic()
