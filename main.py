@@ -9,4 +9,5 @@ run_agent(
     task="Open Settings and tell me which Android version this phone runs.",
     device="simulation",
     save_conversation=True,
+    ui=True,
 )
