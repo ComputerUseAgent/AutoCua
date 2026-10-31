@@ -111,10 +111,11 @@ class AppLauncherService:
         the same bundle-id-keyed shape `pymobiledevice3 apps list` gives, so
         parse_apps handles both."""
         try:
+            from AutoCua.ios_connector.session import devicectl
             logger.info("📱 Scanning installed apps (Wi-Fi)...")
             with tempfile.TemporaryDirectory() as d:
                 out = Path(d) / "apps.json"
-                listed = subprocess.run(["xcrun", "devicectl", "device", "info", "apps", "--device", udid,
+                listed = subprocess.run(devicectl() + ["device", "info", "apps", "--device", udid,
                                          "--include-all-apps", "--json-output", str(out)],
                                         capture_output=True, text=True, timeout=30)
                 apps = (json.loads(out.read_text()).get("result") or {}).get("apps") if out.exists() else None

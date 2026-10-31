@@ -140,11 +140,18 @@ class AndroidLink:
         self.reason = "no Android phone is plugged in by USB with USB debugging on"
         self._released = False
         self._t0 = time.monotonic()
+        # The main agent's provider, model, api_key and speed: an
+        # android_agent child is started with them when the phone answers
+        self._standby_for = None
+        self._standby = None
 
     @classmethod
-    def start(cls) -> "AndroidLink":
-        """Check for the phone in the background. Returns at once."""
+    def start(cls, standby: dict = None) -> "AndroidLink":
+        """Check for the phone in the background. Returns at once. standby:
+        {"provider", "model", "api_key", "speed"}, as start() will get them,
+        to have the child ready when the phone answers."""
         link = cls()
+        link._standby_for = standby
         if IS_COMPILED:
             link.reason = "android_agent is unavailable in the packaged app"
             return link
@@ -176,6 +183,7 @@ class AndroidLink:
             self._state = "offline"
         if self.serial:
             _log(f"released after {self._elapsed()}")
+        self._drop_standby()
         self._forget()
 
     def _elapsed(self) -> str:
@@ -242,6 +250,7 @@ class AndroidLink:
                 self._state = "online"
             _log(f"online after {self._elapsed()}: {self.name} ({serial}"
                  f"{'' if self.address == serial else ', Wi-Fi ' + self.address})")
+            self._start_standby(android_session)
             self._watch(adb)
         except Exception as e:
             self._fail(f"the phone check failed: {e}")
@@ -270,7 +279,53 @@ class AndroidLink:
             if not self._released:
                 self.reason = reason or self.reason
         _log(f"offline after {self._elapsed()}: {reason}")
+        self._drop_standby()
         self._forget()
+
+    # -- the standby child --
+    def _start_standby(self, android_session):
+        """Start the request's android_agent child now, built (the phone
+        connected, as its scanner does) and waiting for its task
+        (android_agent_child.py --standby): when the main agent sends one,
+        nothing loads first (a busy Mac took 43 s to). Not while this process
+        holds the phone's one helper itself (the app's Mobile use → Android
+        pick): start() lets that go only when a task really comes."""
+        args = self._standby_for
+        if not args or android_session.status().get("state") == "connected":
+            return
+        key = (args.get("provider"), args.get("model"), args.get("api_key"), args.get("speed"))
+        try:
+            child = _spawn(self.address or self.serial, *key)
+        except Exception as e:
+            _log(f"no android_agent started ahead: {e}")
+            return
+        child["key"] = key
+        pid = child["proc"].pid
+        with self._lock:
+            if not self._released and self._state == "online":
+                self._standby, child = child, None
+        if child is not None:
+            _end_standby(child)          # the request ended meanwhile
+        else:
+            _log(f"android_agent started ahead, waiting for its task (pid {pid})")
+
+    def take_standby(self, provider, model, api_key, speed):
+        """The standby child when it was built the way start() asks and still
+        runs: it is that run's now. None otherwise, and start() starts one."""
+        with self._lock:
+            child, self._standby = self._standby, None
+        if child is None:
+            return None
+        if child["key"] == (provider, model, api_key, speed) and child["proc"].poll() is None:
+            return child
+        _end_standby(child)
+        return None
+
+    def _drop_standby(self):
+        with self._lock:
+            child, self._standby = self._standby, None
+        if child is not None:
+            _end_standby(child)
 
     def _forget(self):
         try:
@@ -322,19 +377,53 @@ def start(task: str, provider: str, model: str, api_key: str = None, speed: str 
     except Exception:
         pass
 
+    text = _TASK_TEMPLATE.format(task=task)
+    # The child the link started when the phone answered, built and
+    # waiting: it gets the task as one line and begins at once.
+    child = link.take_standby(provider, model, api_key, speed)
+    if child is not None:
+        try:
+            child["proc"].stdin.write((json.dumps({"task": text}) + "\n").encode("utf-8"))
+            child["proc"].stdin.close()
+        except (OSError, ValueError):
+            _end_standby(child)
+            child = None
+    if child is None:
+        try:
+            child = _spawn(link.address or link.serial, provider, model, api_key, speed, task=text)
+        except Exception as e:
+            raise AndroidAgentError(f"android_agent could not be started: {e}")
+
+    run_dir = child["run_dir"]
+    run = {
+        "session_id": child["session_id"],
+        "subprocess": child["proc"],
+        "result_file": run_dir / "result.json",
+        "log_file": run_dir / "agent.log",
+        "started": time.time(),
+        "deadline": time.monotonic() + TIMEOUT_SEC,
+        "stopped": False,
+    }
+    _runs.append(run)
+    return run
+
+
+def _spawn(serial: str, provider: str, model: str, api_key: str = None, speed: str = None,
+           task: str = None) -> dict:
+    """One child in a new run folder: on `task`, or, with no task, a standby
+    that gets ready and reads its task from stdin. Returns {"session_id",
+    "run_dir", "proc"}."""
     sid = f"android_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     run_dir = data_root() / "android_agent" / sid
     run_dir.mkdir(parents=True, exist_ok=True)
-    result_file = run_dir / "result.json"
-    log_file = run_dir / "agent.log"
 
     cmd = [
         sys.executable, str(_CHILD),
-        "--task", _TASK_TEMPLATE.format(task=task),
         "--provider", provider,
         "--model", model,
-        "--result", str(result_file),
+        "--result", str(run_dir / "result.json"),
     ]
+    cmd += ["--task", task] if task is not None else ["--standby"]
     if speed:
         cmd += ["--speed", str(speed)]
     env = os.environ.copy()
@@ -343,7 +432,7 @@ def start(task: str, provider: str, model: str, api_key: str = None, speed: str 
     env["PYTHONPATH"] = str(_REPO_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     # The phone this request checked, on the connection the check used and
     # the watch follows: its USB serial, or "ip:port" on Wi-Fi.
-    env["AutoCua_ANDROID_SERIAL"] = link.address or link.serial
+    env["AutoCua_ANDROID_SERIAL"] = serial
     # This process: the child ends itself (and the phone helper) if it dies
     # without stopping the run (android_agent_child.py _watch_parent).
     env["AutoCua_ANDROID_PARENT"] = str(os.getpid())
@@ -356,30 +445,32 @@ def start(task: str, provider: str, model: str, api_key: str = None, speed: str 
     creationflags = 0
     if sys.platform == "win32" and not ctypes.windll.kernel32.GetConsoleWindow():
         creationflags = subprocess.CREATE_NO_WINDOW
-    try:
-        # stdout/stderr go to a file: the Android agent prints a lot, and a
-        # PIPE nobody drains would deadlock it. Its own process group on
-        # POSIX, so stop() ends the phone helper's adb client with it.
-        with open(log_file, "ab") as log:
-            proc = subprocess.Popen(cmd, cwd=str(run_dir), env=env,
-                                    stdin=subprocess.DEVNULL, stdout=log,
-                                    stderr=subprocess.STDOUT,
-                                    start_new_session=(sys.platform != "win32"),
-                                    creationflags=creationflags)
-    except Exception as e:
-        raise AndroidAgentError(f"android_agent could not be started: {e}")
+    # stdout/stderr go to a file: the Android agent prints a lot, and a
+    # PIPE nobody drains would deadlock it. Its own process group on
+    # POSIX, so stop() ends the phone helper's adb client with it.
+    with open(run_dir / "agent.log", "ab") as log:
+        proc = subprocess.Popen(cmd, cwd=str(run_dir), env=env,
+                                stdin=subprocess.DEVNULL if task is not None else subprocess.PIPE,
+                                stdout=log, stderr=subprocess.STDOUT,
+                                start_new_session=(sys.platform != "win32"),
+                                creationflags=creationflags)
+    return {"session_id": sid, "run_dir": run_dir, "proc": proc}
 
-    run = {
-        "session_id": sid,
-        "subprocess": proc,
-        "result_file": result_file,
-        "log_file": log_file,
-        "started": time.time(),
-        "deadline": time.monotonic() + TIMEOUT_SEC,
-        "stopped": False,
-    }
-    _runs.append(run)
-    return run
+
+def _end_standby(child: dict) -> None:
+    """A standby that got no task: it goes with its phone helper (the whole
+    tree, as stop() ends a run), and its run folder with it."""
+    proc = child["proc"]
+    try:
+        if proc.poll() is None:
+            _kill_tree(proc, signal.SIGTERM)
+            proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    shutil.rmtree(child["run_dir"], ignore_errors=True)
 
 
 def _kill_tree(proc, sig) -> None:

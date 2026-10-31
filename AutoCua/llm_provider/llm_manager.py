@@ -1,4 +1,5 @@
 import copy
+import importlib
 import os
 import sys
 import time
@@ -7,24 +8,30 @@ from typing import Optional
 from dotenv import load_dotenv
 
 from . import _ensure_tls_works, RefusalError
-from .openrouter.service import OpenRouterProvider
-from .openrouter.view import get_model_info as get_openrouter_model_info
-from .groq.service import GroqProvider
-from .groq.view import get_model_info as get_groq_model_info
-from .openai.service import OpenAIProvider
-from .openai.view import get_model_info as get_openai_model_info
-from .anthropic.service import AnthropicProvider
-from .anthropic.view import get_model_info as get_anthropic_model_info
-from .google.service import GoogleProvider
-from .google.view import get_model_info as get_google_model_info
-from .perplexity.service import PerplexityProvider
-from .perplexity.view import get_model_info as get_perplexity_model_info
-from .together.service import TogetherProvider
-from .together.view import get_model_info as get_together_model_info
-from .cerebras.service import CerebrasProvider
-from .cerebras.view import get_model_info as get_cerebras_model_info
-from .aws.service import AWSProvider
-from .aws.view import get_model_info as get_aws_model_info
+
+# Each provider (and its SDK) loads when it is first used, not all at import:
+# the SDKs are thousands of modules, and an iOS agent's process loaded every
+# one of them before its first step (seconds, minutes on a busy Mac).
+_PROVIDER_CLASSES = {
+    "openrouter": "OpenRouterProvider",
+    "groq": "GroqProvider",
+    "openai": "OpenAIProvider",
+    "anthropic": "AnthropicProvider",
+    "google": "GoogleProvider",
+    "perplexity": "PerplexityProvider",
+    "together": "TogetherProvider",
+    "cerebras": "CerebrasProvider",
+    "aws": "AWSProvider",
+}
+
+
+def _provider_class(provider: str):
+    return getattr(importlib.import_module(f".{provider}.service", __package__),
+                   _PROVIDER_CLASSES[provider])
+
+
+def _model_info_getter(provider: str):
+    return importlib.import_module(f".{provider}.view", __package__).get_model_info
 
 # Load environment variables
 load_dotenv()
@@ -325,20 +332,9 @@ def resolve_model_info(provider: str, short_name: str) -> dict:
     passthrough dict for unregistered names, so any model string the user
     types is usable — nothing here validates against an allowlist.
     """
-    getter = {
-        "openrouter": get_openrouter_model_info,
-        "groq": get_groq_model_info,
-        "openai": get_openai_model_info,
-        "anthropic": get_anthropic_model_info,
-        "google": get_google_model_info,
-        "perplexity": get_perplexity_model_info,
-        "together": get_together_model_info,
-        "cerebras": get_cerebras_model_info,
-        "aws": get_aws_model_info,
-    }.get(provider)
-    if getter is None:
+    if provider not in _PROVIDER_CLASSES:
         return {"api_name": short_name, "vision": True, "display_name": short_name}
-    return getter(short_name)
+    return _model_info_getter(provider)(short_name)
 
 
 def dialect_tools(provider: str, registry: list) -> list:
@@ -391,7 +387,7 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
         api_key = _key(api_key, 'OPENROUTER_API_KEY')
         if not api_key:
             raise ValueError("OpenRouter API key not provided, not in .env, and not saved in the app's Settings")
-        return OpenRouterProvider(api_key, cli_agent, model_info,
+        return _provider_class("openrouter")(api_key, cli_agent, model_info,
                                   tools=tools,
                                   max_tokens=max_tokens)
     elif provider == "groq":
@@ -399,7 +395,7 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
         api_key = _key(api_key, 'GROQ_API_KEY')
         if not api_key:
             raise ValueError("Groq API key not provided, not in .env, and not saved in the app's Settings")
-        return GroqProvider(api_key, cli_agent, model_info,
+        return _provider_class("groq")(api_key, cli_agent, model_info,
                             tools=tools,
                             max_tokens=max_tokens)
     elif provider == "openai":
@@ -407,7 +403,7 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
         api_key = _key(api_key, 'OPENAI_API_KEY')
         if not api_key:
             raise ValueError("OpenAI API key not provided, not in .env, and not saved in the app's Settings")
-        return OpenAIProvider(api_key, cli_agent,
+        return _provider_class("openai")(api_key, cli_agent,
                               tools=tools,
                               max_tokens=max_tokens,
                               model_info=model_info)
@@ -416,13 +412,13 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
         api_key = _key(api_key, 'ANTHROPIC_API_KEY')
         if not api_key:
             raise ValueError("Anthropic API key not provided, not in .env, and not saved in the app's Settings")
-        return AnthropicProvider(api_key, cli_agent,
+        return _provider_class("anthropic")(api_key, cli_agent,
                                  tools=tools,
                                  max_tokens=max_tokens,
                                  model_info=model_info)
     elif provider == "google":
         # Check if this is a Vertex model
-        model_meta = get_google_model_info(model_short_name)
+        model_meta = _model_info_getter("google")(model_short_name)
         is_vertex = model_meta.get("vertex", False)
         
         if is_vertex:
@@ -444,7 +440,7 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
                                 vertex_location = line.partition('=')[2]
             except Exception:
                 pass
-            return GoogleProvider(
+            return _provider_class("google")(
                 api_key=None, cli_agent=cli_agent,
                 model=model_short_name,
                 vertex_project_id=vertex_project_id, vertex_location=vertex_location,
@@ -456,14 +452,14 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
             api_key = _key(api_key, 'GOOGLE_API_KEY')
             if not api_key:
                 raise ValueError("Google API key not provided, not in .env, and not saved in the app's Settings")
-            return GoogleProvider(api_key, cli_agent, model=model_short_name,
+            return _provider_class("google")(api_key, cli_agent, model=model_short_name,
                                   tools=tools, model_info=model_info,
                                   max_tokens=max_tokens)
     elif provider == "perplexity":
         api_key = _key(api_key, 'PERPLEXITY_API_KEY')
         if not api_key:
             raise ValueError("Perplexity API key not provided, not in .env, and not saved in the app's Settings")
-        return PerplexityProvider(api_key, cli_agent, model_info,
+        return _provider_class("perplexity")(api_key, cli_agent, model_info,
                                   tools=tools,
                                   max_tokens=max_tokens)
     elif provider == "together":
@@ -471,7 +467,7 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
         api_key = _key(api_key, 'TOGETHER_API_KEY')
         if not api_key:
             raise ValueError("Together API key not provided, not in .env, and not saved in the app's Settings")
-        return TogetherProvider(api_key, cli_agent, model_info,
+        return _provider_class("together")(api_key, cli_agent, model_info,
                                 tools=tools,
                                 max_tokens=max_tokens)
     elif provider == "cerebras":
@@ -479,7 +475,7 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
         api_key = _key(api_key, 'CEREBRAS_API_KEY')
         if not api_key:
             raise ValueError("Cerebras API key not provided, not in .env, and not saved in the app's Settings")
-        return CerebrasProvider(api_key, cli_agent, model_info,
+        return _provider_class("cerebras")(api_key, cli_agent, model_info,
                                 tools=tools,
                                 max_tokens=max_tokens)
     elif provider == "aws":
@@ -487,7 +483,7 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
         api_key = _key(api_key, 'AWS_API_KEY')
         if not api_key:
             raise ValueError("AWS API key not provided, not in .env, and not saved in the app's Settings")
-        return AWSProvider(api_key, cli_agent, model_info,
+        return _provider_class("aws")(api_key, cli_agent, model_info,
                            tools=tools,
                            max_tokens=max_tokens)
     else:

@@ -31,6 +31,7 @@ sys.path[:] = [p for p in sys.path if Path(p or ".").resolve() != _HERE]
 
 import argparse   # noqa: E402
 import base64     # noqa: E402
+import faulthandler  # noqa: E402
 import io         # noqa: E402
 import json       # noqa: E402
 import os         # noqa: E402
@@ -90,17 +91,25 @@ class _LiveView:
 
 def main():
     parser = argparse.ArgumentParser(description="One ios_agent run (spawned by tool/ios_agent.py)")
-    parser.add_argument("--task", type=str, required=True, help="The task to run")
+    parser.add_argument("--task", type=str, default=None, help="The task to run")
+    parser.add_argument("--standby", action="store_true",
+                        help="Get ready first, then read the task as one JSON line on stdin")
     parser.add_argument("--provider", type=str, required=True, help="LLM provider")
     parser.add_argument("--model", type=str, required=True, help="LLM model name")
     parser.add_argument("--speed", type=str, default=None, help='"quality" or "fast"')
     parser.add_argument("--result", type=str, default=None,
                         help="Path to write the result JSON when complete")
     args = parser.parse_args()
+    if args.task is None and not args.standby:
+        parser.error("--task is required")
 
     result = {"status": "error", "message": "child crashed before the agent returned"}
     exit_code = 1
     try:
+        # The run begins in 2 to 3 s. If the start hangs, every thread's stack
+        # goes to this log after 15 s, so it says where it waited (the parent
+        # starts the child again at 20 s, ios_agent.py START_SEC).
+        faulthandler.dump_traceback_later(15)
         # The real phone, never a simulator: open_app lists the installed apps
         # with pymobiledevice3 for hardware (simctl only for a simulator).
         from AutoCua.ios_connector.session import active_target
@@ -114,7 +123,18 @@ def main():
         agent = AgentService(provider=args.provider, model=args.model, speed=args.speed,
                              tool_callback=live.flow if live else None,
                              frontend_callback=live.frame if live else None)
-        result = agent.process_request(args.task)
+        faulthandler.cancel_dump_traceback_later()
+        task = args.task
+        if args.standby:
+            # Started when the phone came online (tool/ios_agent.py), so the
+            # run begins the moment the main agent sends its task. No line:
+            # the request ended without one.
+            line = sys.stdin.readline()
+            task = json.loads(line)["task"] if line.strip() else None
+        if task is None:
+            result = {"status": "stopped", "message": "no task came"}
+        else:
+            result = agent.process_request(task)
         exit_code = 0
     except KeyboardInterrupt:
         result = {"status": "stopped", "message": "interrupted (Ctrl+C)"}
