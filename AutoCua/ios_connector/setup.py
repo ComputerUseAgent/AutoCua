@@ -89,6 +89,17 @@ def _ddi():
         sys.path.insert(0, str(SCRIPT_DIR.parent.parent))
         from AutoCua.ios_connector import ddi
     return ddi
+
+
+def _devicectl():
+    """session.devicectl(): the real devicectl, never Xcode's wrapper script
+    (session.py says why), also when this file runs as a script."""
+    try:
+        from AutoCua.ios_connector.session import devicectl
+    except ImportError:
+        sys.path.insert(0, str(SCRIPT_DIR.parent.parent))
+        from AutoCua.ios_connector.session import devicectl
+    return devicectl()
 try:                                            # package import (app.py embeds this UI)
     from AutoCua.ios_connector.build_paths import wda_build_root
 except ImportError:                             # standalone: python .../setup.py
@@ -471,7 +482,7 @@ def _devices_via_devicectl():
     tmp = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
     tmp.close()
     try:
-        rc, _ = sh(["xcrun", "devicectl", "list", "devices", "--json-output", tmp.name])
+        rc, _ = sh(_devicectl() + ["list", "devices", "--json-output", tmp.name])
         if rc != 0:
             return None
         try:
@@ -591,6 +602,24 @@ def installed_bundle_ids(udid=None):
         return list(json.loads(out[start:]).keys())
     except Exception:
         return []
+
+
+# The last full run's build is kept (build-for-testing writes its .xctestrun),
+# with what it was signed for, so an app start can run it as it is.
+BUILT_STAMP = DERIVED / "Build" / "Products" / "autocua_built.json"
+
+
+def built_xctestrun(team, prefix):
+    """The .xctestrun of the last full run's build when it was signed for this
+    team and bundle prefix, else None."""
+    try:
+        stamp = json.loads(BUILT_STAMP.read_text())
+    except (OSError, ValueError):
+        return None
+    if stamp.get("team") != team or stamp.get("prefix") != prefix:
+        return None
+    runs = sorted(BUILT_STAMP.parent.glob("*.xctestrun"), key=lambda p: p.stat().st_mtime)
+    return runs[-1] if runs else None
 
 
 def kill_current():
@@ -853,8 +882,31 @@ class Handler(BaseHTTPRequestHandler):
         mode   = (q.get("mode",   [DEFAULT_MODE])[0] or DEFAULT_MODE).strip()
         mount  = (q.get("mount",  ["1"])[0] == "1")
         force  = (q.get("force",  ["0"])[0] == "1")
+        fast   = (q.get("fast",   ["0"])[0] == "1")
 
         self._sse("log", "starting")
+
+        # An app start (session.py asks fast=1) of a runner built before: the
+        # test from that build's .xctestrun, with no project edit and no build,
+        # about 4 s instead of 7 or more. One that does not come up (a signing
+        # profile run out, a phone the profile does not name) goes the full way
+        # below, which signs and builds again. A stopped one (code < 0) stays stopped.
+        if fast and mode == "test" and not force:
+            built = built_xctestrun(team, prefix)
+            if built and udid:
+                seen = {"up": False}
+
+                def _fast_watch(line):
+                    seen["up"] = seen["up"] or "ServerURLHere" in line
+
+                self._sse("log", "xcodebuild test-without-building (the runner built before)")
+                code = self._stream_cmd(["xcodebuild", "test-without-building", "-xctestrun", str(built),
+                                         "-destination", f"id={udid}"],
+                                        detect_serverup=True, line_hook=_fast_watch)
+                if seen["up"] or code < 0:
+                    return self._sse("done", json.dumps({"code": code, "stage": "xcodebuild",
+                                                         "mode": "test-without-building"}))
+                self._sse("log", "the runner built before did not start: signing and building it again")
 
         # --- preflight ---
         # Authoritative check — /detect may never have run.
@@ -923,7 +975,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._sse("log", "skipping DDI mount (pymobiledevice3 not installed)")
 
         # --- stage 3: xcodebuild ---
-        action = "test" if mode == "test" else "build-for-testing"
+        # build-for-testing, then (test mode) the test from the .xctestrun it
+        # writes: what `xcodebuild test` does, and the build is kept for the
+        # next app start (fast=1 above).
         cmd = [
             "xcodebuild",
             "-project", str(PROJECT),
@@ -931,9 +985,9 @@ class Handler(BaseHTTPRequestHandler):
             "-destination", f"id={udid}",
             "-allowProvisioningUpdates",
             "-derivedDataPath", str(DERIVED),
-            action,
+            "build-for-testing",
         ]
-        self._sse("log", "xcodebuild " + action)
+        self._sse("log", "xcodebuild build-for-testing" + (", then test-without-building" if mode == "test" else ""))
         self._sse("log", "  " + " ".join(cmd))
         if mode == "test":
             self._sse("log", "  test mode stays running once the server is up -- that is success. Stop to end.")
@@ -976,8 +1030,26 @@ class Handler(BaseHTTPRequestHandler):
         if sha1:
             benv["EXPANDED_CODE_SIGN_IDENTITY"] = sha1
 
-        code = self._stream_cmd(cmd, env=benv, detect_serverup=(mode == "test"),
-                                line_hook=_watch)
+        def _build_and_test():
+            try:
+                BUILT_STAMP.unlink()          # a build that fails half way is never run as it is
+            except OSError:
+                pass
+            code = self._stream_cmd(cmd, env=benv, line_hook=_watch)
+            if code != 0:
+                return code
+            try:
+                BUILT_STAMP.write_text(json.dumps({"team": team, "prefix": prefix}))
+            except OSError:
+                pass
+            built = built_xctestrun(team, prefix)
+            if mode != "test" or built is None:
+                return code
+            return self._stream_cmd(["xcodebuild", "test-without-building", "-xctestrun", str(built),
+                                     "-destination", f"id={udid}"],
+                                    env=benv, detect_serverup=True, line_hook=_watch)
+
+        code = _build_and_test()
 
         # -allowProvisioningUpdates can issue a NEW certificate during this very
         # build, and Apple then revokes the old one. The identity pinned above is
@@ -988,8 +1060,7 @@ class Handler(BaseHTTPRequestHandler):
             if sha1_now and sha1_now != sha1:
                 self._sse("log", "  signing certificate changed during the build -- building again with the new one")
                 benv["EXPANDED_CODE_SIGN_IDENTITY"] = sha1_now
-                code = self._stream_cmd(cmd, env=benv, detect_serverup=(mode == "test"),
-                                        line_hook=_watch)
+                code = _build_and_test()
 
         if dest_err["hit"]:
             names = ", ".join(dest_err["avail"]) or "no iOS device is currently connected"

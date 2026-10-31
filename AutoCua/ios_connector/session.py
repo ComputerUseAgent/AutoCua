@@ -47,6 +47,10 @@ WDA_PORT = 8100
 # only. Off by default, and a terminal run never turns it on (owner,
 # 2026-10-30).
 WIRELESS = False
+# A request's session is kept this long (seconds) after the request ends, so
+# the next one takes it at once instead of starting WebDriverAgent again (10 to
+# 60 s, most of it Xcode over Wi-Fi). 0 stops it at the end of each request.
+WARM_SEC = int(os.environ.get("AutoCua_IOS_WARM_SEC", "600"))
 WDA_STATUS_URL = f"http://127.0.0.1:{WDA_PORT}/status"
 # WDA's live screen stream (MJPEG) on the phone. The runner always serves it;
 # the Mac reads it through a second cable forward (WDASession.screen_stream).
@@ -193,6 +197,18 @@ def plugged_in_udids():
     return udids
 
 
+# The real devicectl, not `xcrun devicectl`: that is Xcode's wrapper script,
+# and whenever its check of the CoreDevice version fails it first runs
+# `xcodebuild -runFirstLaunch`, which hung for minutes in the middle of a
+# connect (2026-10-31: the pairing service's /detect and the phone pick).
+DEVICECTL = "/Library/Developer/PrivateFrameworks/CoreDevice.framework/Versions/A/Resources/bin/devicectl"
+
+
+def devicectl() -> list:
+    """argv prefix that runs devicectl: the real one, else xcrun's."""
+    return [DEVICECTL] if os.path.exists(DEVICECTL) else ["xcrun", "devicectl"]
+
+
 def wifi_udids():
     """UDIDs of the paired iPhones Xcode can start WebDriverAgent on: on this
     Mac's Wi-Fi network, or on the cable (devicectl's device list, about
@@ -201,7 +217,7 @@ def wifi_udids():
     try:
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "devices.json"
-            subprocess.run(["xcrun", "devicectl", "list", "devices", "--json-output", str(out)],
+            subprocess.run(devicectl() + ["list", "devices", "--json-output", str(out)],
                            capture_output=True, timeout=20)
             devices = json.loads(out.read_text())["result"]["devices"]
     except Exception:
@@ -219,7 +235,7 @@ def _unlocked(udid):
     try:
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "lock.json"
-            subprocess.run(["xcrun", "devicectl", "device", "info", "lockState", "--device", udid,
+            subprocess.run(devicectl() + ["device", "info", "lockState", "--device", udid,
                             "--timeout", "5", "--json-output", str(out)], capture_output=True, timeout=8)
             res = json.loads(out.read_text()).get("result") or {}
     except Exception:
@@ -367,8 +383,10 @@ class _XcodeRun:
                 return self._end("needaccount", "No Apple Account in Xcode", "Add one in Settings → Connect Device.")
             if self._ended:
                 return                        # stopped while it looked for the team: no run at all
+            # fast: the runner built before, as it is (setup.py builds only when that fails)
             query = urllib.parse.urlencode({"team": team, "udid": self.udid, "prefix": "com.AutoCua",
-                                            "mode": "test", "mount": "0"})   # the mount step needs the cable
+                                            "mode": "test", "mount": "0",   # the mount step needs the cable
+                                            "fast": "1"})
             self._streaming = True
             # The service writes a comment every 20 s of silence, so the read
             # timeout only ends a stream from a service that hangs.
@@ -585,6 +603,10 @@ class WDASession:
         self._shared = False
         self._udid = None
         self._link = None        # the live session's way: "wired" (usbmux) or "wireless" (_XcodeRun)
+        # When a request's session was kept warm with nobody on it (deactivate),
+        # None otherwise; _reap_warm ends it after WARM_SEC.
+        self._warm_since = None
+        self._reaper = None
         self._log_path = None
         # The phone's usbmux attachment id at the last (re)start. A re-plug
         # (QuickTime picking the phone's screen, a cable glitch) gives it a
@@ -686,6 +708,9 @@ class WDASession:
                              "checkout's .venv/, and on PATH. Install it with:  bash setup_mac.sh --ios  "
                              "or start the app with the venv's Python:  "
                              "source .venv/bin/activate && python app.py")}
+        if (not udid and self._warm_since is not None and is_paired(self._udid or "")
+                and (link == "wireless") == (self._link == "wireless")):
+            udid = self._udid          # the phone kept warm: no new pick
         if not udid:
             devs = paired_devices()
             if not devs:
@@ -726,6 +751,17 @@ class WDASession:
             udid = devs[0]["udid"]
         active_target.update({"kind": "hardware", "udid": udid})
         with self._lock:
+            if self._warm_since is not None:
+                # Kept warm after an earlier request, nobody on it: the same
+                # phone the same way is taken at once (a request, or the chat
+                # box's pick); anything else ends it and starts afresh below.
+                if (self._udid == udid and (link == "wireless") == (self._link == "wireless")
+                        and self._wda_up()):
+                    self._warm_since = None
+                    self._owner = owner
+                    self._relaunches = []
+                    return {"ok": True, "state": "connected", "udid": udid, "warm": True}
+                self._end_locked()
             # The app's own Mobile use session (no owner) and a computer-use
             # request's phone link (an owner). The person pairs the phone in
             # one chat and expects a computer-use request in another to use
@@ -937,6 +973,16 @@ class WDASession:
                 self._owner = None
                 self._shared = False
                 return {"ok": True, "state": "kept"}
+            if (owner is not None and WARM_SEC > 0 and self._alive(self._xctest)
+                    and self._alive(self._forward) and self._wda_up()):
+                # The request is over and the phone still answers: kept warm
+                # for the next request, which takes it at once (activate).
+                self._owner = None
+                self._warm_since = time.monotonic()
+                if self._reaper is None or not self._reaper.is_alive():
+                    self._reaper = threading.Thread(target=self._reap_warm, daemon=True)
+                    self._reaper.start()
+                return {"ok": True, "state": "warm"}
             # FIRST tell the runner ON THE PHONE to exit (WDA's /wda/shutdown).
             # That's what makes the "Automation Running" overlay vanish right
             # away — killing only the Mac-side processes leaves the phone
@@ -951,14 +997,38 @@ class WDASession:
             # runner is gone lost the phone to another run: the port now
             # reaches THAT run's runner, so it must not be told to shut down.
             lost = owner is not None and not (self._alive(self._xctest) and self._alive(self._forward))
-            if self._udid is not None and not lost:
-                try:
-                    urllib.request.urlopen(
-                        f"http://127.0.0.1:{WDA_PORT}/wda/shutdown", timeout=2)
-                except Exception:
-                    pass
-            self._stop_locked()
+            self._end_locked(tell_phone=not lost)
         return {"ok": True, "state": "disconnected"}
+
+    def end_warm(self):
+        """Quitting: a session kept warm for the next request goes too (the
+        app's own pick is deactivate()'s, from its quit path)."""
+        with self._lock:
+            if self._warm_since is not None:
+                self._end_locked()
+
+    def _reap_warm(self):
+        """End a warm session nobody took within WARM_SEC, or one that died."""
+        while True:
+            time.sleep(5)
+            with self._lock:
+                if self._warm_since is None:
+                    return
+                dead = not (self._alive(self._xctest) and self._alive(self._forward))
+                if dead or time.monotonic() - self._warm_since >= WARM_SEC:
+                    self._end_locked(tell_phone=not dead)
+                    return
+
+    def _end_locked(self, tell_phone=True):
+        """Stop the session: the runner on the phone first (deactivate says
+        why), then everything on the Mac."""
+        if self._udid is not None and tell_phone:
+            try:
+                urllib.request.urlopen(
+                    f"http://127.0.0.1:{WDA_PORT}/wda/shutdown", timeout=2)
+            except Exception:
+                pass
+        self._stop_locked()
 
     def _kill_locked(self):
         # Kill INSTANTLY: xctest first (it owns the phone-side session), tiny
@@ -1008,6 +1078,7 @@ class WDASession:
         self._link = None
         self._owner = None
         self._shared = False
+        self._warm_since = None
         self._mux_id = None
         self._relaunches = []
         self._gave_up = False

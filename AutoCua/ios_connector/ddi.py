@@ -61,6 +61,11 @@ HINT = ("unlock the iPhone, keep it on the cable and this Mac online (Apple sign
         "update it; `xcrun devicectl device info ddiServices --device {udid}` says why.")
 
 
+def _devicectl():
+    from AutoCua.ios_connector.session import devicectl   # the real one (session.py says why)
+    return devicectl()
+
+
 def _env(udid):
     return dict(os.environ, PYMOBILEDEVICE3_UDID=udid) if udid else None
 
@@ -188,7 +193,7 @@ def mount(base, udid, run, say, fetch=True):
             # mounts what the phone takes (the cryptex from iOS 27, a phone
             # newer than the image's device list).
             say("asking Xcode to mount its developer disk image (xcrun devicectl)")
-            if run(["xcrun", "devicectl", "device", "info", "ddiServices", "--device", udid],
+            if run(_devicectl() + ["device", "info", "ddiServices", "--device", udid],
                    90) == 0 or mounted(base, udid):
                 return True
         say("the developer disk image is not mounted: " + HINT.format(udid=udid))

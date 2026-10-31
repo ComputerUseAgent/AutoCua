@@ -107,13 +107,17 @@ def _watch_parent():
 def main():
     _watch_parent()
     parser = argparse.ArgumentParser(description="One android_agent run (spawned by tool/android_agent.py)")
-    parser.add_argument("--task", type=str, required=True, help="The task to run")
+    parser.add_argument("--task", type=str, default=None, help="The task to run")
+    parser.add_argument("--standby", action="store_true",
+                        help="Get ready first, then read the task as one JSON line on stdin")
     parser.add_argument("--provider", type=str, required=True, help="LLM provider")
     parser.add_argument("--model", type=str, required=True, help="LLM model name")
     parser.add_argument("--speed", type=str, default=None, help='"quality" or "fast"')
     parser.add_argument("--result", type=str, default=None,
                         help="Path to write the result JSON when complete")
     args = parser.parse_args()
+    if args.task is None and not args.standby:
+        parser.error("--task is required")
 
     result = {"status": "error", "message": "child crashed before the agent returned"}
     exit_code = 1
@@ -123,10 +127,29 @@ def main():
         # Only these two: web_callback and shell_callback add sleeps, and
         # token_callback would move the main agent's memory bar
         live = _LiveView(Path(args.result).resolve().parent) if args.result else None
-        agent = AgentService(provider=args.provider, model=args.model, speed=args.speed,
-                             tool_callback=live.flow if live else None,
-                             frontend_callback=live.frame if live else None)
-        result = agent.process_request(args.task)
+
+        def build():
+            return AgentService(provider=args.provider, model=args.model, speed=args.speed,
+                                tool_callback=live.flow if live else None,
+                                frontend_callback=live.frame if live else None)
+
+        agent = build()
+        task = args.task
+        if args.standby:
+            # Started when the phone came online (tool/android_agent.py), so
+            # the run begins the moment the main agent sends its task. No
+            # line: the request ended without one.
+            line = sys.stdin.readline()
+            task = json.loads(line)["task"] if line.strip() else None
+            # The helper this agent started while it waited may be gone (a
+            # phone that dozed off the Wi-Fi): connect again, as a fresh child.
+            from AutoCua.android_connector.session import android_session
+            if task is not None and android_session.status().get("state") != "connected":
+                agent = build()
+        if task is None:
+            result = {"status": "stopped", "message": "no task came"}
+        else:
+            result = agent.process_request(task)
         exit_code = 0
     except KeyboardInterrupt:
         result = {"status": "stopped", "message": "interrupted (Ctrl+C)"}
