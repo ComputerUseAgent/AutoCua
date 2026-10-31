@@ -34,6 +34,7 @@ macOS only: pairing a phone needs Xcode.
 import atexit
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -66,6 +67,10 @@ WATCH_SEC = 5
 SHIMMER_SEC = 4.0
 # The child has its own 100-step cap; this bounds wall-clock.
 TIMEOUT_SEC = int(os.environ.get("AutoCua_IOS_AGENT_TIMEOUT", "900"))
+# A child begins its run (the first line of events.jsonl) in 2 to 3 s. One
+# that has not after START_SEC is started again, once: a start that hung stayed
+# hung for minutes, with nothing in its log.
+START_SEC = 20
 # A `done` value shorter than this is almost certainly an activity log, so it
 # is topped up with what the agent recorded along the way.
 _SHORT_REPORT_CHARS = 200
@@ -104,6 +109,12 @@ def stop_all() -> None:
             link.release()
         except Exception:
             pass
+    # A released link keeps its session warm for the next request: not now.
+    try:
+        from AutoCua.ios_connector.session import wda_session
+        wda_session.end_warm()
+    except Exception:
+        pass
 
 
 atexit.register(stop_all)
@@ -201,11 +212,18 @@ class PhoneLink:
         self._window = None      # the phone window (a sim_view process)
         self._window_started = False   # opened on the first delegation, once per request
         self.window = True       # False: no phone window (the app shows the phone in its page)
+        # The main agent's provider, model, api_key and speed: an ios_agent
+        # child is started with them when the phone comes online (_standby)
+        self._standby_for = None
+        self._standby = None
 
     @classmethod
-    def start(cls) -> "PhoneLink":
-        """Look for the phone in the background. Returns at once."""
+    def start(cls, standby: dict = None) -> "PhoneLink":
+        """Look for the phone in the background. Returns at once. standby:
+        {"provider", "model", "api_key", "speed"}, as start() will get them,
+        to have the child ready when the phone answers."""
         link = cls()
+        link._standby_for = standby
         if IS_COMPILED:
             link.reason = "ios_agent is unavailable in the packaged app"
             return link
@@ -277,6 +295,7 @@ class PhoneLink:
         if self.udid:
             _log(f"released after {self._elapsed()}")
         _close_window(win)
+        self._drop_standby()
         if owns:
             self._deactivate()
         self._forget()
@@ -361,7 +380,9 @@ class PhoneLink:
                 return
             _log(f"online after {self._elapsed()}: {self.name}"
                  + (" (sharing the app's Mobile use session)" if res.get("shared") else "")
+                 + (" (kept warm from the last request)" if res.get("warm") else "")
                  + (f" (after the {CHECK_SEC}s check)" if past_check else ""))
+            self._start_standby()
             self._watch()
         except Exception as e:
             self._fail(f"the phone check failed: {e}")
@@ -480,12 +501,57 @@ class PhoneLink:
             if tail:
                 _log("session log tail:\n    " + "\n    ".join(tail.splitlines()[-12:]))
         _close_window(win)
+        self._drop_standby()
         if owns:
             self._deactivate()
         self._forget()
 
+    # -- the standby child --
+    def _start_standby(self):
+        """Start the request's ios_agent child now, built and waiting for
+        its task (ios_agent_child.py --standby): when the main agent sends one,
+        nothing loads first (a busy Mac took minutes to). Built with the main
+        agent's provider and model, which start() then gets."""
+        args = self._standby_for
+        if not args or not self.udid:
+            return
+        key = (args.get("provider"), args.get("model"), args.get("api_key"), args.get("speed"))
+        try:
+            child = _spawn(self.udid, *key)
+        except Exception as e:
+            _log(f"no ios_agent started ahead: {e}")
+            return
+        child["key"] = key
+        pid = child["proc"].pid
+        with self._lock:
+            if not self._released and self._state == "online":
+                self._standby, child = child, None
+        if child is not None:
+            _end_standby(child)          # the request ended meanwhile
+        else:
+            _log(f"ios_agent started ahead, waiting for its task (pid {pid})")
+
+    def take_standby(self, provider, model, api_key, speed):
+        """The standby child when it was built the way start() asks and still
+        runs: it is that run's now. None otherwise, and start() starts one."""
+        with self._lock:
+            child, self._standby = self._standby, None
+        if child is None:
+            return None
+        if child["key"] == (provider, model, api_key, speed) and child["proc"].poll() is None:
+            return child
+        _end_standby(child)
+        return None
+
+    def _drop_standby(self):
+        with self._lock:
+            child, self._standby = self._standby, None
+        if child is not None:
+            _end_standby(child)
+
     def _deactivate(self):
-        """Let the phone go, unless a later request took the session over."""
+        """Let the phone go (session.py keeps a live session warm for the next
+        request), unless a later request took the session over."""
         try:
             from AutoCua.ios_connector.session import wda_session
             wda_session.deactivate(owner=self)
@@ -534,20 +600,57 @@ def start(task: str, provider: str, model: str, api_key: str = None, speed: str 
         raise IOSAgentError("an ios_agent is still at work and only one runs at a time: "
                             "hold for it with agent_wait, then start the next")
 
+    text = _TASK_TEMPLATE.format(task=task)
+    # The child the link started when the phone came online, built and
+    # waiting: it gets the task as one line and begins at once.
+    child = phone.take_standby(provider, model, api_key, speed)
+    if child is not None:
+        try:
+            child["proc"].stdin.write((json.dumps({"task": text}) + "\n").encode("utf-8"))
+            child["proc"].stdin.close()
+        except (OSError, ValueError):
+            _end_standby(child)
+            child = None
+    if child is None:
+        try:
+            child = _spawn(phone.udid, provider, model, api_key, speed, task=text)
+        except Exception as e:
+            raise IOSAgentError(f"ios_agent could not be started: {e}")
+
+    run_dir = child["run_dir"]
+    run = {
+        "session_id": child["session_id"],
+        "subprocess": child["proc"],
+        "result_file": run_dir / "result.json",
+        "log_file": run_dir / "agent.log",
+        "started": time.time(),
+        "deadline": time.monotonic() + TIMEOUT_SEC,
+        "stopped": False,
+    }
+    _runs.append(run)
+    threading.Thread(target=_mind_start, args=(run, child["cmd"] + ["--task", text], child["env"], run_dir),
+                     daemon=True).start()
+    # The phone has work now: show it (the first time in this request)
+    phone.show_window()
+    return run
+
+
+def _spawn(udid: str, provider: str, model: str, api_key: str = None, speed: str = None,
+           task: str = None) -> dict:
+    """One child in a new run folder: on `task`, or, with no task, a standby
+    that gets ready and reads its task from stdin. Returns {"session_id",
+    "run_dir", "proc", "cmd", "env"}; cmd + ["--task", text] starts it again."""
     from AutoCua.ios_connector.session import WDA_PORT
 
     sid = f"ios_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     run_dir = data_root() / "ios_agent" / sid
     run_dir.mkdir(parents=True, exist_ok=True)
-    result_file = run_dir / "result.json"
-    log_file = run_dir / "agent.log"
 
     cmd = [
         sys.executable, str(_CHILD),
-        "--task", _TASK_TEMPLATE.format(task=task),
         "--provider", provider,
         "--model", model,
-        "--result", str(result_file),
+        "--result", str(run_dir / "result.json"),
     ]
     if speed:
         cmd += ["--speed", str(speed)]
@@ -559,34 +662,68 @@ def start(task: str, provider: str, model: str, api_key: str = None, speed: str 
     # iOS package reads it at import, so it is set before the child starts),
     # and pymobiledevice3 pointed at this phone for the app list.
     env["AutoCua_WDA_PORT"] = str(WDA_PORT)
-    env["PYMOBILEDEVICE3_UDID"] = phone.udid
+    env["PYMOBILEDEVICE3_UDID"] = udid
     env.pop("AutoCua_IOS_SESSION", None)   # parallel-simulator scoping, never for the phone
     if api_key and provider in _PROVIDER_ENV_KEY:
         env[_PROVIDER_ENV_KEY[provider]] = api_key
 
-    try:
-        # stdout/stderr go to a file: the iOS agent prints a lot, and a PIPE
-        # nobody drains would deadlock it.
-        with open(log_file, "ab") as log:
-            proc = subprocess.Popen(cmd, cwd=str(run_dir), env=env,
-                                    stdin=subprocess.DEVNULL, stdout=log,
-                                    stderr=subprocess.STDOUT)
-    except Exception as e:
-        raise IOSAgentError(f"ios_agent could not be started: {e}")
+    # stdout/stderr go to a file: the iOS agent prints a lot, and a PIPE
+    # nobody drains would deadlock it.
+    with open(run_dir / "agent.log", "ab") as log:
+        proc = subprocess.Popen(cmd + (["--task", task] if task is not None else ["--standby"]),
+                                cwd=str(run_dir), env=env,
+                                stdin=subprocess.DEVNULL if task is not None else subprocess.PIPE,
+                                stdout=log, stderr=subprocess.STDOUT)
+    return {"session_id": sid, "run_dir": run_dir, "proc": proc, "cmd": cmd, "env": env}
 
-    run = {
-        "session_id": sid,
-        "subprocess": proc,
-        "result_file": result_file,
-        "log_file": log_file,
-        "started": time.time(),
-        "deadline": time.monotonic() + TIMEOUT_SEC,
-        "stopped": False,
-    }
-    _runs.append(run)
-    # The phone has work now: show it (the first time in this request)
-    phone.show_window()
-    return run
+
+def _end_standby(child: dict) -> None:
+    """A standby that got no task: it goes, and its run folder with it."""
+    try:
+        child["proc"].kill()
+        child["proc"].wait(timeout=5)
+    except Exception:
+        pass
+    shutil.rmtree(child["run_dir"], ignore_errors=True)
+
+
+def _mind_start(run: dict, cmd: list, env: dict, run_dir: Path) -> None:
+    """Start the child again, once, when it has not begun its run within
+    START_SEC. Its log so far is kept as agent_stuck.log: the child writes
+    there where it was waiting (ios_agent_child.py)."""
+    events = run_dir / "events.jsonl"
+    deadline = time.monotonic() + START_SEC
+    while time.monotonic() < deadline:
+        if run["stopped"] or run["subprocess"].poll() is not None or events.exists():
+            return
+        time.sleep(0.5)
+    old = run["subprocess"]
+    if run["stopped"] or old.poll() is not None or events.exists():
+        return
+    _log(f"{run['session_id']} did not begin within {START_SEC}s: starting it again")
+    run["restarting"] = True        # outcome() waits meanwhile
+    try:
+        try:
+            old.kill()
+            old.wait(timeout=5)
+        except Exception:
+            pass
+        try:
+            run["log_file"].rename(run_dir / "agent_stuck.log")
+        except OSError:
+            pass
+        try:
+            with open(run["log_file"], "ab") as log:
+                run["subprocess"] = subprocess.Popen(cmd, cwd=str(run_dir), env=env,
+                                                     stdin=subprocess.DEVNULL, stdout=log,
+                                                     stderr=subprocess.STDOUT)
+        except Exception as e:
+            _log(f"{run['session_id']} could not be started again: {e}")
+            return
+        if run["stopped"]:          # stopped meanwhile, while stop() saw the old one
+            stop(run)
+    finally:
+        run["restarting"] = False
 
 
 def stop(run: dict) -> None:
@@ -618,7 +755,7 @@ def outcome(run: dict, phone_online: bool = True):
     answers. phone_online=False (the link lost the phone) ends a run at once.
     """
     proc = run["subprocess"]
-    if proc.poll() is None:
+    if proc.poll() is None or run.get("restarting") or run["subprocess"] is not proc:
         if not phone_online and not run["stopped"]:
             # Notes first: the run is over for good once it is stopped
             notes = _milestone_notes(run) or "nothing was recorded before the phone went away"

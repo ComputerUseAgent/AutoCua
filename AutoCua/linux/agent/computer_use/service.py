@@ -556,7 +556,11 @@ class AgentService:
         all (data_extraction.OFF_TOOLS), so no phone is looked for either."""
         if not data_extraction.ENABLED:
             from ...controller.tool import android_agent
-            self.controller.android = android_agent.AndroidLink.start()
+            # The phone's sub-agent starts ready the moment its phone answers,
+            # with the settings the sub_agent call then gives it
+            standby = {"provider": self.controller.provider, "model": self.controller.model,
+                       "api_key": self.controller.api_key, "speed": self.controller.speed}
+            self.controller.android = android_agent.AndroidLink.start(standby=standby)
         try:
             return self._process_request(task)
         finally:

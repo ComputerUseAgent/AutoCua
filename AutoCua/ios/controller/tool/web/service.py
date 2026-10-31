@@ -1,15 +1,18 @@
+import importlib
 import os
 import time
 from pathlib import Path
 
-from .openrouter import web_search as openrouter_web_search
-from .groq_search import web_search as groq_web_search
-from .chatgpt import web_search as chatgpt_web_search
-from .anthropic import web_search as anthropic_web_search
-from .google_search import web_search as google_web_search
-from .perplexity_search import web_search as perplexity_web_search
-from .web_agent import web_search as web_agent_web_search, WebAgentSearchError
 from AutoCua.llm_provider.openrouter.view import get_model_info as get_openrouter_model_info
+
+# Each provider's search (and its SDK) is imported when it is first used:
+# importing all of them made the iOS agent's start slow.
+_SEARCH_MODULES = {"openrouter": "openrouter", "groq": "groq_search", "openai": "chatgpt",
+                   "anthropic": "anthropic", "google": "google_search", "perplexity": "perplexity_search"}
+
+
+def _web_search(provider: str):
+    return importlib.import_module(f".{_SEARCH_MODULES[provider]}", __package__).web_search
 
 # Providers with no native web-search API: the query goes to the browser
 # agent on the same provider+model instead (see web_agent.py). Explicit
@@ -47,17 +50,17 @@ class WebService:
         for attempt in range(3):
             try:
                 if self.provider == "openrouter":
-                    result = openrouter_web_search(query, self.model, self.api_key)
+                    result = _web_search("openrouter")(query, self.model, self.api_key)
                 elif self.provider == "groq":
-                    result = groq_web_search(query, self.api_key)  # Groq always uses compound
+                    result = _web_search("groq")(query, self.api_key)  # Groq always uses compound
                 elif self.provider == "openai":
-                    result = chatgpt_web_search(query, self.api_key)  # OpenAI always uses gpt-5.6-terra
+                    result = _web_search("openai")(query, self.api_key)  # OpenAI always uses gpt-5.6-terra
                 elif self.provider == "anthropic":
-                    result = anthropic_web_search(query, self.api_key)  # Anthropic uses Haiku 4.5 with native web_search
+                    result = _web_search("anthropic")(query, self.api_key)  # Anthropic uses Haiku 4.5 with native web_search
                 elif self.provider == "google":
-                    result = google_web_search(query, self.api_key, self.vertex, self.vertex_project_id, self.vertex_location)  # Google uses Gemini 3.6 Flash with grounding
+                    result = _web_search("google")(query, self.api_key, self.vertex, self.vertex_project_id, self.vertex_location)  # Google uses Gemini 3.6 Flash with grounding
                 elif self.provider == "perplexity":
-                    result = perplexity_web_search(query, self.api_key)  # Perplexity uses Sonar with native web search
+                    result = _web_search("perplexity")(query, self.api_key)  # Perplexity uses Sonar with native web search
                 else:
                     result = f"Unsupported provider: {self.provider}"
                 
@@ -77,6 +80,7 @@ class WebService:
 
     def _search_via_web_agent(self, query: str) -> str:
         """Same result shapes as the native path, produced by the browser agent."""
+        from .web_agent import web_search as web_agent_web_search, WebAgentSearchError
         try:
             report = web_agent_web_search(query, self.provider, self.model, self.api_key,
                                           stop_event=self.stop_event)
