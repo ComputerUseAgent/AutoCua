@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 
 # Agent types the `sub_agent` tool can start on this platform. android_agent
 # is listed as online only while the request's Android phone checked out
-# (android_state).
+# (android_state), and only in Daisy chain mode (daisy_chain): in This PC it
+# is offline and refused.
 SUB_AGENT_TYPES = ("coder_agent", "browser_agent", "android_agent")
 
 
@@ -129,6 +130,7 @@ class ControllerView:
         self._android_tasks = []      # android_agent runs at work: [{"id": int, "task": str, "run": dict}]
         self._sub_ended = set()       # Browser / Android ids whose box in the chat got its sub_end (sent once)
         self.android = None           # The request's AndroidLink (tool/android_agent.py), set by the main driver
+        self.daisy_chain = False      # Daisy chain mode: the phone sub-agent is reachable; set by the main driver (off = This PC)
         self.speed = None             # The main agent's speed, so a browser agent runs the same way
         self.scan_on = True           # The `scan` tool's switch; the main driver reads it each step
 
@@ -924,7 +926,8 @@ class ControllerView:
                                        "Carry on with other work: once the phone is connected it is "
                                        "listed under online in <sub_agents>.")
                         else:
-                            reason = getattr(self.android, "reason", "") or "no Android phone is connected"
+                            reason = ((getattr(self.android, "reason", "") or "no Android phone is connected")
+                                      if self.daisy_chain else "phones are only reachable in Daisy chain mode")
                             message = f"android_agent is currently offline: {reason}."
                         results.append({
                             "status": "error",

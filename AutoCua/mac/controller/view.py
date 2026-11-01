@@ -35,7 +35,8 @@ logger = logging.getLogger(__name__)
 # Agent types the `sub_agent` tool can start on this platform. ios_agent is
 # listed as online only while the request's phone is connected (phone_state),
 # android_agent only while the request's Android phone checked out
-# (android_state).
+# (android_state). Both only in Daisy chain mode (daisy_chain): in This PC
+# they are offline and refused.
 SUB_AGENT_TYPES = ("coder_agent", "browser_agent", "ios_agent", "android_agent")
 
 
@@ -134,6 +135,7 @@ class ControllerView:
         self._sub_ended = set()       # Browser / iOS / Android ids whose box in the chat got its sub_end (sent once)
         self.phone = None             # The request's PhoneLink (tool/ios_agent.py), set by the main driver
         self.android = None           # The request's AndroidLink (tool/android_agent.py), set by the main driver
+        self.daisy_chain = False      # Daisy chain mode: the phone sub-agents are reachable; set by the main driver (off = This PC)
         self.speed = None             # The main agent's speed, so a browser agent runs the same way
         self.scan_on = True           # The `scan` tool's switch; the main driver reads it each step
 
@@ -1036,7 +1038,8 @@ class ControllerView:
                                        "Carry on with other work: once the phone is connected it is "
                                        "listed under online in <sub_agents>.")
                         else:
-                            reason = getattr(self.phone, "reason", "") or "no iPhone or iPad is connected"
+                            reason = ((getattr(self.phone, "reason", "") or "no iPhone or iPad is connected")
+                                      if self.daisy_chain else "phones are only reachable in Daisy chain mode")
                             message = f"ios_agent is currently offline: {reason}."
                         results.append({
                             "status": "error",
@@ -1089,7 +1092,8 @@ class ControllerView:
                                        "Carry on with other work: once the phone is connected it is "
                                        "listed under online in <sub_agents>.")
                         else:
-                            reason = getattr(self.android, "reason", "") or "no Android phone is connected"
+                            reason = ((getattr(self.android, "reason", "") or "no Android phone is connected")
+                                      if self.daisy_chain else "phones are only reachable in Daisy chain mode")
                             message = f"android_agent is currently offline: {reason}."
                         results.append({
                             "status": "error",

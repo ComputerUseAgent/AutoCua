@@ -75,6 +75,7 @@ run_agent(mode="web use", provider="openrouter", model="gemini-3.8-flash",
 | `mode` | What it drives | Where it runs |
 |---|---|---|
 | `"computer use"` | The desktop. Clicks, typing, hotkeys, apps, AppleScript | macOS, Windows or Linux, auto detected |
+| `"computer use, daisy chain"` | The same desktop, plus the phone sub-agents when a phone is connected: `android_agent`, and `ios_agent` on a Mac. Plain `"computer use"` lists them offline | macOS, Windows or Linux, auto detected |
 | `"shell use"` | A coding agent, straight into a real terminal | macOS, Windows or Linux |
 | `"web use"` | Your own Chrome through the AutoCua extension; headless runs on a debugging port | Any host with Chrome, offered for download when it is missing |
 | `"mobile use, ios"` | An iOS Simulator by default, or your paired iPhone or iPad over the cable | macOS host |
@@ -615,9 +616,10 @@ with the same `xcodebuild` run Settings makes, which also signs it again when a 
 expired. The app then talks to it at the phone's Wi-Fi address. pymobiledevice3, the cable's
 transport, would need root or an extra setting on the phone for Wi-Fi. A start takes about 15 to 35 s,
 against about 5 s over the cable. With several paired iPhones on the Wi-Fi it takes an unlocked
-one first, the newest of those, and says so at once when they are all locked. In Computer use the
-same toggle says over what `ios_agent` looks for the iPhone at the start of each request: the cable
-only on Wired, the Wi-Fi only on Wireless. A run from a script (`run_agent`) always uses the cable.
+one first, the newest of those, and says so at once when they are all locked. In Computer use,
+Daisy chain, the same toggle says over what `ios_agent` looks for the iPhone at the start of each
+request: the cable only on Wired, the Wi-Fi only on Wireless; This PC looks for no phone. A run from
+a script (`run_agent` with `"computer use, daisy chain"`) always uses the cable.
 
 **15 tools:** `open_app`, `click`, `ground_click`, `ground_scroll`, `input`, `scroll`, `wait`,
 `shell`, `web`, `vault`, `video_player`, `todo_list`, `update_todo`, `scratchpad`, `done`.
@@ -681,7 +683,7 @@ use, one device in the middle or several side by side. Details in **[agent_capab
 |---|---|---|
 | Needs | USB debugging on, and **Allow** tapped with "Always allow from this computer" ticked | The phone connected once over USB in Settings, Connect Device, Android. Then Android 11 or newer, **Wireless debugging** on, and the same Wi-Fi as your computer. No pairing code: the phone takes the key it already trusts from USB |
 | Which phone | The one plugged in, or the one Settings connected | **Only phones you connected in the app's Settings**, found by their USB serial in the name they announce on the network |
-| Where | Everywhere, a script included | The desktop app only, when you pick Wireless on the Wireless / Wired toggle, in Mobile use or in Computer use (there for `android_agent`) |
+| Where | Everywhere, a script included | The desktop app only, when you pick Wireless on the Wireless / Wired toggle, in Mobile use or in Computer use's Daisy chain (there for `android_agent`) |
 | Best for | Everything | A phone on your desk |
 
 With `device="hardware"` a script uses USB only. With several phones plugged in it takes the newest
@@ -718,7 +720,9 @@ screenshot, as on the iPhone. `video_player` tells streaming from paused by watc
 Unlike the iPhone's, it does not work on a DRM player, which is black in the phone's screenshots.
 
 In computer use, the main agent can hand phone work to an **android_agent** sub-agent, on macOS,
-Windows and Linux, the way it hands iPhone work to `ios_agent` on a Mac. It shows up once adb is
+Windows and Linux, the way it hands iPhone work to `ios_agent` on a Mac. That is Computer use,
+**Daisy chain** in the app, or `"computer use, daisy chain"` from a script; This PC (plain
+`"computer use"`) lists the phone sub-agents offline. It shows up once adb is
 on the computer: after one Android run or the Settings check, or with an `adb` on your PATH. From
 a script it uses the cable, never Wi-Fi; in the app it looks for the phone over what the Wireless /
 Wired toggle says at the start of each request: the cable only on Wired, the default, or the Wi-Fi
@@ -961,8 +965,8 @@ the agent runs would inherit it.
 | **Skills** | Browse, preview, add, edit and delete domain knowledge files, live, for desktop and iOS |
 | **Memory ring** | Context gauge beside the Skills icon, with the live token count inside. It breathes while compression runs and its count *falls* when the handoff lands |
 | **Fast / Quality** | Leaner prompt and fewer tokens per step, or full reasoning, which is the default |
-| **Mode picker** | Computer use, Mobile use, Shell use |
-| **Wireless / Wired** | Mobile use and Computer use: the phone over the cable, the default, or over Wi-Fi when you pick Wireless; its label reads *Mobile via: Wired* or *Mobile via: Wi-Fi*. In Mobile use, while it pairs, a circle turns beside the picker and the chat box is locked; if pairing fails, the box keeps the reason and the circle turns into an arrow that pairs again. In Computer use it says over what `android_agent` and `ios_agent` look for the phone at each request, and can be flipped any time, also while a run goes |
+| **Mode picker** | Computer use (This PC, or Daisy chain to reach the phones), Mobile use, Shell use |
+| **Wireless / Wired** | Mobile use and Computer use: the phone over the cable, the default, or over Wi-Fi when you pick Wireless; its label reads *Mobile via: Wired* or *Mobile via: Wi-Fi*. In Mobile use, while it pairs, a circle turns beside the picker and the chat box is locked; if pairing fails, the box keeps the reason and the circle turns into an arrow that pairs again. In Computer use it says over what `android_agent` and `ios_agent` look for the phone at each request, and can be flipped any time, also while a run goes; it shows in Daisy chain only, as This PC looks for no phone |
 | **Stop** | Retires the run id instantly, so a still-running model call can never repaint your next chat |
 
 Chats are saved and resumable. Reopening one restores its history and puts the memory ring back
@@ -1055,7 +1059,8 @@ task", and you send it again once that run is done. A small always-on-top pill s
 status on the desktop, so a remotely started run is never invisible to whoever is sitting at
 the machine. In the app itself the task shows up like any typed message, with a small
 **sent via: Telegram** pill over it, and the run goes on like any other chat: screens, reply,
-saved chat.
+saved chat. A task from Telegram always runs as Computer use, This PC: the phone sub-agents are
+offline for it.
 
 > The pill is a status cue and has no stop control. The bot obeys **only its owner**: the first
 > chat that messages it after you connect claims it, and every other chat is ignored. Disconnect
@@ -1298,8 +1303,8 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
   `AutoCua_AUTO_DOWNLOAD=1` answers yes for a run nobody watches, such as CI. Only Electron asks
   in its own way, since the app works without it.
 - Phones go over Wi-Fi **only when you pick Wireless** in the desktop app, in Mobile use or in
-  Computer use, whose phone sub-agents then look for the phone over the Wi-Fi only; a run from a
-  script always uses the cable.
+  Computer use's Daisy chain, whose phone sub-agents then look for the phone over the
+  Wi-Fi only; a run from a script always uses the cable.
 - An Android phone is reached over Wi-Fi **only after you connected it over USB in the app's
   Settings**, and only when it answers with the serial it was saved with as it connects. An
   iPhone, only one paired with this Mac in the app's Settings.

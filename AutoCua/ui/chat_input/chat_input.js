@@ -107,7 +107,10 @@
                     task: message,
                     session_id: window.currentSessionId || null,
                     mode: agentMode,
-                    os: agentMode === 'mobile' ? agentSub : null,
+                    // The picker's sub-option: Mobile use's device (ios/android),
+                    // Computer use's thispc or daisy (Daisy chain: the phone
+                    // sub-agents are reachable), sent the same way.
+                    os: (agentMode === 'mobile' || agentMode === 'computer') ? agentSub : null,
                     // ⚡/✨ toggle state lives only in the .quality class (read live at send)
                     speed: (flipToggle && !flipToggle.classList.contains('quality')) ? 'fast' : 'quality'
                 })
