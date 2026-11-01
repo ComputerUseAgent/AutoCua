@@ -23,6 +23,10 @@ pip install AutoCua
 
 </td></tr></table>
 
+<sub>Windows 10 and 11 · Linux with GNOME · macOS on Apple Silicon or Intel</sub>
+
+**Full capabilities:** **[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**
+
 https://github.com/user-attachments/assets/03a9a5ab-5049-4911-b725-63792d1b6253
 
 | | Windows | Linux | macOS |
@@ -33,10 +37,6 @@ https://github.com/user-attachments/assets/03a9a5ab-5049-4911-b725-63792d1b6253
 | **Web use** — your own Chrome, driven through the AutoCua extension | ✓ | ✓ | ✓ |
 | **Mobile use** — an iOS Simulator, or your iPhone or iPad, over USB, or Wi-Fi in the app | — | — | ✓ |
 | **Mobile use** — an Android emulator, or your Android phone, over USB, or Wi-Fi in the app | ✓ | ✓ | ✓ |
-
-<sub>Windows 10 and 11 · Linux with GNOME · macOS on Apple Silicon or Intel</sub>
-
-**Full capabilities:** **[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**
 
 </div>
 
