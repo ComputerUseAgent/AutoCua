@@ -4,7 +4,7 @@
 
 <h1>AutoCua</h1>
 
-<h3>Automatic Computer Use Agent.<br/>Mac, Windows, Linux, real phone, simulator, any browser.<br/>A multi-agent harness engine.</h3>
+<h3>Automatic Computer Use Agent.<br/>A team of AI agents that works your Mac, Windows, Linux, phone and browser.</h3>
 
 [![PyPI](https://img.shields.io/pypi/v/AutoCua?color=4c6ef5&label=pypi)](https://pypi.org/project/AutoCua/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-4c6ef5)](https://pypi.org/project/AutoCua/)
@@ -23,11 +23,9 @@ pip install AutoCua
 
 </td></tr></table>
 
-<sub>Windows 10 and 11 · Linux with GNOME · macOS on Apple Silicon or Intel</sub>
+https://github.com/user-attachments/assets/4ac6d2c3-d83f-449e-a7a5-2dcf788f8d21
 
-**Full capabilities:** **[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**
-
-https://github.com/user-attachments/assets/03a9a5ab-5049-4911-b725-63792d1b6253
+**[See everything AutoCua can do →](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**
 
 | | Windows | Linux | macOS |
 |:--|:--:|:--:|:--:|
