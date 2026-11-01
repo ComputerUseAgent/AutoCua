@@ -185,6 +185,7 @@
             // the hint showing at run start and puts it back after the run.
             if (window.iosSession) window.iosSession.settle();
             if (window.androidSession) window.androidSession.settle();
+            if (window.daisySession) window.daisySession.settle();
 
             if (agentStrip) {
                 agentStrip.classList.add('active');

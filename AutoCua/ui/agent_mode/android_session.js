@@ -199,7 +199,9 @@
         pairState('pairing');
         startPairingAnim();
         activate({
-            stale: function () { return !androidActive; },
+            // Left meanwhile: a helper that came up anyway stops, unless
+            // Computer use → Daisy chain is checking the phone now (daisy_session.js)
+            stale: function () { return !androidActive && !(window.daisySession && window.daisySession.holds('android')); },
             onConnected: function () {
                 pairing = false;
                 pairState('');

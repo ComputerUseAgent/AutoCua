@@ -111,8 +111,13 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ link: link })   // backend picks the newest paired device it reaches
         }).then(function (r) { return r.json(); }).then(function (d) {
-            // iOS left meanwhile: a session that came up anyway goes again
-            if (my !== gen) { if (d.ok && !iosActive) fetch('/api/ios/deactivate', { method: 'POST' }).catch(function () {}); return; }
+            // iOS left meanwhile: a session that came up anyway goes again,
+            // unless Computer use → Daisy chain uses the iPhone now (daisy_session.js)
+            if (my !== gen) {
+                if (d.ok && !iosActive && !(window.daisySession && window.daisySession.holds('ios')))
+                    fetch('/api/ios/deactivate', { method: 'POST' }).catch(function () {});
+                return;
+            }
             if (d.state === 'connected') { if (cb.onConnected) cb.onConnected(); return; }
             if (!d.ok) { fail(reasonOf(d)); return; }
             var deadline = Date.now() + wait * 1000;
