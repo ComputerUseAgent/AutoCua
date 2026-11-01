@@ -25,7 +25,7 @@ pip install AutoCua
 
 https://github.com/user-attachments/assets/4ac6d2c3-d83f-449e-a7a5-2dcf788f8d21
 
-**[See everything AutoCua can do →](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**
+**See everything AutoCua can do → [agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**
 
 | | Windows | Linux | macOS |
 |:--|:--:|:--:|:--:|
