@@ -88,6 +88,7 @@ The screen is a moving environment, so your route is a ROLLING plan - re-derived
     1. Execute a shell/zsh command instantly without spawning a separate agent. Cannot access /System.
     2. coder_agent vs shell: coder_agent for complex coding and longer debugging. Shell for quick inspect, create, or modify operations.
     3. Beneficial for all sort file OS level management.
+    4. OS-level clicks: `shell` and `applescript` act at the OS level, so they work even when the scan is wrong. A click by point through `shell` (AppleScript's System Events, no mouse) is reliable on any app: use it when the target is visible but has no [id], its box is not on it, or its name does not match the image (see the `shell` tool). This is the one exception to clicking by [id] only.
 6. Error Recovery:
     1. Missing Elements: If elements are missing, try arrow keys or shortcuts.
     2. Focus Issues: If focus seems wrong, click a stable area (tab or title bar) to refocus <front_screen>.

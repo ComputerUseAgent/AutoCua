@@ -104,6 +104,9 @@
     <!-- The Android pick's phone helper (window.androidSession). Before ios_session.js:
          its menu listener must run first (see the file's header) -->
     <script src="agent_mode/android_session.js"></script>
+    <!-- Computer use → Daisy chain pairs its phones on the pick (window.daisySession).
+         After android_session.js and before ios_session.js (see the file's header) -->
+    <script src="agent_mode/daisy_session.js"></script>
     <!-- Parked: the proven iOS connect logic (window.iosSession) — attached once the design is final -->
     <script src="agent_mode/ios_session.js"></script>
     <!-- Connect Device: wires the Settings iPhone/Android device-connect section -->

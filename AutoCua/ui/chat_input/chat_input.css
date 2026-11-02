@@ -488,6 +488,9 @@ body.left-bar-animating .chat-container-wrapper {
 .fast-quality-toggle.link-toggle { display: none; }
 .input-area-wrapper[data-agent-mode="mobile"] .link-toggle,
 .input-area-wrapper[data-agent-mode="computer"] .link-toggle { display: flex; animation: lkIn 0.3s ease; }
+/* Computer use's This PC looks for no phone: the phone sub-agents are Daisy
+   chain's only, so the flip shows there alone. */
+.input-area-wrapper[data-agent-mode="computer"]:has(.agent-mode-wrap[data-sub="thispc"]) .link-toggle { display: none; }
 /* In Computer use the flip stays live while a run goes: it only says how the
    phone sub-agents connect from the next request on (link_toggle.js). In
    Mobile use it holds still, as flipping it pairs the phone again. */

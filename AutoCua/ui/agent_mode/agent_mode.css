@@ -323,7 +323,9 @@ html:not([data-host="mac"]) .agent-subopt[data-sub="ios"] { display: none; }
    A circle turns while the phone pairs; if it did not pair, a red arrow takes
    its place and a click pairs again (data-pair on the wrap, set by
    ios_session.js / android_session.js). Nothing once paired, nor outside
-   Mobile use, so the skills icon closes up. */
+   Mobile use, so the skills icon closes up. Computer use → Daisy chain turns
+   it while its phones pair (daisy_session.js), with no arrow: an offline
+   phone holds nothing up. */
 .pair-status {
     display: none;
     align-items: center;
@@ -340,7 +342,8 @@ html:not([data-host="mac"]) .agent-subopt[data-sub="ios"] { display: none; }
     transition: background-color 0.2s ease;
 }
 .agent-mode-wrap[data-mode="mobile"][data-pair="pairing"] .pair-status,
-.agent-mode-wrap[data-mode="mobile"][data-pair="failed"] .pair-status { display: flex; }
+.agent-mode-wrap[data-mode="mobile"][data-pair="failed"] .pair-status,
+.agent-mode-wrap[data-mode="computer"][data-sub="daisy"][data-pair="pairing"] .pair-status { display: flex; }
 .pair-status svg { width: 16px; height: 16px; }
 .pair-status .ps-retry { display: none; }
 .agent-mode-wrap[data-pair="pairing"] .ps-spin { animation: psSpin 0.9s linear infinite; }
@@ -382,13 +385,14 @@ html:not([data-host="mac"]) .agent-subopt[data-sub="ios"] { display: none; }
         inset 0 -10px 20px -14px rgba(76, 125, 255, 0.14),
         inset -10px 0 20px -14px rgba(76, 125, 255, 0.10);
 }
-/* Daisy chain — warm yellow (gold → amber) */
+/* Daisy chain: lavender, the app's own agent glow (utils/agent_glow.py,
+   #b8a7f0 → #8f7bc9). daisy_session.js breathes from this exact frame. */
 .input-area-wrapper:has(.agent-mode-wrap[data-sub="daisy"]) {
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05),
-        inset 0 14px 28px -16px rgba(255, 224, 102, 0.42),
-        inset 14px 0 28px -16px rgba(255, 224, 102, 0.24),
-        inset 0 -14px 28px -16px rgba(255, 179, 64, 0.36),
-        inset -14px 0 28px -16px rgba(255, 179, 64, 0.24);
+        inset 0 14px 28px -16px rgba(184, 167, 240, 0.50),
+        inset 14px 0 28px -16px rgba(184, 167, 240, 0.30),
+        inset 0 -14px 28px -16px rgba(143, 123, 201, 0.40),
+        inset -14px 0 28px -16px rgba(143, 123, 201, 0.28);
 }
 /* iOS — violet (neon purple → indigo) */
 .input-area-wrapper:has(.agent-mode-wrap[data-sub="ios"]) {

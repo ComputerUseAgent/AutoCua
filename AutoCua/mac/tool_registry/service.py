@@ -568,11 +568,25 @@ def _main_tools(track: dict, notes: dict = None) -> list:
               '    1. `agent_type` and `agent_id`: the sub-agent to hold for, as its row in <sub_agents> shows them.\n'
               '    2. If another sub-agent finishes first, the hold ends with that report; call agent_wait again to keep holding.\n'
               '    3. Example: agent_wait {"agent_type": "coder_agent", "agent_id": 1, "value": "Reason"}', track=track),
+        # shell point 2, click by point with no mouse: the osascript (JXA) line
+        # converts 0-1000 to the scanner's display (as tree/element.py
+        # get_screen), then System Events clicks there, pressing the element at
+        # that point. click() needs the null. No drag: without the mouse there
+        # is none. Tested live on Chess, 2026-11-01.
         _tool("shell", {"value": {"type": "string"}},
               'Run a shell/zsh command for fast execution to achieve the goal.\n'
               '    1. Example:\n'
               '      1. shell {"value": "rm -rf ~/.Trash/*"}\n'
-              '      2. shell {"value": "osascript -e \'tell application \\"Reminders\\"\\nset dueDate to current date\\nset year of dueDate to 2026\\nset month of dueDate to 4\\nset day of dueDate to 25\\nset hours of dueDate to 6\\nset minutes of dueDate to 0\\nset seconds of dueDate to 0\\nset newReminder to make new reminder with properties {name:\\"Catch my flight\\", due date:dueDate, remind me date:dueDate}\\nreturn name of newReminder\\nend tell\'"}', track=track),
+              '      2. shell {"value": "osascript -e \'tell application \\"Reminders\\"\\nset dueDate to current date\\nset year of dueDate to 2026\\nset month of dueDate to 4\\nset day of dueDate to 25\\nset hours of dueDate to 6\\nset minutes of dueDate to 0\\nset seconds of dueDate to 0\\nset newReminder to make new reminder with properties {name:\\"Catch my flight\\", due date:dueDate, remind me date:dueDate}\\nreturn name of newReminder\\nend tell\'"}\n'
+              '    2. Click by point at the OS level, for when the scan is wrong. AppleScript\'s System Events presses the element the app reports at that point, in any app or layer, without the mouse, so it does not depend on the scan and it is reliable.\n'
+              '      1. When: the target is visible in the image but has no [id], its [id] box is not on it, or its name in <element_tree> does not match what the image shows there (e.g., a chess square named as another square). Otherwise click by [id].\n'
+              '      2. Points: the CENTER of the target on the 0-1000 scale of the screenshot (0,0 top-left, 1000,1000 bottom-right). The line converts them to the screen itself: never pass image pixels or screen points.\n'
+              '      3. Copy the line exactly and change only the calls at its end: click(x,y) clicks once; put delay(0.5) between several clicks (e.g., a piece, then its square, to move it).\n'
+              '      4. No mouse: the cursor stays where it is, and the app does not have to be in front. The output names what was pressed last (e.g., ...buttons.byName("e4")): check it is your target.\n'
+              '      5. If the next screenshot shows no change, the app has nothing to press at that point (e.g., a drawing canvas): use keys or the menu instead.\n'
+              '      6. The first use may ask to let AutoCua control System Events: accept it, then rerun.\n'
+              '      7. Judge it on the next screenshot by the target itself (the piece on its new square, the field showing the value), never by a side sign such as the window title.\n'
+              '      8. Click a piece, then its square: shell {"value": "osascript -l JavaScript -e \'ObjC.import(`AppKit`);ObjC.import(`CoreGraphics`);var d=$.CGMainDisplayID();ObjC.unwrap($.NSScreen.screens).forEach(function(s){var n=ObjC.unwrap(s.deviceDescription.objectForKey(`NSScreenNumber`));if($.CGDisplayIsBuiltin(n))d=n});var r=$.CGDisplayBounds(d),se=Application(`System Events`);function click(x,y){return se.click(null,{at:[Math.round(r.origin.x+x*r.size.width/1000),Math.round(r.origin.y+y*r.size.height/1000)]})}click(426,595);delay(0.5);click(427,512)\'"}', track=track),
         _tool("applescript", {"app": {"type": "string"}, "value": {"type": "string"}},
               'Run a complete AppleScript on any macOS app. Wrap in `tell application "X" ... end tell`. Do NOT include `activate`/`launch` - runtime handles activation. End with `return` for verification.\n'
               '    1. Safari: use `make new tab` (never `make new document`); always `set current tab to newTab`.\n'

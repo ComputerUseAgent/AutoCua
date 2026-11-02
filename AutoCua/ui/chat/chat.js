@@ -309,11 +309,12 @@
         window.currentSessionId = null;          // fresh start: no memory loaded
         // A fresh chat has no mode history — unlock the mode picker.
         document.dispatchEvent(new CustomEvent('agentmode:lock', { detail: { mode: null } }));
-        // ...and start it on the DEFAULT mode: a new chat is Computer use until
-        // the user picks otherwise. Silent set (no agentmode:changed), so no
+        // ...and start it on the DEFAULT mode: a new chat is Computer use, This
+        // PC, until the user picks otherwise (from Daisy chain too: its phones
+        // go, daisy_session.js). Silent set (no agentmode:changed), so no
         // side effects fire (e.g. ios_session pairing); the CLI stage follows
         // via its own agentmode:set listener and slides the terminal away.
-        document.dispatchEvent(new CustomEvent('agentmode:set', { detail: { mode: 'computer' } }));
+        document.dispatchEvent(new CustomEvent('agentmode:set', { detail: { mode: 'computer', sub: 'thispc' } }));
         // Roll a run-active composer back to idle (orbs/strip/box) — idempotent,
         // and agentComplete won't do it for us now that its push is invalidated.
         if (window.chatInputRestoreIdle) window.chatInputRestoreIdle();

@@ -1,5 +1,8 @@
 # Picks the right AgentService for the requested mode:
 #   mode = "computer use"     -> desktop agent for the host OS (mac / windows / linux)
+#   mode = "computer use, daisy chain" -> the same, plus the phone sub-agents
+#                                (ios_agent on a Mac, android_agent everywhere)
+#                                when connected; plain "computer use" lists them offline
 #   mode = "shell use"        -> CLI/coder agent for the host OS, straight to the
 #                                terminal (skips the main agent layer)
 #   mode = "mobile use, ios"  -> iOS agent (iPhone or iPad). By default it runs on an iOS
@@ -539,6 +542,11 @@ def run_agent(mode, provider, model, task, os=None,
     kwargs = dict(provider=provider, model=model,
                   save_conversation=save_conversation,
                   external_terminal=external_terminal, **agent_kwargs)
+    if kind == "computer":
+        # "computer use, daisy chain" (Daisy chain in the app): the phone
+        # sub-agents (ios_agent on a Mac, android_agent everywhere) are
+        # reachable. Plain "computer use" is This PC: they are listed offline.
+        kwargs["daisy_chain"] = mobile_os.startswith("daisy")
 
     phone = None
     sim_window = None
