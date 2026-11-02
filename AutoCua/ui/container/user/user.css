@@ -33,6 +33,44 @@
 }
 .user-message-text::-webkit-scrollbar { display: none; }
 
+/* A message longer than its 4 lines: a round chevron at the box's bottom
+   right opens it to its full length and turns over to close it again
+   (user.js). Only while the text is longer than the box, which then keeps
+   room under the text, so the chevron never covers a line. Flat, the box's
+   own thin line. */
+.user-container.has-expand {
+    padding-bottom: calc(clamp(7px, 0.8vw, 10px) + 24px);
+}
+.user-container.expanded .user-message-text {
+    max-height: none;
+    overflow-y: visible;
+}
+.user-expand {
+    position: absolute;
+    right: clamp(8px, 0.9vw, 11px);
+    bottom: clamp(6px, 0.7vw, 8px);
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 50%;
+    background: #fff;
+    color: rgba(60, 60, 60, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: color 0.15s ease;
+}
+.user-expand:hover { color: rgba(30, 30, 30, 0.95); }
+.user-expand[hidden] { display: none; }
+.user-expand svg {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.25s ease;
+}
+.user-container.expanded .user-expand svg { transform: rotate(180deg); }
+
 /* Where the message came from, when it was not typed here ("sent via:
    Telegram", a Telegram task): a small grey pill, white text, over the
    message. Nothing for the chat box's own messages (hidden). */

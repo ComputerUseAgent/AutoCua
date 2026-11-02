@@ -2416,6 +2416,12 @@ def _start_agent_run(data, via=None, hooks=None):
                     if hooks.get("cli"):
                         hooks["cli"](event_type, *args)
 
+                # Computer use → Daisy chain (os "daisy", sent the way Mobile use
+                # sends its device): the phone sub-agents are reachable. This PC,
+                # and every Telegram task, lists them offline. Computer use only
+                # (run_pkg is the host's package): the other agents have no flag.
+                daisy = {"daisy_chain": device_os == "daisy"} if run_pkg == PLATFORM_PKG else {}
+
                 agent = AgentService(
                     provider=provider,
                     model=model,
@@ -2430,6 +2436,7 @@ def _start_agent_run(data, via=None, hooks=None):
                     stop_event=stop_event,
                     prior_history=prior_history,   # None for a fresh chat
                     speed=speed,                   # ⚡ fast / ✨ quality (all platforms)
+                    **daisy,
                 )
                 # The page shows the phone in the iOS agent's box: no phone window
                 if run_pkg == 'mac':
@@ -2577,9 +2584,10 @@ def start_run_from_telegram(task, provider, model, session_id=None, text_callbac
     (status code, the response's fields): 'started' with session_id and
     run_id, or 'error' (409 while the app runs another task)."""
     with app.app_context():
+        # Always This PC (os "thispc"): the phone sub-agents are off.
         resp = _start_agent_run(
             {"provider": provider, "model": model, "task": task, "session_id": session_id or "new",
-             "mode": "computer", "speed": "quality"},
+             "mode": "computer", "os": "thispc", "speed": "quality"},
             via="telegram",
             hooks={"text": text_callback, "cli": cli_callback, "done": on_done})
     body, code = resp if isinstance(resp, tuple) else (resp, 200)

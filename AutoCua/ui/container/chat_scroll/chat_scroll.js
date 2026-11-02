@@ -245,10 +245,12 @@
         }
         return turn;
     }
-    // In the chat: its message box measured for its screen from now on.
+    // In the chat: its message box measured for its screen from now on, with
+    // the chevron that opens a long message (user.js).
     function place(turn) {
         byId('chatPast').appendChild(turn);
         watchMsg(turn.querySelector('.user-container'));
+        if (window.userExpand) window.userExpand.attach(turn.querySelector('.user-container'));
     }
 
     // The frame the live player shows, as a picture, so its copy shows it at

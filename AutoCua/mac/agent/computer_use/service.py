@@ -87,7 +87,7 @@ CLAUDE_BATCH_REMINDER = (
 class AgentService:
     """Service for Windows automation agent"""
     
-    def __init__(self, provider: str, model: str, save_conversation: bool = False, frontend_callback=None, text_callback=None, web_callback=None, shell_callback=None, cli_callback=None, tool_callback=None, token_callback=None, api_key: str = None, stop_event=None, external_terminal: bool = False, prior_history: Optional[dict] = None, speed: str = "quality"):
+    def __init__(self, provider: str, model: str, save_conversation: bool = False, frontend_callback=None, text_callback=None, web_callback=None, shell_callback=None, cli_callback=None, tool_callback=None, token_callback=None, api_key: str = None, stop_event=None, external_terminal: bool = False, prior_history: Optional[dict] = None, speed: str = "quality", daisy_chain: bool = False):
         """Initialize the Agent Service"""
         # Clean up scratchpad for a fresh start
         _cleanup_scratchpad()
@@ -104,6 +104,11 @@ class AgentService:
         # turns this off for the runs it starts (ui/service.py): its page shows the
         # phone in the iOS agent's box instead. Terminal and Telegram runs keep it.
         self.phone_window = True
+        # Daisy chain (Computer use → Daisy chain in the app, "computer use,
+        # daisy chain" in run_agent): the phone sub-agents, ios_agent and
+        # android_agent, are reachable. Off is This PC: they are listed
+        # offline, refused if called, and no phone is looked for.
+        self.daisy_chain = bool(daisy_chain)
 
         # Initialize LLM Manager with optional runtime API key.
         # The driver speaks NATIVE TOOL CALLING - its action tools ARE the
@@ -169,6 +174,7 @@ class AgentService:
         # Initialize Controller with provider and actual API model name (pass api_key for CLI agent subprocess)
         self.controller = ControllerView(provider=provider, model=self.llm_manager.get_model_name(), web_callback=web_callback, shell_callback=shell_callback, cli_callback=cli_callback, api_key=api_key, stop_event=stop_event, external_terminal=external_terminal)
         self.controller.speed = self.speed   # a browser agent runs at the same speed
+        self.controller.daisy_chain = self.daisy_chain   # This PC: the phone sub-agents are refused
         
         # Initialize Domain Knowledge Service
         self.skills = DomainKnowledgeService()
@@ -398,6 +404,9 @@ class AgentService:
             then one row per sub-agent started in this run (id, task cut to 100
             characters, status). Always present. While the dataset recorder is
             on it reads `offline:` instead: the sub-agent tools are withheld.
+            In This PC mode (daisy_chain off) the phone sub-agents sit on an
+            `offline:` line under the `online:` one, with the reason, so the
+            model does not tell the user to plug the phone in.
 
         Skills guidance is deliberately NOT in here: it is reference material
         about the current screen, not something the agent wrote, so it rides
@@ -413,6 +422,12 @@ class AgentService:
             # (data_extraction.OFF_TOOLS), so none of them can be started and
             # the phone is never looked for. Say offline rather than offer them.
             head = [f"offline: {', '.join(SUB_AGENT_TYPES)}"]
+        elif not self.daisy_chain:
+            # This PC: only this computer's sub-agents; the phones are Daisy
+            # chain's, so no phone is looked for and both read offline.
+            phones = ("ios_agent", "android_agent")
+            head = [f"online: {', '.join(t for t in SUB_AGENT_TYPES if t not in phones)}",
+                    f"offline: {', '.join(phones)} (This PC mode: phones are only reachable in Daisy chain mode)"]
         else:
             phone = self.controller.phone_state()
             android = self.controller.android_state()
@@ -564,8 +579,9 @@ class AgentService:
         are let go.
 
         While the dataset recorder is on, the sub-agents cannot be started at
-        all (data_extraction.OFF_TOOLS), so no phone is looked for either."""
-        if not data_extraction.ENABLED:
+        all (data_extraction.OFF_TOOLS), so no phone is looked for either; nor
+        in This PC mode (daisy_chain off), where the phones are offline."""
+        if not data_extraction.ENABLED and self.daisy_chain:
             from ...controller.tool import android_agent, ios_agent
             # Each phone's sub-agent starts ready the moment its phone answers,
             # with the settings the sub_agent call then gives it

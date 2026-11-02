@@ -16,7 +16,8 @@
 //
 // Computer use: the phone sub-agents (android_agent, ios_agent) look for the
 // phone at the start of every request, over the Wi-Fi only with Wireless and
-// the cable only with Wired. Every flip, and the page's load, tells the app
+// the cable only with Wired. Only in Daisy chain: This PC looks for no
+// phone, so the toggle hides there (chat_input.css). Every flip, and the page's load, tells the app
 // (POST /api/phone-link), and the flip stays live while a run goes: it counts
 // from the next request on.
 (function () {
