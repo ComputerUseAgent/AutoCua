@@ -3,15 +3,14 @@
 Subprocess entry for one browser agent started by the main agent
 (tool/browser_agent.py spawns it; it is run BY PATH, never imported).
 
-It runs the web agent exactly the way `web use` does: the agent starts Chrome
-itself (or attaches to the one already up), the agent takes over the blank
-tab, the window shows the tab it works in, and it has its tab tools.
+It runs the web agent the way parallel `web use` does
+(AutoCua/web/agent/__main__.py): the agent starts Chrome itself (or attaches
+to the one already up) and is pinned to one background tab of its own
+(single_tab=True), so up to four browser agents run at once and never work in
+each other's tabs. The first one opens Chrome: browser_agent.start holds the
+next ones until it has (its run_start event in events.jsonl).
 
 One text serves macOS, Windows and Linux: keep the three copies identical.
-
-Not AutoCua/web/agent/__main__.py: that one is the PARALLEL runner and pins
-each agent to one background tab (single_tab=True), which the window never
-shows. One browser agent runs at a time here, so it can own the window.
 
     --session-id scopes the web scratchpad to scratchpad/{sid}/, so the
       launcher can read this run's notes and clear them afterwards.
@@ -122,6 +121,7 @@ def main():
             browser_port=args.browser_port,
             session_id=args.session_id,
             browser_profile=args.browser_profile,
+            single_tab=True,               # a tab of its own, as the parallel runner's
             tool_callback=live.flow if live else None,
             frontend_callback=live.frame if live else None,
         )

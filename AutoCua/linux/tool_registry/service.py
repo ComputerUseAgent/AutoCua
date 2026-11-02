@@ -603,18 +603,18 @@ def _main_tools(track: dict, notes: dict = None) -> list:
               '    2. Example: web {"value": "financial result of nvidia Q4 2025"}', track=track),
         _tool("sub_agent", {"agent_type": {"type": "string", "enum": ["coder_agent", "browser_agent", "android_agent"]},
                             "value": {"type": "string"}},
-              'Start a sub-agent on a task. It works in parallel while you carry on, and gets a row with its id in <sub_agents>.\n'
+              'Start a sub-agent on a task. It works in parallel while you carry on. It takes the first empty slot of its type in <sub_agents>, and the result names its id. When every slot of its type is busy, nothing starts: wait for one of them to finish (agent_wait).\n'
               '    1. `agent_type`:\n'
-              '      1. `coder_agent`: complex coding and multi-step shell work.\n'
-              '      2. `browser_agent`: acts on websites in its own Brave browser (navigate, open tabs, click, fill forms). One at a time. Its window can open in front of your app: leave it to the browser agent and bring your own app forward with Alt + Tab. It runs on the agent\'s own Brave profile, not the person\'s browser, so the person\'s signed-in accounts are not there: buying and anything that needs their accounts stay with you.\n'
-              '      3. `android_agent`: works on the person\'s Android phone, plugged into this computer by USB: opens its apps, taps, types, scrolls and reads its screen. One at a time. Only while <sub_agents> lists it under `online:`; `checking connection: android_agent` means the phone is still being checked.\n'
+              '      1. `coder_agent`: complex coding and multi-step shell work. Up to 4 at once (ids 1-4).\n'
+              '      2. `browser_agent`: acts on websites in its own Brave browser (navigate, click, fill forms). Up to 4 at once (ids 5-8), each in a tab of its own. Its window can open in front of your app: leave it to the browser agent and bring your own app forward with Alt + Tab. It runs on the agent\'s own Brave profile, not the person\'s browser, so the person\'s signed-in accounts are not there: buying and anything that needs their accounts stay with you.\n'
+              '      3. `android_agent`: works on the person\'s Android phone, plugged into this computer by USB: opens its apps, taps, types, scrolls and reads its screen. One slot: id 9. Only while it reads empty; `connecting` means the phone is still being checked.\n'
               '    2. `value`: the full instruction. It is all the sub-agent gets, so make it self-contained.\n'
               '    3. Example: sub_agent {"agent_type": "coder_agent", "value": "instruction"}', track=track),
         _tool("agent_wait", {"agent_type": {"type": "string", "enum": ["coder_agent", "browser_agent", "android_agent"]},
                              "agent_id": {"type": "integer"},
                              "value": {"type": "string"}},
-              'Hold the pipeline until one sub-agent finishes. Use it only when your next step needs its report, before you start another browser_agent or android_agent (one at a time each), or before done.\n'
-              '    1. `agent_type` and `agent_id`: the sub-agent to hold for, as its row in <sub_agents> shows them.\n'
+              'Hold the pipeline until one sub-agent finishes. Use it only when your next step needs its report, when every slot of the type you need is busy, or before done.\n'
+              '    1. `agent_type` and `agent_id`: the sub-agent to hold for, as its slot in <sub_agents> shows them.\n'
               '    2. If another sub-agent finishes first, the hold ends with that report; call agent_wait again to keep holding.\n'
               '    3. Example: agent_wait {"agent_type": "coder_agent", "agent_id": 1, "value": "Reason"}', track=track),
         _tool("shell", {"value": {"type": "string"}},

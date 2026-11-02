@@ -12,11 +12,11 @@ toggle on Wireless, a remembered one on the Wi-Fi only (the connector's
 WIRELESS; a terminal run keeps the cable), and checks it in the background:
 the phone answers over adb, its
 helper starts and reads one screen, then stops again
-(android_connector/session.py's confirm). Meanwhile <sub_agents> shows
-`checking connection: android_agent`; once the check passes, android_agent
-joins the `online:` line. No phone, or a check that fails, and it is simply
-not listed. While it is online the phone is looked at again every WATCH_SEC,
-so a pulled cable (or a phone gone from the Wi-Fi) takes it off the line.
+(android_connector/session.py's confirm). Meanwhile android_agent's slot in
+<sub_agents> reads `connecting`; once the check passes, it reads `empty`. No
+phone, or a check that fails, and it reads `offline`. While it is online the
+phone is looked at again every WATCH_SEC, so a pulled cable (or a phone gone
+from the Wi-Fi) takes it offline.
 
 The runs: `sub_agent {"agent_type": "android_agent"}` starts the Android agent
 on a task and returns at once; the controller polls `outcome` until the run is
@@ -256,7 +256,7 @@ class AndroidLink:
             self._fail(f"the phone check failed: {e}")
 
     def _watch(self, adb):
-        """Keep the online line true: a pulled cable takes android_agent off it."""
+        """Keep the phone's state true: a pulled cable takes android_agent offline."""
         from AutoCua.android_connector.adb import _adb as run_adb
         while True:
             time.sleep(WATCH_SEC)
