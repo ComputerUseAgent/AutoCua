@@ -22,6 +22,7 @@ from ...tree.element import UIElementScanner, ELEMENT_CONFIG
 from ...controller import ControllerView
 from ..skills import DomainKnowledgeService
 from .... import data_extraction
+from ....utils.chrome import find_chrome
 
 # Run-boundary request markers: on resume, the bridge entry that ended the prior
 # run ("Previous run concluded.", saved by agent_conversation._build_history with
@@ -417,12 +418,14 @@ class AgentService:
         slot_ids: coder_agent 1-4, browser_agent 5-8, then the phone, 9). A
         status is "running: <task, cut to 100 characters>" while a run holds
         the slot (until its report is handed over) and "empty" when it is
-        free. The phone's slot reads "connecting" while the phone is being
+        free (a browser_agent slot reads "offline: Chrome is missing from the
+        system" while Google Chrome is not installed). The phone's slot reads "connecting" while the phone is being
         checked and "offline: <reason>" when it cannot be used, This PC mode
         included, so the model does not tell the user to plug the phone in.
         While the dataset recorder is on every slot reads "offline: recording
         mode": the sub-agent tools are withheld (data_extraction.OFF_TOOLS)."""
         held = {(r["agent"], r["slot"]): r for r in self.controller.get_sub_agents() if not r["seen"]}
+        chrome = find_chrome() is not None   # never downloaded: without it no browser agent starts
         lines = []
         for agent, ids in self.controller.slot_ids().items():
             slots = {}
@@ -434,6 +437,8 @@ class AgentService:
                     status = "running: " + _cut(row["task"])
                 elif agent == "android_agent":
                     status = self._phone_slot()
+                elif agent == "browser_agent" and not chrome:
+                    status = "offline: Chrome is missing from the system"
                 else:
                     status = "empty"
                 slots[str(n)] = status

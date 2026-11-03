@@ -25,8 +25,7 @@ The tiers share the file layout and drop in by name (DET_MODEL / REC_MODEL).
 Models live in models/<name>/ beside this file — inference.onnx plus
 inference.yml, which carries the recognizer's character dictionary. They are
 NOT in git (tens of MB): AutoCua/utils/ocr_models.py fetches a missing model
-from Hugging Face on first use, pinned and checksummed, the way utils/wda.py
-fetches WebDriverAgent for iOS.
+from Hugging Face on first use, pinned and checksummed.
 
 Post-processing is numpy only (no OpenCV, no pyclipper): the DB probability
 map is thresholded, split into connected components by run-length union-find,

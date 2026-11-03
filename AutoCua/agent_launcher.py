@@ -461,17 +461,25 @@ def run_agent(mode, provider, model, task, os=None,
 
     kind, mobile_os = _parse_mode(mode, os)
 
+    # Chrome is never downloaded (utils/chrome.py): a computer use or web use
+    # run says once when it is missing; a web use run cannot work without it,
+    # so it stops here, cleanly, before any agent starts.
+    if kind in ("computer", "web"):
+        from AutoCua.utils.chrome import MISSING as CHROME_MISSING, ensure_chrome
+        if ensure_chrome() is None and kind == "web":
+            return {"status": "error", "message": CHROME_MISSING}
+
     build = None
     if (kind, mobile_os) == ("mobile", "ios"):
-        # setup_mac.sh --ios clones WebDriverAgent for a checkout; a pip install runs
-        # no shell script, so fetch it the first time iOS is used. ABOVE the
-        # extra_tasks branch below, which returns without ever reaching the
-        # single-task path — simulation and hardware, one task or ten, all
-        # arrive here first. The connectors ask again at their own choke
-        # points; this call is the one that reports it before N simulators
-        # spend a minute booting for a run that cannot work.
-        from AutoCua.utils.wda import ensure_wda
-        ensure_wda()
+        # WebDriverAgent is never downloaded (utils/wda.py): without it in
+        # AutoCua_data, iOS automation is paused. Checked ABOVE the extra_tasks
+        # branch below, which returns without ever reaching the single-task
+        # path, so simulation and hardware, one task or ten, all stop here
+        # with the command, before N simulators spend a minute booting.
+        from AutoCua.utils.wda import MISSING as WDA_MISSING, wda_message, wda_ready
+        if sys.platform == "darwin" and not wda_ready():
+            print(f"📱 {wda_message()}", flush=True)
+            return {"status": "error", "message": WDA_MISSING}
         if app_build:
             # No build, no run — checked before minutes of simulator booting.
             if _device_target(device) == "hardware":
@@ -1097,7 +1105,7 @@ def run_parallel_web_agents(tasks, provider, model, save_conversation=False,
 
     port = int(browser_port or CHROME_PORT)
     n = len(tasks)
-    # Chrome itself is installed first when it is missing.
+    # Chrome is never installed here: this only says so when it is missing.
     ensure_chrome()
     bridge = None
     if headless:

@@ -1602,13 +1602,42 @@ def api_ios_deactivate():
 # =============================================================================
 @app.route('/api/android/detect', methods=['GET'])
 def api_android_detect():
-    """The phones on USB, ready or not, for Settings' Device menu."""
+    """The phones on USB, ready or not, for Settings' Device menu. With no adb
+    on this computer it says so first, with whether Settings may offer Install
+    adb, before anything could ask y/N on a terminal nobody is watching."""
     try:
+        from AutoCua.android_connector.adb import ARCHIVES, FETCH, OWN_ADB
+        if not (shutil.which("adb") or OWN_ADB.is_file()):
+            # Google builds adb for macOS, Windows and Linux on x86_64 only
+            google_has = sys.platform in ARCHIVES and not (
+                sys.platform == "linux" and platform.machine() != "x86_64")
+            return jsonify({"ok": False, "devices": [], "adb": False, "command": FETCH,
+                            "can_install": google_has and not IS_COMPILED,
+                            "error": "adb is not installed on this computer"})
         from AutoCua.android_connector.session import phones
         return jsonify({"ok": True, "devices": phones()})
     except Exception as e:
         debug_exception("api_android_detect")
         return jsonify({"ok": False, "devices": [], "error": str(e)})
+
+
+@app.route('/api/android/install-adb', methods=['POST'])
+def api_android_install_adb():
+    """Settings → Android's Install adb, after its Yes. Nothing is downloaded
+    in the app: only a terminal can say yes (android_connector/adb.py). This
+    clears the start's remembered no (_ADB_NOT_NOW) and says to start AutoCua
+    again from the terminal, which then asks today's y/N (_offer_adb). The
+    page closes the app right after (/api/app/quit)."""
+    if _run_thread is not None and _run_thread.is_alive():
+        return jsonify({"ok": False, "error": "AutoCua is busy with a task: try again once it is done"}), 409
+    from AutoCua.android_connector.adb import FETCH
+    try:
+        (data_root() / _ADB_NOT_NOW).unlink(missing_ok=True)
+    except Exception:
+        debug_exception("install-adb marker")
+    message = "Start AutoCua again from the terminal and answer y to install adb"
+    print(f"📱 {message}. Or run:  {FETCH}", flush=True)
+    return jsonify({"ok": True, "message": message, "command": FETCH})
 
 
 @app.route('/api/android/connect', methods=['POST'])
@@ -1795,6 +1824,15 @@ def save_last_selection():
     except Exception:
         debug_exception("save_last_selection")
         return jsonify({'error': 'Failed to save'}), 500
+
+
+@app.route('/api/chrome', methods=['GET'])
+def get_chrome_status():
+    """Whether Google Chrome is installed, for the popup the page shows on
+    start while it is not (AutoCua never downloads it, utils/chrome.py).
+    Checked on every call, so installing Chrome counts at the next start."""
+    from AutoCua.utils.chrome import POPUP, find_chrome
+    return jsonify({'installed': find_chrome() is not None, 'message': POPUP})
 
 
 @app.route('/api/vertex/status', methods=['GET'])
@@ -2392,6 +2430,13 @@ def _start_agent_run(data, via=None, hooks=None):
                     else f"AutoCua.{run_pkg}.agent.computer_use.service"
                 ).AgentService
 
+                # Web use: Google Chrome is never downloaded (utils/chrome.py),
+                # so a run without it stops here, saying so, before any agent starts.
+                if run_pkg == 'web':
+                    from AutoCua.utils.chrome import MISSING as CHROME_MISSING, ensure_chrome
+                    if ensure_chrome() is None:
+                        raise RuntimeError(CHROME_MISSING)
+
                 # Android: the phone the chat box's pick connected, the way its
                 # toggle said. Its helper is normally still up (this answers at
                 # once); a phone gone since stops the run in seconds with why,
@@ -2778,6 +2823,10 @@ def _prepare_native() -> None:
             except Exception as e:
                 print(f"[{what}] AGENT NOT BUILT — {e}", flush=True)
     _offer_adb()
+    # Google Chrome is never downloaded: say once, here, when it is missing
+    # (the page shows its popup too, /api/chrome)
+    from AutoCua.utils.chrome import ensure_chrome
+    ensure_chrome()
 
 
 def _offer_adb() -> None:

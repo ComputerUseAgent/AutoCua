@@ -17,15 +17,14 @@ What AutoCua's own code downloads is fetched only after the person's yes on
 the terminal (`AutoCua/utils/consent.py`; `AutoCua_AUTO_DOWNLOAD=1` answers
 yes where nobody can), from its author's own server, pinned by size and
 checksum where the author publishes one. Where a download comes under its
-maker's terms, the question names them: Google's Android SDK terms (§8, §20)
-and Google Chrome's terms (§15); Google's emulator and system images also ask
+maker's terms, the question names them: Google's Android SDK terms (§8, §20);
+Google's emulator and system images also ask
 the person to accept Google's terms (§7). The exceptions, each described in its
 section: cargo fetches the Rust crates from crates.io without asking, pinned by
 `Cargo.lock`, when an extension is built from source (§9, §10); Apple's
 developer disk image, on a Mac where Xcode has no copy, comes after the yes
 from the pymobiledevice3 project's unpinned copy on GitHub, not from Apple
-(§17); Google Chrome comes from Google's unpinned "latest stable" links
-(§15); the setup scripts install uv, Rust and, on Windows, WinLibs GCC without
+(§17); the setup scripts install uv, Rust and, on Windows, WinLibs GCC without
 asking (§12–§14); and `setup_mac.sh` installs the `xcodeproj` gem within the
 iPhone / iPad step the person said yes to (§19).
 
@@ -76,19 +75,19 @@ trusting them.
 
 ---
 
-## 2. WebDriverAgent — **not redistributed; cloned at setup time**
+## 2. WebDriverAgent — **not redistributed; never downloaded by AutoCua**
 
 | | |
 |---|---|
 | **Authors** | Facebook, Inc. and the Appium project |
 | **Upstream** | https://github.com/appium/WebDriverAgent |
-| **How it reaches you** | **Not vendored in this repository.** [`setup_mac.sh`](setup_mac.sh) clones it from the Appium project directly onto the user's machine, in its optional iPhone / iPad step, only after the user answers **y** (or passes `--ios`); no answer within 30 seconds counts as no. A `pip install` clones it the same way on the first iOS run, after the user's yes (`AutoCua/utils/wda.py`). |
+| **How it reaches you** | **Not vendored in this repository, and never downloaded by AutoCua.** The user clones it from the Appium project directly into `AutoCua_data/WebDriverAgent`. While it is missing, iOS automation is paused, and the terminal, the app and [`setup_mac.sh`](setup_mac.sh)'s iPhone / iPad step show the one command, with the full path (`AutoCua/utils/wda.py`). |
 | **Pinned version** | tag `v15.1.1` (`git clone --depth 1 --branch v15.1.1`) |
 | **License** | BSD 3-Clause, with some files under Apache License 2.0 — the `LICENSE` file arrives with the clone |
 
 Unlike Interception, **BSD 3-Clause expressly permits redistribution**, so
-vendoring WebDriverAgent was never a licensing problem. It is fetched instead
-simply so this repository contains no third-party source we did not write —
+vendoring WebDriverAgent was never a licensing problem. The user fetches it
+instead simply so this repository contains no third-party source we did not write —
 which also keeps Apple private-framework headers (`XCTest`, `UIKitCore`,
 shipped by upstream WebDriverAgent) out of our tree entirely.
 
@@ -362,19 +361,18 @@ MIT license. AutoCua does not redistribute them.
 
 ---
 
-## 15. Google Chrome — **not redistributed; installed on request at the first web run**
+## 15. Google Chrome — **not redistributed; never downloaded by AutoCua**
 
 | | |
 |---|---|
 | **Author** | Google LLC |
-| **Upstream** | Google's "latest stable" download links on dl.google.com (`AutoCua/utils/chrome.py`: `MAC_DMG`, `WIN_INSTALLER`, `LINUX_DEB`, `LINUX_RPM`). They are not pinned, and AutoCua does not check their size or checksum. |
-| **How it reaches you** | **Not vendored in this repository or in the wheel.** When a web run finds no Google Chrome, `AutoCua/utils/chrome.py` (`ensure_chrome`) asks on the terminal whether to download it from Google (about 280 MB). Only on a yes, or with `AutoCua_AUTO_DOWNLOAD=1`, does it download Google's installer over TLS and install Chrome. On macOS it copies the app from the DMG into `/Applications` (or `~/Applications`). On Windows it runs Google's installer silently (`/silent /install`). On Linux x86_64 it installs Google's `.deb` or `.rpm` as root through `apt-get`, `dnf` or `zypper` (zypper with `--allow-unsigned-rpm`); Google's package adds Google's software repository to the system. The question names Google and Chrome's terms (google.com/chrome/terms). Without a yes, the web agent uses an installed Chromium or Edge. |
+| **Upstream** | https://www.google.com/chrome/ |
+| **How it reaches you** | **Not vendored in this repository or in the wheel, and never downloaded or installed by AutoCua.** The user installs Google Chrome from Google. `AutoCua/utils/chrome.py` only looks for it; while it is missing, the terminal says so at each web run and the app shows a popup when it starts. |
 | **License** | Google's proprietary software, under the Google Terms of Service and the Google Chrome and ChromeOS Additional Terms of Service (https://www.google.com/chrome/terms/). Its open-source parts are listed at `chrome://credits`. |
 | **Used by** | The web agent (`"web use"`): the person's own Chrome, through the AutoCuaBridge extension, or a Chrome of its own for headless and parallel runs. |
 
 Chrome is Google's, under Google's terms, and is not covered by AutoCua's MIT
-license. AutoCua does not redistribute it: each person's machine downloads it
-from Google.
+license. AutoCua does not redistribute it: each person installs it from Google.
 
 ---
 

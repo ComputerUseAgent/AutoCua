@@ -38,8 +38,9 @@ from pathlib import Path
 from AutoCua.ios_connector.build_paths import wda_build_root
 from AutoCua.ios_connector.session import WDA_PORT, active_target
 from AutoCua.utils.consent import allow_download
-
-_WDA_PROJECT = Path(__file__).resolve().parent / "WebDriverAgent" / "WebDriverAgent.xcodeproj"
+# WebDriverAgent lives in AutoCua_data/WebDriverAgent and is never downloaded:
+# while it is missing, iOS automation is paused (utils/wda.py)
+from AutoCua.utils.wda import MISSING as _WDA_MISSING, wda_command, wda_project, wda_ready
 # OUTSIDE the repo on purpose — see build_paths: a checkout on the Desktop would
 # otherwise make the Simulator raise a TCC prompt mid-run, and a run that stops
 # for a dialog nobody can click is not automation. Still separate from the
@@ -122,7 +123,7 @@ def _targetable_udids(refresh=False):
         if (not refresh and _DEST_CACHE["at"]
                 and time.time() - _DEST_CACHE["at"] < _DEST_EMPTY_TTL):
             return cached                      # empty, or a failed probe, recently — don't spin
-        if not _WDA_PROJECT.exists():
+        if not wda_ready():
             return None
 
         def _unknown():
@@ -133,7 +134,7 @@ def _targetable_udids(refresh=False):
             return None
         try:
             out = subprocess.run(
-                ["xcodebuild", "-project", str(_WDA_PROJECT),
+                ["xcodebuild", "-project", str(wda_project()),
                  "-scheme", "WebDriverAgentRunner", "-showdestinations"],
                 capture_output=True, text=True, timeout=300)
         except Exception:
@@ -227,7 +228,7 @@ def _expected_runner_bundle_id():
     setup rewrites it from com.facebook.* to com.AutoCua.*) + ".xctrunner"."""
     base = "com.facebook.WebDriverAgentRunner"
     try:
-        text = _WDA_PROJECT.joinpath("project.pbxproj").read_text(encoding="utf-8", errors="replace")
+        text = wda_project().joinpath("project.pbxproj").read_text(encoding="utf-8", errors="replace")
         # Each build configuration block names its Info.plist; the runner's is
         # WebDriverAgentRunner/Info.plist. Read the id from such a block.
         for m in re.finditer(r"INFOPLIST_FILE = WebDriverAgentRunner/Info\.plist;(.*?)\};", text, re.S):
@@ -681,22 +682,13 @@ class SimulatorSession:
         ("iphone" - the default - / "ipad" / an exact simulator name); udid
         pins an exact device and exclude skips devices other parallel tasks
         already claimed."""
-        # EVERY simulator run passes through activate() — one task, N parallel
-        # tasks, each parallel child process, the desktop app — so this is the
-        # one place worth fetching WebDriverAgent from. setup_mac.sh --ios clones it
-        # for a checkout; a pip install runs no shell script, so it is cloned
-        # here instead, once, the first time a simulator is asked for.
-        if not _WDA_PROJECT.exists():
-            from AutoCua.utils.wda import ensure_wda, REPO, VERSION
-            ensure_wda()
-            if not _WDA_PROJECT.exists():
-                # Don't send a pip user to setup_mac.sh: the wheel holds the
-                # AutoCua package and nothing else, so that script is not on
-                # their disk to run. Spell out the one command that is.
-                return {"ok": False, "state": "error",
-                        "error": "WebDriverAgent project not found",
-                        "hint": f"Automatic fetch failed. Clone it by hand:  git clone --depth 1 "
-                                f"--branch {VERSION} {REPO} {_WDA_PROJECT.parent}"}
+        # EVERY simulator run passes through activate() (one task, N parallel
+        # tasks, each parallel child process, the desktop app), so this is where
+        # a simulator checks for WebDriverAgent. Nothing downloads it: while it is
+        # missing, iOS automation is paused, with the command that puts it in place.
+        if not wda_ready():
+            return {"ok": False, "state": "error", "code": "no_wda",
+                    "error": _WDA_MISSING, "hint": f"Put it in place with:  {wda_command()}"}
         owner = self._port_owner()
         if "pymobiledevice3" in owner and "forward" in owner:
             return {"ok": False, "state": "error", "code": "hardware_active",
@@ -789,7 +781,7 @@ class SimulatorSession:
                 # Scripts/build.sh uses. `test` leaves WDA serving until we kill it.
                 self._xcodebuild = subprocess.Popen(
                     ["xcodebuild",
-                     "-project", str(_WDA_PROJECT),
+                     "-project", str(wda_project()),
                      "-scheme", "WebDriverAgentRunner",
                      # Fully qualified on purpose: a bare "id=..." leaves the
                      # platform for xcodebuild to infer, which can fail to

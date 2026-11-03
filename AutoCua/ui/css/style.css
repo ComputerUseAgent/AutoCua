@@ -1729,6 +1729,49 @@ body.cli-mode .glass-button-wrapper {
 .telegram-prompt-ok:hover {
     background: rgba(80, 165, 230, 1);
 }
+/* ============================================================
+   Chrome missing popup (script.js, /api/chrome): shown once the intro is
+   over while Google Chrome is not installed. Flat: a thin outline, no shadow.
+   ============================================================ */
+.chrome-popup-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.6);
+}
+.chrome-popup {
+    width: clamp(280px, 86vw, 380px);
+    padding: 20px 22px 16px;
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 16px;
+    text-align: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.chrome-popup-text {
+    margin: 0 0 16px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: rgba(40, 40, 40, 0.95);
+}
+.chrome-popup-ok {
+    min-width: 92px;
+    padding: 8px 22px;
+    border: none;
+    border-radius: 10px;
+    background: rgba(80, 165, 230, 0.85);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+.chrome-popup-ok:hover {
+    background: rgba(80, 165, 230, 1);
+}
 
 /* 3-2-1 countdown shown the instant Connect is clicked, while the helper
    banner cold-starts (~3s). Hidden by default; revealed only while the popup

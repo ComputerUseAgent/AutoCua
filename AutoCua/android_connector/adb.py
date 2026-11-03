@@ -4,8 +4,8 @@ A real phone on USB, with Developer options and USB debugging turned on, is
 reached through adb (Android Debug Bridge). adb is not a pip package. It is a
 native program in Google's platform-tools, one zip per OS, so the first time a
 phone is wanted it is fetched from Google's own server into platform-tools/
-beside this file (gitignored), the way utils/wda.py fetches WebDriverAgent for
-iOS. An adb already on PATH is used as it is.
+beside this file (gitignored), after a yes on the terminal. An adb already on
+PATH is used as it is.
 
 The zip is pinned three ways: the release, its byte size and its SHA-256,
 checked before it is unpacked. A partial or altered download is never used.

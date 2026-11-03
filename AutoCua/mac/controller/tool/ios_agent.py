@@ -226,6 +226,14 @@ class PhoneLink:
         if IS_COMPILED:
             link.reason = "ios_agent is unavailable in the packaged app"
             return link
+        # No WebDriverAgent in AutoCua_data: iOS automation is paused for this
+        # request. One small terminal line says so, with the command that puts
+        # it in place (never downloaded); the slot reads offline with the reason.
+        from AutoCua.utils.wda import MISSING, wda_message, wda_ready
+        if not wda_ready():
+            link.reason = MISSING
+            print(f"📱 {wda_message()}", flush=True)
+            return link
         try:
             from AutoCua.ios_connector import session as connector
             from AutoCua.ios_connector.session import paired_devices, plugged_in_udids

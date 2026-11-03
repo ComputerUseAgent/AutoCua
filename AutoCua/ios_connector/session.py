@@ -698,6 +698,14 @@ class WDASession:
         becomes the session's owner, also when a live one is reused. link,
         the chat box's Wireless / Wired toggle: "wireless" has Xcode start
         WebDriverAgent over Wi-Fi (_XcodeRun), anything else is the cable."""
+        # No WebDriverAgent in AutoCua_data: iOS automation is paused, in the app
+        # and in every run, with the command that puts it in place (never
+        # downloaded). The one gate for the chat box pick, Daisy chain pairing,
+        # ios_agent's PhoneLink and terminal hardware runs.
+        from AutoCua.utils.wda import MISSING, wda_command, wda_ready
+        if not wda_ready():
+            return {"ok": False, "state": "error", "code": "no_wda", "error": MISSING,
+                    "hint": f"Put it in place with:  {wda_command()}"}
         base = _pmd3_base()
         if not base and link != "wireless":
             # Name the interpreter: "not found" is almost always "found, but you

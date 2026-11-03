@@ -13,7 +13,7 @@
 # How to run (any of these):
 #   bash setup_mac.sh          # simplest, works right after clone
 #   bash setup_mac.sh --ios    # also set up iPhone / iPad control, without asking
-#   bash setup_mac.sh --force  # ... and discard the WebDriverAgent clone, re-fetch it
+#   bash setup_mac.sh --force  # the same as --ios (WebDriverAgent is never fetched here)
 #   bash setup_mac.sh --yes    # ... and install Xcode's iOS platform without asking
 #   chmod +x setup_mac.sh && ./setup_mac.sh
 #   Finder → right-click setup_mac.sh → Open With → Terminal.app
@@ -48,9 +48,11 @@ VENV_PROMPT="auto-cua"
 # upstream's default branch would hand new users a version this connector was
 # never tested against. Bump this only after testing, together with
 # AutoCua/utils/wda.py and THIRD_PARTY_NOTICES.md.
+# Never downloaded by AutoCua: the person clones it into AutoCua_data (this
+# checkout's, or AutoCua_DATA_DIR), and this script only checks and says how.
 WDA_VERSION="v15.1.1"
 WDA_REPO="https://github.com/appium/WebDriverAgent.git"
-WDA_DIR="AutoCua/ios_connector/WebDriverAgent"
+WDA_DIR="${AutoCua_DATA_DIR:-$PWD/AutoCua_data}/WebDriverAgent"
 IOS_REQUIREMENTS="requirements_ios.txt"
 
 # The flags are all step 7's. --force and --yes imply --ios: neither means
@@ -443,43 +445,26 @@ setup_ios() {
     print_info "         AutoCua's MIT license, never shipped in this repo."
     print_info "         See THIRD_PARTY_NOTICES.md."
 
-    if [ -d "$WDA_DIR" ] && [ "$FORCE" = "1" ]; then
-        print_info "--force given — removing the existing clone"
-        rm -rf "$WDA_DIR"
-    fi
-
-    if [ -d "$WDA_DIR/WebDriverAgent.xcodeproj" ]; then
+    # Never downloaded here (nor anywhere in AutoCua): while it is missing from
+    # AutoCua_data, iOS automation is paused, and this says how to put it there.
+    if [ -f "$WDA_DIR/WebDriverAgent.xcodeproj/project.pbxproj" ]; then
         if [ -d "$WDA_DIR/.git" ]; then
             WDA_ACTUAL="$(git -C "$WDA_DIR" describe --tags --always 2>/dev/null || echo unknown)"
-            print_ok "Already present at $WDA_DIR (version: $WDA_ACTUAL) — reusing"
+            print_ok "Present at $WDA_DIR (version: $WDA_ACTUAL)"
             if [ "$WDA_ACTUAL" != "$WDA_VERSION" ]; then
                 print_warn "That is not the pinned $WDA_VERSION."
-                print_info  "Re-fetch the tested version with:  bash setup_mac.sh --force"
             fi
         else
             # A hand-placed copy. Report it as unverified rather than claiming
             # the pinned version — we have no way to know what it actually is.
             WDA_ACTUAL="unverified (existing copy, not a git clone)"
-            print_ok "Already present at $WDA_DIR (not a git clone) — reusing"
-            print_info "Replace it with the pinned clone using:  bash setup_mac.sh --force"
+            print_ok "Present at $WDA_DIR (not a git clone)"
         fi
-        print_info "Note: re-fetching resets project.pbxproj, so signing must be redone."
     else
-        # --depth 1 on a single tag: ~4MB of working tree instead of the full history.
-        if ! git clone --depth 1 --branch "$WDA_VERSION" "$WDA_REPO" "$WDA_DIR"; then
-            print_error "Could not clone WebDriverAgent."
-            print_info  "Check your internet connection, or clone it manually:"
-            print_info  "  git clone --depth 1 --branch $WDA_VERSION $WDA_REPO $WDA_DIR"
-            gui_alert "Could not download WebDriverAgent.\n\nCheck your internet connection, then run this script again."
-            return 1
-        fi
-        if [ ! -d "$WDA_DIR/WebDriverAgent.xcodeproj" ]; then
-            print_error "Clone finished but $WDA_DIR/WebDriverAgent.xcodeproj is missing."
-            print_info  "Upstream layout may have changed for tag $WDA_VERSION."
-            return 1
-        fi
-        WDA_ACTUAL="$WDA_VERSION"
-        print_ok "Cloned WebDriverAgent $WDA_VERSION into $WDA_DIR"
+        WDA_ACTUAL=""
+        print_warn "iOS automation paused: WebDriverAgent is missing. Put it in place with:"
+        printf '    git clone --depth 1 --branch %s %s "%s"\n' "$WDA_VERSION" "$WDA_REPO" "$WDA_DIR"
+        IOS_MISSING=1
     fi
 
     # ios_connector/setup.py rewrites WebDriverAgent.xcodeproj/project.pbxproj
@@ -549,6 +534,12 @@ setup_ios() {
     # refuses those devices ("Unable to find a destination...") halfway
     # through an agent run. One second here beats that every time.
     print_sub "Simulator support"
+    if [ ! -f "$WDA_DIR/WebDriverAgent.xcodeproj/project.pbxproj" ]; then
+        # The check builds against WebDriverAgent's project: without it, it
+        # would blame Xcode's iOS platform and offer an 8.5 GB download.
+        print_info "Checked once WebDriverAgent is in place (see above)."
+        return 0
+    fi
     if sim_buildable; then
         print_ok "Xcode can build for the iOS Simulator"
         return 0
@@ -601,8 +592,9 @@ setup_ios() {
 
 print_step "STEP 7: iPhone / iPad control (optional)"
 print_info "Drives an iPhone or iPad, or the iOS Simulator. It needs full Xcode and"
-print_info "WebDriverAgent, cloned from the Appium project (BSD 3-Clause, never"
-print_info "shipped in this repo); the simulator also needs Xcode's iOS platform,"
+print_info "WebDriverAgent from the Appium project (BSD 3-Clause, never shipped in"
+print_info "this repo and never downloaded: you put it in AutoCua_data, this step"
+print_info "shows the command); the simulator also needs Xcode's iOS platform,"
 print_info "a one-time ~8.5 GB download from Apple, asked about separately."
 IOS_STATE="skipped"
 IOS_MISSING=0
