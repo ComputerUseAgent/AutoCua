@@ -5,7 +5,8 @@
 # install only this file if you want the iOS path.
 #
 #   bash setup_mac.sh          # creates .venv/; answer y at its iPhone / iPad
-#                              # step to install this file + WebDriverAgent
+#                              # step to install this file (WebDriverAgent you
+#                              # clone yourself; the step shows the command)
 #   bash setup_mac.sh --ios    # the same, without asking
 #
 # Or install packages yourself into an existing venv:

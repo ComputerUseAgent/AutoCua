@@ -87,7 +87,7 @@
         }).then(function (r) { return r.json(); }).then(function (d) {
             if (!isCurrent()) { if (d.ok && !active && !picked('mobile', 'ios')) stop('ios'); return; }
             if (d.state === 'connected') return done(true);
-            if (!d.ok) return done(false, reasonOf(d), false);
+            if (!d.ok) return done(false, reasonOf(d), false, d.code);
             var deadline = Date.now() + wait * 1000;
             (function poll() {
                 setTimeout(function () {
@@ -241,6 +241,7 @@
         var my = ++gen;
         function isCurrent() { return my === gen && active; }
         var state = {};
+        var paused = {};                         // no WebDriverAgent: the iPhone is paused, not offline
         // A tick later: a Mobile use pick being left puts the placeholder
         // back first, so the one saved here is the real one.
         setTimeout(function () {
@@ -250,14 +251,15 @@
             PHONES.forEach(function (p) {
                 function go() {
                     if (!isCurrent()) return;
-                    (p === 'ios' ? connectIOS : connectAndroid)(isCurrent, function (ok, why, started) {
+                    (p === 'ios' ? connectIOS : connectAndroid)(isCurrent, function (ok, why, started, code) {
                         if (!isCurrent()) return;
                         if (!ok) {
                             if (why) { try { console.error('[daisy] ' + LABEL[p] + ' offline:', why); } catch (e) {} }
                             if (p === 'ios' && started) stop('ios');   // nothing half started stays up
                         }
                         state[p] = ok;
-                        if (PHONES.every(function (q) { return q in state; })) finish(state);
+                        if (code === 'no_wda') paused[p] = true;
+                        if (PHONES.every(function (q) { return q in state; })) finish(state, paused);
                     });
                 }
                 var before = stopFirst && stopFirst.indexOf(p) >= 0 ? stop(p) : (stopping[p] || Promise.resolve());
@@ -266,11 +268,12 @@
         }, 0);
     }
 
-    function finish(state) {
+    function finish(state, paused) {
         pairing = false;
         pairState('');
         endPairingAnim(PHONES.map(function (p) {
-            return LABEL[p] + (state[p] ? ' online' : ' offline');
+            return LABEL[p] + (state[p] ? ' online'
+                : (paused && paused[p]) ? ' paused (WebDriverAgent missing, see Settings)' : ' offline');
         }).join(' · '));
     }
 

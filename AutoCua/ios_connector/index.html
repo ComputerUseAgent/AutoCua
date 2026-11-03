@@ -463,7 +463,9 @@
     try{
       const d = await (await fetch("/detect")).json();
       window.__targets = d.targets;
-      $("#projpath").textContent = d.project + (d.project_ok ? "" : "   (not found — clone WDA there)");
+      // Never downloaded: while it is missing, the command that puts it in AutoCua_data
+      $("#projpath").textContent = d.project_ok ? d.project
+        : (d.wda_missing || "iOS automation paused: WebDriverAgent is missing") + ". Put it in place with:  " + (d.wda_command || "");
 
       const chips = [
         chip(d.xcode || "Xcode not found", !!d.xcode, "Xcode not found"),

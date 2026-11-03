@@ -77,7 +77,7 @@ run_agent(mode="web use", provider="openrouter", model="gemini-3.8-flash",
 | `"computer use"` | The desktop. Clicks, typing, hotkeys, apps, AppleScript | macOS, Windows or Linux, auto detected |
 | `"computer use, daisy chain"` | The same desktop, plus the phone sub-agents when a phone is connected: `android_agent`, and `ios_agent` on a Mac. Plain `"computer use"` lists them offline | macOS, Windows or Linux, auto detected |
 | `"shell use"` | A coding agent, straight into a real terminal | macOS, Windows or Linux |
-| `"web use"` | Your own Chrome through the AutoCua extension; headless runs on a debugging port | Any host with Chrome, offered for download when it is missing |
+| `"web use"` | Your own Chrome through the AutoCua extension; headless runs on a debugging port | Any host with Google Chrome installed |
 | `"mobile use, ios"` | An iOS Simulator by default, or your paired iPhone or iPad over the cable | macOS host |
 | `"mobile use, android"` | An Android emulator by default, or your Android phone over the cable | macOS, Windows or Linux host |
 
@@ -157,8 +157,10 @@ That is the whole API.
 
 ### What the wheel brings, and what it cannot
 
-Four of the native pieces are fetched when you say yes to them on the terminal, and one, the
+Three of the native pieces are fetched when you say yes to them on the terminal, and one, the
 desktop app's Electron, is offered the same way; the two Rust agents come prebuilt in the wheel.
+WebDriverAgent and Google Chrome are never downloaded: you put them in place yourself, and
+AutoCua tells you how when one is missing.
 Two cannot: a Windows kernel driver, which `pip`
 is structurally unable to install, and on Linux the desktop's accessibility and input bindings,
 which come from your distro.
@@ -166,7 +168,7 @@ which come from your distro.
 | | How it reaches you |
 |---|---|
 | **Browser agent** — Rust | Ships **prebuilt** in the Windows x64, Apple Silicon macOS and Linux x86_64 wheels. On any other platform pip builds it from the source distribution, which needs [Rust](https://rustup.rs) and a C compiler. |
-| **WebDriverAgent** — iOS | **Cloned when you say yes** on the terminal, the first time you run a `"mobile use, ios"` task. Needs full Xcode and git. Nothing to do by hand. |
+| **WebDriverAgent** — iOS | **Never downloaded.** It lives in `AutoCua_data/WebDriverAgent`. While it is missing, iOS automation is paused, and the terminal and the app show the one command that puts it there, with the full path: `git clone --depth 1 --branch v15.1.1 https://github.com/appium/WebDriverAgent.git "<your AutoCua_data>/WebDriverAgent"`. Needs full Xcode and git. |
 | **adb** — Android | **Downloaded when you say yes** on the terminal: by the setup scripts, by `python main.py` once before its window opens, or by `python -m AutoCua.android_connector.adb fetch` (the window itself cannot ask): Google's platform-tools, unless an `adb` is already on your PATH, from Google and pinned by size and SHA-256, never shipped in this repo. Nothing is installed on the phone. |
 | **Android emulator** — Google's | **Downloaded on the first emulator run, after you accept Google's SDK terms on the terminal**: Google's emulator and the Android version it needs, about 2.5 GB, into a per-user folder. An Android Studio SDK that already has both is used instead. Needs the computer's hypervisor ([below](#android-optional)). |
 | **Android agent** — Rust | Ships **prebuilt** in the same three wheels as the browser agent. On any other platform the source distribution carries its sources, and it builds on the first Android run, about a minute, once, which needs [Rust](https://rustup.rs) and a C compiler. |
@@ -465,8 +467,8 @@ parallel run included: Chrome is started with the flags that load it, or taken a
 is already running with it, and the agents drive your own browser, logged in as you are, with
 no debugging port open; each agent is on a line of its own to the extension. A headless run
 uses the **DevTools Protocol** on a Chrome of the agent's own. Every tool works the same way in
-both. When Chrome is missing, the first web run asks on the terminal before downloading it from
-Google and installing it.
+both. Chrome is never downloaded: when it is missing, the terminal says so at each web run, the
+app shows a popup when it starts, and you install it from [google.com/chrome](https://www.google.com/chrome/).
 
 ### Raw CDP, hand written
 
@@ -1118,7 +1120,7 @@ chosen model, and Perplexity Sonar.
 - **Python 3.10 or newer**
 - An **API key** from any supported provider
 - *For the browser and Android agents from source* (a checkout; the wheels ship both prebuilt): **Rust** and a C toolchain — the setup scripts install these for you
-- *For the browser agent:* **Google Chrome**, offered for download on the first web run when it is missing
+- *For the browser agent:* **Google Chrome**, installed by you ([google.com/chrome](https://www.google.com/chrome/)); AutoCua never downloads it
 - *For iOS:* macOS with **full Xcode**, not just the Command Line Tools
 - *For Android:* for the emulator, the computer's hypervisor (built into macOS; Windows Hypervisor Platform on Windows; KVM on Linux), and the emulator fetches itself; for a phone, **USB debugging** on. adb is fetched for you; the Android agent comes prebuilt in the wheel, and a checkout builds it on its first run with **Rust** and a C compiler, which the setup scripts install
 
@@ -1200,9 +1202,17 @@ no answer within 30 seconds as no. To set it up later, or without the question:
 bash setup_mac.sh --ios
 ```
 
-Clones **WebDriverAgent** at pinned tag `v15.1.1` into `AutoCua/ios_connector/`. It is not
-bundled here, you get it from the Appium project directly. The step checks your Xcode
-toolchain and installs the device dependencies.
+The step checks your Xcode toolchain and installs the device dependencies. It does not
+download **WebDriverAgent**, and nothing in AutoCua does: it lives in `AutoCua_data/WebDriverAgent`,
+and you get it from the Appium project directly, at the pinned tag `v15.1.1`:
+
+```bash
+git clone --depth 1 --branch v15.1.1 https://github.com/appium/WebDriverAgent.git AutoCua_data/WebDriverAgent
+```
+
+Run it from the folder that holds `AutoCua_data` (the checkout, or the folder you start AutoCua
+from after a `pip install`). While it is missing, iOS automation is paused, and the terminal and
+Settings, Connect Device, iPhone show this command with the full path.
 
 **Simulator**, the default, needs no Apple ID, no signing and no pairing. Xcode does need to be
 able to *target* a simulator, which on a fresh Mac is a separate one-time download the step
@@ -1296,12 +1306,18 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
   hidden element, which returns "scroll to make it visible first" instead of a blind click.
 - Vault credentials are typed by the runtime, so **the value is never shown to the model**.
   Wired into the browser, iOS and Android agents today.
-- **Nothing is downloaded without your yes.** adb, WebDriverAgent, Chrome, the
+- **WebDriverAgent and Google Chrome are never downloaded.** You put them in place yourself, and
+  AutoCua says how when one is missing (iOS automation pauses until WebDriverAgent is there).
+- **Nothing else is downloaded without your yes.** adb, the
   OCR models, the iOS Simulator platform, the Android emulator and its images: each is fetched
   from its maker's own server, and only after you answer y on the terminal (the emulator and the
   images after Google's SDK terms). With no terminal to ask on, the run stops and says what to run.
   `AutoCua_AUTO_DOWNLOAD=1` answers yes for a run nobody watches, such as CI. Only Electron asks
   in its own way, since the app works without it.
+- **HTTPS certificate verification is never turned off.** On Windows, when an antivirus or a
+  company proxy re-signs HTTPS, the API calls verify against the Windows certificate store
+  instead. When even Windows rejects that certificate, the call stops and the message says
+  what to turn off, or point `SSL_CERT_FILE` at the root certificate.
 - Phones go over Wi-Fi **only when you pick Wireless** in the desktop app, in Mobile use or in
   Computer use's Daisy chain, whose phone sub-agents then look for the phone over the
   Wi-Fi only; a run from a script always uses the cable.
@@ -1443,14 +1459,14 @@ details in [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main
 
 | Component | How it reaches you | Licence |
 |---|---|---|
-| **WebDriverAgent**, by Facebook, Inc. and the [Appium](https://github.com/appium/WebDriverAgent) project | [`setup_mac.sh`](https://github.com/AutoCua/AutoCua/blob/main/setup_mac.sh) clones it at pinned tag `v15.1.1`, in its iPhone / iPad step, after your yes | BSD 3-Clause, some files Apache 2.0 |
+| **WebDriverAgent**, by Facebook, Inc. and the [Appium](https://github.com/appium/WebDriverAgent) project | Never downloaded by AutoCua: you clone it at pinned tag `v15.1.1` into `AutoCua_data/WebDriverAgent`, with the command the terminal and the app show while it is missing | BSD 3-Clause, some files Apache 2.0 |
 | **Interception**, a Windows kernel input driver by [Francisco Lopes da Silva](https://github.com/oblitum/Interception) | `setup_windows.bat` downloads the author's signed `v1.0.1` release and verifies its SHA-256 | **Dual:** LGPL v3.0 non-commercial. **Commercial use needs a paid licence from the author** |
 | **PP-OCRv6** text detection and recognition models, by [PaddlePaddle](https://huggingface.co/PaddlePaddle) | `AutoCua/utils/ocr_models.py` downloads the two ONNX models from the author's Hugging Face repositories at pinned commits, SHA-256 verified, the first time a Linux scan needs them | Apache 2.0 |
 | **Electron**, by the [Electron](https://github.com/electron/electron) project (OpenJS Foundation) | `AutoCua/utils/electron.py` downloads the official `v44.7.0` release zip for your OS, SHA-256 verified, into a per-user cache, only after you say yes at the first `ui=True` launch (or run `python -m AutoCua.utils.electron`); a checkout's `npm install` in `AutoCua/desktop` works too | MIT; the Chromium and Node.js it bundles keep their own licences |
 | **Android SDK Platform-Tools** (adb), by Google | `AutoCua/android_connector/adb.py` downloads the pinned `r37.0.1` zip for your OS from Google, size and SHA-256 verified, after your yes in the setup scripts or the first time an Android phone is used, unless an `adb` is already on your PATH. Not shipped in this repo | Google's Android SDK terms; adb itself is open source, Apache 2.0 |
 | **Android Emulator and system images**, by Google | `AutoCua/android_connector/emulator.py` downloads the pinned emulator `37.2.12` for your OS, and the Google APIs system image of each Android version a `device="simulation"` run needs, from Google's SDK repository, size and SHA-1 verified (the checksum Google's manifest lists), into a per-user cache | Google's Android SDK terms; the emulator is built on QEMU (GPL v2) |
 | **Rust crates** in the browser agent (PyO3, serde, regex, url with ICU4X, image, ring and others) and in the Android agent (PyO3, serde, regex, zune-jpeg, jpeg-encoder, roxmltree and others) | Compiled into the two prebuilt `agent_native` modules every wheel ships; a checkout or a source build downloads them from crates.io | MIT / Apache 2.0 for most; also ISC, Unicode-3.0 and BSD; part of each JPEG encoder is IJG |
-| **Google Chrome**, by Google | `AutoCua/utils/chrome.py` installs Google's current stable release, after your yes, when a web run finds no Chrome | Google's Chrome terms |
+| **Google Chrome**, by Google | Never downloaded by AutoCua: you install it from [google.com/chrome](https://www.google.com/chrome/); `AutoCua/utils/chrome.py` only checks that it is there | Google's Chrome terms |
 | **FFmpeg**, inside the `imageio-ffmpeg` package | Installed from PyPI as a dependency; AutoCua runs it to encode and compress recordings | GPL (the Windows build: v3 or later) |
 | **React** and its scheduler, by Meta | Built into the committed `AutoCua/ui/index.js` | MIT |
 | **thinking-orbs**, by Jakub Antalik; **Lucide** and **Feather** icons | Ported into the UI's code and glyphs | MIT; ISC (Lucide) |

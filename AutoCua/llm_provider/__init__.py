@@ -4,6 +4,8 @@ import os
 import sys
 import threading
 
+from ..utils.tls import TLSError, is_cert_error, message as tls_message, os_context
+
 # (connect, read) seconds for every provider HTTP call.
 #
 # `requests` defaults BOTH halves to None, which means block forever: a
@@ -47,6 +49,17 @@ def screenshots(shot) -> list:
 
 _TLS_PROBED = set()
 _TLS_LOCK = threading.Lock()
+# The OS-store context once the probe put it in place (None until then).
+# requests and httpx pick it up through the patches below; the Gemini SDK
+# builds its own httpx client with an explicit verify, so google/service.py
+# asks tls_verify() and hands it over itself.
+_TLS_VERIFY = None
+
+
+def tls_verify():
+    """The SSL context the Windows probe switched the providers to, or None
+    while certifi's own verification is in use (always, off Windows)."""
+    return _TLS_VERIFY
 
 # The host each provider's API calls go to (its service.py). The probe only
 # ever contacts the provider being built; aws and Vertex are in _tls_probe_url.
@@ -77,19 +90,19 @@ def _tls_probe_url(provider: str, model: str):
 def _is_tls_cert_error(exc: BaseException) -> bool:
     # Certificate failures only, not a bare "ssl:": every OpenSSL error reads
     # "[SSL: ...]", so a connection a firewall closed mid-handshake passed for
-    # interception, and the probe then turned verification off.
-    s = str(exc).lower()
-    return any(tok in s for tok in ("certificate", "verify failed", "certverify"))
+    # interception. One rule, shared with the Telegram bot (utils/tls.py).
+    return is_cert_error(exc)
 
 
 def _ensure_tls_works(provider: str, model: str = "") -> None:
     """If this machine runs HTTPS interception (antivirus / corporate proxy)
     with a certificate Python's certifi bundle can't validate — which breaks
     EVERY https call, including the LLM providers — make requests/httpx use
-    the OS trust store (where the interceptor's root is usually installed).
-    Only if that also fails do we disable verification. Without this the
-    providers get an SSL error, return nothing useful, and the agent
-    "finishes" without doing anything.
+    the OS trust store (where the interceptor's root is usually installed;
+    utils/tls.py). If that also fails, the build stops with TLSError, whose
+    message says what to do. Verification is never turned off: a certificate
+    error is exactly what an attacker in the middle of the connection
+    produces, so it must never be the thing that weakens the connection.
 
     This used to probe with httpx against api.openai.com and treat "OS store
     works" as "we're done". That missed the actual failure: OpenRouter uses
@@ -101,11 +114,12 @@ def _ensure_tls_works(provider: str, model: str = "") -> None:
     So it probes the host the provider being built calls (_tls_probe_url),
     once per host. A fixed openrouter.ai probe contacted OpenRouter for every
     provider: Defender on a company laptop blocked it for a Gemini user, and
-    the blocked handshake was read as interception, turning verification off.
+    the blocked handshake was read as interception.
 
     Secure by default: only acts on a genuine CERTIFICATE error, never on a
-    plain network error. Idempotent. Windows only: on macOS and Linux it
-    returns at once, and they keep their default verification. Called by
+    plain network error, and a host it could not reach is probed again on
+    the next build. Idempotent. Windows only: on macOS and Linux it returns
+    at once, and they keep their default verification. Called by
     build_provider (llm_manager.py) before every provider is built, so it runs
     ahead of the first request from every manager, the web agent's included.
     A manager built while another is probing waits for it: a provider's
@@ -118,28 +132,31 @@ def _ensure_tls_works(provider: str, model: str = "") -> None:
     if not probe:
         return
     with _TLS_LOCK:
-        if probe not in _TLS_PROBED:
+        if probe not in _TLS_PROBED and _probe_tls(probe):
             _TLS_PROBED.add(probe)
-            _probe_tls(probe)
 
 
-def _probe_tls(probe: str) -> None:
-    """The probe itself; _ensure_tls_works runs it once per host."""
-    import ssl
+def _probe_tls(probe: str) -> bool:
+    """The probe itself; _ensure_tls_works runs it once per host. True once
+    settled: certifi verifies the host, or the OS store does and is now in
+    place. False when the host could not be reached (offline, a timeout):
+    nothing changes, and the next build probes again. Raises TLSError when
+    neither store verifies the host."""
     try:
         import requests
         from requests.adapters import HTTPAdapter
     except Exception:
-        return
+        return True
 
     try:
         requests.get(probe, timeout=6)
-        return  # certifi already works → leave everything as-is
+        return True  # certifi already works → leave everything as-is
     except Exception as e:
         if not _is_tls_cert_error(e):
-            return  # network / other error → don't weaken a secure machine
+            return False  # network / other error → don't weaken a secure machine
 
-    os_ctx = ssl.create_default_context()
+    global _TLS_VERIFY
+    os_ctx = os_context()
     _orig_pool = HTTPAdapter.init_poolmanager
 
     def _use_os_store(self, connections, maxsize, block=False, **pool_kwargs):
@@ -149,72 +166,36 @@ def _probe_tls(probe: str) -> None:
     HTTPAdapter.init_poolmanager = _use_os_store
     try:
         requests.get(probe, timeout=6)
-        print("[tls] an antivirus or proxy re-signs HTTPS on this computer -- the "
-              "AI providers' API calls verify against the Windows certificate "
-              "store instead. Nothing to do; to go back to the default, turn off "
-              "HTTPS/SSL scanning for those domains in the antivirus (e.g. "
-              "Norton Web/Mail Shield).",
-              file=sys.stderr, flush=True)
-        try:
-            import httpx
-            _orig_client = httpx.Client.__init__
-
-            def _client_init(self, *a, **kw):
-                kw.setdefault("verify", os_ctx)
-                _orig_client(self, *a, **kw)
-
-            httpx.Client.__init__ = _client_init
-            _orig_aclient = httpx.AsyncClient.__init__
-
-            def _aclient_init(self, *a, **kw):
-                kw.setdefault("verify", os_ctx)
-                _orig_aclient(self, *a, **kw)
-
-            httpx.AsyncClient.__init__ = _aclient_init
-        except Exception:
-            pass
-        return
-    except Exception:
+    except Exception as e:
         HTTPAdapter.init_poolmanager = _orig_pool
-
-    # OS store also rejected the interceptor cert (malformed Basic Constraints
-    # etc.) → last resort: disable verification so the agent can still run.
-    try:
-        import urllib3
-        urllib3.disable_warnings()
-    except Exception:
-        pass
-    try:
-        _orig_merge = requests.Session.merge_environment_settings
-
-        def _merge(self, url, proxies, stream, verify, cert):
-            settings = _orig_merge(self, url, proxies, stream, verify, cert)
-            settings["verify"] = False
-            return settings
-
-        requests.Session.merge_environment_settings = _merge
-    except Exception:
-        pass
+        if not _is_tls_cert_error(e):
+            return False  # the network went away between the two probes
+        # The OS rejects the interceptor's certificate too. Stop here, with
+        # the one message: never connect unverified.
+        raise TLSError(tls_message(probe)) from None
+    _TLS_VERIFY = os_ctx
+    print("[tls] an antivirus or proxy re-signs HTTPS on this computer -- the "
+          "AI providers' API calls verify against the Windows certificate "
+          "store instead. Nothing to do; to go back to the default, turn off "
+          "HTTPS/SSL scanning for those domains in the antivirus (e.g. "
+          "Norton Web/Mail Shield).",
+          file=sys.stderr, flush=True)
     try:
         import httpx
         _orig_client = httpx.Client.__init__
 
         def _client_init(self, *a, **kw):
-            kw["verify"] = False
+            kw.setdefault("verify", os_ctx)
             _orig_client(self, *a, **kw)
 
         httpx.Client.__init__ = _client_init
         _orig_aclient = httpx.AsyncClient.__init__
 
         def _aclient_init(self, *a, **kw):
-            kw["verify"] = False
+            kw.setdefault("verify", os_ctx)
             _orig_aclient(self, *a, **kw)
 
         httpx.AsyncClient.__init__ = _aclient_init
     except Exception:
         pass
-    print("[tls] WARNING: TLS interception detected (antivirus/proxy) — HTTPS "
-          "certificate verification DISABLED process-wide so the agent can "
-          "reach the LLM provider. To restore secure verification, turn off "
-          "HTTPS/SSL scanning for these API domains in your antivirus/proxy.",
-          file=sys.stderr, flush=True)
+    return True

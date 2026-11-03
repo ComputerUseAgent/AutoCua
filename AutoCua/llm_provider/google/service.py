@@ -8,7 +8,7 @@ from google.genai import types
 from dotenv import load_dotenv
 
 from .view import get_model_info, get_thinking_level, MODEL_MAPPINGS
-from .. import LLM_HTTP_TIMEOUT, screenshots
+from .. import LLM_HTTP_TIMEOUT, screenshots, tls_verify
 
 load_dotenv()
 
@@ -76,8 +76,15 @@ def _http_options():
     the call is not streamed, so nothing arrives until the answer is
     complete, and the read bound is the cap on that wait, as for every other
     provider. A fresh object per client: genai.Client can write a base URL
-    into the options it is handed."""
-    return types.HttpOptions(timeout=LLM_HTTP_TIMEOUT[1] * 1000)
+    into the options it is handed. The SDK builds its httpx clients with a
+    verify of its own (certifi, or SSL_CERT_FILE), so the Windows probe's
+    switch to the OS store (tls_verify) has to be handed over here."""
+    options = {"timeout": LLM_HTTP_TIMEOUT[1] * 1000}
+    verify = tls_verify()
+    if verify is not None:
+        options["client_args"] = {"verify": verify}
+        options["async_client_args"] = {"verify": verify}
+    return types.HttpOptions(**options)
 
 
 def _clean_schema_for_google(schema):

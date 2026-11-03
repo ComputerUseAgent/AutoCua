@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 # they cannot drift onto different files (the old __file__-walk here had to
 # special-case the compiled build for exactly that reason).
 from AutoCua import api_key_file
+from AutoCua.utils.tls import TLSError, verified_context
 
 _API_KEY_FILE = api_key_file()
 
@@ -900,12 +901,13 @@ async def _on_error(update, context):
 
 # ── TLS verification for the Telegram connection ──────────────────────────
 # Some machines run HTTPS interception (antivirus / corporate proxy) whose
-# root cert isn't in certifi, or has malformed Basic Constraints that fail
-# OpenSSL's strict validation. There, verification genuinely cannot succeed
-# and the bot dies with "CERTIFICATE_VERIFY_FAILED: unable to get local issuer
-# certificate". We probe once at startup, prefer secure verification, and fall
-# back to verify=False (with a loud warning) ONLY when nothing else works — so
-# machines without interception stay fully secure.
+# root cert isn't in certifi. There the bot died with "CERTIFICATE_VERIFY_FAILED:
+# unable to get local issuer certificate". We probe once at startup
+# (utils/tls.py): certifi's bundle, then the Windows certificate store, which
+# holds the interceptor's root. Verification is never turned off: when even
+# Windows rejects the certificate, the bot does not start, and the message
+# says what to do. A certificate error is exactly what an attacker in the
+# middle of the connection produces, so it must never weaken the connection.
 _SSL_VERIFY_UNSET = object()
 _SSL_VERIFY = _SSL_VERIFY_UNSET
 
@@ -913,48 +915,22 @@ _SSL_VERIFY = _SSL_VERIFY_UNSET
 def _telegram_ssl_verify():
     """Return the httpx `verify` setting for talking to api.telegram.org.
 
-    Probes (cached): certifi bundle → OS trust store → verify=False."""
+    Probes (cached): certifi bundle → Windows certificate store. Raises
+    TLSError when neither verifies the host."""
     global _SSL_VERIFY
     if _SSL_VERIFY is not _SSL_VERIFY_UNSET:
         return _SSL_VERIFY
-    import httpx
-    probe = "https://api.telegram.org"
-    candidates = []
     try:
-        import certifi
-        candidates.append(certifi.where())
+        verify = verified_context("https://api.telegram.org")
+    except TLSError:
+        raise
     except Exception:
-        pass
-    try:
-        import ssl
-        candidates.append(ssl.create_default_context())
-    except Exception:
-        pass
-    cert_error = False
-    for verify in candidates:
-        try:
-            httpx.get(probe, verify=verify, timeout=6)
-            _SSL_VERIFY = verify
-            return verify
-        except Exception as exc:
-            msg = str(exc).upper()
-            if "SSL" in msg or "TLS" in msg or "CERTIFICATE" in msg:
-                cert_error = True
-            continue
-    if not cert_error:
         # No certificate problem seen, just no network right now (offline,
         # a VPN reconnecting). Keep verification on and do not cache, so
         # the bot's next start attempt probes again.
-        return candidates[0] if candidates else True
-    _stderr(
-        "WARNING: can't verify TLS to Telegram — your machine appears to run "
-        "HTTPS interception (antivirus / corporate proxy) with a certificate "
-        "Python rejects. Connecting WITHOUT certificate verification so the "
-        "bot works. To restore secure verification, turn off HTTPS/SSL "
-        "scanning for api.telegram.org in your antivirus or proxy."
-    )
-    _SSL_VERIFY = False
-    return False
+        return True
+    _SSL_VERIFY = verify
+    return verify
 
 
 def _build_telegram_app(token: str):
@@ -1078,6 +1054,11 @@ def start_bot() -> None:
                         f"{str(e).replace(token, '<token>')[:160]}) — retrying in {delay}s")
                 time.sleep(delay)
                 delay = min(delay * 2, 60)
+            except TLSError as e:
+                # Even Windows rejects the certificate HTTPS is re-signed
+                # with: never connect unverified. Start again once fixed.
+                _stderr(f"BOT NOT STARTED: {e}")
+                return
             except Exception as e:
                 _stderr(f"BOT CRASHED: {e!r}")
                 traceback.print_exc(file=sys.stderr)

@@ -368,6 +368,34 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .catch(err => console.error('Failed to load key status:', err));
 
+    // Google Chrome is never downloaded (utils/chrome.py): while it is not
+    // installed, a small popup says so once the intro is over (/api/chrome).
+    const showChromePopup = (message) => {
+        if (document.getElementById('chromePopup')) return;
+        const overlay = document.createElement('div');
+        overlay.id = 'chromePopup';
+        overlay.className = 'chrome-popup-overlay';
+        overlay.innerHTML = '<div class="chrome-popup" role="alertdialog" aria-modal="true">'
+            + '<p class="chrome-popup-text"></p>'
+            + '<button type="button" class="chrome-popup-ok">OK</button></div>';
+        overlay.querySelector('.chrome-popup-text').textContent = message;
+        overlay.querySelector('.chrome-popup-ok').addEventListener('click', () => overlay.remove());
+        document.body.appendChild(overlay);
+    };
+    fetch('/api/chrome')
+        .then(res => res.json())
+        .then(d => {
+            if (d.installed !== false) return;
+            const message = d.message || 'Chrome is not installed on this system. Please install it.';
+            // After the intro: the splash is removed once it has faded out
+            const whenSplashGone = () => {
+                if (document.getElementById('splashOverlay')) return setTimeout(whenSplashGone, 300);
+                showChromePopup(message);
+            };
+            whenSplashGone();
+        })
+        .catch(err => console.error('Failed to check for Chrome:', err));
+
     // Wire the chat-box drop-up (model picker) once chat_input.js injects it. It
     // reuses makeDropdown; picking a model calls setModel. Clicking it with no
     // provider set nudges the user to Settings.

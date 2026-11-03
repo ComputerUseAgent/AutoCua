@@ -178,6 +178,11 @@ def start(task: str, provider: str, model: str, api_key: str = None, speed: str 
     `outcome` and `stop` take. Raises BrowserAgentError when it cannot start."""
     if IS_COMPILED:
         raise BrowserAgentError("the browser agent is unavailable in the packaged build")
+    # Google Chrome is never downloaded (utils/chrome.py): without it no
+    # browser agent starts, and the main agent is told why
+    from AutoCua.utils.chrome import MISSING as CHROME_MISSING, find_chrome
+    if find_chrome() is None:
+        raise BrowserAgentError(CHROME_MISSING)
     # Each one works in a tab of its own (browser_agent_child.py), up to MAX_RUNS
     if sum(r["subprocess"].poll() is None for r in _runs) >= MAX_RUNS:
         raise BrowserAgentError(f"all {MAX_RUNS} browser agents are at work: wait for one of them to "

@@ -139,6 +139,15 @@
             if (!chosen.udid && devices.length) chosen.udid = devices[0].udid;
             paintSelections();
 
+            // WebDriverAgent is never downloaded: while it is missing from
+            // AutoCua_data, iOS automation is paused, and this says how to put it there.
+            if (d.project_ok === false) {
+                status('error', d.wda_missing || 'iOS automation paused: WebDriverAgent is missing');
+                steps('<b>Put WebDriverAgent in place</b>, then press Try again. Run this in Terminal:'
+                      + '<code class="dc-cmd">' + esc(d.wda_command || '') + '</code>');
+                action('Try again', refresh, true);
+                return;
+            }
             afterSelectionChange();
         }).catch(function () { fail('Couldn’t reach the pairing service.'); });
     }
@@ -500,6 +509,7 @@
         loadPaired();                       // show the connected list immediately
         fetch('/api/android/detect').then(function (r) { return r.json(); }).then(function (d) {
             if (my !== gen) return;
+            if (d.adb === false) return noAdb(d);
             if (!d.ok) return fail(d.error || 'Could not look for the phone.');
             phones = d.devices || [];
             if (chosen && !phones.some(function (p) { return p.serial === chosen; })) chosen = null;
@@ -627,6 +637,47 @@
         status('error', msg || 'Something went wrong');
         steps('');
         action('Try again', begin, true);
+    }
+
+    // No adb on this computer. Nothing is downloaded in the app: only a
+    // terminal can say yes (android_connector/adb.py). Install adb, after its
+    // Yes, closes the app, and the next start from the terminal asks y/N.
+    function noAdb(d) {
+        var cmd = '<code class="dc-cmd">' + esc(d.command || 'python -m AutoCua.android_connector.adb fetch') + '</code>';
+        phones = []; chosen = null; paintSelection();   // no adb, no phones to list
+        status('error', 'adb is not installed on this computer');
+        if (!d.can_install) {
+            steps('Android phones need <b>adb</b>, and Google has none for this computer. Install one '
+                  + '(for example: sudo apt install adb), then press Try again.');
+            action('Try again', begin, true);
+            return;
+        }
+        steps('Android phones need <b>adb</b>, Google’s platform-tools (from dl.google.com, under Google’s '
+              + 'Android SDK terms). Install it here, or run this in Terminal:' + cmd);
+        action('Install adb', function () { confirmAdb(d); });
+    }
+    function confirmAdb(d) {
+        status('idle', 'Install adb?');
+        steps('AutoCua closes now. Start it again from the terminal and answer <b>y</b> to install adb.'
+              + '<div class="dc-confirm"><button type="button" class="dc-action" id="dcAdbYes">Yes</button>'
+              + '<button type="button" class="dc-action ghost" id="dcAdbNo">No</button></div>');
+        noAction();
+        $('dcAdbNo').onclick = function () { noAdb(d); };
+        $('dcAdbYes').onclick = function () {
+            $('dcAdbYes').disabled = true;
+            $('dcAdbNo').disabled = true;
+            fetch('/api/android/install-adb', { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                    if (!res.ok) return fail(res.error || 'Could not prepare the adb install.');
+                    status('loading', 'Closing AutoCua…');
+                    steps((res.message || 'Start AutoCua again from the terminal and answer y to install adb') + '.');
+                    setTimeout(function () {
+                        fetch('/api/app/quit', { method: 'POST' }).catch(function () {});
+                    }, 2500);
+                })
+                .catch(function () { fail('The desktop app backend is not responding.'); });
+        };
     }
 
     // ---- Android row expand / collapse ----

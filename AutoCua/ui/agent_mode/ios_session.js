@@ -96,11 +96,11 @@
         cb = cb || {};
         stopPoll();
         var my = ++gen;
-        function fail(why) {
+        function fail(why, code) {
             if (my !== gen) return;
             stopPoll();
             fetch('/api/ios/deactivate', { method: 'POST' }).catch(function () {});
-            if (cb.onFail) cb.onFail(why || '');
+            if (cb.onFail) cb.onFail(why || '', code || '');
         }
         // Wireless or Wired: the chat box's toggle (chat_input/link_toggle.js).
         // Over Wi-Fi Xcode builds and starts WebDriverAgent, so it gets longer.
@@ -119,7 +119,7 @@
                 return;
             }
             if (d.state === 'connected') { if (cb.onConnected) cb.onConnected(); return; }
-            if (!d.ok) { fail(reasonOf(d)); return; }
+            if (!d.ok) { fail(reasonOf(d), d.code); return; }
             var deadline = Date.now() + wait * 1000;
             statusTimer = setInterval(function () {
                 if (Date.now() > deadline) {
@@ -303,7 +303,7 @@
                 // graceful: the current breath completes, THEN the glow settles
                 endPairingAnim('Device connected', 2200, true);
             },
-            onFail: function (why) {
+            onFail: function (why, code) {
                 pairing = false;
                 failed = true;
                 pairState('failed');
@@ -312,7 +312,10 @@
                 // (the console gets it all). Naming the cause still beats
                 // sending people to a Settings pane that will not mention it.
                 var cause = why.split(/\. | — /)[0];
-                var msg = cause
+                // No WebDriverAgent in AutoCua_data: Settings shows the command
+                var msg = code === 'no_wda'
+                    ? 'iPhone paused: WebDriverAgent missing (see Settings)'
+                    : cause
                     ? ('iOS: ' + (cause.length > 80 ? cause.slice(0, 79) + '…' : cause))
                     : 'Pairing failed — check Settings → Connect Device';
                 if (why) { try { console.error('[ios] activate failed:', why); } catch (e) {} }

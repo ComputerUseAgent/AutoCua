@@ -211,6 +211,22 @@ html:not([data-host="mac"]) #devicePaneliOS { display: none; }
 .dc-steps ol { margin: 6px 0 0; padding-left: 18px; }
 .dc-steps li { margin: 3px 0; }
 .dc-steps b { color: rgba(60, 60, 60, 0.95); font-weight: 600; }
+/* a command to run in Terminal (WebDriverAgent, adb): selectable, wraps a long path */
+.dc-steps code.dc-cmd {
+    display: block;
+    margin-top: 7px;
+    padding: 7px 9px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: rgba(50, 50, 50, 0.95);
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 7px;
+    word-break: break-all;
+    user-select: text;
+    -webkit-user-select: text;
+}
 
 /* paired-devices list (paired_devices.json) */
 .dc-paired {
@@ -278,6 +294,9 @@ html:not([data-host="mac"]) #devicePaneliOS { display: none; }
 .dc-action:hover:not(:disabled) { background: rgba(146, 146, 216, 1); }
 .dc-action:disabled { opacity: 0.5; cursor: not-allowed; }
 .dc-action[hidden] { display: none; }
+/* Yes / No inside the steps card (Install adb): the action button's look, side by side */
+.dc-confirm { display: flex; gap: 8px; margin-top: 10px; }
+.dc-confirm .dc-action { flex: 1; margin: 0; }
 .dc-action.ghost {
     background: transparent;
     color: rgba(120, 120, 120, 0.95);
