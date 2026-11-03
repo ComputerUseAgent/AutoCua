@@ -1314,6 +1314,10 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
   images after Google's SDK terms). With no terminal to ask on, the run stops and says what to run.
   `AutoCua_AUTO_DOWNLOAD=1` answers yes for a run nobody watches, such as CI. Only Electron asks
   in its own way, since the app works without it.
+- **HTTPS certificate verification is never turned off.** On Windows, when an antivirus or a
+  company proxy re-signs HTTPS, the API calls verify against the Windows certificate store
+  instead. When even Windows rejects that certificate, the call stops and the message says
+  what to turn off, or point `SSL_CERT_FILE` at the root certificate.
 - Phones go over Wi-Fi **only when you pick Wireless** in the desktop app, in Mobile use or in
   Computer use's Daisy chain, whose phone sub-agents then look for the phone over the
   Wi-Fi only; a run from a script always uses the cable.
