@@ -20,7 +20,6 @@ from .view import (AgentResponseFormatter, decode_step, encode_step,
                    _looks_native, SKIPPED_THINKING, REASONING_RESULT)
 from ...tree.element import UIElementScanner, ELEMENT_CONFIG
 from ...controller import ControllerView
-from ...controller.view import SUB_AGENT_TYPES
 from ..skills import DomainKnowledgeService
 from .... import data_extraction
 
@@ -34,6 +33,15 @@ _REQUEST_MARKER_PREFIX = "<updated_user_request"
 
 def _request_marker(n: int, task: str) -> str:
     return f'<updated_user_request no="{n}">\n{task}\n</updated_user_request no="{n}">'
+
+# How long the first step waits for the phones' checks in Daisy chain mode
+# (_wait_for_phones): the app paired them already, so a check takes about a second.
+PHONE_WAIT_SEC = 5
+
+def _cut(text, limit: int = 100) -> str:
+    """One line, at most `limit` characters: a slot status in <sub_agents>."""
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= limit else text[:limit] + "..."
 
 def _cleanup_scratchpad():
     """Clear all contents inside windows/scratchpad/ for a fresh start."""
@@ -389,16 +397,8 @@ class AgentService:
         exists per request). Inside, in order:
           - <todo_list>: the task tracker, or "none".
           - <scratchpad>: the verified checkpoints so far, or "none".
-          - <sub_agents>: an `online:` line naming the sub-agents it can start
-            (android_agent only while the request's Android phone checked
-            out, with a `checking connection: android_agent` line while it
-            is being checked),
-            then one row per sub-agent started in this run (id, task cut to 100
-            characters, status). Always present. While the dataset recorder is
-            on it reads `offline:` instead: the sub-agent tools are withheld.
-            In This PC mode (daisy_chain off) android_agent sits on an
-            `offline:` line under the `online:` one, with the reason, so the
-            model does not tell the user to plug the phone in.
+          - <sub_agents>: every sub-agent type's slots, as JSON
+            (_sub_agent_slots). Always present.
 
         Skills guidance is deliberately NOT in here: it is reference material
         about the current screen, not something the agent wrote, so it rides
@@ -408,35 +408,51 @@ class AgentService:
             f"<todo_list>\n{(todo_list or '').strip() or 'none'}\n</todo_list>",
             f"<scratchpad>\n{(scratchpad or '').strip() or 'none'}\n</scratchpad>",
         ]
-        rows = self.controller.get_sub_agents()
-        # Recording: the sub-agent tools are not sent at all
-        # (data_extraction.OFF_TOOLS), so none can be started - say offline
-        # rather than offer them.
-        if data_extraction.ENABLED:
-            head = [f"offline: {', '.join(SUB_AGENT_TYPES)}"]
-        elif not self.daisy_chain:
-            # This PC: only this computer's sub-agents; the phone is Daisy
-            # chain's, so no phone is looked for and android_agent reads offline.
-            head = [f"online: {', '.join(t for t in SUB_AGENT_TYPES if t != 'android_agent')}",
-                    "offline: android_agent (This PC mode: phones are only reachable in Daisy chain mode)"]
-        else:
-            android = self.controller.android_state()
-            online = [t for t in SUB_AGENT_TYPES if t != "android_agent" or android == "online"]
-            head = [f"online: {', '.join(online)}"]
-            if android == "checking":
-                head.append("checking connection: android_agent")
-        pm.append("<sub_agents>\n" + "\n".join(head + [self._sub_agent_row(r) for r in rows])
-                  + "\n</sub_agents>")
+        pm.append("<sub_agents>\n" + self._sub_agent_slots() + "\n</sub_agents>")
         return "<persistent_memory>\n" + "\n\n".join(pm) + "\n</persistent_memory>"
 
-    @staticmethod
-    def _sub_agent_row(row: dict) -> str:
-        """One <sub_agents> row: [id=N] agent = {task: "...", status: ...}"""
-        task = " ".join(str(row.get("task", "")).split())
-        if len(task) > 100:
-            task = task[:100] + "..."
-        return (f'[id={row["id"]}] {row["agent"]} = '
-                f'{{task: {json.dumps(task, ensure_ascii=False)}, status: {row["status"]}}}')
+    def _sub_agent_slots(self) -> str:
+        """<sub_agents>: JSON, one line per sub-agent type, its slots as
+        "id": status. The ids run on across the types (the controller's
+        slot_ids: coder_agent 1-4, browser_agent 5-8, then the phone, 9). A
+        status is "running: <task, cut to 100 characters>" while a run holds
+        the slot (until its report is handed over) and "empty" when it is
+        free. The phone's slot reads "connecting" while the phone is being
+        checked and "offline: <reason>" when it cannot be used, This PC mode
+        included, so the model does not tell the user to plug the phone in.
+        While the dataset recorder is on every slot reads "offline: recording
+        mode": the sub-agent tools are withheld (data_extraction.OFF_TOOLS)."""
+        held = {(r["agent"], r["slot"]): r for r in self.controller.get_sub_agents() if not r["seen"]}
+        lines = []
+        for agent, ids in self.controller.slot_ids().items():
+            slots = {}
+            for n in ids:
+                row = held.get((agent, n))
+                if data_extraction.ENABLED:
+                    status = "offline: recording mode"
+                elif row is not None:
+                    status = "running: " + _cut(row["task"])
+                elif agent == "android_agent":
+                    status = self._phone_slot()
+                else:
+                    status = "empty"
+                slots[str(n)] = status
+            lines.append(f'  "{agent}": ' + json.dumps(slots, ensure_ascii=False))
+        return "{\n" + ",\n".join(lines) + "\n}"
+
+    def _phone_slot(self) -> str:
+        """android_agent's slot when no run holds it: empty when the phone is
+        ready, connecting while it is being checked, offline with the reason
+        otherwise."""
+        if not self.daisy_chain:
+            return "offline: This PC mode, phones are only reachable in Daisy chain mode"
+        state = self.controller.android_state()
+        if state == "online":
+            return "empty"
+        if state == "checking":
+            return "connecting"
+        reason = getattr(self.controller.android, "reason", "") or "no Android phone is connected"
+        return "offline: " + _cut(reason)
 
     @property
     def sub_agent_last_id(self) -> int:
@@ -545,10 +561,24 @@ class AgentService:
             standby = {"provider": self.controller.provider, "model": self.controller.model,
                        "api_key": self.controller.api_key, "speed": self.controller.speed}
             self.controller.android = android_agent.AndroidLink.start(standby=standby)
+            # Daisy chain paired the phone already, so its check takes about a
+            # second: the first step waits for it, so it sees it ready
+            self._wait_for_phones()
         try:
             return self._process_request(task)
         finally:
             self.controller.release_android()
+
+    def _wait_for_phones(self, limit: float = PHONE_WAIT_SEC) -> None:
+        """Hold the first step while the phone is still being checked, so its
+        <sub_agents> shows the phone as it is: Daisy chain paired it already,
+        so a check takes about a second. At most `limit` seconds (a phone that
+        is not there reads connecting, then offline); Stop ends it."""
+        deadline = time.monotonic() + limit
+        while time.monotonic() < deadline and not (self.stop_event and self.stop_event.is_set()):
+            if self.controller.android_state() != "checking":
+                return
+            time.sleep(0.1)
 
     def _process_request(self, task: str) -> dict:
         """Process a user request in an iterative loop until completion.
@@ -788,7 +818,7 @@ Call the `hotkey` tool with value "alt+y" to accept, or "alt+n" to decline. No s
                     running_note = ""
                     if still_running:
                         running_note = ("\n 4. Still running: "
-                                        + ", ".join(f'{r["agent"]} id {r["id"]}' for r in still_running)
+                                        + ", ".join(f'{r["agent"]} id {r["slot"]}' for r in still_running)
                                         + ". If your next move needs one of their reports and nothing independent is left, call agent_wait for it in this step.")
                     user_message = f"""<sub_agent_report>
 {cli_json}

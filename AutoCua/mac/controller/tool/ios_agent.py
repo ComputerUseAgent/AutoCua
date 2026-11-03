@@ -9,11 +9,10 @@ a request, it looks for a paired phone plugged in by USB (or, with the app's
 toggle on Wireless, one on the Wi-Fi, through Xcode: the connector's WIRELESS;
 a terminal run keeps the cable) and connects it in the background, with the
 same session a "mobile use, ios" hardware run uses
-(ios_connector/session.py). Meanwhile <sub_agents> shows
-`checking connection: ios_agent`. Once the phone answers, ios_agent joins the
-`online:` line, and that is all: no window yet. No phone plugged in, or no
-answer within CHECK_SEC, and ios_agent is simply not listed. The end of the
-request lets the phone go.
+(ios_connector/session.py). Meanwhile ios_agent's slot in <sub_agents>
+reads `connecting`. Once the phone answers, it reads `empty`, and that is all:
+no window yet. No phone plugged in, or no answer by the end of the connect,
+and it reads `offline`. The end of the request lets the phone go.
 
 The phone window (utils/sim_view) opens only when a task is first
 delegated to the phone: "iPhone connected" shimmering on the gradient, then
@@ -55,8 +54,8 @@ _CHILD = Path(__file__).resolve().parent / "ios_agent_child.py"
 # on Automation Mode: give it 30, then the phone counts as offline.
 CHECK_SEC = 30
 # A connect still starting after CHECK_SEC is not thrown away: it carries on
-# quietly (ios_agent is not listed) and joins the online line the moment the
-# phone answers, until this many seconds in. A busy Mac starves the helper
+# quietly (ios_agent's slot reads connecting) and its slot reads empty the
+# moment the phone answers, until this many seconds in. A busy Mac starves the helper
 # processes (a Chrome relaunch by browser_agent took a 1 s step to 25 s), and
 # killing a runner that is seconds from answering made the phone fail for the
 # whole request.
@@ -279,6 +278,13 @@ class PhoneLink:
                 return "offline"
         return state
 
+    def connecting(self) -> bool:
+        """The connect is still going, also past the check's deadline where
+        state() reads offline, until the phone answers or LATE_SEC gives up:
+        ios_agent's slot in <sub_agents> says connecting, not offline."""
+        with self._lock:
+            return self._state == "checking" and not self._released
+
     def release(self) -> None:
         """The request is over: close the window and let the phone go. Never
         waits on a connect that is still mounting: that thread sees the link
@@ -353,8 +359,8 @@ class PhoneLink:
                     return
                 if late and not past_check:
                     past_check = True
-                    _log(f"past the {CHECK_SEC}s check, still connecting: ios_agent is not "
-                         f"listed until the phone answers (up to {LATE_SEC}s)")
+                    _log(f"past the {CHECK_SEC}s check, still connecting: ios_agent reads "
+                         f"connecting until the phone answers (up to {LATE_SEC}s)")
                 st = wda_session.status()
                 if st.get("state") != last:
                     last = st.get("state")
@@ -432,8 +438,8 @@ class PhoneLink:
         sim_view.show_phones(win, [{"name": self.name, "port": port}])
 
     def _watch(self):
-        """Keep the online line true: a pulled cable (or New chat in the app)
-        ends the session, and ios_agent drops off the line."""
+        """Keep the phone's state true: a pulled cable (or New chat in the app)
+        ends the session, and ios_agent goes offline."""
         from AutoCua.ios_connector.session import wda_session, plugged_in_udids
         while True:
             time.sleep(WATCH_SEC)
