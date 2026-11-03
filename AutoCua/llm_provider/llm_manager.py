@@ -380,8 +380,8 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
     from the frontend first, then .env and the environment, then the one
     saved in the app's Settings). Every platform's LLMManager builds its
     provider here, and so does the web agent's Rust manager. Runs the Windows
-    TLS probe first (a no-op on macOS and Linux)."""
-    _ensure_tls_works()
+    TLS probe of this provider's own host first (a no-op on macOS and Linux)."""
+    _ensure_tls_works(provider, model_short_name)
     if provider == "openrouter":
         # Priority: Runtime key > .env fallback
         api_key = _key(api_key, 'OPENROUTER_API_KEY')
