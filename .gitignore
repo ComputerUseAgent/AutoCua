@@ -154,9 +154,8 @@ AutoCua/ios_connector/paired_devices.json
 /AutoCua/windows/scratchpad
 /AutoCua/web/scratchpad
 /AutoCua/ios/scratchpad
+# WebDriverAgent's old place; it lives in AutoCua_data/WebDriverAgent now (utils/wda.py).
 /AutoCua/ios_connector/WebDriverAgent
-# Staging tree for the runtime clone (utils/wda.py); only outlives a crash.
-/AutoCua/ios_connector/.WebDriverAgent.incoming.*
 # Google's adb, fetched on first use (android_connector/adb.py), and its staging folder.
 /AutoCua/android_connector/platform-tools
 /AutoCua/android_connector/.platform-tools.incoming.*

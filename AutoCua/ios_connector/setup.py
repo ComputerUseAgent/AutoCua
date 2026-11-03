@@ -2,10 +2,11 @@
 
 # WebDriverAgent one-shot signer + runner.
 #
-# Layout expected (put this file and the html/ folder next to a fresh WDA clone):
+# Layout:
 #
-#   WebDriverAgent/                <- you clone this here, untouched
-#   html/index.html                <- the UI
+#   AutoCua_data/WebDriverAgent/   <- the person clones it there (utils/wda.py says how);
+#                                     nothing here ever downloads it
+#   index.html                     <- the UI, beside this file
 #   setup.py                       <- run this
 #
 # What it does when you hit Connect in the browser:
@@ -43,7 +44,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ===================== EDIT THESE IF YOU NEED TO =====================
 PORT           = 8765
-WDA_DIR_NAME   = "WebDriverAgent"           # the fresh clone folder, sibling to this file
 XCODEPROJ_NAME = "WebDriverAgent.xcodeproj"
 SCHEME         = "WebDriverAgentRunner"
 BUNDLE_PREFIX  = "com.AutoCua"              # default; also editable in the UI
@@ -53,31 +53,35 @@ DEFAULT_MODE   = "test"                     # "test" or "build-for-testing"
 # =====================================================================
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-WDA_DIR    = SCRIPT_DIR / WDA_DIR_NAME
+
+
+def _wda():
+    """AutoCua.utils.wda, also when this file runs as a SCRIPT from a checkout
+    (setup_server spawns `python setup.py` with cwd=this folder, so AutoCua is
+    then not on sys.path, as for _ddi below)."""
+    try:
+        from AutoCua.utils import wda
+    except ImportError:
+        sys.path.insert(0, str(SCRIPT_DIR.parent.parent))
+        from AutoCua.utils import wda
+    return wda
+
+
+# AutoCua_data/WebDriverAgent (utils/wda.py): the app pins AutoCua_DATA_DIR, so
+# this child sees the same AutoCua_data as the app that started it.
+WDA_DIR    = _wda().wda_dir()
 PROJECT    = WDA_DIR / XCODEPROJ_NAME
 
 
 def ensure_project():
-    """Clone WebDriverAgent if it isn't here yet, and report whether it is.
+    """Whether WebDriverAgent is in place. Never downloads it (utils/wda.py)."""
+    return _wda().wda_ready()
 
-    setup_mac.sh --ios does this for a checkout; a `pip install AutoCua` runs no
-    shell script, so the fetch has to happen on first use instead. This file
-    runs as a SCRIPT (setup_server spawns `python setup.py` with cwd=this
-    folder), so AutoCua is not necessarily importable — a wheel install finds
-    it in site-packages, a checkout needs its root on sys.path first.
-    """
-    if PROJECT.exists():
-        return True
-    try:
-        try:
-            from AutoCua.utils.wda import ensure_wda
-        except ImportError:
-            sys.path.insert(0, str(SCRIPT_DIR.parent.parent))
-            from AutoCua.utils.wda import ensure_wda
-        ensure_wda()
-    except Exception as e:
-        print(f"  (could not fetch WebDriverAgent: {e})")
-    return PROJECT.exists()
+
+def wda_missing_text():
+    """One line: what is missing and the command that puts it in place."""
+    w = _wda()
+    return f"{w.MISSING}. Put it in place with: {w.wda_command()}"
 
 
 def _ddi():
@@ -815,9 +819,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def route_detect(self):
-        # The UI opens by calling /detect, so this is where a pip install gets
-        # its clone — the "project" chip below then reports the truth either way.
-        ensure_project()
+        # WebDriverAgent is never fetched here: project_ok says whether it is in
+        # place, and wda_missing / wda_command what to show while it is not.
+        project_ok = ensure_project()
         rc_xc, out_xc = sh(["xcodebuild", "-version"])
         xcode = ""
         if rc_xc == 0 and out_xc.strip():
@@ -826,7 +830,9 @@ class Handler(BaseHTTPRequestHandler):
         xc = detect_xcode_accounts()
         self._json({
             "project": str(PROJECT),
-            "project_ok": PROJECT.exists(),
+            "project_ok": project_ok,
+            "wda_missing": "" if project_ok else _wda().MISSING,
+            "wda_command": _wda().wda_command(),
             "xcode": xcode,
             "ruby_gem_ok": rc_rb == 0,
             "pymobiledevice3": bool(pymobiledevice3_path()),
@@ -911,7 +917,7 @@ class Handler(BaseHTTPRequestHandler):
         # --- preflight ---
         # Authoritative check — /detect may never have run.
         if not ensure_project():
-            return self._sse("fatal", f"project not found: {PROJECT}")
+            return self._sse("fatal", wda_missing_text())
         if not re.fullmatch(r"[A-Z0-9]{10}", team or ""):
             return self._sse("fatal", f"team id must be 10 chars A-Z0-9 (got '{team}')")
         if not udid:
@@ -1093,14 +1099,11 @@ class Server(ThreadingHTTPServer):
 
 def main():
     print(f"WDA setup   ->  http://localhost:{PORT}")
-    print(f"project     ->  {PROJECT}   exists={PROJECT.exists()}")
-    if not PROJECT.exists():
-        # WebDriverAgent is not vendored in this repo — setup_mac.sh --ios clones it
-        # from the Appium project at a pinned tag. See THIRD_PARTY_NOTICES.md.
-        # A pip install has no shell script to run, so the first /detect or
-        # build below fetches it instead.
-        print(f"  (no WebDriverAgent clone at {WDA_DIR} — fetching it on first use)")
-        print("   or run:  bash setup_mac.sh --ios   # fetches it and checks the toolchain")
+    print(f"project     ->  {PROJECT}   ready={ensure_project()}")
+    if not ensure_project():
+        # Never downloaded here: the person puts it in AutoCua_data with one
+        # command (utils/wda.py). See THIRD_PARTY_NOTICES.md.
+        print(f"  {_wda().wda_message()}")
     srv = Server(("127.0.0.1", PORT), Handler)
     # When the desktop app embeds this UI in an iframe (AutoCua_EMBED=1) we don't
     # want a stray browser tab — the app loads http://localhost:PORT itself.

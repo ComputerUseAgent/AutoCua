@@ -27,8 +27,9 @@ directory of its own. The child starts the phone's helper itself: a phone has
 one, and this process holds none while a run works.
 
 adb is never fetched from here: a computer that has not set up Android yet
-(adb on PATH, or fetched once by Settings or an Android run) just has no
-android_agent, without a download at every request.
+(adb on PATH, or fetched once on a terminal, after its y/N) just has no
+android_agent, without a download at every request; one small line says how
+to install it.
 """
 
 import atexit
@@ -113,8 +114,8 @@ def _log(msg: str) -> None:
 
 
 def _adb():
-    """adb when this computer already has it (on PATH, or fetched once by
-    Settings or an Android run), else None: never a download from here."""
+    """adb when this computer already has it (on PATH, or fetched once on a
+    terminal), else None: never a download from here."""
     from AutoCua.android_connector.adb import OWN_ADB
     return shutil.which("adb") or (str(OWN_ADB) if OWN_ADB.is_file() else None)
 
@@ -160,9 +161,12 @@ class AndroidLink:
         except Exception:
             adb = None
         if adb is None:
-            link.reason = ("Android is not set up on this computer: connect the phone once in "
-                           "Settings → Connect Device → Android")
-            return link                          # no adb yet: offline at once, no download
+            # No adb yet: offline at once, no download. One small terminal line
+            # says so, with the command that installs it (after its own y/N).
+            from AutoCua.android_connector.adb import FETCH
+            link.reason = "Android automation paused: adb is not installed"
+            print(f"🤖 {link.reason}. Install it with:\n  {FETCH}", flush=True)
+            return link
         link._state = "checking"
         _links.append(link)
         threading.Thread(target=link._check, args=(adb,), daemon=True).start()

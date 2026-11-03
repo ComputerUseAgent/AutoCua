@@ -53,6 +53,10 @@ def ensure_running(wait=12):
         if not py or not _SETUP_PY.exists():
             return {"ok": False, "url": SETUP_URL, "ready": False,
                     "error": "setup.py or a Python interpreter was not found"}
+        # Pins AutoCua_DATA_DIR (data_root sets it the first time), so the child
+        # looks for WebDriverAgent in this AutoCua_data, not beside setup.py.
+        from AutoCua import data_root
+        data_root()
         env = dict(os.environ)
         env["AutoCua_EMBED"] = "1"                # no browser tab
         try:

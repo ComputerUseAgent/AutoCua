@@ -7,8 +7,8 @@ They are Apache-2.0 and could legally be vendored; they are not, because a
 weight file pushed to the repository sits in its history for good, and a few
 re-exports would fill the project's storage. So they live under
 AutoCua/linux/tree/models/ (gitignored) and are fetched from the author's
-own Hugging Face repositories the first time a scan needs them — exactly what
-wda.py does for WebDriverAgent on iOS. See THIRD_PARTY_NOTICES.md.
+own Hugging Face repositories the first time a scan needs them, after a yes
+on the terminal. See THIRD_PARTY_NOTICES.md.
 
 Every file is pinned three ways: the upstream commit it is fetched from, its
 byte size, and its SHA-256, checked before the file is renamed into place. A
