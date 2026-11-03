@@ -12,10 +12,11 @@ It runs the way parallel `web use` does (see browser_agent_child.py): each
 agent works in a background tab of its own and never in another's, so up to
 MAX_RUNS run at once. Chrome comes up as it does there (in front on macOS; on
 Windows and Linux the system places the new window, and nothing here pulls it
-forward). Nothing here touches the browser; the child's own constructor starts
+forward). Nothing here starts the browser; the child's own constructor starts
 it or attaches to it. So the first one opens Chrome, and start() holds the next
 until it has (_wait_for_chrome): started together, each would open Chrome over
-the others.
+the others. With 2 or more at work, the cover parallel web use shows is in
+front, through a line of our own (_cover_send).
 
 One text serves macOS, Windows and Linux: keep the three copies identical.
 
@@ -31,6 +32,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -82,6 +84,38 @@ class BrowserAgentError(Exception):
 # Every run started by this process, so none outlives it.
 _runs = []
 
+# The front tab while 2 or more browser agents work, each in a background tab of
+# its own: the extension's agents.html ("Multiple agents running" over the looping
+# simulation_background.mp4, with the number of agents), the cover parallel web use
+# shows (agent_launcher.run_parallel_web_agents). Under 2 it closes. It goes through
+# a line to the extension of our own, opened when first needed, dropped with it.
+_cover = {"bridge": None, "shown": 0}
+_cover_lock = threading.Lock()
+
+
+def _cover_send(timeout: float = 10.0) -> None:
+    """Put up the cover that fits the browser agents at work now, or take it down."""
+    with _cover_lock:
+        n = sum(r["subprocess"].poll() is None for r in list(_runs))
+        want = n if n >= 2 else 0
+        if want != _cover["shown"]:
+            try:
+                if _cover["bridge"] is None:
+                    from AutoCua.web.agent import Bridge
+                    _cover["bridge"] = Bridge()
+                _cover["bridge"].request({"type": "cover", "count": want}, timeout)
+                _cover["shown"] = want
+            except Exception:
+                pass   # a run never fails over its cover page
+        if _cover["shown"] == 0:
+            _cover["bridge"] = None   # no cover up: its line goes
+
+
+def _cover_update() -> None:
+    """_cover_send in a thread of its own: opening a line to the extension takes a
+    second, and the main agent's step does not wait for it."""
+    threading.Thread(target=_cover_send, daemon=True).start()
+
 
 def stop_all() -> None:
     """Quitting the app mid-run must not leave a browser agent working: it acts
@@ -97,6 +131,11 @@ def stop_all() -> None:
             stop(run)
         except Exception:
             pass
+    # The cover goes too, here and now: at exit no thread is left to take it down
+    try:
+        _cover_send(timeout=2.0)
+    except Exception:
+        pass
 
 
 atexit.register(stop_all)
@@ -204,6 +243,7 @@ def start(task: str, provider: str, model: str, api_key: str = None, speed: str 
         "stopped": False,
     }
     _runs.append(run)
+    _cover_update()   # 2 or more at work: the cover in front
     return run
 
 
@@ -245,6 +285,7 @@ def outcome(run: dict):
         run["stopped"] = False   # it ran out of time, nobody stopped it
         if run in _runs:
             _runs.remove(run)
+        _cover_update()
         return (f"The browser agent ran out of time ({TIMEOUT_SEC // 60} min) before it "
                 f"finished.\n\nRecorded before it stopped:\n{notes}", "timeout")
 
@@ -252,6 +293,7 @@ def outcome(run: dict):
     shutil.rmtree(_WEB_SCRATCHPAD / sid, ignore_errors=True)
     if run in _runs:
         _runs.remove(run)
+    _cover_update()   # one fewer at work: the count goes down, or the cover goes
     if run.get("stopped"):
         return ("Stopped by user", "stopped")
     try:
