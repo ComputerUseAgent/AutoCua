@@ -1,5 +1,6 @@
 """LLM Provider module for managing different language model providers"""
 
+import os
 import sys
 import threading
 
@@ -44,16 +45,44 @@ def screenshots(shot) -> list:
     return [shot]
 
 
-_TLS_PROBED = False
+_TLS_PROBED = set()
 _TLS_LOCK = threading.Lock()
+
+# The host each provider's API calls go to (its service.py). The probe only
+# ever contacts the provider being built; aws and Vertex are in _tls_probe_url.
+_TLS_PROBE_URLS = {
+    "openrouter": "https://openrouter.ai/",
+    "groq": "https://api.groq.com/",
+    "openai": "https://api.openai.com/",
+    "anthropic": "https://api.anthropic.com/",
+    "google": "https://generativelanguage.googleapis.com/",
+    "perplexity": "https://api.perplexity.ai/",
+    "together": "https://api.together.xyz/",
+    "cerebras": "https://api.cerebras.ai/",
+}
+
+
+def _tls_probe_url(provider: str, model: str):
+    """The API host `provider` calls for `model`; None for a provider not
+    listed here, which is then not probed."""
+    if provider == "google" and str(model).endswith("-vertex"):
+        return "https://aiplatform.googleapis.com/"
+    if provider == "aws":
+        from .aws.view import DEFAULT_REGION
+        region = (os.getenv("AWS_BEDROCK_REGION") or "").strip().lower() or DEFAULT_REGION
+        return f"https://bedrock-runtime.{region}.amazonaws.com/"
+    return _TLS_PROBE_URLS.get(provider)
 
 
 def _is_tls_cert_error(exc: BaseException) -> bool:
+    # Certificate failures only, not a bare "ssl:": every OpenSSL error reads
+    # "[SSL: ...]", so a connection a firewall closed mid-handshake passed for
+    # interception, and the probe then turned verification off.
     s = str(exc).lower()
-    return any(tok in s for tok in ("certificate", "verify failed", "ssl:", "certverify"))
+    return any(tok in s for tok in ("certificate", "verify failed", "certverify"))
 
 
-def _ensure_tls_works() -> None:
+def _ensure_tls_works(provider: str, model: str = "") -> None:
     """If this machine runs HTTPS interception (antivirus / corporate proxy)
     with a certificate Python's certifi bundle can't validate — which breaks
     EVERY https call, including the LLM providers — make requests/httpx use
@@ -69,6 +98,11 @@ def _ensure_tls_works() -> None:
     trusts and certifi does not — Google often still verifies, so a naive
     probe of an unrelated host looks healthy.
 
+    So it probes the host the provider being built calls (_tls_probe_url),
+    once per host. A fixed openrouter.ai probe contacted OpenRouter for every
+    provider: Defender on a company laptop blocked it for a Gemini user, and
+    the blocked handshake was read as interception, turning verification off.
+
     Secure by default: only acts on a genuine CERTIFICATE error, never on a
     plain network error. Idempotent. Windows only: on macOS and Linux it
     returns at once, and they keep their default verification. Called by
@@ -78,17 +112,19 @@ def _ensure_tls_works() -> None:
     requests.Session takes the fix only if it is in place when the Session
     is made.
     """
-    global _TLS_PROBED
     if sys.platform != "win32":
         return
+    probe = _tls_probe_url(provider, model)
+    if not probe:
+        return
     with _TLS_LOCK:
-        if not _TLS_PROBED:
-            _TLS_PROBED = True
-            _probe_tls()
+        if probe not in _TLS_PROBED:
+            _TLS_PROBED.add(probe)
+            _probe_tls(probe)
 
 
-def _probe_tls() -> None:
-    """The probe itself; _ensure_tls_works runs it once per process."""
+def _probe_tls(probe: str) -> None:
+    """The probe itself; _ensure_tls_works runs it once per host."""
     import ssl
     try:
         import requests
@@ -96,9 +132,6 @@ def _probe_tls() -> None:
     except Exception:
         return
 
-    # Hit a host the LLM path actually uses. Google is a bad probe: antivirus
-    # HTTPS scanning often skips it while still intercepting AI APIs.
-    probe = "https://openrouter.ai/"
     try:
         requests.get(probe, timeout=6)
         return  # certifi already works → leave everything as-is

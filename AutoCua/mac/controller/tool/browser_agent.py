@@ -8,12 +8,14 @@ Not the `web` tool's fallback (tool/web/web_agent.py), which is a blocking,
 headless, read-only research call. This one ACTS: it navigates, clicks and
 fills forms, in the person's own Chrome, through the AutoCua extension.
 
-It runs exactly the way `web use` does (see browser_agent_child.py): Chrome
-comes up as it does there (in front on macOS; on Windows and Linux the system
-places the new window, and nothing here pulls it forward), the agent takes the
-blank tab, the window shows the tab it works in, and it has its tab tools. So
-ONE runs at a time: it owns the window. Nothing here touches the browser; the
-child's own constructor starts it or attaches to it.
+It runs the way parallel `web use` does (see browser_agent_child.py): each
+agent works in a background tab of its own and never in another's, so up to
+MAX_RUNS run at once. Chrome comes up as it does there (in front on macOS; on
+Windows and Linux the system places the new window, and nothing here pulls it
+forward). Nothing here touches the browser; the child's own constructor starts
+it or attaches to it. So the first one opens Chrome, and start() holds the next
+until it has (_wait_for_chrome): started together, each would open Chrome over
+the others.
 
 One text serves macOS, Windows and Linux: keep the three copies identical.
 
@@ -41,6 +43,13 @@ _CHILD = Path(__file__).resolve().parent / "browser_agent_child.py"
 
 # The child has its own 100-step cap; this bounds wall-clock.
 TIMEOUT_SEC = int(os.environ.get("AutoCua_BROWSER_AGENT_TIMEOUT", "900"))
+# At most this many at once, each in a tab of its own. The controller's
+# browser_agent slots (SUB_AGENT_SLOTS) decide first; start() is the backstop.
+MAX_RUNS = 4
+# How long start() holds a new browser agent while the one before it is still
+# opening Chrome (_wait_for_chrome): a few seconds when Chrome is up with the
+# extension, more when Chrome has to start or restart.
+START_WAIT_SEC = 90
 # The runtime (frontend) key reaches the child through its env: the web agent's
 # __main__ has no --api_key flag, and its .env loader never overrides a var
 # that is already set.
@@ -110,16 +119,34 @@ def _tail(path: Path, lines: int = 30) -> str:
         return ""
 
 
-def start(task: str, provider: str, model: str, api_key: str = None, speed: str = None) -> dict:
+def _wait_for_chrome(stop_event=None) -> None:
+    """Hold while a browser agent is still opening Chrome and none has it yet:
+    a child has Chrome once its run has begun (its run_start event in
+    events.jsonl, written right after its constructor took Chrome). Returns at
+    once when no browser agent is at work, or one has Chrome; else when the one
+    opening it gets there, exits, START_WAIT_SEC passes, or Stop is pressed."""
+    deadline = time.monotonic() + START_WAIT_SEC
+    while time.monotonic() < deadline and not (stop_event is not None and stop_event.is_set()):
+        live = [r for r in _runs if r["subprocess"].poll() is None]
+        if not live or any((r["result_file"].parent / "events.jsonl").exists() for r in live):
+            return
+        time.sleep(0.1)
+
+
+def start(task: str, provider: str, model: str, api_key: str = None, speed: str = None,
+          stop_event=None) -> dict:
     """Start one browser agent on `task` and return its run record, the dict
     `outcome` and `stop` take. Raises BrowserAgentError when it cannot start."""
     if IS_COMPILED:
         raise BrowserAgentError("the browser agent is unavailable in the packaged build")
-    # It owns the browser window and its tabs, so a second one would work in
-    # the first one's tabs.
-    if any(r["subprocess"].poll() is None for r in _runs):
-        raise BrowserAgentError("a browser agent is still at work and only one runs at a time: "
-                                "hold for it with agent_wait, then start the next")
+    # Each one works in a tab of its own (browser_agent_child.py), up to MAX_RUNS
+    if sum(r["subprocess"].poll() is None for r in _runs) >= MAX_RUNS:
+        raise BrowserAgentError(f"all {MAX_RUNS} browser agents are at work: wait for one of them to "
+                                "finish (agent_wait), then start this one")
+    # The first one opens Chrome; this one starts once it has, and only attaches
+    _wait_for_chrome(stop_event)
+    if stop_event is not None and stop_event.is_set():
+        raise BrowserAgentError("stopped before it started")
 
     sid = f"browser_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     run_dir = data_root() / "browser_agent" / sid

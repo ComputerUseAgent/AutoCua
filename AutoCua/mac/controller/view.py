@@ -32,12 +32,18 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-# Agent types the `sub_agent` tool can start on this platform. ios_agent is
-# listed as online only while the request's phone is connected (phone_state),
-# android_agent only while the request's Android phone checked out
-# (android_state). Both only in Daisy chain mode (daisy_chain): in This PC
-# they are offline and refused.
-SUB_AGENT_TYPES = ("coder_agent", "browser_agent", "ios_agent", "android_agent")
+# Agent types the `sub_agent` tool can start on this platform, each with its
+# number of slots, so at most that many of a type run at once. Every slot has
+# an id of its own, numbered on across the types (slot_ids): coder_agent 1-4,
+# browser_agent 5-8, then the phones, 9 and 10 in the order they come online.
+# ios_agent can start only while the request's phone is connected
+# (phone_state), android_agent only while the request's Android phone checked
+# out (android_state), and both only in Daisy chain mode (daisy_chain): in
+# This PC they are offline and refused.
+SUB_AGENT_SLOTS = {"coder_agent": 4, "browser_agent": 4, "android_agent": 1, "ios_agent": 1}
+SUB_AGENT_TYPES = tuple(SUB_AGENT_SLOTS)
+# The phones, after every other slot: android_agent first when both are there
+PHONE_AGENTS = ("android_agent", "ios_agent")
 
 
 def _read_new_lines(path: Path, live: dict, key: str) -> list:
@@ -125,9 +131,14 @@ class ControllerView:
         self._cli_await_active = False  # Whether an await_start has been emitted but not yet matched by await_end
 
         # Sub-agent registry: one row per sub-agent the main agent started, shown to
-        # it every step as <sub_agents> and never written to the scratchpad. Ids count
-        # up through the whole chat: the main driver seeds sub_agent_last_id on resume.
-        self._sub_agents = []         # [{"id": int, "agent": str, "task": str, "status": str}]
+        # it every step as <sub_agents> and never written to the scratchpad. A row
+        # holds its slot (its id in slot_ids, the one the main agent sees)
+        # from its start until its report is handed over (take_sub_agent_reports).
+        # "id" is a hidden number that counts up through the whole chat (the main
+        # driver seeds sub_agent_last_id on resume): slot ids are reused, so the
+        # run's box in the chat and the lists below are keyed by it.
+        self._sub_agents = []         # [{"id": int, "agent": str, "slot": int, "task": str, "status": str,
+                                      #   "reported": bool, "seen": bool}]
         self.sub_agent_last_id = 0
         self._browser_tasks = []      # Browser agents at work: [{"id": int, "task": str, "run": dict}]
         self._ios_tasks = []          # ios_agent runs at work: [{"id": int, "task": str, "run": dict}]
@@ -135,6 +146,7 @@ class ControllerView:
         self._sub_ended = set()       # Browser / iOS / Android ids whose box in the chat got its sub_end (sent once)
         self.phone = None             # The request's PhoneLink (tool/ios_agent.py), set by the main driver
         self.android = None           # The request's AndroidLink (tool/android_agent.py), set by the main driver
+        self._phones_online = []      # The phones in the order they came online: their ids (slot_ids)
         self.daisy_chain = False      # Daisy chain mode: the phone sub-agents are reachable; set by the main driver (off = This PC)
         self.speed = None             # The main agent's speed, so a browser agent runs the same way
         self.scan_on = True           # The `scan` tool's switch; the main driver reads it each step
@@ -384,18 +396,20 @@ class ControllerView:
         self._safe_cli_emit("await_end")
 
     def _report_sub_agent(self, agent_id, agent: str, task: str, summary: str, status: str):
-        """A sub-agent is done: queue its report for the main agent and flip its
-        row in <sub_agents>. Call with _cli_agent_lock held."""
+        """A sub-agent is done: queue its report for the main agent, under the
+        slot id it knows, and flip its row. The slot stays held until the report
+        is handed over. Call with _cli_agent_lock held."""
+        row = next((r for r in self._sub_agents if r["id"] == agent_id), None)
         self._cli_completed.append({
-            "id": agent_id,
+            "id": row["slot"] if row else agent_id,
             "agent": agent,
             "task": task,
             "summary": summary,
             "status": status
         })
-        for row in self._sub_agents:
-            if row["id"] == agent_id:
-                row["status"] = status
+        if row is not None:
+            row["status"] = status
+            row["reported"] = True
 
     def _end_sub_box(self, agent_id: int, status: str):
         """Close a browser / iOS / Android sub-agent's box in the chat, once: Stop and
@@ -578,12 +592,47 @@ class ControllerView:
         if phone is not None:
             phone.release()
 
-    def _register_sub_agent(self, agent: str, task: str) -> int:
-        """Add a started sub-agent to the registry and return its id"""
+    def slot_ids(self) -> dict:
+        """Every sub-agent type's slot ids, in id order. They are numbered on
+        across the types: coder_agent 1-4, browser_agent 5-8, then the phones,
+        9 and 10. The phone that came online first takes 9 (android_agent
+        when both are there, or neither is yet) and keeps its id for the
+        request."""
+        for agent in PHONE_AGENTS:
+            state = self.phone_state() if agent == "ios_agent" else self.android_state()
+            if state == "online" and agent not in self._phones_online:
+                self._phones_online.append(agent)
+        phones = self._phones_online + [a for a in PHONE_AGENTS if a not in self._phones_online]
+        ids, first = {}, 1
+        for agent in [a for a in SUB_AGENT_TYPES if a not in PHONE_AGENTS] + phones:
+            ids[agent] = list(range(first, first + SUB_AGENT_SLOTS[agent]))
+            first += SUB_AGENT_SLOTS[agent]
+        return ids
+
+    def _free_slot(self, agent: str):
+        """The lowest id of `agent` no row holds, or None when all are busy.
+        Asked BEFORE a sub-agent starts, so a busy type starts nothing."""
+        ids = self.slot_ids().get(agent, [])
+        with self._cli_agent_lock:
+            held = {r["slot"] for r in self._sub_agents if r["agent"] == agent and not r["seen"]}
+        return next((n for n in ids if n not in held), None)
+
+    def _slots_busy(self, agent: str) -> dict:
+        """The sub_agent answer when every slot of `agent` is busy: nothing started."""
+        ids = self.slot_ids().get(agent) or [0]
+        message = (f"Not started: all {len(ids)} {agent} slots (ids {ids[0]}-{ids[-1]}) are busy. "
+                   f"Wait for one of them to finish (agent_wait), then start this one." if len(ids) > 1 else
+                   f"Not started: {agent} id {ids[0]} is busy. Wait for it to finish (agent_wait), "
+                   f"then start this one.")
+        return {"status": "error", "action": "tool", "tool": "sub_agent", "agent_type": agent,
+                "message": message}
+
+    def _register_sub_agent(self, agent: str, task: str, slot: int) -> int:
+        """Add a started sub-agent to the registry in `slot` and return its hidden id"""
         with self._cli_agent_lock:
             self.sub_agent_last_id += 1
-            self._sub_agents.append({"id": self.sub_agent_last_id, "agent": agent,
-                                     "task": task, "status": "pending"})
+            self._sub_agents.append({"id": self.sub_agent_last_id, "agent": agent, "slot": slot,
+                                     "task": task, "status": "pending", "reported": False, "seen": False})
             return self.sub_agent_last_id
 
     def get_sub_agents(self) -> list:
@@ -592,11 +641,27 @@ class ControllerView:
             return [dict(row) for row in self._sub_agents]
 
     def take_sub_agent_reports(self) -> list:
-        """Hand over the finished reports the main agent has not seen yet, and forget them"""
+        """Hand over the finished reports the main agent has not seen yet, and
+        forget them. Their slots are free from now on."""
         with self._cli_agent_lock:
             reports = list(self._cli_completed)
             self._cli_completed.clear()
+            for row in self._sub_agents:
+                if row.get("reported"):
+                    row["seen"] = True
             return reports
+
+    def phone_connecting(self, agent: str) -> bool:
+        """The phone of `agent` (ios_agent / android_agent) is still being
+        connected. An iPhone connect goes on past its first check (PhoneLink
+        reads offline then), so its slot says connecting, not offline."""
+        link = self.phone if agent == "ios_agent" else self.android
+        try:
+            if (self.phone_state() if agent == "ios_agent" else self.android_state()) == "checking":
+                return True
+            return bool(link is not None and getattr(link, "connecting", None) and link.connecting())
+        except Exception:
+            return False
 
     def get_cli_agent_status(self) -> dict:
         """Get current CLI agent status for main agent to check"""
@@ -629,6 +694,11 @@ class ControllerView:
                     terminated_ids.append(rf.stem)
             self._cli_tasks.clear()
             self._cli_completed.clear()
+            # Every slot is free again: the runs go down below
+            for row in self._sub_agents:
+                if row["status"] == "pending":
+                    row["status"] = "stopped"
+                row["seen"] = True
             box_ids = [t["id"] for t in self._browser_tasks + self._ios_tasks + self._android_tasks]
             browser_runs = [t["run"] for t in self._browser_tasks]
             self._browser_tasks.clear()
@@ -918,26 +988,50 @@ class ControllerView:
                     results.append(result)
 
                 elif action_type == "agent_wait":
-                    # AWAIT MODE: hold the pipeline for ONE sub-agent, by id. The hold
-                    # also ends when another sub-agent finishes first, so a report is
-                    # never kept back; the main agent then holds again if it needs to.
+                    # AWAIT MODE: hold the pipeline for ONE sub-agent, by its slot. The
+                    # hold also ends when another sub-agent finishes first, so a report
+                    # is never kept back; the main agent then holds again if it needs to.
                     agent_type = action_item.get("agent_type", "coder_agent")
-                    agent_id = action_item.get("agent_id", 0)
+                    try:
+                        agent_id = int(action_item.get("agent_id", 0))
+                    except (TypeError, ValueError):
+                        agent_id = 0
                     reason = action_item.get("value", "")
                     logger.info(f"Agent wait triggered for {agent_type} {agent_id}: {reason}")
 
-                    rows = self.get_sub_agents()
-                    row = next((r for r in rows if r["id"] == agent_id and r["agent"] == agent_type), None)
-                    if row is None:
-                        started = ", ".join(f'{r["agent"]} id {r["id"]}' for r in rows) or "none"
+                    ids = self.slot_ids()
+                    # The run in that slot now, until its report is handed over
+                    row = next((r for r in self.get_sub_agents() if r["agent"] == agent_type
+                                and r["slot"] == agent_id and not r["seen"]), None)
+                    if agent_id not in ids.get(agent_type, []):
+                        own = ids.get(agent_type)
+                        if not own:
+                            message = f"Unknown agent_type '{agent_type}'. Use one of: {', '.join(SUB_AGENT_TYPES)}."
+                        else:
+                            message = (f"{agent_type} has ids {own[0]}-{own[-1]}." if len(own) > 1 else
+                                       f"{agent_type} has id {own[0]}.")
+                            other = next((t for t, n in ids.items() if agent_id in n), None)
+                            if other:
+                                message += f" Id {agent_id} is {other}."
                         results.append({
                             "status": "error",
                             "action": "tool",
                             "tool": "agent_wait",
-                            "message": f"No {agent_type} with id {agent_id}. Sub-agents started: {started}."
+                            "message": message
                         })
                         skip_reason = "Not run: the agent_wait before it failed, so nothing was held for."
+                    elif row is None:
+                        results.append({
+                            "status": "success",
+                            "action": "agent_wait",
+                            "agent_type": agent_type,
+                            "agent_id": agent_id,
+                            "reason": reason,
+                            "completed": [],
+                            "message": f"No {agent_type} run holds id {agent_id}: nothing to wait for."
+                        })
                     else:
+                        run_key = row["id"]   # the hidden id of the run in that slot
                         # Notify frontend only if a coder is in flight (its card lives in
                         # the streaming UI), so any other hold doesn't flash it.
                         if row["status"] == "pending" and agent_type == "coder_agent" and not self._cli_await_active:
@@ -951,7 +1045,7 @@ class ControllerView:
                                 self.controller_service.release_all_inputs()
                                 return {"status": "stopped", "action": "stop", "message": "Stopped by user"}
                             with self._cli_agent_lock:
-                                still_running = any(r["id"] == agent_id and r["status"] == "pending"
+                                still_running = any(r["id"] == run_key and r["status"] == "pending"
                                                     for r in self._sub_agents)
                                 if not still_running or len(self._cli_completed) > 0:
                                     break
@@ -994,23 +1088,30 @@ class ControllerView:
                     })
 
                 elif action_type == "sub_agent" and action_item.get("agent_type") == "browser_agent":
-                    # DISPATCH MODE: start a browser agent
+                    # DISPATCH MODE: start a browser agent in the first free slot
+                    # (each one works in a tab of its own, browser_agent_child.py)
                     task_description = action_item.get("value", "")
-                    logger.info(f"Starting Browser Agent for task: {task_description}")
+                    slot = self._free_slot("browser_agent")
                     from .tool import browser_agent
-                    try:
-                        run = browser_agent.start(task_description, self.provider, self.model,
-                                                  api_key=self.api_key, speed=self.speed)
-                    except browser_agent.BrowserAgentError as e:
-                        results.append({
-                            "status": "error",
-                            "action": "tool",
-                            "tool": "sub_agent",
-                            "agent_type": "browser_agent",
-                            "message": str(e)
-                        })
+                    run = None
+                    if slot is None:
+                        results.append(self._slots_busy("browser_agent"))
                     else:
-                        agent_id = self._register_sub_agent("browser_agent", task_description)
+                        logger.info(f"Starting Browser Agent {slot} for task: {task_description}")
+                        try:
+                            run = browser_agent.start(task_description, self.provider, self.model,
+                                                      api_key=self.api_key, speed=self.speed,
+                                                      stop_event=self.stop_event)
+                        except browser_agent.BrowserAgentError as e:
+                            results.append({
+                                "status": "error",
+                                "action": "tool",
+                                "tool": "sub_agent",
+                                "agent_type": "browser_agent",
+                                "message": str(e)
+                            })
+                    if run is not None:
+                        agent_id = self._register_sub_agent("browser_agent", task_description, slot)
                         # Its own box in the chat, under the main agent's
                         self._safe_cli_emit("sub_start", agent_id, "browser", task_description)
                         with self._cli_agent_lock:
@@ -1022,21 +1123,24 @@ class ControllerView:
                             "action": "tool",
                             "tool": "sub_agent",
                             "agent_type": "browser_agent",
-                            "id": agent_id,
+                            "id": slot,
                             "task": task_description,
-                            "message": "Browser Agent started in parallel. Continue with other tasks."
+                            "message": f"Assigned browser_agent id {slot}. It runs in parallel: continue with other tasks."
                         })
 
                 elif action_type == "sub_agent" and action_item.get("agent_type") == "ios_agent":
                     # DISPATCH MODE: start the iOS agent on the connected iPhone/iPad.
-                    # Not online yet (still checking) or no phone: say so and start nothing.
+                    # Not online yet (still connecting) or no phone: say so and start
+                    # nothing; its one slot busy: the same.
                     task_description = action_item.get("value", "")
                     phone_state = self.phone_state()
-                    if phone_state != "online":
-                        if phone_state == "checking":
-                            message = ("ios_agent is still checking the connection to the phone. "
-                                       "Carry on with other work: once the phone is connected it is "
-                                       "listed under online in <sub_agents>.")
+                    slot = self._free_slot("ios_agent") if phone_state == "online" else None
+                    if phone_state == "online" and slot is None:
+                        results.append(self._slots_busy("ios_agent"))
+                    elif phone_state != "online":
+                        if self.phone_connecting("ios_agent"):
+                            message = ("ios_agent is still connecting to the phone. Carry on with other "
+                                       "work: start it once its slot in <sub_agents> reads empty.")
                         else:
                             reason = ((getattr(self.phone, "reason", "") or "no iPhone or iPad is connected")
                                       if self.daisy_chain else "phones are only reachable in Daisy chain mode")
@@ -1063,7 +1167,7 @@ class ControllerView:
                                 "message": str(e)
                             })
                         else:
-                            agent_id = self._register_sub_agent("ios_agent", task_description)
+                            agent_id = self._register_sub_agent("ios_agent", task_description, slot)
                             # Its own box in the chat, under the main agent's
                             self._safe_cli_emit("sub_start", agent_id, "ios", task_description)
                             with self._cli_agent_lock:
@@ -1075,22 +1179,25 @@ class ControllerView:
                                 "action": "tool",
                                 "tool": "sub_agent",
                                 "agent_type": "ios_agent",
-                                "id": agent_id,
+                                "id": slot,
                                 "task": task_description,
-                                "message": (f"iOS Agent started in parallel on {self.phone.name}. "
-                                            f"Continue with other tasks.")
+                                "message": (f"Assigned ios_agent id {slot} on {self.phone.name}. It runs in "
+                                            f"parallel: continue with other tasks.")
                             })
 
                 elif action_type == "sub_agent" and action_item.get("agent_type") == "android_agent":
                     # DISPATCH MODE: start the Android agent on the checked phone.
-                    # Not online yet (still checking) or no phone: say so and start nothing.
+                    # Not online yet (still connecting) or no phone: say so and start
+                    # nothing; its one slot busy: the same.
                     task_description = action_item.get("value", "")
                     android_state = self.android_state()
-                    if android_state != "online":
-                        if android_state == "checking":
-                            message = ("android_agent is still checking the connection to the phone. "
-                                       "Carry on with other work: once the phone is connected it is "
-                                       "listed under online in <sub_agents>.")
+                    slot = self._free_slot("android_agent") if android_state == "online" else None
+                    if android_state == "online" and slot is None:
+                        results.append(self._slots_busy("android_agent"))
+                    elif android_state != "online":
+                        if self.phone_connecting("android_agent"):
+                            message = ("android_agent is still connecting to the phone. Carry on with other "
+                                       "work: start it once its slot in <sub_agents> reads empty.")
                         else:
                             reason = ((getattr(self.android, "reason", "") or "no Android phone is connected")
                                       if self.daisy_chain else "phones are only reachable in Daisy chain mode")
@@ -1118,7 +1225,7 @@ class ControllerView:
                                 "message": str(e)
                             })
                         else:
-                            agent_id = self._register_sub_agent("android_agent", task_description)
+                            agent_id = self._register_sub_agent("android_agent", task_description, slot)
                             # Its own box in the chat, under the main agent's
                             self._safe_cli_emit("sub_start", agent_id, "android", task_description)
                             with self._cli_agent_lock:
@@ -1130,18 +1237,24 @@ class ControllerView:
                                 "action": "tool",
                                 "tool": "sub_agent",
                                 "agent_type": "android_agent",
-                                "id": agent_id,
+                                "id": slot,
                                 "task": task_description,
-                                "message": (f"Android Agent started in parallel on {self.android.name}. "
-                                            f"Continue with other tasks.")
+                                "message": (f"Assigned android_agent id {slot} on {self.android.name}. It runs "
+                                            f"in parallel: continue with other tasks.")
                             })
 
                 elif action_type == "sub_agent":
-                    # DISPATCH MODE: spawn CLI agent
+                    # DISPATCH MODE: spawn CLI agent, in the first free coder_agent slot
                     task_description = action_item.get("value", "")
-                    logger.info(f"Starting CLI Agent for task: {task_description}")
-                    
-                    result_file = app_data_dir() / "cli_agent_result" / f"result_{int(time.time() * 1000)}.json"
+                    slot = self._free_slot("coder_agent")
+                    if slot is None:
+                        results.append(self._slots_busy("coder_agent"))
+                        continue
+                    logger.info(f"Starting CLI Agent {slot} for task: {task_description}")
+
+                    # Unique even for four coders started in one batch
+                    result_file = (app_data_dir() / "cli_agent_result"
+                                   / f"result_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}.json")
                     result_file.parent.mkdir(parents=True, exist_ok=True)
                     
                     # Build CLI command based on compiled vs dev mode
@@ -1241,7 +1354,7 @@ class ControllerView:
 
                     # Track in active list, and as a row of <sub_agents>
                     task_id = result_file.stem
-                    agent_id = self._register_sub_agent("coder_agent", task_description)
+                    agent_id = self._register_sub_agent("coder_agent", task_description, slot)
                     with self._cli_agent_lock:
                         self._cli_tasks.append({
                             "id": agent_id,
@@ -1302,9 +1415,9 @@ class ControllerView:
                         "action": "tool",
                         "tool": "sub_agent",
                         "agent_type": "coder_agent",
-                        "id": agent_id,
+                        "id": slot,
                         "task": task_description,
-                        "message": "Coder Agent started in parallel. Continue with other tasks."
+                        "message": f"Assigned coder_agent id {slot}. It runs in parallel: continue with other tasks."
                     }
                     results.append(result)
 
