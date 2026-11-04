@@ -13,7 +13,7 @@ class RequestyProvider:
         self.session = requests.Session()
         self.cli_agent = cli_agent
         self.model_info = model_info or {}
-        # Native tool calling: OpenAI-format function tools — the model's
+        # Native tool calling: OpenAI-format function tools, the model's
         # output contract. None only for mode="text" (plain prose).
         self.tools = tools or None
 
