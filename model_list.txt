@@ -20,12 +20,13 @@ provider="openrouter"
 --------------------------------------------------------------
 model name                thinking  vision
 --------------------------------------------------------------
-gemini-3.1-pro            low       yes
 gemini-3.6-flash          minimal   yes
 gemini-3.8-flash          low       yes
+gemini-4-argon            low       yes
 gpt-6-astra               medium    yes
 gpt-6-luna                low       yes
 gpt-6-sol                 low       yes
+gpt-6.1-terra             low       yes
 claude-opus-5             medium    yes
 claude-sonnet-5           low       yes
 claude-sonnet-5.5         low       yes
@@ -33,8 +34,9 @@ claude-opus-5.5           medium    yes
 grok-4.7                  low       yes
 mimo-v2.6-pro-ultraspeed  low       yes
 deepseek-v4.1-flash       low       yes
-muse-spark-1.3            low       yes
-kimi-k3                   low       yes
+deepseek-v4.1-flash-1017  low       yes
+minimax-m3.1-flash        low       yes
+muse-wonder               low       yes
 claude-opus-5-fast        low       yes
 mistral-medium-3.5        none      yes
 qwen3.8-max-0902          low       yes
@@ -74,10 +76,10 @@ provider="google"
 --------------------------------------------------------------
 model name                thinking  vision
 --------------------------------------------------------------
-gemini-3.1-pro            low       yes
+gemini-4-argon            low       yes
 gemini-3.6-flash          low       yes
 gemini-3.8-flash          low       yes
-gemini-3.1-pro-vertex     low       yes
+gemini-4-argon-vertex     low       yes
 gemini-3.6-flash-vertex   low       yes
 gemini-3.8-flash-vertex   low       yes
 
@@ -87,11 +89,10 @@ provider="perplexity"
 --------------------------------------------------------------
 model name                thinking  vision
 --------------------------------------------------------------
-gemini-3.1-pro            low       yes
+gemini-4-argon            low       yes
 gemini-3.6-flash          low       yes
 gemini-3.8-flash          low       yes
 grok-4.5                  low       yes
-grok-4.3                  low       yes
 kimi-k3                   low       yes
 glm-5.3-flash             low       yes
 
@@ -120,9 +121,17 @@ provider="requesty"
 --------------------------------------------------------------
 model name                thinking  vision
 --------------------------------------------------------------
-claude-sonnet-5           default   yes
+claude-sonnet-5           low       yes
+claude-sonnet-5.5         low       yes
+claude-opus-5             medium    yes
+claude-opus-5.5           medium    yes
 gemini-3.6-flash          default   yes
+gemini-4-argon            low       yes
 gpt-5.4                   default   yes
+grok-4.7                  low       yes
+particle-1                low       yes
+minimax-m3.1-flash        low       yes
+deepseek-v4.1-flash-1017  none      yes
 
 
 --------------------------------------------------------------

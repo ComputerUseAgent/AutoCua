@@ -548,11 +548,21 @@ after `.env`.
 | `model=` | Requesty model id |
 |---|---|
 | `claude-sonnet-5` | `anthropic/claude-sonnet-5` |
+| `claude-sonnet-5.5` | `anthropic/claude-sonnet-5-5` |
+| `claude-opus-5` | `anthropic/claude-opus-5` |
+| `claude-opus-5.5` | `anthropic/claude-opus-5-5` |
 | `gemini-3.6-flash` | `google/gemini-3.6-flash` |
+| `gemini-4-argon` | `vertex/gemini-4-argon` |
 | `gpt-5.4` | `openai/gpt-5.4` |
+| `grok-4.7` | `xai/grok-4.7` |
+| `particle-1` | `particle/particle-1` |
+| `minimax-m3.1-flash` | `minimaxi/minimax-m3.1-flash` |
+| `deepseek-v4.1-flash-1017` | `deepseek/deepseek-v4.1-flash-1017` |
 
 Any other id from https://router.requesty.ai/v1/models can be passed as `model=` and is sent as is.
-Every request sends `temperature` 0.2 and `max_tokens` 10000; reasoning is left at each model's default.
+Every request sends `temperature` 0.2, `max_tokens` 10000 and Requesty's prompt caching
+(`requesty.auto_cache`). A model with a level in the table also gets it as `reasoning_effort`; the
+others keep their own default.
 
 ## AWS Bedrock (`provider="aws"`)
 

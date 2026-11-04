@@ -136,7 +136,7 @@ impl WebService {
         system_prompt(py)?;
 
         let provider = provider.to_lowercase();
-        // Auto-detect Vertex from model name (e.g. "gemini-3.1-pro-vertex")
+        // Auto-detect Vertex from model name (e.g. "gemini-4-argon-vertex")
         let vertex = provider == "google" && model.ends_with("-vertex");
 
         // Resolve short model name to full API name for OpenRouter

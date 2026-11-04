@@ -50,7 +50,17 @@ class RequestyProvider:
             # Output cap. The handoff manager passes 10k (LLMManager.max_tokens);
             # everything else keeps this default.
             "max_tokens": self.max_tokens or 10000,
+            # Prompt caching through the router: Requesty adds the cache
+            # breakpoints for the providers that need them (Anthropic), and the
+            # others cache a repeated prefix on their own. Without the flag a
+            # request from an unlisted client goes uncached.
+            "requesty": {"auto_cache": True},
         }
+        # How hard the model thinks, from view.py's table. Requesty maps the
+        # level onto each backend (an effort for OpenAI, a thinking budget for
+        # Anthropic and Vertex). An entry with no level keeps its default.
+        if self.model_info.get("effort"):
+            data["reasoning_effort"] = self.model_info["effort"]
 
         # No tools (mode="text") -> plain text: omit the tool params entirely.
         if self.tools:

@@ -22,18 +22,6 @@
 # Reasoning cannot be switched off on Gemini, Grok 4.5 or Qwen — those are
 # mandatory-reasoning models, so the lowest level they publish is the floor.
 MODEL_MAPPINGS = {
-    "gemini-3.1-pro": {
-        "api_name": "google/gemini-3.1-pro-preview",
-        "vision": True,
-        "display_name": "Gemini 3.1 Pro Preview",
-        # `low` is the floor: Pro publishes only high/medium/low, with no
-        # `minimal` (that exists on Flash below, not here). Pinned to the
-        # floor because Pro's thinking length is the most volatile in this
-        # table — at `medium` a single trivial one-tool prompt was measured
-        # spending 9,596 reasoning tokens against the 10,000 max_tokens
-        # ceiling, on a step whose whole job was to emit one tool call.
-        "effort": "low"
-    },
     "gemini-3.6-flash": {
         "api_name": "google/gemini-3.6-flash",
         "vision": True,
@@ -47,6 +35,20 @@ MODEL_MAPPINGS = {
         "display_name": "Gemini 3.8 Flash",
         # 3.8 Flash publishes low/medium/high only - `minimal` returns an
         # error there - so `low` is its floor.
+        "effort": "low"
+    },
+    # The plain route, not `google/gemini-4-argon:batch`: the half-price
+    # `:batch` twins are refused on chat/completions and on Responses alike
+    # (404 "cannot be used with the chat/completions endpoint", probed
+    # 2026-11-04). OpenRouter runs them only as batch jobs, and a live step
+    # cannot wait for one.
+    "gemini-4-argon": {
+        "api_name": "google/gemini-4-argon",
+        "vision": True,
+        "display_name": "Gemini 4 Argon",
+        # Probed 2026-11-04 with the real driver and coder prompts: `low`
+        # batches the notes call with the actions and reads its tool results
+        # on the next turn. About ten seconds a call.
         "effort": "low"
     },
     # OpenAI is GPT-6 Astra at `medium`, the same entry the direct openai
@@ -81,6 +83,17 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "GPT-6 Sol",
         # Accepts every level from none to max; `low` matches the table.
+        "effort": "low"
+    },
+    # GPT-6.1 Terra behaves like the GPT-6 entries (probed 2026-11-04): on
+    # chat/completions it gave the notes call alone three turns in a row, and
+    # the async Responses route batches the whole step. The plain route: its
+    # `:batch` twin is refused (see gemini-4-argon).
+    "gpt-6.1-terra": {
+        "api_name": "openai/gpt-6.1-terra",
+        "async_tools": True,
+        "vision": True,
+        "display_name": "GPT-6.1 Terra",
         "effort": "low"
     },
     "claude-opus-5": {
@@ -140,26 +153,42 @@ MODEL_MAPPINGS = {
         # each, so the level is a formality here.
         "effort": "low"
     },
-    "muse-spark-1.3": {
-        "api_name": "meta/muse-spark-1.3",
+    "deepseek-v4.1-flash-1017": {
+        "api_name": "deepseek/deepseek-v4.1-flash-1017",
         "vision": True,
-        "display_name": "Muse Spark 1.3",
-        # Needs the 18+ confirmation at openrouter.ai/settings/preferences
-        # (done 2026-09-22). Meta's backend accepts only tool_choice "auto"
-        # ("required ... not currently supported"), so like Qwen this entry
-        # carries `tool_choice`, sent in place of "required" for it only.
+        "display_name": "DeepSeek V4.1 Flash 1017",
+        # The 2026-10-17 snapshot, served by DeepSeek itself. Probed
+        # 2026-11-04: `low` batches the notes call with the actions in about
+        # two seconds, in the driver and in the coder.
+        "effort": "low"
+    },
+    "minimax-m3.1-flash": {
+        "api_name": "minimax/minimax-m3.1-flash",
+        "vision": True,
+        "display_name": "MiniMax M3.1 Flash",
+        # Probed 2026-11-04: with "required" it batched the notes call and the
+        # action in two runs of three, and in the third acted on the next
+        # turn; "auto" always split them, so it keeps "required".
+        "effort": "low"
+    },
+    "muse-wonder": {
+        "api_name": "meta/muse-wonder",
+        "vision": True,
+        "display_name": "Muse Wonder",
+        # Meta's backend accepts only tool_choice "auto" ("required" is a 400,
+        # "only auto"), so this entry carries `tool_choice`, sent in place of
+        # "required" for it only. Probed 2026-11-04: `low` batches the notes
+        # call with the actions, or acts on the next turn.
         "effort": "low",
         "tool_choice": "auto"
     },
-    "kimi-k3": {
-        "api_name": "moonshotai/kimi-k3",
-        "vision": True,
-        "display_name": "Kimi K3",
-        # Its ladder is max/high/low — there is no `medium` — and it defaults
-        # to `max`, the highest default in the catalog. Setting `low` is the
-        # single biggest saving in this table.
-        "effort": "low"
-    },
+    # Left out after the 2026-11-04 probe: meta/muse-spark-open and
+    # tencent/hy4 call the notes tool alone turn after turn, at every effort,
+    # with "required" or "auto", on chat/completions and on Responses. They
+    # plan the step and never send the action, so they cannot drive a screen.
+    # Muse Spark 1.3, Kimi K3 and Kimi K3.1 Pro were removed the same day:
+    # they mostly sent the notes call first (Kimi at about nine seconds a
+    # call), and on Requesty their coder at times did not act for three turns.
     "claude-opus-5-fast": {
         "api_name": "anthropic/claude-opus-5-fast",
         "vision": True,
