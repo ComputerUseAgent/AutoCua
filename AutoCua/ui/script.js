@@ -754,13 +754,41 @@ document.addEventListener('DOMContentLoaded', () => {
             remoteToggleBtn.classList.toggle('disconnect', telegramConnected);
         }
 
+        // Connected but not paired yet: the code to send the bot (the Connect
+        // banner shows it too). The bot obeys only the chat that sends it.
+        const remotePair = document.createElement('div');
+        remotePair.className = 'remote-instruction';
+        remotePair.style.display = 'none';
+        if (remoteSetup) remoteSetup.appendChild(remotePair);
+        let pairCheckTimer = null;
+
+        function showPairCode(data) {
+            clearTimeout(pairCheckTimer);
+            remotePair.textContent = '';
+            remotePair.style.display = 'none';
+            if (!data || !data.connected || !data.pair_code) return;
+            const bot = data.bot_username ? '@' + data.bot_username : 'your bot';
+            const code = document.createElement('strong');
+            code.textContent = data.pair_code;
+            code.style.whiteSpace = 'nowrap';
+            code.style.webkitUserSelect = 'all';   // one click selects the whole code
+            code.style.userSelect = 'all';
+            remotePair.append(`Not paired yet. Send this code to ${bot} in Telegram: `, code);
+            remotePair.style.display = 'block';
+            // Check again while Settings is open, so the line goes away once
+            // the code is sent and the bot is paired.
+            pairCheckTimer = setTimeout(() => {
+                if (settingsOverlay && settingsOverlay.classList.contains('active')) loadRemoteStatus();
+            }, 3000);
+        }
+
         function loadRemoteStatus() {
             if (remoteSetup) remoteSetup.style.display = 'flex';
             if (remoteInstructions) remoteInstructions.style.display = 'none';
             fetch('/api/telegram/status')
                 .then(res => res.json())
-                .then(data => { telegramConnected = !!data.connected; updateRemoteToggle(); })
-                .catch(() => { telegramConnected = false; updateRemoteToggle(); });
+                .then(data => { telegramConnected = !!data.connected; updateRemoteToggle(); showPairCode(data); })
+                .catch(() => { telegramConnected = false; updateRemoteToggle(); showPairCode(null); });
         }
 
         // 3-2-1 countdown shown in the "AutoCua helper" popup while the helper

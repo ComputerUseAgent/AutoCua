@@ -58,6 +58,7 @@ import webview
 
 # Where the user's data lives (AutoCua_data/, outside the install folder).
 from AutoCua import api_key_file, skills_dir, skills_platform, data_root, default_skills
+from AutoCua import api_key_lock, replace_file_text
 from AutoCua import APP_PORT, ENV_APP_PORT
 from AutoCua import data_extraction
 
@@ -974,18 +975,16 @@ def read_api_keys():
 
 
 def write_api_keys(keys):
-    """Write dict of key names -> values to api_key.txt"""
+    """Write dict of key names -> values to api_key.txt, in one rewrite
+    through replace_file_text: a reader meets the old file or the new one,
+    not an empty one (the Windows fallback in replace_file_text aside)."""
     key_file = get_api_key_file()
     try:
-        key_file.parent.mkdir(parents=True, exist_ok=True)
         all_key_names = list(PROVIDER_KEY_MAP.values()) + EXTRA_KEYS
         # Preserve any unmanaged keys (e.g. TELEGRAM_*) written elsewhere.
         extra = [k for k in keys if k not in all_key_names]
-        with open(key_file, 'w', encoding='utf-8') as f:
-            for name in all_key_names:
-                f.write(f"{name}={keys.get(name, '')}\n")
-            for name in extra:
-                f.write(f"{name}={keys.get(name, '')}\n")
+        replace_file_text(key_file, "".join(
+            f"{name}={keys.get(name, '')}\n" for name in all_key_names + extra))
     except Exception:
         debug_exception("write_api_keys")
 
@@ -1774,9 +1773,12 @@ def save_api_key():
         if not env_name:
             return jsonify({'error': 'Unknown provider'}), 400
 
-        keys = read_api_keys()
-        keys[env_name] = key_value
-        write_api_keys(keys)
+        # One save at a time (one Save click sends a request per key): a
+        # parallel save must not write back a copy without this key.
+        with api_key_lock:
+            keys = read_api_keys()
+            keys[env_name] = key_value
+            write_api_keys(keys)
         return jsonify({'status': 'saved'})
     except Exception:
         debug_exception("save_api_key")
@@ -1795,9 +1797,10 @@ def delete_api_key():
         if not env_name:
             return jsonify({'error': 'Unknown provider'}), 400
 
-        keys = read_api_keys()
-        keys[env_name] = ''
-        write_api_keys(keys)
+        with api_key_lock:
+            keys = read_api_keys()
+            keys[env_name] = ''
+            write_api_keys(keys)
         return jsonify({'status': 'deleted'})
     except Exception:
         debug_exception("delete_api_key")
@@ -1865,10 +1868,11 @@ def save_vertex_config():
         project_id = data.get('project_id', '')
         location = data.get('location', 'global')
 
-        keys = read_api_keys()
-        keys['VERTEX_PROJECT_ID'] = project_id
-        keys['VERTEX_LOCATION'] = location
-        write_api_keys(keys)
+        with api_key_lock:
+            keys = read_api_keys()
+            keys['VERTEX_PROJECT_ID'] = project_id
+            keys['VERTEX_LOCATION'] = location
+            write_api_keys(keys)
         return jsonify({'status': 'saved'})
     except Exception:
         debug_exception("save_vertex_config")

@@ -1064,9 +1064,10 @@ the machine. In the app itself the task shows up like any typed message, with a 
 saved chat. A task from Telegram always runs as Computer use, This PC: the phone sub-agents are
 offline for it.
 
-> The pill is a status cue and has no stop control. The bot obeys **only its owner**: the first
-> chat that messages it after you connect claims it, and every other chat is ignored. Disconnect
-> in the app to release it. Treat the token like a password.
+> The pill is a status cue and has no stop control. The bot obeys **only its owner**: the
+> Telegram account that sends it the one-time code AutoCua shows when you connect (also in
+> Settings > Remote Connection). No other chat is obeyed, and with no owner saved nobody is
+> obeyed. Disconnect in the app to release it. Treat the token like a password.
 
 Discord and WhatsApp exist as placeholder files on Windows only. Neither is implemented.
 
@@ -1358,7 +1359,8 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
 - Over Wi-Fi, adb does not check which device answered. The serial check catches a mix-up, but
   a device on the same network that copies your phone's serial would pass it, so on a network
   you share, keep Wireless debugging off on the phone and use USB.
-- The Telegram bot obeys only the first chat that messages it after you connect; Disconnect releases it.
+- The Telegram bot obeys only the Telegram account that sent it the pairing code shown in the app;
+  Disconnect releases it.
 - There is **no automated test suite** in this repository.
 - AutoCua drives *your* real machine, *your* real browser profile and *your* real logins. That
   is the point, and it is also the risk.

@@ -39,7 +39,9 @@ RULES for the code below:
 import os
 import sys
 import logging
+import tempfile
 import threading
+import time
 from pathlib import Path
 
 logger = logging.getLogger("AutoCua.paths")
@@ -323,6 +325,46 @@ def _migrate_legacy_api_key(dest: Path) -> None:
             # Set even on failure so we don't re-scan on every call; the next
             # app start retries from scratch.
             _api_key_migrated = True
+
+
+# One read-change-write of api_key.txt at a time in this process: the Settings
+# key routes (ui/service.py) and the Telegram bot, Connect and Disconnect
+# (remote_connection/telegram) all hold it, so no save drops another's change.
+api_key_lock = threading.RLock()
+
+
+def replace_file_text(path: Path, text: str) -> None:
+    """Write `text` to `path` in one step: a reader, a crash or a full disk
+    meets the old file or the new one, not an empty or half-written one
+    (except in the Windows fallback below).
+
+    Staged in a temp file in the same folder (mode 0600) and renamed over the
+    old file. Windows refuses the rename while another thread has the file
+    open for a moment, so it is tried again for half a second, then written
+    in place as before. A symlinked file is written at its target, so the
+    link stays. Path/os calls only (see RULES above)."""
+    path = Path(os.path.realpath(path))
+    data = text.encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        for _ in range(20):
+            try:
+                os.replace(tmp, str(path))
+                return
+            except PermissionError:
+                time.sleep(0.025)
+        path.write_bytes(data)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 # =============================================================================
