@@ -9,23 +9,24 @@
 #
 # Every model is pinned to `low`, but it means a different thing on each,
 # because their ladders and defaults differ:
-#   gemini-3.1-pro-preview  low/medium/high          default high    -> floor
+#   gemini-4-argon          `low` accepted (probed 2026-11-04)
 #   gemini-3.6-flash        minimal/low/medium/high  default medium  -> one
 #                                                                      above
 #                                                                      floor
 #   gemini-3.8-flash        low/medium/high (no `minimal` - it errors) -> floor
-# Neither older default was cheap: Pro would otherwise run at `high`, the top
-# of its range, on every step.
+# Gemini 4 Argon replaced Gemini 3.1 Pro Preview on 2026-11-04, here and in
+# the openrouter and perplexity tables: probed with the real driver, coder and
+# minion prompts, `low` batches the notes call with the actions.
 #
 # The `-vertex` entries are the SAME models reached through a different
 # client — Vertex AI keeps the bare model ID rather than renaming it — so
 # api_name is intentionally duplicated across each pair. Only `vertex`
 # differs, which is what picks the client in service.py.
 MODEL_MAPPINGS = {
-    "gemini-3.1-pro": {
-        "api_name": "gemini-3.1-pro-preview",
+    "gemini-4-argon": {
+        "api_name": "gemini-4-argon",
         "vision": True,
-        "display_name": "Gemini 3.1 Pro",
+        "display_name": "Gemini 4 Argon",
         "vertex": False,
         "thinking_level": "low"
     },
@@ -43,10 +44,10 @@ MODEL_MAPPINGS = {
         "vertex": False,
         "thinking_level": "low"
     },
-    "gemini-3.1-pro-vertex": {
-        "api_name": "gemini-3.1-pro-preview",
+    "gemini-4-argon-vertex": {
+        "api_name": "gemini-4-argon",
         "vision": True,
-        "display_name": "Gemini 3.1 Pro (Vertex)",
+        "display_name": "Gemini 4 Argon (Vertex)",
         "vertex": True,
         "thinking_level": "low"
     },

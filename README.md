@@ -13,7 +13,7 @@
 
 [![Desktop input](https://img.shields.io/badge/desktop%20input-real%20hardware%20events-e8590c)](https://github.com/AutoCua/AutoCua/blob/main/README.md#how-it-acts-on-a-screen)
 [![Browser agent](https://img.shields.io/badge/browser%20agent-Rust%20%2B%20a%20Chrome%20extension-b7410e)](https://github.com/AutoCua/AutoCua/blob/main/README.md#the-browser-agent)
-[![Models](https://img.shields.io/badge/models-51%20across%2010%20providers-7048e8)](https://github.com/AutoCua/AutoCua/blob/main/README.md#providers-and-models)
+[![Models](https://img.shields.io/badge/models-60%20across%2010%20providers-7048e8)](https://github.com/AutoCua/AutoCua/blob/main/README.md#providers-and-models)
 
 <table><tr><td>
 
@@ -1079,7 +1079,7 @@ Swap the model by editing two strings. Nothing else changes.
 ```python
 run_agent(..., provider="anthropic",  model="claude-sonnet-5")
 run_agent(..., provider="openrouter", model="gemini-3.8-flash")
-run_agent(..., provider="google",     model="gemini-3.1-pro")
+run_agent(..., provider="google",     model="gemini-4-argon")
 run_agent(..., provider="openai",     model="gpt-6-astra")
 ```
 
@@ -1098,7 +1098,7 @@ Ten providers, all supported on every surface.
 | Requesty | yes | yes | yes | yes | yes |
 | Together AI | yes | yes | yes | yes | yes |
 
-51 model names are listed in **[model_list.txt](https://github.com/AutoCua/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
+60 model names are listed in **[model_list.txt](https://github.com/AutoCua/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
 that is not on the list gets no validation. It is forwarded verbatim and comes back as a 404.
 
 Keys resolve from the runtime setting first, then the environment or `.env`, so you can

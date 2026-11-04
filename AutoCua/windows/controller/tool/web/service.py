@@ -24,7 +24,7 @@ class WebService:
         self.provider = provider.lower()
         self.api_key = api_key  # Runtime key from frontend (priority over .env)
         self.stop_event = stop_event  # Only the browser-agent fallback can be interrupted
-        # Auto-detect Vertex from model name (e.g. "gemini-3.1-pro-vertex")
+        # Auto-detect Vertex from model name (e.g. "gemini-4-argon-vertex")
         self.vertex = vertex or (self.provider == "google" and model and model.endswith("-vertex"))
         self.vertex_project_id = vertex_project_id
         self.vertex_location = vertex_location

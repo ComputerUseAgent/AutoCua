@@ -276,7 +276,7 @@ _CLI_FALLBACK_CANDIDATES = {
     "openai":     ("gpt-6-astra",),
     "openrouter": ("gemini-3.6-flash", "gpt-6-astra"),
     "anthropic":  ("claude-haiku-4.5", "claude-sonnet-5"),
-    "google":     ("gemini-3.6-flash", "gemini-3.1-pro"),
+    "google":     ("gemini-3.6-flash", "gemini-4-argon"),
     "perplexity": ("gemini-3.6-flash", "kimi-k3"),
     "together":   ("minimax-m3", "inkling"),
     # Single entry, like groq: one registered model, so nothing to fall back TO.
