@@ -22,9 +22,7 @@ import time
 
 from AutoCua.linux.tree import element as E
 from AutoCua.linux.remote_connection.banner import StatusBanner
-from AutoCua.linux.remote_connection.telegram.service import (
-    _API_KEY_FILE, _set_key_in_file,
-)
+from AutoCua.linux.remote_connection.telegram.service import _start_pairing
 
 logger = logging.getLogger(__name__)
 
@@ -120,16 +118,28 @@ def run(country_code: str = "", phone: str = "") -> bool:
         if not token:
             return False  # no banner process; it never appeared
 
-        _set_key_in_file(_API_KEY_FILE, "TELEGRAM_BOT_TOKEN", token.strip())
+        code = _start_pairing(token.strip())
+        if not code:
+            banner.update("Could not save the token. Click Next, then press Connect again.")
+            banner.wait_for_next(timeout=15)
+            return False
 
-        banner.update("Saved. Restarting AutoCua to start the bot…")
+        # The bot obeys only the chat that sends this code. Telegram keeps a
+        # message sent now for up to 24 hours, so it pairs when the bot starts
+        # after the restart; the code also stays in Settings > Remote
+        # Connection until it is used.
+        banner.update(
+            "Saved. Last step: open your bot in Telegram and send it this code: "
+            f"{code}. Click Next when you have sent it."
+        )
+        banner.wait_for_next()
+        banner.update("AutoCua will close now. Open it again, and your bot will answer. "
+                      "The code is also in Settings > Remote Connection.")
         # Give the message time to stream out + a beat for the user to read
-        # it, then hard-exit the whole process. The user's next `python
-        # main.py` boot picks up the fresh TELEGRAM_BOT_TOKEN and the bot
-        # comes online with the saved owner chat. os._exit skips atexit /
-        # finally cleanup, which is what we want — the banner process
-        # closes on its own when our end of its pipe goes away.
-        time.sleep(3)
+        # it, then hard-exit the whole process. The next boot starts the bot
+        # with the fresh TELEGRAM_BOT_TOKEN. os._exit skips atexit / finally
+        # cleanup, which is what we want.
+        time.sleep(5)
         banner.close()
         os._exit(0)
     finally:
