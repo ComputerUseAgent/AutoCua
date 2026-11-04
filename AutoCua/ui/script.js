@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
         perplexity: null,
         together: null,
         cerebras: null,
+        requesty: null,
         aws: null
     };
 

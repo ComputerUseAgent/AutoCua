@@ -76,6 +76,7 @@ PROVIDER_KEY_MAP = {
     "perplexity": "PERPLEXITY_API_KEY",
     "together":   "TOGETHER_API_KEY",
     "cerebras":   "CEREBRAS_API_KEY",
+    "requesty":   "REQUESTY_API_KEY",
     "aws":        "AWS_API_KEY",
 }
 

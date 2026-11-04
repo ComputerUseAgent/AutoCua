@@ -28,7 +28,7 @@ run_agent(
 | Argument | What it is |
 |---|---|
 | `mode` | Which agent runs: `"computer use"` drives this desktop (Windows, macOS or Linux, detected automatically), `"computer use, daisy chain"` does the same and can also hand work to the phone sub-agents when a phone is connected (Android everywhere, iPhone on macOS; plain `"computer use"` lists them offline), `"shell use"` runs the coding agent straight in your terminal, `"web use"` drives Chrome, `"mobile use, ios"` drives an iPhone/iPad or an iOS Simulator, `"mobile use, android"` an Android emulator or your Android phone. Case, underscores and commas don't matter; hyphens do: `"computer-use"` raises `ValueError`. |
-| `provider` | `"openrouter"`, `"groq"`, `"openai"`, `"anthropic"`, `"google"`, `"perplexity"`, `"together"`, `"cerebras"` or `"aws"`. The key comes from `<PROVIDER>_API_KEY` in the environment or `.env` (e.g. `OPENROUTER_API_KEY`, or `AWS_API_KEY` for a Bedrock API key), or from `api_key=` (Part 9). Google's `-vertex` models take no key: they use `VERTEX_PROJECT_ID` / `VERTEX_LOCATION` and your Google Cloud credentials. |
+| `provider` | `"openrouter"`, `"groq"`, `"openai"`, `"anthropic"`, `"google"`, `"perplexity"`, `"together"`, `"cerebras"`, `"requesty"` or `"aws"`. The key comes from `<PROVIDER>_API_KEY` in the environment or `.env` (e.g. `OPENROUTER_API_KEY`, or `AWS_API_KEY` for a Bedrock API key), or from `api_key=` (Part 9). Google's `-vertex` models take no key: they use `VERTEX_PROJECT_ID` / `VERTEX_LOCATION` and your Google Cloud credentials. |
 | `model` | A model name from [model_list.txt](model_list.txt), copied exactly. It isn't checked up front: an unknown name is sent to the provider as-is and fails at the first request. |
 | `task` | What the agent should do. |
 
@@ -133,7 +133,7 @@ run_agent(
 ```
 
 Use it when something else already owns `9222`. Avoid `9333`: that is the
-headless browser behind the `web` tool on Together, Cerebras and AWS (Part 5). A
+headless browser behind the `web` tool on Together, Cerebras, Requesty and AWS (Part 5). A
 parallel run (Part 2) launches its one shared Chrome on this port too.
 
 ## Chrome profile (`browser_profile`)
@@ -536,6 +536,23 @@ saved in the app's Settings → API Keys is used too, after `.env`.
 
 Every request sends `temperature` 1, `top_p` 0.95, `seed` 42 and `max_completion_tokens` 32768 (10000 for the memory-compression handoff).
 `reasoning_effort` is `high` for the coder and its minions and `low` for every other agent.
+
+## Requesty (`provider="requesty"`)
+
+Requesty is an OpenAI-compatible router: one key for models from many labs, with `vendor/model`
+ids. Native tool calling and image input on every platform, and its `web` tool also goes to the
+headless browser agent described above. Set `REQUESTY_API_KEY` in `.env` for a terminal run (keys
+at https://app.requesty.ai/api-keys); a key saved in the app's Settings → API Keys is used too,
+after `.env`.
+
+| `model=` | Requesty model id |
+|---|---|
+| `claude-sonnet-5` | `anthropic/claude-sonnet-5` |
+| `gemini-3.6-flash` | `google/gemini-3.6-flash` |
+| `gpt-5.4` | `openai/gpt-5.4` |
+
+Any other id from https://router.requesty.ai/v1/models can be passed as `model=` and is sent as is.
+Every request sends `temperature` 0.2 and `max_tokens` 10000; reasoning is left at each model's default.
 
 ## AWS Bedrock (`provider="aws"`)
 

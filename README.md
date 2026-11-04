@@ -13,7 +13,7 @@
 
 [![Desktop input](https://img.shields.io/badge/desktop%20input-real%20hardware%20events-e8590c)](https://github.com/AutoCua/AutoCua/blob/main/README.md#how-it-acts-on-a-screen)
 [![Browser agent](https://img.shields.io/badge/browser%20agent-Rust%20%2B%20a%20Chrome%20extension-b7410e)](https://github.com/AutoCua/AutoCua/blob/main/README.md#the-browser-agent)
-[![Models](https://img.shields.io/badge/models-48%20across%209%20providers-7048e8)](https://github.com/AutoCua/AutoCua/blob/main/README.md#providers-and-models)
+[![Models](https://img.shields.io/badge/models-51%20across%2010%20providers-7048e8)](https://github.com/AutoCua/AutoCua/blob/main/README.md#providers-and-models)
 
 <table><tr><td>
 
@@ -1083,7 +1083,7 @@ run_agent(..., provider="google",     model="gemini-3.1-pro")
 run_agent(..., provider="openai",     model="gpt-6-astra")
 ```
 
-Nine providers, all supported on every surface.
+Ten providers, all supported on every surface.
 
 | Provider | Desktop, macOS | Desktop, Windows | Browser | iOS | Android |
 |---|:--:|:--:|:--:|:--:|:--:|
@@ -1095,9 +1095,10 @@ Nine providers, all supported on every surface.
 | OpenAI | yes | yes | yes | yes | yes |
 | OpenRouter | yes | yes | yes | yes | yes |
 | Perplexity | yes | yes | yes | yes | yes |
+| Requesty | yes | yes | yes | yes | yes |
 | Together AI | yes | yes | yes | yes | yes |
 
-48 model names are listed in **[model_list.txt](https://github.com/AutoCua/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
+51 model names are listed in **[model_list.txt](https://github.com/AutoCua/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
 that is not on the list gets no validation. It is forwarded verbatim and comes back as a 404.
 
 Keys resolve from the runtime setting first, then the environment or `.env`, so you can
@@ -1108,7 +1109,7 @@ The `web` tool uses each provider's own search: Claude web search, the OpenAI Re
 search tool, Gemini grounding, Groq's compound model, OpenRouter's Exa plugin running on your
 chosen model, and Perplexity Sonar.
 
-> Together AI, Cerebras and AWS Bedrock have no native web search. Under any of them the `web` tool hands the query to the
+> Together AI, Cerebras, Requesty and AWS Bedrock have no native web search. Under any of them the `web` tool hands the query to the
 > browser agent running headless on its own dedicated port and profile, capped at 15 minutes,
 > and returns its report. Expect that step to take minutes rather than seconds.
 
