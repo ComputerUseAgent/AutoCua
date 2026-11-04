@@ -79,6 +79,7 @@ const PROVIDERS: [string, string, string, string][] = [
     ['perplexity', 'https://docs.perplexity.ai/guides/getting-started', 'Perplexity', 'pplx-...'],
     ['together', 'https://api.together.xyz/settings/api-keys', 'Together AI', 'Enter API key...'],
     ['cerebras', 'https://cloud.cerebras.ai', 'Cerebras', 'csk-...'],
+    ['requesty', 'https://app.requesty.ai/api-keys', 'Requesty', 'Enter API key...'],
     ['aws', 'https://console.aws.amazon.com/bedrock/home#/api-keys', 'AWS', 'ABSK...'],
     ['google', 'https://aistudio.google.com/apikey', 'Google', 'AIza...'],
 ];

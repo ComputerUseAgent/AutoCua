@@ -72,6 +72,7 @@ _TLS_PROBE_URLS = {
     "perplexity": "https://api.perplexity.ai/",
     "together": "https://api.together.xyz/",
     "cerebras": "https://api.cerebras.ai/",
+    "requesty": "https://router.requesty.ai/",
 }
 
 
