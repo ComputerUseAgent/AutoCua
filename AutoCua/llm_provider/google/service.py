@@ -252,6 +252,13 @@ class GoogleProvider:
                 "input_tokens": getattr(um, "prompt_token_count", 0) or 0,
                 "output_tokens": getattr(um, "candidates_token_count", 0) or 0,
             } if um else {}
+            # Gemini caches the shared start of a request on its own (implicit
+            # caching). prompt_token_count already includes the cached part,
+            # so it rides in the OpenAI-style field, as responses.py does: the
+            # LLM call line shows it and the memory bar does not count it twice.
+            cached = (getattr(um, "cached_content_token_count", 0) or 0) if um else 0
+            if cached:
+                usage["prompt_tokens_details"] = {"cached_tokens": cached}
 
             if self.tools:
                 # Tools mode: response.text is None when parts carry function
