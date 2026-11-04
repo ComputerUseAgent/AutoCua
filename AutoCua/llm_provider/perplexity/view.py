@@ -30,12 +30,13 @@ MODEL_MAPPINGS = {
     # No OpenAI entry. GPT-6 batches only through the `async` tool flag, and
     # Perplexity strips it (probed 2026-10-01), so here GPT-6 makes one call
     # per turn. Use the openrouter or openai provider for GPT-6.
-    # Google — Pro is still preview-only; there is no GA Gemini 3.x Pro.
-    "gemini-3.1-pro": {
-        "api_name": "google/gemini-3.1-pro-preview",
+    # Google. Gemini 4 Argon replaces Gemini 3.1 Pro Preview here, as on
+    # OpenRouter. Probed 2026-11-04 with the real driver, coder and minion
+    # prompts: `low` batches the notes call with the actions.
+    "gemini-4-argon": {
+        "api_name": "google/gemini-4-argon",
         "vision": True,
-        "display_name": "Gemini 3.1 Pro Preview",
-        # `low` is Pro's floor: its ladder is only high/medium/low.
+        "display_name": "Gemini 4 Argon",
         "effort": "low"
     },
     "gemini-3.6-flash": {
@@ -58,12 +59,9 @@ MODEL_MAPPINGS = {
         # Grok 4.5 cannot switch reasoning off at all, so `low` is its floor.
         "effort": "low"
     },
-    "grok-4.3": {
-        "api_name": "xai/grok-4.3",
-        "vision": True,
-        "display_name": "Grok 4.3",
-        "effort": "low"
-    },
+    # No Grok 4.3 or 4.7: on this route both answer 400 "invalid request" to
+    # any request that carries a screenshot, and the same request without it
+    # goes through (probed 2026-11-04), so they cannot drive a screen.
     # Moonshot — routed under Perplexity's own namespace, not `moonshotai/`.
     "kimi-k3": {
         "api_name": "perplexity/kimi-k3",

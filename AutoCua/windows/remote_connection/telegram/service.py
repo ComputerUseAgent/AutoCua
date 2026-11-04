@@ -17,19 +17,22 @@ Setup:
   2. Paste it into .env OR api_key.txt as TELEGRAM_BOT_TOKEN=…
   3. Make sure at least one provider key (e.g. OPENROUTER_API_KEY=…) is set.
   4. python -m AutoCua.windows.remote_connection.telegram.service
-  5. On phone: open Telegram, find your bot, send any message.
+  5. Send your bot the pairing code main() prints (the app shows it in
+     Settings > Remote Connection). Only that chat is obeyed.
 """
 import asyncio
 import datetime
 import importlib
 import json
 import logging
+import secrets
 import sys
 import threading
 import time
 from pathlib import Path
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ChatType
 from telegram.error import BadRequest
 from telegram.ext import (
     Application,
@@ -53,7 +56,7 @@ logger = logging.getLogger(__name__)
 # panel, the agent's llm_provider and this bot all call the same function, so
 # they cannot drift onto different files (the old __file__-walk here had to
 # special-case the compiled build for exactly that reason).
-from AutoCua import api_key_file
+from AutoCua import api_key_file, api_key_lock, replace_file_text
 from AutoCua.utils.tls import TLSError, verified_context
 
 _API_KEY_FILE = api_key_file()
@@ -78,6 +81,7 @@ PROVIDER_KEY_MAP = {
     "perplexity": "PERPLEXITY_API_KEY",
     "together":   "TOGETHER_API_KEY",
     "cerebras":   "CEREBRAS_API_KEY",
+    "requesty":   "REQUESTY_API_KEY",
     "aws":        "AWS_API_KEY",
 }
 
@@ -121,74 +125,145 @@ def _get_available_providers() -> list:
     ]
 
 
-def _set_key_in_file(path: Path, key: str, value: str) -> None:
-    """Write/update KEY=value in a KV file, preserving every other line.
+# One key-file write at a time: pairing, Connect, Disconnect and a new code
+# each read the file, change it and write it back. The same lock as the
+# Settings key routes (ui/service.py), so neither drops the other's change.
+_key_lock = api_key_lock
 
-    Unlike a naive read-all-and-write-back-with-_read_all_keys, this keeps
-    empty-value placeholder lines (e.g. GROQ_API_KEY=) intact — the AutoCua
-    UI relies on those for its provider list rendering.
-    """
-    lines = []
-    found = False
-    if path.exists():
+
+def _set_keys_in_file(path: Path, updates: dict) -> None:
+    """Set KEY=value for every item of `updates` in ONE rewrite, keeping every
+    other line as it is (incl. empty-value placeholders such as GROQ_API_KEY=
+    that the AutoCua UI relies on for its provider list rendering).
+
+    The new file is written next to the old one and renamed over it
+    (replace_file_text), so a reader, a crash or a full disk meets the old
+    file or the new one, not an empty or half-written one (the Windows
+    fallback in replace_file_text aside)."""
+    with _key_lock:
+        lines = []
+        found = set()
+        if path.exists():
+            try:
+                with path.open("r", encoding="utf-8") as f:
+                    for raw in f:
+                        key = raw.partition("=")[0].strip()
+                        if "=" in raw and key in updates:
+                            lines.append(f"{key}={updates[key]}\n")
+                            found.add(key)
+                        else:
+                            lines.append(raw if raw.endswith("\n") else raw + "\n")
+            except Exception:
+                logger.warning("failed to read %s while updating it", path)
+                return
+        lines += [f"{k}={v}\n" for k, v in updates.items() if k not in found]
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                for raw in f:
-                    stripped = raw.strip()
-                    if stripped.startswith(f"{key}="):
-                        lines.append(f"{key}={value}\n")
-                        found = True
-                    else:
-                        lines.append(raw if raw.endswith("\n") else raw + "\n")
+            replace_file_text(path, "".join(lines))
         except Exception:
-            logger.warning("failed to read %s while updating %s", path, key)
-            return
-    if not found:
-        lines.append(f"{key}={value}\n")
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.writelines(lines)
-    except Exception:
-        logger.warning("failed to write %s", path)
+            logger.warning("failed to write %s", path)
 
 
 def _resolve_owner_chat_id() -> int | None:
-    """Owner chat_id = the chat that claimed the bot (see _is_owner_chat).
-    Stored in api_key.txt as TELEGRAM_OWNER_CHAT_ID=…, so it survives restarts."""
+    """Owner chat_id = the private chat that paired the bot with its code
+    (_pairing_step). Stored in api_key.txt as TELEGRAM_OWNER_CHAT_ID=…, so it
+    survives restarts. Missing, unreadable or not a private chat (a group or
+    channel id is negative) means no owner, and with no owner nobody is obeyed."""
     val = _read_all_keys(_API_KEY_FILE).get("TELEGRAM_OWNER_CHAT_ID")
-    if not val:
-        return None
     try:
-        return int(val)
-    except ValueError:
+        owner = int(val)
+    except (TypeError, ValueError):
         return None
-
-
-def _save_owner_chat_id(chat_id: int) -> None:
-    """Persist the owner chat_id so we can message them on the next boot."""
-    _set_key_in_file(_API_KEY_FILE, "TELEGRAM_OWNER_CHAT_ID", str(chat_id))
-
-
-# The claim is held here only if api_key.txt could not be written.
-_owner_chat_unsaved: int | None = None
+    return owner if owner > 0 else None
 
 
 def _is_owner_chat(chat_id: int) -> bool:
-    """Only the owner's chat is obeyed. The first chat to talk to the bot
-    claims it; every other chat is ignored after that. Disconnect in the app
-    clears the owner (and the token), so the bot can be claimed again."""
-    global _owner_chat_unsaved
+    """Only the owner's chat is obeyed. Nothing here claims the bot: only the
+    pairing code shown on the computer does (_pairing_step). Disconnect in the
+    app clears the owner and the token."""
     if not _resolve_token():
         return False  # disconnected: the bot keeps polling until restart, obeying nobody
-    owner = _resolve_owner_chat_id() or _owner_chat_unsaved
-    if owner is not None:
-        if chat_id != owner:
-            logger.info("ignored an update from a chat that is not the owner")
-        return chat_id == owner
-    _save_owner_chat_id(chat_id)
-    if _resolve_owner_chat_id() != chat_id:
-        _owner_chat_unsaved = chat_id
+    owner = _resolve_owner_chat_id()
+    if owner is None:
+        return False  # not paired, or the owner line is lost: obey nobody
+    if chat_id != owner:
+        logger.info("ignored an update from a chat that is not the owner")
+    return chat_id == owner
+
+
+# ── pairing ──────────────────────────────────────────────────────────────────
+# The bot obeys a chat only after that chat sends the one-time code that
+# Connect (setup.py) and Settings > Remote Connection show on the computer.
+# 12 characters from 30 (about 59 bits): guessing is hopeless even with no
+# time limit, so a wrong try does not burn the code (a stranger cannot use
+# it up). Pairing deletes it.
+_PAIR_ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ"   # no 0 O 1 I L U: easy to read and type
+
+
+def _new_pair_code() -> str:
+    """XXXX-XXXX-XXXX: fits a t.me ?start= link (A-Z, 0-9 and '-', 64 at most)."""
+    raw = "".join(secrets.choice(_PAIR_ALPHABET) for _ in range(12))
+    return f"{raw[:4]}-{raw[4:8]}-{raw[8:]}"
+
+
+def _clean_code(s) -> str:
+    return "".join(c for c in (s or "").upper() if c.isascii() and c.isalnum())
+
+
+def _valid_pair_code(code) -> bool:
+    """12 characters from _PAIR_ALPHABET, as _new_pair_code makes them. Anything
+    else (a hand edit, a cut-off line) never pairs and is replaced."""
+    c = _clean_code(code)
+    return len(c) == 12 and all(ch in _PAIR_ALPHABET for ch in c)
+
+
+def _codes_match(text, code) -> bool:
+    """Constant time. Case, spaces and dashes do not count, so a typed code
+    works as well as the link. A malformed saved code never matches."""
+    return _valid_pair_code(code) and secrets.compare_digest(_clean_code(text), _clean_code(code))
+
+
+def _pair_code() -> str | None:
+    """The code that pairs the bot while it has no owner: the saved one, or a
+    new one saved now (a key file from before pairing existed, or an owner
+    line lost later). None when the bot is paired or no code could be saved."""
+    with _key_lock:
+        if not _resolve_token() or _resolve_owner_chat_id() is not None:
+            return None
+        code = _read_all_keys(_API_KEY_FILE).get("TELEGRAM_PAIR_CODE")
+        if not _valid_pair_code(code):
+            code = _new_pair_code()
+            _set_keys_in_file(_API_KEY_FILE, {"TELEGRAM_PAIR_CODE": code})
+            if _read_all_keys(_API_KEY_FILE).get("TELEGRAM_PAIR_CODE") != code:
+                return None
+        return code
+
+
+def _start_pairing(token: str) -> str | None:
+    """Connect: save the token, forget the old owner and make a new code, all
+    in one write. Returns the code to show, or None if it could not be saved."""
+    code = _new_pair_code()
+    with _key_lock:
+        _set_keys_in_file(_API_KEY_FILE, {"TELEGRAM_BOT_TOKEN": token,
+                                          "TELEGRAM_OWNER_CHAT_ID": "",
+                                          "TELEGRAM_PAIR_CODE": code})
+        keys = _read_all_keys(_API_KEY_FILE)
+    if keys.get("TELEGRAM_BOT_TOKEN") == token and keys.get("TELEGRAM_PAIR_CODE") == code:
+        return code
+    return None
+
+
+def _pair_if_code(chat_id: int, text) -> bool | None:
+    """chat_id becomes the owner if `text` is the saved code: the owner is
+    saved and the code deleted in one write. True paired, False not the code
+    (or no code), None the file could not be written."""
+    with _key_lock:
+        code = _read_all_keys(_API_KEY_FILE).get("TELEGRAM_PAIR_CODE")
+        if not code or not _codes_match(text, code):
+            return False
+        _set_keys_in_file(_API_KEY_FILE, {"TELEGRAM_OWNER_CHAT_ID": str(chat_id),
+                                          "TELEGRAM_PAIR_CODE": ""})
+        if _resolve_owner_chat_id() != chat_id:
+            return None
     return True
 
 
@@ -239,6 +314,8 @@ def _maybe_run_next_queued(chat_id: int, bot, loop) -> None:
     """If this chat is ready and has a queued task, pop the next one and
     start it. Threadsafe — called from both _run_agent's finally (worker
     thread) and the q+ callback (asyncio loop)."""
+    if not _is_owner_chat(chat_id):
+        return  # disconnected since the task was queued: nobody is obeyed
     with _state_lock:
         state = _chat_state.get(chat_id)
         if not state:
@@ -305,48 +382,58 @@ async def _show_provider_picker(message):
     return True
 
 
-async def _discover_owner_from_updates(bot) -> int | None:
-    """Peek at the latest pending update on Telegram's servers and use its
-    chat_id as the owner. Lets the bot self-bootstrap on the very first run
-    after the chat-saving code was deployed, without requiring the user to
-    /start again. Safe to call before start_polling — uses offset=-1 which
-    Telegram supports as 'just the most recent update', and doesn't consume
-    updates from the polling updater's offset cursor."""
-    try:
-        updates = await bot.get_updates(offset=-1, limit=1, timeout=2)
-    except Exception:
-        logger.warning("owner discovery: get_updates failed", exc_info=True)
-        return None
-    for upd in updates:
-        chat = getattr(upd, "effective_chat", None)
-        if chat and chat.id:
-            return int(chat.id)
-    return None
+# When the bot came online. A message older than this waited on Telegram's
+# servers while the app was closed: it can still pair, but it is never
+# answered with the "not paired" line.
+_online_since = None
+# Chats already told that the bot is not paired, so a flood gets one reply.
+_told_not_paired: set = set()
+
+
+async def _pairing_step(update, text) -> bool:
+    """While the bot has no owner: pair it to the private chat that sends the
+    code, and obey nobody else (a stranger, a group, a channel, an edited
+    message). True when the bot has no owner, so the update ends here; False
+    when it is paired and the handler goes on as before."""
+    if _resolve_owner_chat_id() is not None:
+        return False
+    msg, chat = update.message, update.effective_chat
+    # The saved token must be the one this bot polls with: after Disconnect and
+    # Connect with another bot, the old polling thread pairs nobody.
+    if (_resolve_token() != update.get_bot().token or msg is None or chat is None
+            or chat.type != ChatType.PRIVATE):
+        return True
+    paired = _pair_if_code(chat.id, text)
+    if paired:
+        _told_not_paired.clear()
+        logger.info("paired with the chat that sent the code")
+        _chat_state[chat.id] = {"phase": "pick_provider"}
+        await msg.reply_text("✅ Paired. You can now control AutoCua from this Telegram account.")
+        if not await _show_provider_picker(msg):
+            _chat_state[chat.id] = {"phase": "idle"}
+    elif paired is None:
+        await msg.reply_text("❌ Could not save the pairing on the computer. Please try again.")
+    elif chat.id not in _told_not_paired and (_online_since is None or msg.date >= _online_since):
+        _told_not_paired.add(chat.id)
+        await msg.reply_text(
+            "This bot is not paired yet. On your computer, open AutoCua, go to "
+            "Settings > Remote Connection, and send me the code shown there."
+        )
+    return True
 
 
 async def _post_init(application) -> None:
     """Fires once after the bot finishes initialising (before polling starts).
     Used to message the saved owner: 'AutoCua online at …' + a fresh provider
-    picker — so the user doesn't have to send anything to get going."""
+    picker, so the user doesn't have to send anything to get going. With no
+    owner nobody is greeted, and a waiting update is never taken as the owner."""
+    global _online_since
+    # Whole seconds, like a message's date.
+    _online_since = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
     owner_id = _resolve_owner_chat_id()
     if not owner_id:
-        # Not saved yet — try to auto-discover from Telegram's pending updates.
-        # Works if the user has ever messaged the bot, even before the
-        # chat-saving code was deployed. Persist the result so we don't need
-        # to re-discover on every boot.
-        owner_id = await _discover_owner_from_updates(application.bot)
-        if owner_id:
-            try:
-                _save_owner_chat_id(owner_id)
-                logger.info(
-                    "owner discovery: saved chat_id=%s from getUpdates",
-                    owner_id,
-                )
-            except Exception:
-                logger.warning("owner discovery: could not persist chat_id", exc_info=True)
-    if not owner_id:
-        # No owner anywhere — they've never interacted with the bot. Stay
-        # silent; they'll register themselves with /start.
+        _stderr("not paired yet: send your bot the code shown in "
+                "Settings > Remote Connection")
         return
     bot = application.bot
     providers = _get_available_providers()
@@ -385,8 +472,10 @@ async def _post_init(application) -> None:
 
 async def start_cmd(update, ctx):
     chat_id = update.effective_chat.id
-    # Only the owner's chat is obeyed; the first chat to talk to the bot
-    # claims it (and is remembered so future boots can auto-greet it).
+    # No owner yet: only the code pairs the bot ("/start CODE" is what a
+    # t.me/<bot>?start=CODE link sends). Then only the owner's chat is obeyed.
+    if await _pairing_step(update, " ".join(ctx.args or [])):
+        return
     if not _is_owner_chat(chat_id):
         return
     _chat_state[chat_id] = {"phase": "pick_provider"}
@@ -411,6 +500,8 @@ async def reset_cmd(update, ctx):
 
 async def text_handler(update, ctx):
     chat_id = update.effective_chat.id
+    if await _pairing_step(update, update.message.text if update.message else ""):
+        return
     if not _is_owner_chat(chat_id):
         return
     state = _state(chat_id)
@@ -959,7 +1050,10 @@ def _build_telegram_app(token: str):
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("reset", reset_cmd))
     app.add_handler(CallbackQueryHandler(callback_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+    # New messages only: an edit, a channel post, or a business or guest
+    # message (whose chat id can equal the owner's) never reaches text_handler.
+    app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & filters.TEXT & ~filters.COMMAND,
+                                   text_handler))
     return app
 
 
@@ -981,8 +1075,7 @@ async def _run_bot_until_stopped(tg_app):
 
     Order matches what run_polling() does internally:
       initialize → start → post_init → start_polling.
-    We call _post_init BEFORE start_polling so its bot.get_updates(offset=-1)
-    auto-discovery doesn't race with the updater's own polling loop.
+    _post_init runs before start_polling, as it does in run_polling().
     """
     await tg_app.initialize()
     await tg_app.start()
@@ -997,7 +1090,7 @@ async def _run_bot_until_stopped(tg_app):
     # network hiccup, so a started app is never torn down and rebuilt.
     await tg_app.updater.start_polling(allowed_updates=Update.ALL_TYPES,
                                        bootstrap_retries=-1)
-    _stderr("polling loop is live — send your bot a message")
+    _stderr("polling loop is live")
     # Park here forever (daemon thread; killed on app exit).
     await asyncio.Event().wait()
 
@@ -1077,6 +1170,9 @@ def main():
             "(create the bot via @BotFather first, then add the token to that file)."
         )
     tg_app = _build_telegram_app(token)
+    code = _pair_code()
+    if code:
+        print(f"Not paired yet. Send this code to your bot in Telegram: {code}", flush=True)
     logger.info("Telegram bot polling started (main thread)")
     tg_app.run_polling(allowed_updates=Update.ALL_TYPES)
 

@@ -21,6 +21,7 @@ _PROVIDER_CLASSES = {
     "perplexity": "PerplexityProvider",
     "together": "TogetherProvider",
     "cerebras": "CerebrasProvider",
+    "requesty": "RequestyProvider",
     "aws": "AWSProvider",
 }
 
@@ -275,7 +276,7 @@ _CLI_FALLBACK_CANDIDATES = {
     "openai":     ("gpt-6-astra",),
     "openrouter": ("gemini-3.6-flash", "gpt-6-astra"),
     "anthropic":  ("claude-haiku-4.5", "claude-sonnet-5"),
-    "google":     ("gemini-3.6-flash", "gemini-3.1-pro"),
+    "google":     ("gemini-3.6-flash", "gemini-4-argon"),
     "perplexity": ("gemini-3.6-flash", "kimi-k3"),
     "together":   ("minimax-m3", "inkling"),
     # Single entry, like groq: one registered model, so nothing to fall back TO.
@@ -476,6 +477,14 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
         if not api_key:
             raise ValueError("Cerebras API key not provided, not in .env, and not saved in the app's Settings")
         return _provider_class("cerebras")(api_key, cli_agent, model_info,
+                                tools=tools,
+                                max_tokens=max_tokens)
+    elif provider == "requesty":
+        # Priority: Runtime key > .env fallback
+        api_key = _key(api_key, 'REQUESTY_API_KEY')
+        if not api_key:
+            raise ValueError("Requesty API key not provided, not in .env, and not saved in the app's Settings")
+        return _provider_class("requesty")(api_key, cli_agent, model_info,
                                 tools=tools,
                                 max_tokens=max_tokens)
     elif provider == "aws":

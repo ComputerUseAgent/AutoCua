@@ -36,7 +36,7 @@ use crate::agent::android_use::service::read_text;
 /// Providers with no native web-search API: the query goes to the browser
 /// agent on the same provider+model instead (see web_agent.rs). Explicit
 /// membership, not a catch-all: a typo'd provider must still fail fast below.
-const BROWSER_FALLBACK_PROVIDERS: [&str; 3] = ["together", "cerebras", "aws"];
+const BROWSER_FALLBACK_PROVIDERS: [&str; 4] = ["together", "cerebras", "requesty", "aws"];
 
 /// AutoCua/android/controller/tool/web: this tool's folder.
 fn web_dir(py: Python<'_>) -> PyResult<PathBuf> {
@@ -136,7 +136,7 @@ impl WebService {
         system_prompt(py)?;
 
         let provider = provider.to_lowercase();
-        // Auto-detect Vertex from model name (e.g. "gemini-3.1-pro-vertex")
+        // Auto-detect Vertex from model name (e.g. "gemini-4-argon-vertex")
         let vertex = provider == "google" && model.ends_with("-vertex");
 
         // Resolve short model name to full API name for OpenRouter

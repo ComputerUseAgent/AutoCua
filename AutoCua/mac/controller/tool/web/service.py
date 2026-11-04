@@ -14,7 +14,7 @@ from AutoCua.llm_provider.openrouter.view import get_model_info as get_openroute
 # Providers with no native web-search API: the query goes to the browser
 # agent on the same provider+model instead (see web_agent.py). Explicit
 # membership, not a catch-all — a typo'd provider must still fail fast below.
-_BROWSER_FALLBACK_PROVIDERS = frozenset({"together", "cerebras", "aws"})
+_BROWSER_FALLBACK_PROVIDERS = frozenset({"together", "cerebras", "requesty", "aws"})
 
 
 class WebService:
@@ -24,7 +24,7 @@ class WebService:
         self.provider = provider.lower()
         self.api_key = api_key  # Runtime key from frontend (priority over .env)
         self.stop_event = stop_event  # Only the browser-agent fallback can be interrupted
-        # Auto-detect Vertex from model name (e.g. "gemini-3.1-pro-vertex")
+        # Auto-detect Vertex from model name (e.g. "gemini-4-argon-vertex")
         self.vertex = vertex or (self.provider == "google" and model and model.endswith("-vertex"))
         self.vertex_project_id = vertex_project_id
         self.vertex_location = vertex_location
