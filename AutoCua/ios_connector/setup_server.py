@@ -1,10 +1,9 @@
-"""Launcher for the existing WebDriverAgent setup UI (ios_connector/setup.py).
+"""Launcher for the WebDriverAgent setup backend (ios_connector/setup.py).
 
-setup.py is the complete, self-contained sign → build → install → run tool with
-its own index.html (Add Apple Account, team/device select, trust panel, live
-build console). We don't reimplement any of that — the desktop app just runs it
-as a local server on port 8765 and shows its index.html in an iframe (Settings →
-Connect Device → iPhone). AutoCua_EMBED=1 suppresses setup.py's browser-open.
+setup.py is the complete, self-contained sign → build → install → run tool
+(detect, add-account, run with a live build stream, installed, stop). We don't
+reimplement any of that — the desktop app runs it as a local server on port
+8765 and its Settings → Connect Device → iPhone panel talks to it directly.
 """
 
 import os
@@ -58,7 +57,6 @@ def ensure_running(wait=12):
         from AutoCua import data_root
         data_root()
         env = dict(os.environ)
-        env["AutoCua_EMBED"] = "1"                # no browser tab
         try:
             _proc = subprocess.Popen(
                 [py, str(_SETUP_PY)], cwd=str(_DIR), env=env,

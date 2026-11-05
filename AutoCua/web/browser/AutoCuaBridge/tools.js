@@ -655,7 +655,10 @@ function toolsExpressionForm(code) {
 
 /// run_script/service.rs is_expression(): parse with `new Function`, run nothing.
 async function toolsIsExpression(tabId, expression) {
-  const literal = JSON.stringify(`(\n${expression}\n)`);
+  // JSON.stringify leaves U+2028/U+2029 raw; escape them so the literal is a plain
+  // one-line JavaScript string on any engine (CodeQL js/bad-code-sanitization).
+  const literal = JSON.stringify(`(\n${expression}\n)`)
+    .replace(/[\u2028\u2029]/g, (c) => "\\u" + c.charCodeAt(0).toString(16));
   const reply = await toolsCdp(tabId, "Runtime.evaluate", {
     expression: `(new Function(${literal}), true)`, returnByValue: true,
   });
@@ -1746,7 +1749,10 @@ async function toolsHandle(msg, line) {
     }
     case "wait_load": {
       const tab = await toolsTab(msg);
-      if (tab.status === "loading") await toolsWaitStatus(tab.id, typeof msg.timeoutMs === "number" ? msg.timeoutMs : TOOLS_LOAD_MS);
+      // A wait sent on the line is capped at the default (the agent side gives up at 35 s).
+      const sent = typeof msg.timeoutMs === "number" ? msg.timeoutMs : TOOLS_LOAD_MS;
+      const ms = sent <= TOOLS_LOAD_MS ? sent : TOOLS_LOAD_MS;
+      if (tab.status === "loading") await toolsWaitStatus(tab.id, ms);
       return { status: (await chrome.tabs.get(tab.id)).status };
     }
     case "new_tab":

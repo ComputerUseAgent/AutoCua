@@ -6,16 +6,16 @@
 #
 #   AutoCua_data/WebDriverAgent/   <- the person clones it there (utils/wda.py says how);
 #                                     nothing here ever downloads it
-#   index.html                     <- the UI, beside this file
-#   setup.py                       <- run this
+#   setup.py                       <- the local backend the app's Settings →
+#                                     Connect Device → iPhone panel talks to
 #
-# What it does when you hit Connect in the browser:
+# What it does when the app calls /run:
 #   1. validates team id / device / project
 #   2. rewrites WebDriverAgent.xcodeproj/project.pbxproj (Automatic signing, team, bundle ids)
 #      -> exactly the three targets you set by hand: Lib, Runner, IntegrationApp
 #   3. mounts the developer disk image from Xcode's copy (pymobiledevice3, best effort; ddi.py)
 #   4. runs xcodebuild with -allowProvisioningUpdates  (this IS the "Test" click)
-#   5. streams every line back to the page, live
+#   5. streams every line back to the app, live
 #
 # Not handled here (one-time, already done, lives outside the project file):
 #   Apple ID signed into Xcode, phone trusted, Developer Mode on.
@@ -37,7 +37,6 @@ import signal
 import tempfile
 import threading
 import subprocess
-import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -111,18 +110,6 @@ except ImportError:                             # standalone: python .../setup.p
 # Not SCRIPT_DIR: build products in a TCC-guarded folder (~/Desktop and friends)
 # make macOS prompt mid-build. See build_paths.
 DERIVED    = wda_build_root() / DERIVED_NAME
-
-# The UI can live either right next to setup.py (index.html) or in an html/ folder.
-# Prefer whichever exists so the layout is forgiving.
-def _find_index_html():
-    for candidate in (SCRIPT_DIR / "index.html", SCRIPT_DIR / "html" / "index.html"):
-        if candidate.exists():
-            return candidate
-    # default target if neither exists yet -- keeps the error message sensible
-    return SCRIPT_DIR / "index.html"
-
-INDEX_HTML = _find_index_html()
-
 
 def pymobiledevice3_path():
     """Resolve the pymobiledevice3 CLI. Prefer the copy sitting next to the
@@ -785,7 +772,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
-        if path in ("/", "/index.html"):
+        if path == "/":
             return self.route_index()
         if path == "/detect":
             return self.route_detect()
@@ -808,12 +795,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def route_index(self):
-        try:
-            body = INDEX_HTML.read_bytes()
-        except OSError:
-            body = b"<h1>index.html not found</h1><p>Put index.html next to setup.py (or inside an html/ folder).</p>"
+        # No page here: the app's Settings → Connect Device panel is the UI.
+        body = ("AutoCua WDA setup backend. "
+                "Pair your iPhone from Settings → Connect Device in the app.\n").encode("utf-8")
         self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -1105,13 +1091,6 @@ def main():
         # command (utils/wda.py). See THIRD_PARTY_NOTICES.md.
         print(f"  {_wda().wda_message()}")
     srv = Server(("127.0.0.1", PORT), Handler)
-    # When the desktop app embeds this UI in an iframe (AutoCua_EMBED=1) we don't
-    # want a stray browser tab — the app loads http://localhost:PORT itself.
-    if not os.environ.get("AutoCua_EMBED"):
-        try:
-            webbrowser.open(f"http://localhost:{PORT}")
-        except Exception:
-            pass
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
