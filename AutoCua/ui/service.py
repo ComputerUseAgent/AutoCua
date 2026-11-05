@@ -29,6 +29,7 @@ import platform
 import importlib
 import importlib.util
 import threading
+from AutoCua.utils.errors import error_text
 import queue
 import time
 import shutil
@@ -1624,7 +1625,7 @@ def api_android_detect():
         return jsonify({"ok": True, "devices": phones()})
     except Exception as e:
         debug_exception("api_android_detect")
-        return jsonify({"ok": False, "devices": [], "error": str(e)})
+        return jsonify({"ok": False, "devices": [], "error": error_text(e)})
 
 
 @app.route('/api/android/install-adb', methods=['POST'])
@@ -2627,7 +2628,7 @@ def _start_agent_run(data, via=None, hooks=None):
 
     except Exception as e:
         debug_exception("start_agent API")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': error_text(e)}), 500
 
 
 def start_run_from_telegram(task, provider, model, session_id=None, text_callback=None, cli_callback=None,
@@ -3214,7 +3215,7 @@ def start_shell():
 
     except Exception as e:
         debug_exception("start_shell API")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': error_text(e)}), 500
 
 
 # One Sandbox for the hand-typed terminal, kept for the life of the app so its
@@ -3435,7 +3436,7 @@ class _ManualTerminal:
                 bufsize=0, **kwargs
             )
         except Exception as e:
-            return False, str(e)
+            return False, error_text(e)
 
         # one record per command: everything the user saw, plus how it ended —
         # harvested into <manual_mode> for the next agent run. The reader and
@@ -3543,7 +3544,7 @@ def shell_cwd():
         return jsonify({'cwd': cwd, 'short': _short_cwd(cwd)})
     except Exception as e:
         debug_exception('shell_cwd API')
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': error_text(e)}), 500
 
 
 @app.route('/api/shell-exec', methods=['POST'])
@@ -3607,7 +3608,7 @@ def shell_exec():
 
     except Exception as e:
         debug_exception('shell_exec API')
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': error_text(e)}), 500
 
 
 @app.route('/api/shell-kill', methods=['POST'])
@@ -3620,7 +3621,7 @@ def shell_kill():
         return jsonify({'status': 'killed' if killed else 'idle'})
     except Exception as e:
         debug_exception('shell_kill API')
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': error_text(e)}), 500
 
 
 @app.route('/api/stop-agent', methods=['POST'])

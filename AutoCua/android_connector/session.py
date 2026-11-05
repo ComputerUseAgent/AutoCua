@@ -47,6 +47,7 @@ import time
 from AutoCua.android_connector.adb import (HINTS, NO_PERMISSIONS, _adb, _emulator, _wireless, adb_path, connect,
                                            devices, wifi_addresses, wifi_connect)
 from AutoCua.android_connector.stream import Stream, _recv
+from AutoCua.utils.errors import error_text
 
 # Picks one phone when several are plugged in (adb's serial). Unset: the one
 # USB phone.
@@ -275,7 +276,7 @@ class AndroidSession:
                 model = _adb(adb, "-s", found, "shell", "getprop", "ro.product.model").stdout.strip()
                 stream = Stream.start(adb, found)
             except Exception as e:  # noqa: BLE001 - reported, not raised, like wda_session
-                return {"ok": False, "state": "error", "error": str(e)}
+                return {"ok": False, "state": "error", "error": error_text(e)}
             self.adb, self.serial, self.phone, self.model, self.stream = adb, found, phone, model or found, stream
             return self._info()
 
@@ -302,7 +303,7 @@ class AndroidSession:
             try:
                 plugged = {p["serial"]: p for p in phones()}
             except Exception as e:  # noqa: BLE001 - reported, like activate
-                return {"ok": False, "state": "error", "error": str(e)}
+                return {"ok": False, "state": "error", "error": error_text(e)}
             phone = None if link == "wireless" else next((d for d in saved if d["serial"] in plugged), None)
             if phone is None:
                 if link == "wired":
@@ -312,7 +313,7 @@ class AndroidSession:
                 try:
                     on_wifi = wifi_saved(adb_path())
                 except Exception as e:  # noqa: BLE001 - reported, like activate
-                    return {"ok": False, "state": "error", "error": str(e)}
+                    return {"ok": False, "state": "error", "error": error_text(e)}
                 phone = next((d for d in saved if d["serial"] == on_wifi), None)
                 if phone is None and link == "wireless":
                     return {"ok": False, "state": "error", "error": f"{saved[0]['name']} is not on Wi-Fi",
@@ -344,10 +345,11 @@ class AndroidSession:
             _read_tree(res["tree_port"])
         except Exception as e:  # noqa: BLE001 - reported, like activate
             self.deactivate()
-            hint = ("Wake the phone and unlock it, then try again." if "no active window" in str(e)
+            why = error_text(e)
+            hint = ("Wake the phone and unlock it, then try again." if "no active window" in why
                     else "Close anything else that reads the phone's screen (another AutoCua, "
                          "Appium), then try again.")
-            return {"ok": False, "state": "error", "error": f"The phone helper did not read the screen: {e}",
+            return {"ok": False, "state": "error", "error": f"The phone helper did not read the screen: {why}",
                     "hint": hint}
         if not keep:
             self.deactivate()
