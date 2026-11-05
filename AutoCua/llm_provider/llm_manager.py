@@ -22,6 +22,7 @@ _PROVIDER_CLASSES = {
     "together": "TogetherProvider",
     "cerebras": "CerebrasProvider",
     "requesty": "RequestyProvider",
+    "opper": "OpperProvider",
     "aws": "AWSProvider",
 }
 
@@ -485,6 +486,14 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
         if not api_key:
             raise ValueError("Requesty API key not provided, not in .env, and not saved in the app's Settings")
         return _provider_class("requesty")(api_key, cli_agent, model_info,
+                                tools=tools,
+                                max_tokens=max_tokens)
+    elif provider == "opper":
+        # Priority: Runtime key > .env fallback
+        api_key = _key(api_key, 'OPPER_API_KEY')
+        if not api_key:
+            raise ValueError("Opper API key not provided, not in .env, and not saved in the app's Settings")
+        return _provider_class("opper")(api_key, cli_agent, model_info,
                                 tools=tools,
                                 max_tokens=max_tokens)
     elif provider == "aws":

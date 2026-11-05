@@ -73,6 +73,7 @@ _TLS_PROBE_URLS = {
     "together": "https://api.together.xyz/",
     "cerebras": "https://api.cerebras.ai/",
     "requesty": "https://router.requesty.ai/",
+    "opper": "https://api.opper.ai/",
 }
 
 

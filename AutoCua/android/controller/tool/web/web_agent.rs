@@ -1,6 +1,6 @@
 //! web_agent.py: the browser-agent fallback for the `web` tool. Providers
-//! with no native web-search API (together, cerebras, requesty, aws) still
-//! have to honour the `web` action, so the query goes to the browser agent
+//! with no native web-search API (together, cerebras, requesty, opper, aws)
+//! still have to honour the `web` action, so the query goes to the browser agent
 //! (AutoCua/web, the Rust/CDP Chrome driver) running on the SAME provider
 //! and model; its `done` summary is the web result. The task text below is
 //! what turns that summary into a proper report rather than a one-line
@@ -35,10 +35,11 @@ const SHORT_REPORT_CHARS: usize = 200;
 /// The runtime (frontend) key reaches the browser agent through its env: the
 /// web agent's __main__ has no --api_key flag, and its .env loader never
 /// overrides a var that is already set.
-const PROVIDER_ENV_KEY: [(&str, &str); 4] = [
+const PROVIDER_ENV_KEY: [(&str, &str); 5] = [
     ("together", "TOGETHER_API_KEY"),
     ("cerebras", "CEREBRAS_API_KEY"),
     ("requesty", "REQUESTY_API_KEY"),
+    ("opper", "OPPER_API_KEY"),
     ("aws", "AWS_API_KEY"),
 ];
 

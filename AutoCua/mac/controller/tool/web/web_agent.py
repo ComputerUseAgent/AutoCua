@@ -48,7 +48,8 @@ _POLL_SEC = 0.5
 # __main__ has no --api_key flag, and its .env loader never overrides a var
 # that is already set.
 _PROVIDER_ENV_KEY = {"together": "TOGETHER_API_KEY", "cerebras": "CEREBRAS_API_KEY",
-                     "requesty": "REQUESTY_API_KEY", "aws": "AWS_API_KEY"}
+                     "requesty": "REQUESTY_API_KEY", "opper": "OPPER_API_KEY",
+                     "aws": "AWS_API_KEY"}
 # A `done` value shorter than this is almost certainly an activity log, not
 # the answer — top it up with what the agent recorded along the way.
 _SHORT_REPORT_CHARS = 200

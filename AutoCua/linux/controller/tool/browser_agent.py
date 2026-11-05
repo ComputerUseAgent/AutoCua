@@ -65,6 +65,7 @@ _PROVIDER_ENV_KEY = {
     "together": "TOGETHER_API_KEY",
     "cerebras": "CEREBRAS_API_KEY",
     "requesty": "REQUESTY_API_KEY",
+    "opper": "OPPER_API_KEY",
     "aws": "AWS_API_KEY",
 }
 # A `done` value shorter than this is almost certainly an activity log, so it

@@ -17,7 +17,7 @@ def _web_search(provider: str):
 # Providers with no native web-search API: the query goes to the browser
 # agent on the same provider+model instead (see web_agent.py). Explicit
 # membership, not a catch-all - a typo'd provider must still fail fast below.
-_BROWSER_FALLBACK_PROVIDERS = frozenset({"together", "cerebras", "requesty", "aws"})
+_BROWSER_FALLBACK_PROVIDERS = frozenset({"together", "cerebras", "requesty", "opper", "aws"})
 
 
 class WebService:
