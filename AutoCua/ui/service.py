@@ -1499,10 +1499,10 @@ def api_app_quit():
 
 
 # =============================================================================
-# Flask route — iOS setup UI (Settings → Connect Device → iPhone)
+# Flask route — iOS setup backend (Settings → Connect Device → iPhone)
 # Runs the existing ios_connector/setup.py server (the full sign/build/install/
-# trust tool with Add Apple Account, team + device select, build console) and
-# hands its URL to the frontend, which shows setup.py's index.html in an iframe.
+# trust tool with Add Apple Account, team + device select, live build stream) and
+# hands its URL to the frontend, whose Connect Device panel talks to it directly.
 # We do NOT reimplement any of that flow.
 # =============================================================================
 @app.route('/api/ios/setup-server', methods=['POST'])
