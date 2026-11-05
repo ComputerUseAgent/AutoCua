@@ -17,6 +17,7 @@ import threading
 import urllib.request
 
 from flask import Blueprint, jsonify
+from AutoCua.utils.errors import error_text
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ def telegram_connect():
         return jsonify({"status": "started"})
     except Exception as e:
         logger.exception("telegram_connect failed")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": error_text(e)}), 500
 
 
 @telegram_bp.route("/api/telegram/disconnect", methods=["POST"])
