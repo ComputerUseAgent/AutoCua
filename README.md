@@ -1246,9 +1246,8 @@ sudo xcodebuild -runFirstLaunch       # run this yourself if Xcode still targets
 > `xcodebuild -showdestinations` listing `platform:iOS Simulator` entries.
 
 **A physical iPhone or iPad** additionally needs an Apple ID in Xcode and a one-time signing
-and pairing pass, from Settings, Connect Device in the app, or standalone with
-`python AutoCua/ios_connector/setup.py`. The app rewrites the Xcode targets to automatic
-signing for you, opens Xcode on the Accounts pane, and streams the build live.
+and pairing pass from Settings, Connect Device in the app. The app rewrites the Xcode targets
+to automatic signing for you, opens Xcode on the Accounts pane, and streams the build live.
 
 > A free Apple ID works, but its provisioning profiles expire after 7 days, so you re-sign
 > weekly. A paid developer account lasts a year.
