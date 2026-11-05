@@ -37,6 +37,7 @@ import subprocess
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from AutoCua.utils.errors import error_text
 from pathlib import Path
 
 WDA_BUNDLE_ID = "com.AutoCua.WebDriverAgentRunner.xctrunner"
@@ -879,7 +880,7 @@ class WDASession:
                 self._start_watchdog()
             except Exception as e:
                 self._stop_locked()
-                return {"ok": False, "state": "error", "error": str(e)}
+                return {"ok": False, "state": "error", "error": error_text(e)}
         return {"ok": True, "state": "connecting", "udid": udid, "timing": timing}
 
     def status(self):
@@ -1077,7 +1078,7 @@ class WDASession:
             self._xctest = _XcodeRun(udid, log, self._forward.set_target)
         except Exception as e:  # noqa: BLE001 - reported, like the cable start
             self._stop_locked()
-            return {"ok": False, "state": "error", "error": str(e)}
+            return {"ok": False, "state": "error", "error": error_text(e)}
         return {"ok": True, "state": "connecting", "udid": udid}
 
     def _stop_locked(self):
