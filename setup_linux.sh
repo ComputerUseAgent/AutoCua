@@ -31,6 +31,11 @@ MIN_PYTHON="3.10"
 # publishes wheels up to CPython 3.14 today; raise this when it moves on.
 MAX_PYTHON="3.15"
 PYTHON_SPEC=">=$MIN_PYTHON,<$MAX_PYTHON"
+# The newest Python in range, named when none is found.
+LAST_PYTHON="3.14"
+# uv never downloads a Python here, in any command: the distro's own python3
+# is the one AutoCua runs on (step 2 says what to install when none fits).
+export UV_PYTHON_DOWNLOADS=never
 
 # .venv/ is the name uv looks for by default, so `uv pip install`, `uv run` and
 # `uv sync` all find it with no --python flag. VENV_PROMPT, passed to
@@ -187,10 +192,11 @@ fi
 # -----------------------------------------------------------------------------
 # Step 1 — uv
 # -----------------------------------------------------------------------------
-# uv resolves an existing Python or downloads one itself, and replaces pip for
-# the install in step 3 (same PyPI packages, much faster, whole tree resolved
-# at once). It also sidesteps python3-venv/ensurepip, which Debian and Ubuntu
-# leave out of the default install — `python3 -m venv` fails on a fresh box.
+# uv finds the distro's Python (it never downloads one, see UV_PYTHON_DOWNLOADS
+# above) and replaces pip for the install in step 3 (same PyPI packages, much
+# faster, whole tree resolved at once). It also sidesteps python3-venv and
+# ensurepip, which Debian and Ubuntu leave out of the default install, so
+# `python3 -m venv` fails on a fresh box.
 print_step "STEP 1: Checking for uv"
 
 # Make sure the standard uv install locations are visible to this shell, in
@@ -248,21 +254,19 @@ fi
 if [ ! -x "$VENV_DIR/bin/python" ]; then
     # The venv MUST be built on the distro's Python. The AT-SPI bindings come
     # from the distro's python3-gi, and element.py locates that copy from
-    # inside the venv only when the interpreter's ABI matches. A uv-downloaded
+    # inside the venv only when the interpreter's ABI matches. A downloaded
     # Python would leave the scanner and controller without AT-SPI. So
-    # --no-managed-python first, and a managed Python only as a last resort,
-    # with the consequence spelled out.
+    # --no-managed-python only: with no distro Python in range, the script
+    # says what to install and stops.
     if uv venv --no-managed-python --python "$PYTHON_SPEC" --prompt "$VENV_PROMPT" "$VENV_DIR" 2>/dev/null; then
         print_ok "Created $VENV_DIR/ on the Python already installed on this machine"
     else
-        print_info "No distro Python $PYTHON_SPEC found — letting uv fetch one"
-        print_info "NOTE: computer use needs the distro Python (AT-SPI bindings)."
-        print_info "      Install python3 $PYTHON_SPEC from your distro and re-run for that."
-        if ! uv venv --python "$PYTHON_SPEC" --prompt "$VENV_PROMPT" "$VENV_DIR"; then
-            print_error "Could not create a virtual environment."
-            exit 1
-        fi
-        print_ok "Created $VENV_DIR/ with a uv-managed Python"
+        print_error "No Python $MIN_PYTHON to $LAST_PYTHON found on this machine."
+        print_info  "Install python3 ($MIN_PYTHON to $LAST_PYTHON) from your distro, for example:"
+        printf "    sudo apt install python3      # or dnf, pacman, zypper\n"
+        print_info  "then run this script again. Computer use needs the distro's own Python"
+        print_info  "(the AT-SPI bindings), so this script never downloads one."
+        exit 1
     fi
 fi
 

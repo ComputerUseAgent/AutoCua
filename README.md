@@ -173,7 +173,7 @@ which come from your distro.
 | **Android emulator** — Google's | **Downloaded on the first emulator run, after you accept Google's SDK terms on the terminal**: Google's emulator and the Android version it needs, about 2.5 GB, into a per-user folder. An Android Studio SDK that already has both is used instead. Needs the computer's hypervisor ([below](#android-optional)). |
 | **Android agent** — Rust | Ships **prebuilt** in the same three wheels as the browser agent. On any other platform the source distribution carries its sources, and it builds on the first Android run, about a minute, once, which needs [Rust](https://rustup.rs) and a C compiler. |
 | **Electron** — the desktop app's Chromium window | **Downloaded only if you say yes.** The first `ui=True` launch from a terminal asks (120 to 160 MB, once) on macOS 13+, Windows 10+ and Linux, except stock Ubuntu 23.10+ ([below](#the-desktop-app)); without it the app opens in pywebview. `python -m AutoCua.utils.electron` fetches it any time. No Node.js needed. |
-| **Interception** — Windows UAC | **Not installed by pip.** One manual step, once — below. |
+| **Interception** — Windows UAC | **Not installed by pip or by the setup script.** Add it yourself if you want it, [below](#answering-uac-prompts-on-windows). |
 | **AT-SPI, GTK and the desktop portal** — Linux | **Not installed by pip.** One `apt` line, once — [below](#linux-from-pip). |
 
 ### Answering UAC prompts on Windows
@@ -187,16 +187,23 @@ never executed, pip does not run elevated, and the driver binds its input slots 
 loads **at boot**. Without it **every mode still works** — you simply lose UAC handling, and a
 task that hits an elevation prompt stops there.
 
-To enable it, pick one:
+AutoCua does not download or install it. To enable it, do this yourself, once, in a terminal
+opened as Administrator:
 
-```bat
-setup_windows.bat
-```
+1. Download the release from its author,
+   [github.com/oblitum/Interception/releases](https://github.com/oblitum/Interception/releases)
+   (AutoCua is tested with `v1.0.1`), and unzip it.
+2. Install it: `"command line installer\install-interception.exe" /install`
+3. Bind it to your **built-in keyboard and mouse only**, so external keyboards are never
+   filtered. From a checkout:
 
-from a checkout — it asks first (answer N and nothing is downloaded or installed), then downloads
-the pinned release, verifies its SHA-256, installs it, binds it to your **built-in keyboard only**
-so external keyboards are never filtered, and asks before rebooting. Or install Interception
-yourself from its own release page and reboot.
+   ```bat
+   powershell -ExecutionPolicy Bypass -File AutoCua\windows\controller\tool\interception_toggle.ps1 -Action bind
+   ```
+
+   A pip install has the same script inside the installed `AutoCua` package. `-Action unbind`
+   removes the binding again.
+4. Reboot. The driver binds its input slots only when it loads at boot.
 
 > It is never bundled because it is dual-licensed **LGPL-3.0 non-commercial / paid commercial**.
 > Shipping it inside the wheel would make this project its distributor to every person who runs
@@ -267,7 +274,7 @@ git clone https://github.com/AutoCua/AutoCua.git
 cd AutoCua
 
 bash setup_mac.sh            # macOS
-setup_windows.bat            # Windows, self-elevates, asks before installing the kernel driver
+setup_windows.bat            # Windows
 
 cp .env.example .env         # add your provider key
 python main.py
@@ -752,15 +759,13 @@ AutoCua turns that failure into the detector, then answers from kernel space.
 The driver is also the fallback whenever User Interface Privilege Isolation blocks ordinary
 input, for example when driving Windows Security.
 
-**How it is installed.** `setup_windows.bat` asks first — answer N and nothing is downloaded or
-installed. On Y it downloads the author's own signed v1.0.1 release, verifies it against a
-**pinned SHA-256** and aborts rather than run an unverified kernel installer. It then binds the
-driver to the **built-in** keyboard and mouse only, at the device
-level. That detail matters. The driver has ten keyboard slots that are never freed, so the
-older class-wide binding burned one on every wireless-keyboard reconnect and eventually left
-keyboards dead until reboot. Device-level binding takes exactly one slot at boot and never
-filters another keyboard. If the bind fails, setup strips every filter rather than reboot into
-a configuration that could kill your keyboard.
+**How it is installed.** You install it yourself, from its author
+([steps](#answering-uac-prompts-on-windows)). AutoCua never downloads it, and
+`setup_windows.bat` only reminds you that it exists. The bind step puts the driver on the
+**built-in** keyboard and mouse only, at the device level. That detail matters. The driver has
+ten keyboard slots that are never freed, so the installer's own class-wide binding burns one on
+every wireless-keyboard reconnect and eventually leaves keyboards dead until reboot.
+Device-level binding takes exactly one slot at boot and never filters another keyboard.
 
 Without the driver everything still works except three things: answering a UAC prompt, a click
 that User Interface Privilege Isolation blocked, and typing into Windows Security.
@@ -1134,8 +1139,10 @@ cp .env.example .env
 python main.py
 ```
 
-The script installs [uv](https://astral.sh/uv), creates a virtualenv and installs the platform
-requirements. It then installs a Rust toolchain if you don't have one and precompiles the
+The script installs [uv](https://astral.sh/uv), creates a virtualenv on the Python already on
+your Mac and installs the platform requirements. It never downloads Python: without Python 3.10
+to 3.13 it opens python.org's download page and stops, so you install one and run it again. It
+then installs a Rust toolchain if you don't have one and precompiles the
 browser agent, so `"web use"` works on the first run instead of stopping with "cargo not
 found". It needs no `sudo` and does not reboot.
 
@@ -1161,11 +1168,12 @@ copy .env.example .env
 python main.py
 ```
 
-Setup self-elevates, installs uv and a Rust toolchain with mingw-w64 so you do not need Visual
-Studio, precompiles the browser agent, then asks Y/N before the Interception driver. On Y it
-downloads it, verifies its checksum, binds it to your built-in keyboard and mouse, and asks
-before rebooting. On N it skips the driver and changes nothing else.
-Python 3.11 to 3.13 is what it asks uv for.
+Setup installs uv and a Rust toolchain with mingw-w64 so you do not need Visual Studio, and
+precompiles the browser agent. It needs no Administrator rights, installs no driver and never
+reboots. It needs Python 3.11 to 3.13 already installed: without one it opens python.org's
+download page and stops, so you install Python and run it again. At the end it reminds you that
+answering UAC prompts needs the Interception driver, which you add yourself
+([how](#answering-uac-prompts-on-windows)).
 
 ### Linux
 
@@ -1178,7 +1186,8 @@ python main.py
 
 The script installs the distro packages with `sudo` (the AT-SPI and GTK introspection bindings
 the scanner and controller read the desktop through, a C compiler and curl), then
-[uv](https://astral.sh/uv), a virtualenv on your distro's Python and the Linux requirements. It
+[uv](https://astral.sh/uv), a virtualenv on your distro's Python and the Linux requirements. With no distro
+Python 3.10 to 3.14 it says which package to install and stops; it never downloads Python. It
 then installs a Rust toolchain if you don't have one and precompiles the browser agent, so
 `"web use"` works on the first run instead of stopping with "cargo not found". Only the package
 step needs `sudo`; it does not reboot. Debian and Ubuntu use `apt`; Fedora, Arch and openSUSE
@@ -1463,7 +1472,7 @@ details in [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main
 | Component | How it reaches you | Licence |
 |---|---|---|
 | **WebDriverAgent**, by Facebook, Inc. and the [Appium](https://github.com/appium/WebDriverAgent) project | Never downloaded by AutoCua: you clone it at pinned tag `v15.1.1` into `AutoCua_data/WebDriverAgent`, with the command the terminal and the app show while it is missing | BSD 3-Clause, some files Apache 2.0 |
-| **Interception**, a Windows kernel input driver by [Francisco Lopes da Silva](https://github.com/oblitum/Interception) | `setup_windows.bat` downloads the author's signed `v1.0.1` release and verifies its SHA-256 | **Dual:** LGPL v3.0 non-commercial. **Commercial use needs a paid licence from the author** |
+| **Interception**, a Windows kernel input driver by [Francisco Lopes da Silva](https://github.com/oblitum/Interception) | Never downloaded by AutoCua: you install the author's release yourself if you want UAC handling ([steps](#answering-uac-prompts-on-windows)) | **Dual:** LGPL v3.0 non-commercial. **Commercial use needs a paid licence from the author** |
 | **PP-OCRv6** text detection and recognition models, by [PaddlePaddle](https://huggingface.co/PaddlePaddle) | `AutoCua/utils/ocr_models.py` downloads the two ONNX models from the author's Hugging Face repositories at pinned commits, SHA-256 verified, the first time a Linux scan needs them | Apache 2.0 |
 | **Electron**, by the [Electron](https://github.com/electron/electron) project (OpenJS Foundation) | `AutoCua/utils/electron.py` downloads the official `v44.7.0` release zip for your OS, SHA-256 verified, into a per-user cache, only after you say yes at the first `ui=True` launch (or run `python -m AutoCua.utils.electron`); a checkout's `npm install` in `AutoCua/desktop` works too | MIT; the Chromium and Node.js it bundles keep their own licences |
 | **Android SDK Platform-Tools** (adb), by Google | `AutoCua/android_connector/adb.py` downloads the pinned `r37.0.1` zip for your OS from Google, size and SHA-256 verified, after your yes in the setup scripts or the first time an Android phone is used, unless an `adb` is already on your PATH. Not shipped in this repo | Google's Android SDK terms; adb itself is open source, Apache 2.0 |

@@ -30,25 +30,22 @@ iPhone / iPad step the person said yes to (§19).
 
 ---
 
-## 1. Interception — **not redistributed; fetched at setup time**
+## 1. Interception — **not redistributed; never downloaded by AutoCua**
 
 | | |
 |---|---|
 | **Author** | Francisco Lopes da Silva ("oblitum") |
 | **Upstream** | https://github.com/oblitum/Interception |
-| **How it reaches you** | **Not vendored in this repository.** `setup_windows.bat` downloads the author's own GitHub release directly to the user's machine. |
-| **Pinned version** | `v1.0.1` — asset `Interception.zip` |
-| **SHA-256** | `ad038963d6413055765128b0b931f6e765147c9916dba79e65d872b261f9af10` — verified before the installer is executed; setup aborts on mismatch |
+| **How it reaches you** | **Not vendored in this repository, and never downloaded or installed by AutoCua.** Users who want UAC handling install the author's own GitHub release themselves (README.md, "Answering UAC prompts on Windows"). `setup_windows.bat` only prints a reminder. |
+| **Tested version** | `v1.0.1`, asset `Interception.zip` |
+| **SHA-256** | `ad038963d6413055765128b0b931f6e765147c9916dba79e65d872b261f9af10` for that asset, to check a download yourself |
 | **License** | **Dual-licensed.** Non-commercial use: LGPL v3.0. Commercial use: requires a **separate paid commercial license** obtained from the author. Both texts ship inside the downloaded archive under `licenses/`. |
 
 **This project does not redistribute Interception.** No Interception binary,
 library, header, or installer is committed to this repository, and none is
-included in the published wheel or source distribution. `setup_windows.bat`
-downloads it to the user's own machine only after the user explicitly answers
-**Y** to an install prompt (answering **N** skips it entirely), and the
-downloaded contents are gitignored. Users obtain the driver from its author, over
-TLS, from the author's own release URL, with the archive's checksum verified
-before anything is executed.
+included in the published wheel or source distribution. AutoCua never downloads
+or installs it either: users who want it get the driver from its author's own
+release page and install it themselves.
 
 **Important — this is a carve-out from AutoCua's MIT license.**
 
@@ -63,9 +60,9 @@ to you.
 **What it does.** Interception is a Windows kernel-mode keyboard/mouse filter
 driver. AutoCua uses it for one purpose only: Windows' user-mode `SendInput`
 API cannot deliver input to the UAC secure desktop, so responding to a UAC
-elevation prompt requires kernel-mode input. `setup_windows.bat` documents the
-registry changes the driver makes, and `interception_toggle.ps1 -Action unbind`
-removes them.
+elevation prompt requires kernel-mode input. `interception_toggle.ps1 -Action bind`
+moves the driver's registry filter from the whole keyboard class to the built-in
+keyboard and mouse, and `-Action unbind` removes it.
 
 Because it is a signed kernel input filter driver, some antivirus and EDR
 products classify Interception under generic "HackTool" / "keyboard filter"
@@ -346,15 +343,15 @@ AutoCua's MIT license. AutoCua does not redistribute them.
 
 ---
 
-## 14. uv, and the Python it may download — **not redistributed; installed by the setup scripts when missing**
+## 14. uv — **not redistributed; installed by the setup scripts when missing**
 
 | | |
 |---|---|
-| **Authors** | Astral Software Inc. (uv, and the python-build-standalone builds of Python); the Python Software Foundation (CPython) |
-| **Upstream** | https://astral.sh/uv (installer scripts `install.ps1` and `install.sh`; winget's `astral-sh.uv` as the Windows fallback); Python builds from https://github.com/astral-sh/python-build-standalone, chosen by uv. Neither is pinned. |
-| **How it reaches you** | **Not vendored in this repository or in the wheel.** Each setup script installs uv when it is missing, without asking. `setup_windows.bat` runs `irm https://astral.sh/uv/install.ps1 \| iex`, and if that fails, `winget install --id=astral-sh.uv -e --accept-source-agreements --accept-package-agreements`. `setup_mac.sh` and `setup_linux.sh` run `https://astral.sh/uv/install.sh`. uv then creates the venv and prefers a Python already on the machine (`--no-managed-python`). Only when none fits does it download a standalone CPython build, which becomes the Python AutoCua runs on. |
-| **License** | uv: MIT OR Apache-2.0. Python: the PSF License Agreement (PSF-2.0), plus the licenses of the libraries it bundles, all in the `LICENSE.txt` inside the downloaded Python. |
-| **Used by** | Setup (uv); AutoCua itself, when uv had to download its Python. |
+| **Authors** | Astral Software Inc. |
+| **Upstream** | https://astral.sh/uv (installer scripts `install.ps1` and `install.sh`; winget's `astral-sh.uv` as the Windows fallback). Not pinned. |
+| **How it reaches you** | **Not vendored in this repository or in the wheel.** Each setup script installs uv when it is missing, without asking. `setup_windows.bat` runs `irm https://astral.sh/uv/install.ps1 \| iex`, and if that fails, `winget install --id=astral-sh.uv -e --accept-source-agreements --accept-package-agreements`. `setup_mac.sh` and `setup_linux.sh` run `https://astral.sh/uv/install.sh`. uv then creates the venv on a Python already on the machine (`--no-managed-python`, with `UV_PYTHON_DOWNLOADS=never`); it never downloads one. With none in range, `setup_mac.sh` and `setup_windows.bat` open python.org's download page and stop, and `setup_linux.sh` names the distro package to install. |
+| **License** | MIT OR Apache-2.0. |
+| **Used by** | Setup. |
 
 uv and Python remain under their own licenses and are not covered by AutoCua's
 MIT license. AutoCua does not redistribute them.
