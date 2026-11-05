@@ -192,17 +192,23 @@ opened as Administrator:
 
 1. Download the release from its author,
    [github.com/oblitum/Interception/releases](https://github.com/oblitum/Interception/releases)
-   (AutoCua is tested with `v1.0.1`), and unzip it.
-2. Install it: `"command line installer\install-interception.exe" /install`
-3. Bind it to your **built-in keyboard and mouse only**, so external keyboards are never
-   filtered. From a checkout:
+   (AutoCua is tested with `v1.0.1`). Check it before running anything:
+   `certutil -hashfile Interception.zip SHA256` must print the SHA-256 listed in
+   [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
+   Then unzip it.
+2. From inside the unzipped folder, install it:
+   `"command line installer\install-interception.exe" /install`
+3. From the checkout's top folder, bind it to your **built-in keyboard and mouse only**, so
+   external keyboards are never filtered:
 
    ```bat
    powershell -ExecutionPolicy Bypass -File AutoCua\windows\controller\tool\interception_toggle.ps1 -Action bind
    ```
 
-   A pip install has the same script inside the installed `AutoCua` package. `-Action unbind`
-   removes the binding again.
+   It prints one line. If that line does not say `"ok":true`, **do not reboot**: run the same
+   command with `-Action unbind`, which removes every filter, and fix the cause first (most
+   often a terminal not opened as Administrator). A pip install has the same script inside the
+   installed `AutoCua` package.
 4. Reboot. The driver binds its input slots only when it loads at boot.
 
 > It is never bundled because it is dual-licensed **LGPL-3.0 non-commercial / paid commercial**.
@@ -1124,7 +1130,8 @@ chosen model, and Perplexity Sonar.
 ## Requirements and setup
 
 - **macOS** on Apple Silicon or Intel, **Windows 10 and 11**, or **Linux** (GNOME; tested on Ubuntu with Wayland, X11 not tested yet)
-- **Python 3.10 or newer**
+- **Python 3.10 or newer**, installed by you. From a checkout the setup scripts need 3.10 to 3.13
+  on macOS, 3.11 to 3.13 on Windows and the distro's 3.10 to 3.14 on Linux, and never download one
 - An **API key** from any supported provider
 - *For the browser and Android agents from source* (a checkout; the wheels ship both prebuilt): **Rust** and a C toolchain — the setup scripts install these for you
 - *For the browser agent:* **Google Chrome**, installed by you ([google.com/chrome](https://www.google.com/chrome/)); AutoCua never downloads it
@@ -1186,9 +1193,9 @@ python main.py
 
 The script installs the distro packages with `sudo` (the AT-SPI and GTK introspection bindings
 the scanner and controller read the desktop through, a C compiler and curl), then
-[uv](https://astral.sh/uv), a virtualenv on your distro's Python and the Linux requirements. With no distro
-Python 3.10 to 3.14 it says which package to install and stops; it never downloads Python. It
-then installs a Rust toolchain if you don't have one and precompiles the browser agent, so
+[uv](https://astral.sh/uv), a virtualenv on your distro's Python and the Linux requirements.
+With no distro Python 3.10 to 3.14 it says which package to install and stops; it never
+downloads Python. It then installs a Rust toolchain if you don't have one and precompiles the browser agent, so
 `"web use"` works on the first run instead of stopping with "cargo not found". Only the package
 step needs `sudo`; it does not reboot. Debian and Ubuntu use `apt`; Fedora, Arch and openSUSE
 get the same packages through their own package managers. To install the toolchain yourself

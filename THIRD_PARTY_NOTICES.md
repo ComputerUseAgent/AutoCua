@@ -66,9 +66,8 @@ keyboard and mouse, and `-Action unbind` removes it.
 
 Because it is a signed kernel input filter driver, some antivirus and EDR
 products classify Interception under generic "HackTool" / "keyboard filter"
-heuristics. The binaries here are the author's own unmodified release, signed
-`CN=Francisco Lopes da Silva, C=BR`; verify the Authenticode signature before
-trusting them.
+heuristics. The author's release is signed `CN=Francisco Lopes da Silva, C=BR`;
+verify the Authenticode signature before trusting it.
 
 ---
 
@@ -349,12 +348,12 @@ AutoCua's MIT license. AutoCua does not redistribute them.
 |---|---|
 | **Authors** | Astral Software Inc. |
 | **Upstream** | https://astral.sh/uv (installer scripts `install.ps1` and `install.sh`; winget's `astral-sh.uv` as the Windows fallback). Not pinned. |
-| **How it reaches you** | **Not vendored in this repository or in the wheel.** Each setup script installs uv when it is missing, without asking. `setup_windows.bat` runs `irm https://astral.sh/uv/install.ps1 \| iex`, and if that fails, `winget install --id=astral-sh.uv -e --accept-source-agreements --accept-package-agreements`. `setup_mac.sh` and `setup_linux.sh` run `https://astral.sh/uv/install.sh`. uv then creates the venv on a Python already on the machine (`--no-managed-python`, with `UV_PYTHON_DOWNLOADS=never`); it never downloads one. With none in range, `setup_mac.sh` and `setup_windows.bat` open python.org's download page and stop, and `setup_linux.sh` names the distro package to install. |
+| **How it reaches you** | **Not vendored in this repository or in the wheel.** Each setup script installs uv when it is missing, without asking. `setup_windows.bat` runs `irm https://astral.sh/uv/install.ps1 \| iex`, and if that fails, `winget install --id=astral-sh.uv -e --accept-source-agreements --accept-package-agreements`. `setup_mac.sh` and `setup_linux.sh` run `https://astral.sh/uv/install.sh`. uv then creates the venv on a Python already on the machine (`UV_PYTHON_DOWNLOADS=never`; on Linux also `--no-managed-python`, so it is the distro's own); it never downloads one. With none in range, `setup_mac.sh` and `setup_windows.bat` open python.org's download page and stop, and `setup_linux.sh` names the distro package to install. |
 | **License** | MIT OR Apache-2.0. |
 | **Used by** | Setup. |
 
-uv and Python remain under their own licenses and are not covered by AutoCua's
-MIT license. AutoCua does not redistribute them.
+uv remains under its own license and is not covered by AutoCua's MIT license.
+AutoCua does not redistribute it.
 
 ---
 

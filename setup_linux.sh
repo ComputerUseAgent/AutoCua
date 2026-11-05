@@ -258,14 +258,29 @@ if [ ! -x "$VENV_DIR/bin/python" ]; then
     # Python would leave the scanner and controller without AT-SPI. So
     # --no-managed-python only: with no distro Python in range, the script
     # says what to install and stops.
-    if uv venv --no-managed-python --python "$PYTHON_SPEC" --prompt "$VENV_PROMPT" "$VENV_DIR" 2>/dev/null; then
+    if UV_OUT="$(uv venv --no-managed-python --python "$PYTHON_SPEC" --prompt "$VENV_PROMPT" "$VENV_DIR" 2>&1)"; then
         print_ok "Created $VENV_DIR/ on the Python already installed on this machine"
     else
-        print_error "No Python $MIN_PYTHON to $LAST_PYTHON found on this machine."
-        print_info  "Install python3 ($MIN_PYTHON to $LAST_PYTHON) from your distro, for example:"
-        printf "    sudo apt install python3      # or dnf, pacman, zypper\n"
-        print_info  "then run this script again. Computer use needs the distro's own Python"
-        print_info  "(the AT-SPI bindings), so this script never downloads one."
+        printf '%s\n' "$UV_OUT"
+        case "$UV_OUT" in
+            *"No interpreter found"*|*"No Python interpreter"*)
+                print_error "No Python $MIN_PYTHON to $LAST_PYTHON found on this machine."
+                PY3_VER="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+                if [ -n "$PY3_VER" ]; then
+                    print_info "This machine's python3 is $PY3_VER."
+                fi
+                print_info  "Install python3 ($MIN_PYTHON to $LAST_PYTHON) from your distro, for example:"
+                printf "    sudo apt install python3      # or dnf, pacman, zypper\n"
+                print_info  "then run this script again. If your distro's python3 is older, a newer"
+                print_info  "distro release is needed. Computer use needs the distro's own Python"
+                print_info  "(the AT-SPI bindings), so this script never downloads one."
+                ;;
+            *)
+                print_error "Could not create $VENV_DIR/ (uv's message is above)."
+                print_info  "If uv does not know --no-managed-python, update uv (uv self update),"
+                print_info  "then run this script again."
+                ;;
+        esac
         exit 1
     fi
 fi

@@ -88,6 +88,9 @@ if defined UV_EXE goto :uv_ready
 echo.
 echo [i] Script installer did not work - trying winget...
 winget install --id=astral-sh.uv -e --accept-source-agreements --accept-package-agreements
+:: Without admin rights winget may not link uv.exe into its Links folder, so
+:: look in the package folder too (as for WinLibs in step 8).
+for /d %%D in ("%LOCALAPPDATA%\Microsoft\WinGet\Packages\astral-sh.uv_*") do if exist "%%~fD\uv.exe" set "PATH=%%~fD;!PATH!"
 
 for /f "usebackq delims=" %%p in (`where uv 2^>nul`) do if not defined UV_EXE set "UV_EXE=%%p"
 if defined UV_EXE goto :uv_ready
@@ -97,8 +100,8 @@ echo ============================================
 echo   [ERROR] Could not install uv
 echo ============================================
 echo.
-echo   uv is what fetches Python and the dependencies, so setup cannot
-echo   continue without it.
+echo   uv creates the Python environment and installs the dependencies, so
+echo   setup cannot continue without it.
 echo.
 echo   Check your internet connection and re-run this script, or install
 echo   uv yourself and re-run:
@@ -123,8 +126,8 @@ echo [OK] Using: !UV_EXE!
 :: ESET, Avast, BitDefender), or a corporate proxy (Zscaler, Netskope) - every
 :: download dies with "invalid peer certificate: UnknownIssuer" even though the
 :: browser and pip are perfectly happy. The intercepting root lives in the
-:: Windows store, so pointing uv at that store fixes it. This covers the Python
-:: download in step 5 as well as the package install in step 6.
+:: Windows store, so pointing uv at that store fixes it. This covers the pip
+:: seed in step 5 as well as the package install in step 6.
 ::
 :: The setting was renamed (UV_NATIVE_TLS -> UV_SYSTEM_CERTS); probe --help so an
 :: older uv that a user already has installed still gets the right one, and no
@@ -140,7 +143,7 @@ if !errorlevel! equ 0 (
 :: Exclusive upper bound, same reasoning as setup_mac.sh: pinned deps ship
 :: native wheels that lag the newest CPython, and requirements_windows.txt has
 :: a hard floor too (numpy 2.4 needs >= 3.11). 3.13 is what AutoCua is
-:: developed and shipped on, and it is what uv picks from this range.
+:: developed and shipped on, and the one the message below asks you to install.
 set "PYSPEC=>=3.11,<3.14"
 
 echo.
@@ -159,18 +162,29 @@ rmdir /s /q venv
 
 :venv_create
 echo [*] Creating venv\ ...
-:: Only a Python already installed on this machine (--no-managed-python). With
-:: none in PYSPEC, python.org's download page opens and the script stops: the
-:: person installs Python and runs it again. Nothing here downloads a Python.
+:: Only a Python already installed on this machine: UV_PYTHON_DOWNLOADS=never
+:: (top of the script) stops uv from fetching one. With none in PYSPEC,
+:: python.org's download page opens and the script stops: the person installs
+:: Python and runs it again. Any other failure shows uv's own reason instead.
 :: --seed puts pip inside the venv - uv itself never needs it, but the Nuitka
 :: build and any manual "venv\Scripts\python.exe -m pip install ..." do.
 :: --prompt auto-cua labels the activated shell "(auto-cua)" whatever this
 :: folder is called.
-uv venv --seed --no-managed-python --python "!PYSPEC!" --prompt auto-cua venv >nul 2>&1
+set "UV_LOG=%TEMP%\autocua-uv-venv.txt"
+uv venv --seed --python "!PYSPEC!" --prompt auto-cua venv > "%UV_LOG%" 2>&1
 
 if exist "venv\Scripts\python.exe" (
     echo [OK] venv created using a Python already on this machine
     goto :venv_ready
+)
+type "%UV_LOG%"
+findstr /c:"No interpreter found" /c:"No Python interpreter" "%UV_LOG%" >nul 2>&1
+if !errorlevel! neq 0 (
+    echo.
+    echo [ERROR] Could not create the virtual environment - uv's message is above.
+    echo         Fix that, then run setup_windows.bat again.
+    pause
+    exit /b 1
 )
 echo.
 echo ============================================
@@ -181,8 +195,9 @@ echo   AutoCua needs Python 3.11, 3.12 or 3.13. This script does not download
 echo   one. The download page is opening in your browser:
 echo       https://www.python.org/downloads/windows/
 echo.
-echo   Install Python 3.13 ^(64-bit^), tick "Add python.exe to PATH", then run
-echo   setup_windows.bat again.
+echo   Install the newest Python 3.13 that has a "Windows installer (64-bit)"
+echo   link. 3.14 and newer do not work yet. Tick "Add python.exe to PATH",
+echo   then run setup_windows.bat again.
 echo.
 start "" "https://www.python.org/downloads/windows/"
 pause
@@ -432,6 +447,5 @@ echo   Setup complete
 echo ============================================
 echo.
 
-:setup_end
 pause
 endlocal

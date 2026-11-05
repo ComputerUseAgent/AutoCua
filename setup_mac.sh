@@ -171,17 +171,28 @@ if [ -x "$VENV_DIR/bin/python" ]; then
 fi
 
 if [ ! -x "$VENV_DIR/bin/python" ]; then
-    # Only a Python already on this Mac (--no-managed-python). With none in
-    # range, python.org's download page opens and the script stops: the person
-    # installs Python and runs it again. Nothing here downloads a Python.
-    if uv venv --no-managed-python --python "$PYTHON_SPEC" --prompt "$VENV_PROMPT" "$VENV_DIR" 2>/dev/null; then
+    # Only a Python already on this Mac: UV_PYTHON_DOWNLOADS=never (above) stops
+    # uv from fetching one. With none in range, python.org's download page opens
+    # and the script stops: the person installs Python and runs it again. Any
+    # other failure shows uv's own reason instead.
+    if UV_OUT="$(uv venv --python "$PYTHON_SPEC" --prompt "$VENV_PROMPT" "$VENV_DIR" 2>&1)"; then
         print_ok "Created $VENV_DIR/ using a Python already installed on this Mac"
     else
-        print_error "No Python $MIN_PYTHON to $LAST_PYTHON found on this Mac."
-        print_info  "Opening the download page: $PYTHON_PAGE"
-        print_info  "Install Python $LAST_PYTHON from there, then run this script again."
-        open "$PYTHON_PAGE" >/dev/null 2>&1 || true
-        gui_alert "AutoCua needs Python $MIN_PYTHON to $LAST_PYTHON.\n\nThe download page is open in your browser. Install Python $LAST_PYTHON, then run this script again."
+        printf '%s\n' "$UV_OUT"
+        case "$UV_OUT" in
+            *"No interpreter found"*|*"No Python interpreter"*)
+                print_error "No Python $MIN_PYTHON to $LAST_PYTHON found on this Mac."
+                print_info  "Opening the download page: $PYTHON_PAGE"
+                print_info  "Install Python $LAST_PYTHON from there (3.14 and newer do not work yet),"
+                print_info  "then run this script again."
+                open "$PYTHON_PAGE" >/dev/null 2>&1 || true
+                gui_alert "AutoCua needs Python $MIN_PYTHON to $LAST_PYTHON.\n\nDownload page: $PYTHON_PAGE\n\nInstall Python $LAST_PYTHON, then run this script again."
+                ;;
+            *)
+                print_error "Could not create $VENV_DIR/ (uv's message is above)."
+                gui_alert "Could not create the Python environment.\n\nSee the Terminal for uv's message, then run this script again."
+                ;;
+        esac
         exit 1
     fi
 fi
