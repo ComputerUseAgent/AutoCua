@@ -27,6 +27,7 @@ if (typeof require('electron') === 'string') {
 
 const { app, BaseWindow, Menu, WebContentsView, nativeImage, nativeTheme, powerSaveBlocker, shell } = require('electron');
 const { spawn } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
@@ -75,9 +76,13 @@ function pythonExecutable() {
 // Start the backend. Resolves with the app's URL once it is serving.
 function startBackend() {
   return new Promise((resolve, reject) => {
+    // This run's token (ui/service.py _API_TOKEN): made here and handed to the
+    // backend in its environment, never through its stdout. Its READY line
+    // carries the app's URL without it; the token goes on that URL below.
+    const token = crypto.randomBytes(32).toString('base64url');
     const child = spawn(pythonExecutable(), ['-m', 'AutoCua.ui.service', '--desktop'], {
       cwd: ROOT,
-      env: { ...process.env, PYTHONUNBUFFERED: '1' },
+      env: { ...process.env, PYTHONUNBUFFERED: '1', AUTOCUA_API_TOKEN: token },
       stdio: ['pipe', 'pipe', 'inherit'],
     });
     backend = child;
@@ -86,7 +91,7 @@ function startBackend() {
       const match = /^AUTOCUA_DESKTOP_READY (\S+)$/.exec(line);
       if (match && !ready) {
         ready = true;
-        resolve(match[1]);
+        resolve(match[1] + '?token=' + token);
       } else {
         process.stdout.write(line + '\n');   // the backend's own prints stay visible
       }
@@ -117,8 +122,8 @@ function stopBackend() {
 
 // The backend's events, in the order it posted them: {type: 'js', code} runs
 // in the page once a page is ready for it, {type: 'window', action} is for
-// this window. The app's URL carries this run's token (ui/service.py
-// _start_url), which every /api/ call needs: this one sends it as a header.
+// this window. The app's URL carries this run's token (startBackend), which
+// every /api/ call needs: this one sends it as a header.
 function subscribe(url) {
   const { origin, searchParams } = new URL(url);
   const headers = { 'X-AutoCua-Token': searchParams.get('token') || '' };
