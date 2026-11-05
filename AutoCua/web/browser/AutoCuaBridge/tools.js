@@ -1749,7 +1749,10 @@ async function toolsHandle(msg, line) {
     }
     case "wait_load": {
       const tab = await toolsTab(msg);
-      if (tab.status === "loading") await toolsWaitStatus(tab.id, typeof msg.timeoutMs === "number" ? msg.timeoutMs : TOOLS_LOAD_MS);
+      // A wait sent on the line is capped at the default (the agent side gives up at 35 s).
+      const sent = typeof msg.timeoutMs === "number" ? msg.timeoutMs : TOOLS_LOAD_MS;
+      const ms = sent <= TOOLS_LOAD_MS ? sent : TOOLS_LOAD_MS;
+      if (tab.status === "loading") await toolsWaitStatus(tab.id, ms);
       return { status: (await chrome.tabs.get(tab.id)).status };
     }
     case "new_tab":
