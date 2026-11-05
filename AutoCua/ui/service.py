@@ -333,7 +333,8 @@ def _block_foreign_requests():
     if not api and _token_ok(request.args.get('token')):
         # The window's first load: the token becomes its cookie, and the
         # window goes on to the clean URL, so the token leaves its address.
-        response = redirect(request.path)
+        # A path on this host, one leading slash (as Werkzeug builds request.path).
+        response = redirect('/' + request.path.lstrip('/'))
         response.set_cookie(_TOKEN_COOKIE, _API_TOKEN, path='/api',
                             httponly=True, samesite='Strict')
         return response
