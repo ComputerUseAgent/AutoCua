@@ -4,39 +4,30 @@ setlocal enabledelayedexpansion
 :: ============================================
 ::  AutoCua - Windows Dev Setup
 :: ============================================
-::  Installs uv, creates venv\, installs requirements_windows.txt into it, and -
-::  only if you answer Y - installs the Interception kernel driver, then asks
-::  before rebooting. Platform-shared files
+::  Installs uv, creates venv\ and installs requirements_windows.txt into it.
+::  It needs no Administrator rights, installs no driver and never reboots.
+::  Platform-shared files
 ::  (main.py, cli.py, ui/index.html, ui/script.js) detect the OS at
 ::  runtime, so no file patching is needed - one checkout runs on both macOS
 ::  and Windows as-is.
 ::
-::  uv (https://astral.sh/uv) replaces the old "go install Python 3.13 from
-::  python.org yourself, remember to tick Add to PATH, then come back and
-::  re-run me" dead end: it uses a Python already on this machine, or downloads
-::  one itself. It also replaces pip for the install below - same PyPI
-::  packages, much faster, and it resolves the whole tree at once instead of
-::  one package at a time. setup_mac.sh is uv-based for the same reasons;
-::  this keeps the two platforms on one toolchain.
+::  uv (https://astral.sh/uv) finds the Python already on this machine and
+::  replaces pip for the install below - same PyPI packages, much faster, and
+::  it resolves the whole tree at once instead of one package at a time. It
+::  never downloads a Python (UV_PYTHON_DOWNLOADS=never): with no Python 3.11
+::  to 3.13 installed, python.org's download page opens and the script stops,
+::  so you install one and run it again. setup_mac.sh works the same way.
 
-:: --- 1. Admin self-elevation ---
-:: Relaunch through "cmd /k" instead of handing this .bat to Start-Process
-:: directly. Shell-executing a .bat runs it under "cmd /c", so the console dies
-:: the moment the script exits - including on every error path - and takes the
-:: message you needed to read with it. All you see in the parent shell is
-:: "Requesting Administrator privileges..." and a window that blinks out of
-:: existence. /k keeps that window up however the run ends.
-:: [char]34 supplies the quotes so a repo path containing spaces survives.
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [*] Requesting Administrator privileges...
-    echo     A new window will open and STAY open - read any errors there.
-    powershell -NoProfile -Command "$q=[char]34; Start-Process cmd.exe -Verb RunAs -ArgumentList '/k', ($q + '%~f0' + $q)"
-    exit /b
-)
+:: --- 1. No elevation ---
+:: Nothing below needs Administrator rights: uv, Rust, mingw-w64 and the venv
+:: all install for this user only. Only the Interception driver needed them,
+:: and this script no longer installs it (see the end).
 
 :: --- 2. Anchor to script location ---
 cd /d "%~dp0"
+
+:: uv never downloads a Python here, in any command (see step 5).
+set "UV_PYTHON_DOWNLOADS=never"
 
 echo.
 echo ============================================
@@ -46,8 +37,8 @@ echo.
 
 :: --- 3. Sanity-check repo layout ---
 :: Required: main.py, requirements_windows.txt.
-:: The Interception driver is NOT vendored in this repo - it is downloaded from
-:: the author's own GitHub release in step 9 (see THIRD_PARTY_NOTICES.md).
+:: The Interception driver is neither vendored nor installed here - the end of
+:: this script says how to add it yourself (see THIRD_PARTY_NOTICES.md).
 :: Optional (proprietary): AutoCua\windows - skipped if absent.
 set "MISSING="
 if not exist "main.py" set "MISSING=main.py"
@@ -97,6 +88,9 @@ if defined UV_EXE goto :uv_ready
 echo.
 echo [i] Script installer did not work - trying winget...
 winget install --id=astral-sh.uv -e --accept-source-agreements --accept-package-agreements
+:: Without admin rights winget may not link uv.exe into its Links folder, so
+:: look in the package folder too (as for WinLibs in step 8).
+for /d %%D in ("%LOCALAPPDATA%\Microsoft\WinGet\Packages\astral-sh.uv_*") do if exist "%%~fD\uv.exe" set "PATH=%%~fD;!PATH!"
 
 for /f "usebackq delims=" %%p in (`where uv 2^>nul`) do if not defined UV_EXE set "UV_EXE=%%p"
 if defined UV_EXE goto :uv_ready
@@ -106,8 +100,8 @@ echo ============================================
 echo   [ERROR] Could not install uv
 echo ============================================
 echo.
-echo   uv is what fetches Python and the dependencies, so setup cannot
-echo   continue without it.
+echo   uv creates the Python environment and installs the dependencies, so
+echo   setup cannot continue without it.
 echo.
 echo   Check your internet connection and re-run this script, or install
 echo   uv yourself and re-run:
@@ -132,8 +126,8 @@ echo [OK] Using: !UV_EXE!
 :: ESET, Avast, BitDefender), or a corporate proxy (Zscaler, Netskope) - every
 :: download dies with "invalid peer certificate: UnknownIssuer" even though the
 :: browser and pip are perfectly happy. The intercepting root lives in the
-:: Windows store, so pointing uv at that store fixes it. This covers the Python
-:: download in step 5 as well as the package install in step 6.
+:: Windows store, so pointing uv at that store fixes it. This covers the pip
+:: seed in step 5 as well as the package install in step 6.
 ::
 :: The setting was renamed (UV_NATIVE_TLS -> UV_SYSTEM_CERTS); probe --help so an
 :: older uv that a user already has installed still gets the right one, and no
@@ -149,7 +143,7 @@ if !errorlevel! equ 0 (
 :: Exclusive upper bound, same reasoning as setup_mac.sh: pinned deps ship
 :: native wheels that lag the newest CPython, and requirements_windows.txt has
 :: a hard floor too (numpy 2.4 needs >= 3.11). 3.13 is what AutoCua is
-:: developed and shipped on, and it is what uv picks from this range.
+:: developed and shipped on, and the one the message below asks you to install.
 set "PYSPEC=>=3.11,<3.14"
 
 echo.
@@ -168,28 +162,46 @@ rmdir /s /q venv
 
 :venv_create
 echo [*] Creating venv\ ...
-:: Prefer a Python already installed on this machine (--no-managed-python) so
-:: the venv keeps using the interpreter the user already has; only if nothing
-:: local satisfies PYSPEC do we let uv download one. --seed puts pip inside the
-:: venv - uv itself never needs it, but the Nuitka build and any manual
-:: "venv\Scripts\python.exe -m pip install ..." do. --prompt auto-cua labels
-:: the activated shell "(auto-cua)" whatever this folder is called.
-uv venv --seed --no-managed-python --python "!PYSPEC!" --prompt auto-cua venv >nul 2>&1
+:: Only a Python already installed on this machine: UV_PYTHON_DOWNLOADS=never
+:: (top of the script) stops uv from fetching one. With none in PYSPEC,
+:: python.org's download page opens and the script stops: the person installs
+:: Python and runs it again. Any other failure shows uv's own reason instead.
+:: --seed puts pip inside the venv - uv itself never needs it, but the Nuitka
+:: build and any manual "venv\Scripts\python.exe -m pip install ..." do.
+:: --prompt auto-cua labels the activated shell "(auto-cua)" whatever this
+:: folder is called.
+set "UV_LOG=%TEMP%\autocua-uv-venv.txt"
+uv venv --seed --python "!PYSPEC!" --prompt auto-cua venv > "%UV_LOG%" 2>&1
 
 if exist "venv\Scripts\python.exe" (
     echo [OK] venv created using a Python already on this machine
-) else (
-    echo [i] No suitable Python found locally - letting uv fetch one
-    uv venv --seed --python "!PYSPEC!" --prompt auto-cua venv
-    if not exist "venv\Scripts\python.exe" (
-        echo.
-        echo [ERROR] Could not create the virtual environment.
-        echo         Check your internet connection and re-run this script.
-        pause
-        exit /b 1
-    )
-    echo [OK] venv created with a uv-managed Python
+    goto :venv_ready
 )
+type "%UV_LOG%"
+findstr /c:"No interpreter found" /c:"No Python interpreter" "%UV_LOG%" >nul 2>&1
+if !errorlevel! neq 0 (
+    echo.
+    echo [ERROR] Could not create the virtual environment - uv's message is above.
+    echo         Fix that, then run setup_windows.bat again.
+    pause
+    exit /b 1
+)
+echo.
+echo ============================================
+echo   [ERROR] No Python 3.11 to 3.13 found
+echo ============================================
+echo.
+echo   AutoCua needs Python 3.11, 3.12 or 3.13. This script does not download
+echo   one. The download page is opening in your browser:
+echo       https://www.python.org/downloads/windows/
+echo.
+echo   Install the newest Python 3.13 that has a "Windows installer (64-bit)"
+echo   link. 3.14 and newer do not work yet. Tick "Add python.exe to PATH",
+echo   then run setup_windows.bat again.
+echo.
+start "" "https://www.python.org/downloads/windows/"
+pause
+exit /b 1
 
 :venv_ready
 set "PYLINE="
@@ -393,8 +405,8 @@ if !errorlevel! neq 0 (
 
 :: --- Android phone tool: adb ---
 ::
-:: A real phone needs Google's adb (platform-tools) to talk to it. Like the
-:: Interception driver below, it is not vendored in this repo: it is fetched
+:: A real phone needs Google's adb (platform-tools) to talk to it. It is not
+:: vendored in this repo: it is fetched
 :: from Google's dl.google.com, version-pinned and SHA-256 verified, and only
 :: after the user answers y. An adb already on PATH is used as it is. No (or
 :: no answer) skips it; only phones need it.
@@ -414,201 +426,26 @@ if !errorlevel! neq 0 (
     echo [OK] adb is ready
 )
 
-:: --- 9. Fetch + install the Interception driver ---
+:: --- 9. The Interception driver: a message, never an install ---
 ::
 :: Interception is THIRD-PARTY software by Francisco Lopes da Silva (oblitum),
-:: dual-licensed LGPL-3.0 (non-commercial) / paid commercial license. It is
-:: deliberately NOT vendored in this repo: we fetch it straight from the author's
-:: own GitHub release so the user receives it from its author, not from us.
-:: The release is version-pinned and SHA-256 verified below - if the hash does
-:: not match, we abort rather than run an unverified kernel driver installer.
-:: See THIRD_PARTY_NOTICES.md and README.md ("Answering UAC prompts on Windows").
-::
-:: Opt-in: nothing below runs unless the user explicitly answers Y.
+:: dual-licensed LGPL-3.0 (non-commercial) / paid commercial license. AutoCua
+:: neither ships nor installs it: whoever wants UAC handling installs it
+:: themselves, from its author (README.md, "Answering UAC prompts on Windows").
 echo.
 echo ============================================
-echo   Interception Driver (optional)
+echo   Friendly reminder
 echo ============================================
 echo.
-echo [i] AutoCua uses a kernel-mode input driver to answer Windows UAC
-echo     prompts - user-mode SendInput cannot reach the UAC secure desktop.
-echo     Everything except UAC handling works without this driver.
-echo.
-echo     If you answer Y, this script will:
-echo       - download Interception v1.0.1 from its author:
-echo           https://github.com/oblitum/Interception
-echo       - verify its SHA-256 checksum, then install the driver
-echo       - bind it to your built-in keyboard only
-echo       - ask before rebooting (the driver activates at boot)
-echo     License: LGPL-3.0 non-commercial / paid commercial license.
-echo     Shipping a commercial product with it requires your own license.
-echo.
-echo     If you answer N, nothing is downloaded or installed. You can add
-echo     it later by running this script again and answering Y.
-echo.
-choice /C YN /N /M "Install the Interception driver? [Y/N]: "
-:: Only an explicit Y (errorlevel 1) installs. N is 2; Ctrl+C or a choice.exe
-:: failure lands outside 1 and skips too - never install by accident.
-if errorlevel 2 goto :icept_skip
-if not errorlevel 1 goto :icept_skip
-
-set "ICEPT_DIR=%~dp0Interception"
-set "ICEPT_VER=v1.0.1"
-set "ICEPT_URL=https://github.com/oblitum/Interception/releases/download/%ICEPT_VER%/Interception.zip"
-set "ICEPT_SHA=ad038963d6413055765128b0b931f6e765147c9916dba79e65d872b261f9af10"
-set "ICEPT_ZIP=%TEMP%\Interception-%ICEPT_VER%.zip"
-set "INSTALLER=%ICEPT_DIR%\command line installer\install-interception.exe"
-
-if exist "%INSTALLER%" (
-    echo [i] Interception already present at %ICEPT_DIR% - skipping download.
-    goto :icept_run
-)
-
-echo [*] Downloading %ICEPT_URL%
-powershell -NoProfile -Command ^
-  "$ErrorActionPreference='Stop';" ^
-  "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;" ^
-  "Invoke-WebRequest -Uri '%ICEPT_URL%' -OutFile '%ICEPT_ZIP%' -UseBasicParsing"
-if %errorlevel% neq 0 (
-    echo [ERROR] Download failed. Check your internet connection or download
-    echo         Interception %ICEPT_VER% manually from the URL above and extract
-    echo         it to: %ICEPT_DIR%
-    pause
-    exit /b 1
-)
-
-echo [*] Verifying SHA-256...
-set "ICEPT_GOT="
-for /f "usebackq delims=" %%H in (`powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 -LiteralPath '%ICEPT_ZIP%').Hash.ToLower()"`) do set "ICEPT_GOT=%%H"
-
-if /i not "%ICEPT_GOT%"=="%ICEPT_SHA%" (
-    echo [ERROR] SHA-256 MISMATCH - refusing to run this installer.
-    echo         expected: %ICEPT_SHA%
-    echo         actual:   %ICEPT_GOT%
-    echo         The download was corrupted or tampered with. Nothing installed.
-    del /f /q "%ICEPT_ZIP%" >nul 2>&1
-    pause
-    exit /b 1
-)
-echo [OK] Checksum verified
-
-echo [*] Extracting to %ICEPT_DIR%
-powershell -NoProfile -Command ^
-  "$ErrorActionPreference='Stop';" ^
-  "Expand-Archive -LiteralPath '%ICEPT_ZIP%' -DestinationPath '%~dp0.' -Force"
-if %errorlevel% neq 0 (
-    echo [ERROR] Extraction failed.
-    pause
-    exit /b 1
-)
-del /f /q "%ICEPT_ZIP%" >nul 2>&1
-
-if not exist "%INSTALLER%" (
-    echo [ERROR] Expected installer not found after extraction:
-    echo         %INSTALLER%
-    pause
-    exit /b 1
-)
-echo [OK] Interception %ICEPT_VER% fetched from its author
-
-:icept_run
-echo [*] Running: "%INSTALLER%" /install
-"%INSTALLER%" /install
-set INSTALL_RC=%errorlevel%
-
-echo.
-if %INSTALL_RC% equ 0 (
-    echo [OK] Interception driver installed
-) else (
-    echo [^^!] Installer returned code: %INSTALL_RC%
-    echo     The driver may not be fully registered. Reboot and check anyway.
-)
-
-:: --- 10. Bind the driver to the BUILT-IN keyboard only ---
-:: The installer registers Interception as a filter on the whole keyboard CLASS,
-:: so every keyboard passes through it. It has 10 keyboard slots that are never
-:: freed, so each reconnect of a wireless keyboard burns one; once they run out a
-:: reconnecting keyboard enumerates fine but delivers NO input until reboot. That
-:: repeatedly killed a wireless keyboard (see README.md, "How it is installed").
-::
-:: Re-binding it to the built-in keyboard/touchpad alone fixes that permanently:
-:: those are non-removable, so they take one slot each at boot and never another,
-:: and no external keyboard is ever filtered. AutoCua injects through that binding.
-echo.
-echo ============================================
-echo   Protecting external keyboards
-echo ============================================
-echo.
-
-set "TOGGLE=%~dp0AutoCua\windows\controller\tool\interception_toggle.ps1"
-
-if not exist "%TOGGLE%" (
-    echo [ERROR] Missing %TOGGLE%
-    echo         Without it the driver would stay bound to every keyboard, which
-    echo         is the configuration that breaks external keyboards.
-    pause
-    exit /b 1
-)
-
-powershell -NoProfile -ExecutionPolicy Bypass -File "%TOGGLE%" -Action bind
-if %errorlevel% neq 0 (
-    echo.
-    echo ============================================
-    echo   [ERROR] Binding failed - NOT rebooting
-    echo ============================================
-    echo.
-    echo   The driver installer re-added a filter on the whole keyboard class.
-    echo   Rebooting now would load it against EVERY keyboard - the exact
-    echo   configuration that kills external keyboards.
-    echo.
-    echo   Removing every filter so your keyboards stay safe. AutoCua will
-    echo   report kernel input as unavailable until this is re-run successfully.
-    echo.
-    powershell -NoProfile -ExecutionPolicy Bypass -File "%TOGGLE%" -Action unbind
-    echo.
-    echo   Re-run this script as Administrator to try again.
-    echo.
-    pause
-    exit /b 1
-)
-echo [OK] Driver bound to the built-in keyboard only
-
-echo.
-echo ============================================
-echo   Setup complete
-echo ============================================
-echo.
-echo [i] Interception is bound to your BUILT-IN keyboard only, so external
-echo     keyboards are never filtered and cannot be broken by it. AutoCua
-echo     injects input through the built-in device's binding.
-echo.
-echo [^^!] A REBOOT is required: the driver only binds its slots when it loads
-echo     at boot. Until you reboot, kernel input may be unavailable.
-echo.
-choice /C YN /N /M "Reboot now? Save your work first. [Y/N]: "
-if errorlevel 2 goto :reboot_later
-if not errorlevel 1 goto :reboot_later
-echo [^^!] The system will reboot in 30 seconds.
-echo [^^!] To cancel: open cmd and run:  shutdown /a
-echo.
-shutdown /r /t 30 /c "AutoCua setup complete - rebooting to activate the Interception driver."
-goto :setup_end
-
-:reboot_later
-echo [i] Not rebooting. Reboot when convenient - UAC handling stays
-echo     unavailable until you do.
-goto :setup_end
-
-:icept_skip
-echo.
-echo [i] Skipped the Interception driver - nothing was downloaded or installed.
-echo     Everything except UAC handling works. To add it later, run this
-echo     script again and answer Y.
+echo [i] In a few cases, like Windows UAC prompts, AutoCua needs the
+echo     Interception driver for full control. This setup does not install
+echo     it, and everything else works without it. If you want it, see
+echo     README.md, "Answering UAC prompts on Windows".
 echo.
 echo ============================================
 echo   Setup complete
 echo ============================================
 echo.
 
-:setup_end
+pause
 endlocal

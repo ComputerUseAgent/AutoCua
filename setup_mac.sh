@@ -2,9 +2,10 @@
 #
 # AutoCua — macOS one-click setup
 # ================================
-# Installs uv (if missing), creates a local .venv/, and installs
-# requirements_mac.txt into it. No manual Python install required — uv will
-# fetch a Python for you if this Mac doesn't already have a suitable one.
+# Installs uv (if missing), creates a local .venv/ on a Python already on this
+# Mac, and installs requirements_mac.txt into it. It never downloads Python:
+# with no Python 3.10 to 3.13 installed, it opens python.org's download page
+# and stops, so you install one and run it again.
 # Then installs the Rust toolchain (if missing) and builds the web agent's
 # native extension, so the first "web use" run doesn't stop on a missing cargo.
 # Last, it offers iPhone / iPad control (WebDriverAgent, Xcode's checks), one
@@ -33,6 +34,12 @@ MIN_PYTHON="3.10"
 # newest interpreter is 3.14 must not be used for the venv.
 MAX_PYTHON="3.14"
 PYTHON_SPEC=">=$MIN_PYTHON,<$MAX_PYTHON"
+# The newest Python in range, the one to install when none is found.
+LAST_PYTHON="3.13"
+PYTHON_PAGE="https://www.python.org/downloads/macos/"
+# uv never downloads a Python here, in any command: the person installs one
+# from python.org (step 2 opens the page when none fits).
+export UV_PYTHON_DOWNLOADS=never
 
 # .venv/ is the name uv looks for by default, so `uv pip install`, `uv run` and
 # `uv sync` all find it with no --python flag. VENV_PROMPT, passed to
@@ -105,11 +112,10 @@ ask_yes_no() {
 # -----------------------------------------------------------------------------
 # Step 1 — uv
 # -----------------------------------------------------------------------------
-# NOTE: Previous versions of this script required the user to install Python
-# from python.org by hand before setup could proceed. uv removes that step —
-# it resolves an existing Python or downloads one itself. It also replaces pip
-# for the install in step 3 (same PyPI packages, much faster, and it resolves
-# the whole tree at once instead of one package at a time).
+# uv finds the Python already on this Mac (it never downloads one, see
+# UV_PYTHON_DOWNLOADS above) and replaces pip for the install in step 3 (same
+# PyPI packages, much faster, and it resolves the whole tree at once instead of
+# one package at a time).
 #
 # The old "sync shared files to macOS flavor" step is long gone too — main.py,
 # cli.py, ui/index.html and ui/script.js detect the OS at runtime,
@@ -165,19 +171,29 @@ if [ -x "$VENV_DIR/bin/python" ]; then
 fi
 
 if [ ! -x "$VENV_DIR/bin/python" ]; then
-    # Prefer a Python already on this Mac (--no-managed-python), so the venv
-    # keeps using the interpreter the user already has. Only if nothing here
-    # satisfies $PYTHON_SPEC do we let uv download one.
-    if uv venv --no-managed-python --python "$PYTHON_SPEC" --prompt "$VENV_PROMPT" "$VENV_DIR" 2>/dev/null; then
+    # Only a Python already on this Mac: UV_PYTHON_DOWNLOADS=never (above) stops
+    # uv from fetching one. With none in range, python.org's download page opens
+    # and the script stops: the person installs Python and runs it again. Any
+    # other failure shows uv's own reason instead.
+    if UV_OUT="$(uv venv --python "$PYTHON_SPEC" --prompt "$VENV_PROMPT" "$VENV_DIR" 2>&1)"; then
         print_ok "Created $VENV_DIR/ using a Python already installed on this Mac"
     else
-        print_info "No local Python $PYTHON_SPEC found — letting uv fetch one"
-        if ! uv venv --python "$PYTHON_SPEC" --prompt "$VENV_PROMPT" "$VENV_DIR"; then
-            print_error "Could not create a virtual environment."
-            gui_alert "Could not create the Python environment.\n\nCheck your internet connection, then run this script again."
-            exit 1
-        fi
-        print_ok "Created $VENV_DIR/ with a uv-managed Python"
+        printf '%s\n' "$UV_OUT"
+        case "$UV_OUT" in
+            *"No interpreter found"*|*"No Python interpreter"*)
+                print_error "No Python $MIN_PYTHON to $LAST_PYTHON found on this Mac."
+                print_info  "Opening the download page: $PYTHON_PAGE"
+                print_info  "Install Python $LAST_PYTHON from there (3.14 and newer do not work yet),"
+                print_info  "then run this script again."
+                open "$PYTHON_PAGE" >/dev/null 2>&1 || true
+                gui_alert "AutoCua needs Python $MIN_PYTHON to $LAST_PYTHON.\n\nDownload page: $PYTHON_PAGE\n\nInstall Python $LAST_PYTHON, then run this script again."
+                ;;
+            *)
+                print_error "Could not create $VENV_DIR/ (uv's message is above)."
+                gui_alert "Could not create the Python environment.\n\nSee the Terminal for uv's message, then run this script again."
+                ;;
+        esac
+        exit 1
     fi
 fi
 
