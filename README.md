@@ -23,7 +23,7 @@ pip install AutoCua
 
 </td></tr></table>
 
-https://github.com/user-attachments/assets/4ac6d2c3-d83f-449e-a7a5-2dcf788f8d21
+https://github.com/user-attachments/assets/f02ac3e9-fe6c-42f8-a685-88001d8d178e
 
 **See everything AutoCua can do → [agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**
 
