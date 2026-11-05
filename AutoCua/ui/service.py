@@ -285,7 +285,10 @@ _LOCAL_ORIGINS = (f'http://127.0.0.1:{APP_PORT}', f'http://localhost:{APP_PORT}'
 # start URL (_start_url): the answer sets it as a cookie that the page sends
 # with every /api/ call (its videos too). The desktop shell's own event stream
 # sends it as a header (AutoCua/desktop/main.js).
-_API_TOKEN = secrets.token_urlsafe(32)
+# The desktop shell (AutoCua/desktop/main.js) makes it and hands it over in
+# AUTOCUA_API_TOKEN, taken out of the environment here so nothing started
+# from this process inherits it; without the shell this process makes it.
+_API_TOKEN = os.environ.pop("AUTOCUA_API_TOKEN", "") or secrets.token_urlsafe(32)
 _TOKEN_COOKIE = 'autocua_token'
 _TOKEN_HEADER = 'X-AutoCua-Token'
 
@@ -333,7 +336,8 @@ def _block_foreign_requests():
     if not api and _token_ok(request.args.get('token')):
         # The window's first load: the token becomes its cookie, and the
         # window goes on to the clean URL, so the token leaves its address.
-        response = redirect(request.path)
+        # A path on this host, one leading slash (as Werkzeug builds request.path).
+        response = redirect('/' + request.path.lstrip('/'))
         response.set_cookie(_TOKEN_COOKIE, _API_TOKEN, path='/api',
                             httponly=True, samesite='Strict')
         return response
@@ -4526,7 +4530,9 @@ def _serve_desktop_shell(win, start_path):
             Path(started).write_text("1", encoding="utf-8")
         except OSError:
             debug_exception("desktop shell started marker")
-    print(f"AUTOCUA_DESKTOP_READY {_start_url(start_path)}", flush=True)
+    # The app's URL without the token: the shell made the token itself
+    # (AUTOCUA_API_TOKEN) and adds it to this URL, so stdout never carries it.
+    print(f"AUTOCUA_DESKTOP_READY http://127.0.0.1:{_app_port}{start_path}", flush=True)
 
     if IS_MAC:
         from AppKit import NSApplication

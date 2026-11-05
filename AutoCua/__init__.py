@@ -287,6 +287,12 @@ def api_key_file() -> Path:
     the first call in each process. Idempotent and never raises."""
     path = _ensure(data_root() / "api_key") / "api_key.txt"
     _migrate_legacy_api_key(path)
+    try:
+        # Owner-only, also for a file an older build wrote in place as 0644.
+        # New writes are 0600 already (replace_file_text: mkstemp + rename).
+        os.chmod(str(path), 0o600)
+    except OSError:          # not there yet, or a read-only location
+        pass
     return path
 
 
