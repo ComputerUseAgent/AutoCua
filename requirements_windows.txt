@@ -4,7 +4,7 @@ pywin32==311
 pyautogui==0.9.54
 
 # Image Processing
-Pillow==12.3.0
+Pillow==13.0.0
 
 # HTTP Requests & API clients
 requests==2.34.2

@@ -55,17 +55,17 @@ from pathlib import Path
 # Keep in step with "electron" in AutoCua/desktop/package.json and with
 # THIRD_PARTY_NOTICES.md. A re-pin changes the version AND every size and
 # digest below, read from the release's SHASUMS256.txt and the files.
-VERSION = "44.7.0"
+VERSION = "44.9.1"
 
 # "<os>-<arch>", as Electron names its zips -> (bytes, sha256, bytes
 # unpacked). The last is only for telling the person what a yes costs.
 ZIPS = {
-    "darwin-arm64": (130394296, "e04e411b58a0a14375dd21b0ab4a378fd38930a702e4e20e322fee4849404c0b", 321398871),
-    "darwin-x64": (134289782, "4fe494a7159b10a81e2098dab388719582065e99e604c4510bb117e282213566", 324909831),
-    "linux-arm64": (124088755, "9cd736d1f5873839553c3fa6c8c5e57635ec4a399cc2d32e79c82a02d9cd2258", 301132304),
-    "linux-x64": (122998223, "3ae7d5bdad61c664486c6ab61361dd084d064c8c08af8d13a687096e18ce555a", 296307552),
-    "win32-arm64": (156427308, "ee2621a4513f92a952273d5363e153db6f0e4dd183d89f2c0f740faa13623316", 383913807),
-    "win32-x64": (158293649, "eee30dc8fa1f5ea95490e59f44e46ea68dd24c6e93d22facf70fe5c2d4c2665c", 385514847),
+    "darwin-arm64": (130543919, "ff597552c9c7b0b16c39a7fb93a346ee7148afbd372ebcf0c18415482c49fbea", 321928801),
+    "darwin-x64": (134409318, "27afc06d37b32b637d27fb20730a4ae7c2ce5a4d9351d84b9faf42f1f9dd6017", 325312625),
+    "linux-arm64": (124121082, "16e1f8f7993ca45bc3c2594d75da9d0f3bbd66d691f8cc408747e135c49cb1ad", 301393997),
+    "linux-x64": (123084231, "994bc3664cc3ac55b50c21a58d345cf8322003d37f5439a81801e3267e6145e2", 296529013),
+    "win32-arm64": (156452965, "81dc235e033cefb9d47ba5bbdedbf9d5390761ed0e362d9bf0518d981ef10b85", 384273106),
+    "win32-x64": (158389896, "41bd7900bd42d0f49110a81617876137041fbbf473466920248ddb076349ef91", 385802466),
 }
 
 # Where the executable sits in the unpacked zip (what npm's electron package
