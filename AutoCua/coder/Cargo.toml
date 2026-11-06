@@ -1,0 +1,52 @@
+# The coder agent as ONE crate, the same shape as ../android: Cargo.toml,
+# Cargo.lock, build.rs and lib.rs here, the sources in their own folders
+# beside them (main/, controller/, sandbox/, subagent/, tool_registry/,
+# planner/, workflow/), one service.rs each, no src/ and no mod.rs (lib.rs
+# declares the folders). One cargo build gives agent_native, the whole coder
+# as a Python extension module (PyO3 cdylib), the same on macOS, Windows and
+# Linux. coder/__init__.py builds it and copies it beside itself as
+# agent_native.so, no maturin.
+
+[package]
+name = "agent_native"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone crate, not part of any workspace.
+[workspace]
+
+[lib]
+name = "agent_native"
+crate-type = ["cdylib"]
+path = "lib.rs"
+
+[build-dependencies]
+# Emits the macOS -undefined dynamic_lookup link args (see build.rs) that
+# maturin would otherwise supply.
+pyo3-build-config = "0.29"
+
+[dependencies]
+# abi3-py310: one .so works on every CPython >= 3.10, so the user's Python
+# can move without a relink.
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py310"] }
+# serde_json::Value <-> Python objects at the LLM/controller boundary.
+pythonize = "0.29"
+# preserve_order: Python dicts are insertion-ordered; tool results and the
+# saved transcript keep their keys in the order the Python coder wrote them.
+serde = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+regex = "1"
+chrono = "0.4"
+# The folder walk under the grep and glob tools.
+walkdir = "2"
+
+[target.'cfg(unix)'.dependencies]
+# killpg: a shell command runs in its own process group, so a timeout or a
+# stop kills everything it started.
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

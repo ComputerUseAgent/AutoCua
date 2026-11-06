@@ -5,6 +5,8 @@
 #                                when connected; plain "computer use" lists them offline
 #   mode = "shell use"        -> CLI/coder agent for the host OS, straight to the
 #                                terminal (skips the main agent layer)
+#   mode = "coder"            -> the Rust coder agent (AutoCua/coder), one copy for
+#                                every host OS, straight to the terminal
 #   mode = "mobile use, ios"  -> iOS agent (iPhone or iPad). By default it runs on an iOS
 #                                SIMULATOR (device="simulation", ios_version
 #                                picks the runtime); pass device="hardware" to
@@ -113,8 +115,15 @@ def resolve_agent_service(mode, os=None):
             return AgentService
         raise ValueError('mobile use needs a device — "mobile use, ios" or "mobile use, android"')
 
+    if kind == "coder":
+        # The Rust coder (AutoCua/coder, agent_native): one copy for every
+        # host OS, compiled lazily by that package's __init__ on first
+        # import, like the web and Android agents.
+        from AutoCua.coder import AgentService
+        return AgentService
+
     raise ValueError(
-        f'Unknown mode "{mode}" — use "computer use", "shell use", "web use", '
+        f'Unknown mode "{mode}" — use "computer use", "shell use", "web use", "coder", '
         '"mobile use, ios" or "mobile use, android"'
     )
 

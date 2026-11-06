@@ -1,6 +1,6 @@
-"""Build the Rust extensions (the web agent, the Android agent) if they aren't built yet.
+"""Build the Rust extensions (the web agent, the Android agent, the coder) if they aren't built yet.
 
-Each side is ONE crate rooted at its folder, AutoCua/web/ and AutoCua/android/:
+Each side is ONE crate rooted at its folder, AutoCua/web/, AutoCua/android/ and AutoCua/coder/:
 Cargo.toml, target/ and the built agent_native.so all live there, and the .rs
 sources sit in their own folders (agent/, controller/, tool_registry/, tree/)
 mirroring the old Python layout. Each compiles with plain
@@ -41,6 +41,7 @@ from pathlib import Path
 _PACKAGE = Path(__file__).resolve().parent.parent
 _WEB_DIR = _PACKAGE / "web"
 _ANDROID_DIR = _PACKAGE / "android"
+_CODER_DIR = _PACKAGE / "coder"
 
 # Two different naming schemes have to line up here, and neither is portable:
 # Python only imports an extension named .pyd on Windows and .so elsewhere,
@@ -207,3 +208,9 @@ def ensure_android_agent_built() -> None:
     """The Android agent's extension (AutoCua/android/agent_native), built once."""
     _ensure_built(_ANDROID_DIR, "Android agent",
                   "Every other mode (computer use, shell use, web use, iOS)")
+
+
+def ensure_coder_built() -> None:
+    """The coder agent's extension (AutoCua/coder/agent_native), built once."""
+    _ensure_built(_CODER_DIR, "coder agent",
+                  "Every other mode (computer use, shell use, web use, mobile use)")

@@ -95,6 +95,7 @@ coverage.xml
 /note/fixes/*/site.jsonl
 /cli_conversation
 /cli_minion_conversation
+/cli_subagent_conversation
 /milestone
 sandbox_log.txt
 /cli_milestone
@@ -168,6 +169,10 @@ AutoCua/ios_connector/paired_devices.json
 # (tree/test.py) and the agent's extension module. The agent's scratchpad.
 /AutoCua/android/target
 /AutoCua/android/scratchpad
+# cargo's build of the coder crate (coder/Cargo.toml), and the coder's
+# scratchpad (todo, plan, notes and subagent results, one folder per run).
+/AutoCua/coder/target
+/AutoCua/coder/scratchpad
 
 # Local-only tooling (never pushed)
 /sync.py
