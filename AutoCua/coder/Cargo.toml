@@ -1,8 +1,8 @@
 # The coder agent as ONE crate, the same shape as ../android: Cargo.toml,
 # Cargo.lock, build.rs and lib.rs here, the sources in their own folders
-# beside them (main/ with main/planner/, controller/, sandbox/, subagent/
-# with subagent/workflow/, tool_registry/), one service.rs each, no src/ and
-# no mod.rs (lib.rs declares the folders). One cargo build gives agent_native, the whole coder
+# beside them (main/, controller/, sandbox/, subagent/ with its workflow/ and
+# critic/, tool_registry/; main/planner/ holds only the planning skill), one
+# service.rs each, no src/ and no mod.rs (lib.rs declares the folders). One cargo build gives agent_native, the whole coder
 # as a Python extension module (PyO3 cdylib), the same on macOS, Windows and
 # Linux. coder/__init__.py builds it and copies it beside itself as
 # agent_native.so, no maturin.

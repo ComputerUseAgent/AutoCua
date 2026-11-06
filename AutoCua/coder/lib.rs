@@ -20,14 +20,11 @@ use serde::Serialize;
 use serde_json::Value;
 
 /// The coder's main agent: its loop (service.rs), the transcript codec and
-/// the terminal display (view.rs), beside its prompt, and its planner.
+/// the terminal display (view.rs), beside its prompt. main/planner/ holds
+/// planner.md, the planning mode's skill, read at run time (no code).
 pub mod main {
     pub mod service;
     pub mod view;
-    /// The coder's planner: planner.md is the planning mode's skill.
-    pub mod planner {
-        pub mod service;
-    }
 }
 /// The coder's tools: the name, settings and description of each one the
 /// model is given, and the LLMManager that hands them to the model.
@@ -78,6 +75,10 @@ pub mod subagent {
     pub mod view;
     /// The subagent's workflows.
     pub mod workflow {
+        pub mod service;
+    }
+    /// The subagent's critic.
+    pub mod critic {
         pub mod service;
     }
 }

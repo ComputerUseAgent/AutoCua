@@ -1,0 +1,1 @@
+//! The subagent's critic.
