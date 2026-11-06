@@ -20,7 +20,10 @@
 //!   Python added nothing;
 //! - the subagent's API key goes in an environment variable, not on argv;
 //! - the subagents still running are stopped on Ctrl+C and when the
-//!   controller goes, where Python left them running.
+//!   controller goes, where Python left them running;
+//! - a subagent call carries a `mode` ("workflow" or "critic") that its
+//!   report repeats; a call with no valid mode or an empty brief starts
+//!   nothing and gets an error result.
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -97,8 +100,11 @@ impl From<PyErr> for RouteErr {
 /// placeholder).
 enum Slot {
     Done(Value),
-    Pending { query: Value, session_id: String },
+    Pending { query: Value, mode: String, session_id: String },
 }
+
+/// The subagent's modes: "workflow" maps the code, "critic" judges an edit.
+const SUBAGENT_MODES: [&str; 2] = ["workflow", "critic"];
 
 /// A subagent at work (a row of Python's `_minion_tasks`; its query rides on
 /// the batch's placeholder).
@@ -301,10 +307,28 @@ impl ControllerView {
 
                 "subagent" => {
                     // Several in one batch run in parallel; the end of the
-                    // batch waits for every one of them.
-                    let query = item.get("value").cloned().unwrap_or_else(|| json!(""));
-                    let session_id = self.start_subagent(py, &query)?;
-                    results.push(Slot::Pending { query, session_id });
+                    // batch waits for every one of them. A call with no valid
+                    // mode, or with an empty brief, starts nothing and gets
+                    // an error result.
+                    let mode = arg_str(item, "mode", "");
+                    let error = if !SUBAGENT_MODES.contains(&mode.as_str()) {
+                        Some("subagent mode must be \"workflow\" or \"critic\".")
+                    } else if crate::py_strip(&arg_str(item, "value", "")).is_empty() {
+                        Some("subagent value must be a brief, not empty.")
+                    } else {
+                        None
+                    };
+                    if let Some(message) = error {
+                        results.push(Slot::Done(json!({
+                            "status": "error",
+                            "action": "subagent",
+                            "message": message,
+                        })));
+                    } else {
+                        let query = item.get("value").cloned().unwrap_or_else(|| json!(""));
+                        let session_id = self.start_subagent(py, &query)?;
+                        results.push(Slot::Pending { query, mode, session_id });
+                    }
                 }
 
                 "plan" => {
@@ -458,8 +482,8 @@ impl ControllerView {
             .into_iter()
             .map(|slot| match slot {
                 Slot::Done(result) => result,
-                Slot::Pending { query, session_id } => {
-                    subagent_report(query, completed.iter().find(|c| c.session_id == session_id))
+                Slot::Pending { query, mode, session_id } => {
+                    subagent_report(query, &mode, completed.iter().find(|c| c.session_id == session_id))
                 }
             })
             .collect();
@@ -769,24 +793,28 @@ fn crash_text(py: Python<'_>, task: &mut SubagentTask, status: ExitStatus) -> St
 }
 
 /// A subagent's call result once it is done (Python's placeholder patch);
-/// a "partial" report is an error, as on the mac.
-fn subagent_report(query: Value, completion: Option<&Completion>) -> Value {
+/// a "partial" report is an error, as on the mac. `mode` says which kind of
+/// subagent answered.
+fn subagent_report(query: Value, mode: &str, completion: Option<&Completion>) -> Value {
     match completion.map(|c| &c.report) {
         Some(Ok((summary, status))) => json!({
             "status": if status.as_str() == Some("complete") { "success" } else { "error" },
             "action": "subagent_completed",
+            "mode": mode,
             "query": query,
             "output": summary,
         }),
         Some(Err(text)) => json!({
             "status": "error",
             "action": "subagent_completed",
+            "mode": mode,
             "query": query,
             "output": text,
         }),
         None => json!({
             "status": "error",
             "action": "subagent_completed",
+            "mode": mode,
             "query": query,
             "output": NO_RESULT,
         }),

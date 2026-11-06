@@ -213,8 +213,9 @@ fn mode_tool(mode: &Mode) -> Value {
 /// `insight` and `next_goal` first, then one tool per action type.
 /// route_action keys on these names and fields, so they must never drift.
 /// The notes tools follow the coder prompt's <insight> and <next_goal>; the
-/// action tools' descriptions are the mac coder's own text, with the
-/// subagent named as such and the shell named for this OS (on_this_os).
+/// action tools' descriptions are the mac coder's own text, with the shell
+/// named for this OS (on_this_os), except `plan` (the owner's text for
+/// planning mode) and `subagent` (its two modes, workflow and critic).
 /// The modes' switches (MODES) sit right before `plan`, in table order.
 pub fn coder_tools() -> &'static Vec<Value> {
     static T: OnceLock<Vec<Value>> = OnceLock::new();
@@ -411,20 +412,22 @@ plan {"op": "set", "from": 0, "to": 0, "value": "# Goal\nThe scratchpad cache in
   3. Two facts confirmed in one step — two separate calls:
      scratchpad {"value": "**Verified:** parser handles empty input — **6/6** cases pass"}, scratchpad {"value": "**Saved:** report exported to `/Users/me/Desktop/q3_report.pdf`"}"#),
 
-        tool("subagent", &[("value", json!({"type": "string"}))],
-            r#"Read-only scout. **Don't explore the codebase yourself — send a subagent.** It explores the filesystem, traces cross-file connections, and returns ONE structured summary anchored to `path:line`. You never see the intermediate reads — your context stays clean for editing.
-- **Rule**: subagent handles exploration + connection-tracing. You handle editing (`write`/`replace`).
-- **When to send one (any of these → subagent, not your own reading):** you need to understand code before editing it; you'd otherwise grep/glob/view more than ~2 times; you're tracing a symbol / caller / dependency across files; or you're mapping an unfamiliar directory. Your own `grep`/`view` are for quick re-checks of something a subagent already surfaced — not first-time exploration.
-- **Phrase the value as a question or objective — NEVER as instructions about which tools to use.** The subagent is self-capable and picks its own tools internally. Do NOT write things like "use grep…" / "use shell…" / "use glob…" / "use view…" — just say what you want to know. The subagent will figure out how to find it.
-- Format: subagent {"value": "<self-contained question a fresh agent can act on>"}
-- Multiple subagents in one action run in parallel; your loop pauses until all return as `<subagent_completed>` blocks.
-- **Trust the summary.** Don't re-read files yourself unless the summary is explicitly incomplete. The subagent cannot edit — once you have its report, apply the change.
-- Good examples (state what you want, not how to get it):
-  1. subagent {"value": "find every caller of _read_scratchpad_from_file — exact path:line for each."}
-  2. subagent {"value": "list all imports of ScratchpadService under AutoCua/mac/ with line numbers + direct usages."}
-  3. subagent {"value": "give me a list of all files and directories under /Users/me/Downloads with a one-line summary of each."}
-  4. Parallel: subagent {"value": "Q1..."}, subagent {"value": "Q2..."}, subagent {"value": "Q3..."}
-- Anti-pattern (do NOT write): `"Please use the shell or glob tool to list all files in X"` — you ASK what you need; the subagent picks what to RUN. Correct version: `"give me a list of all files in X"`."#),
+        tool("subagent", &[
+            ("mode", json!({"type": "string", "enum": ["workflow", "critic"]})),
+            ("value", json!({"type": "string"})),
+        ],
+            r#"Start a subagent: a helper with its own fresh context that does one bounded job and returns ONE summary. It cannot edit files. Pick its `mode`:
+- "workflow" (the workflow agents of your prompt): maps the code for you. It finds the connections between files, drills through several code paths at once, follows the patterns that link them, and reports which file holds what at which lines: the callers, the dependencies, what crosses each connection. You get `path:line` anchors to go to directly, instead of filling your own context with reads, so your context stays lean for editing, for building the logic and for the plan.
+- "critic": an unbiased judge of your edit. It has no stake in your change: it reads what you changed, judges whether the edit is correct and whether the code is sound, and tries hard to prove where you went wrong: a wrong assumption, an edge case the code mishandles, logic that only looks right, a test that could not fail. Its summary helps you judge whether the edit is correct; use it to fix the logic, strengthen the verification scenario and test again, until the change is robust and correct. Whether the edit is wired into the rest of the code (callers, imports, signatures) is a workflow check.
+- `value`: a self-contained brief a fresh agent can act on. For workflow: one narrow question and exactly what to bring back (anchors, signatures, callers). For critic: what you changed and where, what it must do, and the proof you already have. Name files by absolute path: the subagent starts in its own folder, not in your current_sitting. Say what you need, never which tools to use: the subagent picks its own.
+- Several subagents in one turn run in parallel; the turn waits until all of them report.
+- Format: subagent {"mode": "workflow" | "critic", "value": "<brief>"}
+- Examples:
+  1. subagent {"mode": "workflow", "value": "Where does the scratchpad cache live and how is it read and written? Bring back path:line of the structure, get, put and any eviction."}
+  2. subagent {"mode": "workflow", "value": "Every caller of _read_scratchpad_from_file, with path:line and what each one passes in."}
+  3. subagent {"mode": "critic", "value": "I made the cache in /Users/you/projects/app/service.py:41-95 an LRU bounded by CACHE_MAX: get() refreshes recency, put() evicts the oldest. Prove it wrong if you can: recency on a hit, eviction order, the CACHE_MAX boundary, anything /Users/you/projects/app/.AutoCua_verify/test_cache.py misses. Bring back each flaw with path:line and the input that breaks it."}
+  4. Parallel: subagent {"mode": "workflow", "value": "Q1..."}, subagent {"mode": "workflow", "value": "Q2..."}
+- Anti-pattern: "use grep to find X" or "use the shell to list Y". Ask for what you need; the subagent picks what to run."#),
 
         tool("exit", &[("value", json!({"type": "string"}))],
             r#"End the run and deliver your final summary to the user. Pass the end-to-end summary as the value.
@@ -602,7 +605,7 @@ pub fn action_defaults() -> &'static Value {
             "update_todo": {"value": ""},
             "wait": {"value": ""},
             "scratchpad": {"value": ""},
-            "subagent": {"value": ""},
+            "subagent": {"mode": "", "value": ""},
             "exit": {"value": ""},
         });
         for mode in MODES {

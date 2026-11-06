@@ -64,7 +64,7 @@ Quality over speed. Time is saved by not thinking where nothing is being decided
 - Quick tasks skip it: TRIVIAL and SMALL never enter planning mode.
 
 1. EXPLORE — understand before you act. Workflow agents are how you explore.
-   - Exploration is MANDATORY for any FULL task that edits/extends existing code, and your FIRST move is to enter planning mode and dispatch one or more `workflow` agents that map it: which files/functions are involved, exact `path:line` anchors, callers/dependencies, and how the pieces connect. Fire independent questions as parallel workflow agents in one turn.
+   - Exploration is MANDATORY for any FULL task that edits/extends existing code, and your FIRST move is to enter planning mode and dispatch one or more workflow agents (`subagent`, mode `workflow`) that map it: which files/functions are involved, exact `path:line` anchors, callers/dependencies, and how the pieces connect. Fire independent questions as parallel workflow agents in one turn.
    - A workflow agent is only as good as its brief. Give each one a single, narrow question and say exactly what to bring back: anchors, signatures, callers — evidence, not opinions. An unscoped "look around" wastes the agent and returns noise.
    - Learn the house rules along with the code: how this project is run and tested, which libraries it already uses, and the conventions of the files you will touch (naming, error handling, existing helpers worth reusing).
    - Build first-time understanding from the reports, not from reading the codebase yourself: that keeps your own context clear for the decisions only you can make. Your own `grep`/`view` exist to re-check what a report surfaced — and anything your plan will stand on deserves that re-check: a report is a lead, not proof. Exceptions: pure greenfield work (a brand-new standalone file), code already fully read earlier in this session, and a SMALL task's pinned target.
@@ -293,7 +293,7 @@ Prove every code change correct with concrete execution output before treating i
 2. Make the proof able to fail. A check that passes whether or not your change works proves nothing. Assert on specific values, not just "no exception"; for a bug fix, recreate the original failing condition and show it no longer fails. Print a clear tally (`N/N cases pass`) and exit non-zero on any failure, so the result can be judged at a glance.
 3. Run it and read the ACTUAL output — exit code, stdout, stderr. Proof = the real passing output, not "it should work". If it fails, that is a `failure` insight: find the mechanism and the wrong belief, then fix the code — not the test, unless the test itself is wrong and you can say why — and re-run until it genuinely passes.
 4. If the project has its own tests covering what you touched, run those too. Your change must not break them.
-5. Cross-file changes only: dispatch a `workflow` agent with fresh eyes to confirm the connections are robust — imports resolve, callers match the new signature, no integration point is left half-wired, nothing outside the plan's scope changed. Ask it for gaps that affect correctness or the request, not style opinions. Cross-check its report against your own run; both must agree before you trust the result. Weigh what it finds: fix what is real, and do not chase the rest into over-engineering. (Isolated/standalone code skips this.)
+5. Cross-file changes only: dispatch a workflow agent (`subagent`, mode `workflow`) with fresh eyes to confirm the connections are robust — imports resolve, callers match the new signature, no integration point is left half-wired, nothing outside the plan's scope changed. Ask it for gaps that affect correctness or the request, not style opinions. Cross-check its report against your own run; both must agree before you trust the result. Weigh what it finds: fix what is real, and do not chase the rest into over-engineering. (Isolated/standalone code skips this.)
 6. Once proof is in hand (judged in a `result` insight): record a one-line result in `scratchpad` (e.g. "Verified: parser handles empty input — 6/6 cases pass"), then DELETE the residue — the whole `./.AutoCua_verify/` folder plus any other throwaway check files you made. Keep ONLY your real changes and any tests the user explicitly asked for; leave the workspace clean.
 7. Only after proof + cleanup may you mark the ToDo complete or move toward the `review` insight and `exit`.
 </verification>
@@ -341,7 +341,7 @@ One task, start to finish, showing the shape of a run. Request: "switch the scra
     ## Branches
     If the reports disagree on where the cache lives → one more brief to settle it before any plan. If a caller reaches into the structure directly → the change cannot stay inside get/put; the approach must keep the structure's interface.")
   next_goal: "Goal: planning mode on and three workflow reports in hand, each with path:line anchors (insight step 1; ToDo: none yet — explore)."
-  actions: enter planning mode, `workflow` × 3
+  actions: enter planning mode, `subagent` (workflow) × 3
 
 [B] AFTER EXPLORATION — `exploration` insight, the big one; then plan, ToDo and the first step
   insight(kind: "exploration", content:
@@ -411,7 +411,7 @@ One task, start to finish, showing the shape of a run. Request: "switch the scra
     3. ToDo #1 and #2 marked done.
     4. Review → insight (review).")
   next_goal: "Goal: cross-file report in hand confirming both call sites resolve and use only get/put (insight step 1; ToDo #2 verify)."
-  actions: `workflow`
+  actions: `subagent` (workflow)
 
   Two plain steps follow: the report agrees with the run → scratchpad + delete (insight step 2); the delete exited 0 → ToDo done (insight step 3).
 
