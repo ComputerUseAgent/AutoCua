@@ -149,15 +149,76 @@ pub fn subagent_reasoning_fields() -> &'static Vec<(String, String)> {
     ]))
 }
 
+/// One mode of the coder, turned on and off with its own switch tool:
+/// {"value": "on"} or {"value": "off"}. Every mode is off when a run starts.
+/// The coder's loop answers a switch call itself and never routes it
+/// (main/service.rs), and the switch shapes the next request only, because
+/// the model can only call the tools a request gives it. While a mode is
+/// on, the tools it hides leave the tool list (LLMManager::hide_tools) and
+/// the names a call may use, and its block sits last in the live
+/// <persistent_memory>, after the block of every mode above it in MODES:
+///
+/// ```text
+/// <{tool}>
+/// {on_message}
+///
+/// <skill name="{skill_name}">
+/// {the skill file, read fresh every step}
+/// </skill>
+/// </{tool}>
+/// ```
+pub struct Mode {
+    /// The switch tool's name, also the tag of the mode's block.
+    pub tool: &'static str,
+    /// The skill's name, in its <skill name="..."> tag.
+    pub skill_name: &'static str,
+    /// The skill file, relative to AutoCua/coder, with `/` between its parts on every OS.
+    pub skill_file: &'static str,
+    /// The tools taken away while the mode is on. Never its own switch: the
+    /// model could not turn the mode off again.
+    pub hides: &'static [&'static str],
+    /// The switch tool's description.
+    pub description: &'static str,
+    /// The answer to "on", and the first line of the mode's block.
+    pub on_message: &'static str,
+    /// The answer to "off".
+    pub off_message: &'static str,
+}
+
+/// The coder's modes, in the order their switches are given to the model
+/// (right before `plan`) and their blocks are shown.
+///
+/// To add a mode: add its entry here and put its skill file at its
+/// `skill_file`. Nothing else changes: the tool list, the defaults, the
+/// names a call may use, the hidden tools, the answers and the block all
+/// come from this table.
+pub const MODES: &[Mode] = &[
+    Mode {
+        tool: "planning_mode",
+        skill_name: "planning",
+        skill_file: "planner/planner.md",
+        hides: &["write", "replace", "update_todo", "exit"],
+        description: r#"Follow <operating_procedure>, PLANNING MODE. `value` "on" enters planning mode: the planning skill is loaded into <persistent_memory>, and `write`, `replace`, `update_todo` and `exit` are taken away until you turn it off. `value` "off" leaves planning mode and gives them back."#,
+        on_message: "Planning mode active. Editing of code is prohibited. Flip planning mode off to continue editing.",
+        off_message: "Planning mode off. Editing of code is allowed again.",
+    },
+];
+
+/// A mode's switch tool: one required field, `value`, "on" or "off".
+fn mode_tool(mode: &Mode) -> Value {
+    tool(mode.tool, &[("value", json!({"type": "string", "enum": ["on", "off"]}))], mode.description)
+}
+
 /// The coder's tools, in the order the model is given them: the notes tools
 /// `insight` and `next_goal` first, then one tool per action type.
 /// route_action keys on these names and fields, so they must never drift.
 /// The notes tools follow the coder prompt's <insight> and <next_goal>; the
 /// action tools' descriptions are the mac coder's own text, with the
 /// subagent named as such and the shell named for this OS (on_this_os).
+/// The modes' switches (MODES) sit right before `plan`, in table order.
 pub fn coder_tools() -> &'static Vec<Value> {
     static T: OnceLock<Vec<Value>> = OnceLock::new();
-    T.get_or_init(|| vec![
+    T.get_or_init(|| [vec![
         tool("insight", &[
             ("kind", json!({"type": "string", "enum": ["request", "exploration", "result", "failure", "review"]})),
             ("content", json!({"type": "string"})),
@@ -287,25 +348,28 @@ pub fn coder_tools() -> &'static Vec<Value> {
 - Format: web {"value": "query"}
 - Example: web {"value": "fetch the latest available LangChain package version for Groq to install"}"#),
 
+    // The modes' switches, in table order.
+    ], MODES.iter().map(mode_tool).collect(), vec![
+
         tool("plan", &[
             ("op", json!({"type": "string", "enum": ["set", "add", "edit"]})),
             ("from", json!({"type": "integer"})),
             ("to", json!({"type": "integer"})),
             ("value", json!({"type": "string"})),
         ],
-            r##"Your plan document — the detailed, grounded route written AFTER exploration. The plan explains; the ToDo tracks. Three ops (all fields required; use 0 for `from`/`to` when unused):
-- op "set": write/overwrite the COMPLETE plan. Use once post-exploration, or on a genuine full re-scope.
-- op "add": append `value` at the end of the plan.
-- op "edit": overwrite plan lines `from`..`to` (inclusive) with `value` — `value` may contain more or fewer lines than the range it replaces.
-- Edit ranges always use the `[N]` line numbers from the LATEST <plan no="N"> in input — they shift after every op.
-- Write `value` as PLAIN content — never write your own line numbers or a revision marker; the `[N]` numbering and the `no="N"` revision are stamped automatically. The tool response is a bare `plan updated`; the refreshed, renumbered render is always present in the current step's <persistent_memory> as <plan no="N">.
-- CONTENT FORMAT: write a real structured document, NOT a flat numbered list. Use `#` / `##` markdown headings for sections (e.g. Goal, Findings, Steps, Verification), real newlines (`\n`) between lines, and indentation for sub-points. Put concrete `path:line` anchors inline. A bare "1) do X\n2) do Y" is wrong — that's a ToDo, not a plan.
+            r##"Your plan document — the standing design record of the task, written in planning mode AFTER exploration, derived from the `exploration` insight. The plan explains; the ToDo tracks; the insight's Steps are the actions. Three ops (all fields required; use 0 for `from`/`to` when unused):
+- op "set": write/overwrite the COMPLETE plan. Use once post-exploration (right before `todo_list` and the exit from planning mode), or on a genuine full re-scope, which re-enters planning mode.
+- op "add": append `value` at the end of the plan — for work the request requires that the plan missed, found during execution.
+- op "edit": overwrite plan lines `from`..`to` (inclusive) with `value` — `value` may contain more or fewer lines than the range it replaces. For findings that shift the plan without breaking it (moved anchors, a changed detail, an extra proof case), in the same turn as the insight that found them.
+- Edit ranges always use the `[L]` line numbers from the LATEST <plan no="R"> in input — they shift after every op, and blank lines are numbered too.
+- Write `value` as PLAIN content — never write your own line numbers or a revision marker; the `[L]` numbering and the `no="R"` revision are stamped automatically. The tool response is a bare `plan updated`; the refreshed, renumbered render is always present in the current step's <persistent_memory> as <plan no="R">.
+- CONTENT FORMAT: write a real structured document, NOT a flat numbered list. Use `#` / `##` markdown headings for the sections, in this order: Goal (the request as observable behavior) · Findings (how the code works today, with anchors) · Approach (the pick, its deciding reason, rejected options a line each) · Edits (what changes where, each at its anchor, in dependency order; `##` per file) · Assumptions & Risks (what is unverified and what breaks if it is wrong) · Verification (the cases that will prove the Goal, the one most likely to fail marked). Real newlines (`\n`) between lines, indentation for sub-points, concrete `path:line` anchors inline. A bare "1) do X\n2) do Y" is wrong — that's a ToDo, not a plan. Goal is never edited to fit what was built.
 - Format: plan {"op": "set", "from": 0, "to": 0, "value": "..."}
 - Examples:
-  1. Full plan (note the headings, newlines, indentation, and inline anchors):
-     plan {"op": "set", "from": 0, "to": 0, "value": "# Goal\nSwitch the scratchpad cache to an LRU so it stops growing unbounded.\n\n# Findings\n- Cache write lives at service.py:233 (plain dict).\n- Callers: api.py:41, worker.py:88.\n\n# Steps\n## 1. Replace the cache impl\n- service.py:233 — swap dict for functools.lru_cache-backed store.\n## 2. Update callers\n- api.py:41 — adjust call to new signature.\n- worker.py:88 — same.\n\n# Verification\n- ./.AutoCua_verify/test_cache.py — 6 cases incl. empty input + eviction."}
-  2. Append a section: plan {"op": "add", "from": 0, "to": 0, "value": "\n# Follow-up\n- Migrate config flag — settings.py:12."}
-  3. Surgical edit (replace the two lines under Update callers): plan {"op": "edit", "from": 12, "to": 13, "value": "- api.py:41 — adjust call to new signature.\n- worker.py:88 — already uses the new signature; no change needed."}"##),
+1. Full plan (note the headings, newlines, indentation, and inline anchors):
+plan {"op": "set", "from": 0, "to": 0, "value": "# Goal\nThe scratchpad cache in service.py holds at most CACHE_MAX entries and evicts the least recently used one; api.py:41 and worker.py:88 keep working unchanged.\n\n# Findings\n- Cache: module-level dict `_cache` at service.py:41; get() at :63 reads it, put() at :88 inserts; nothing ever deletes — that is the unbounded growth.\n- Callers: api.py:41 and worker.py:88 use only get()/put(); no code reaches into `_cache` directly (grep across src/ returns only service.py).\n- Settings are module constants at service.py:12-20; no config system. Imports at :1-6.\n- Tests: `python -m pytest`; nothing covers the cache today.\n- get() returns early on a hit at :66 — the hit path and the miss path are separate branches.\n\n# Approach\nOrderedDict inside get()/put(): move_to_end on a hit, popitem(last=False) once the size passes CACHE_MAX. About 10 lines, no new dependency, callers untouched.\n- Rejected: functools.lru_cache — entries arrive through explicit put() calls from two sites; there is no pure function to decorate.\n- Rejected: cachetools — a new dependency for one use.\n- Out of scope: thread safety; the worker is single-threaded.\n\n# Edits\n## service.py\n- :1-6 — add `from collections import OrderedDict` to the import block.\n- :12-20 — add `CACHE_MAX = 512` beside the other constants, same naming style.\n- :41 — `_cache = OrderedDict()` in place of the dict.\n- :63 get() — on a hit, `_cache.move_to_end(key)` BEFORE the early return at :66.\n- :88 put() — after insert, `while len(_cache) > CACHE_MAX: _cache.popitem(last=False)`.\n\n# Assumptions & Risks\n- Nothing accesses `_cache` dynamically (getattr/globals): unverifiable by grep; OrderedDict keeps the dict interface, so the consequence is nil.\n- Recency is the part most likely to be wrong: if move_to_end lands on the miss path the cache is FIFO — covered by case 2.\n- CACHE_MAX=0 would evict on every put; nothing sets it, not covered.\n\n# Verification\n- ./.AutoCua_verify/test_cache.py, imports the real `service`, prints N/4, exits 1 on any failure:\n  1. fill to CACHE_MAX+1 → the first key is gone, size == CACHE_MAX.\n  2. get('a') then overflow → 'a' survives, the next-oldest is gone. (most likely to fail)\n  3. overwrite an existing key → size unchanged.\n  4. put/get round-trip returns the value.\n- `python -m pytest` still passes.\n- Cross-file check: a workflow agent confirms api.py:41 and worker.py:88 resolve and use only get/put."}
+2. Append a section: plan {"op": "add", "from": 0, "to": 0, "value": "\n## worker.py\n- :88 — no change: the composite key is built before put() and is opaque to the cache."}
+3. Surgical edit (the view showed put() at :91, not :88 — line [23] of the render above): plan {"op": "edit", "from": 23, "to": 23, "value": "- :91 put() — after insert, `while len(_cache) > CACHE_MAX: _cache.popitem(last=False)`."}"##),
 
         tool("todo_list", &[("value", json!({"type": "string"}))],
             r#"Create the tracking to-do list, derived from the plan.
@@ -371,7 +435,7 @@ pub fn coder_tools() -> &'static Vec<Value> {
   - Step 2: call `exit` — the only call in its turn.
 - Write `value` in Markdown — headings, `-` bullets, `**bold**`, backticks and fenced code blocks as the summary needs them.
 - Format: exit {"value": "<end-to-end summary in markdown format>"}"#),
-    ])
+    ]].concat())
 }
 
 /// The subagent's tools: the read-only subset (shell, view, grep, glob,
@@ -516,10 +580,12 @@ pub fn subagent_tools() -> &'static Vec<Value> {
 /// order is the routed action's key order, which is printed and persisted.
 /// The notes tools (NOTE_TOOLS: the subagent's `reasoning`, the coder's
 /// `insight` and `next_goal`): the loops record them and never route them.
+/// The modes' switches (MODES, added last, one field `value` each) are never
+/// routed either: the coder's loop answers them.
 pub fn action_defaults() -> &'static Value {
     static D: OnceLock<Value> = OnceLock::new();
     D.get_or_init(|| {
-        json!({
+        let mut defaults = json!({
             "reasoning": {"thinking": "", "memory": "", "next_goal": ""},
             "insight": {"kind": "", "content": ""},
             "next_goal": {"value": ""},
@@ -538,7 +604,11 @@ pub fn action_defaults() -> &'static Value {
             "scratchpad": {"value": ""},
             "subagent": {"value": ""},
             "exit": {"value": ""},
-        })
+        });
+        for mode in MODES {
+            defaults[mode.tool] = json!({"value": ""});
+        }
+        defaults
     })
 }
 
@@ -1250,6 +1320,9 @@ pub struct LLMManager {
     primary_model_info: Value,
     /// The shared Python provider holding this mode's tool list.
     provider_impl: Py<PyAny>,
+    /// The provider's full tool list, read off it on the first hide_tools
+    /// call; None when the provider has no tools.
+    full_tools: OnceLock<Option<Py<PyAny>>>,
     state: Mutex<CoreState>,
 }
 
@@ -1263,6 +1336,21 @@ fn shared_llm(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
 fn resolve_model_info(py: Python<'_>, provider: &str, short_name: &str) -> PyResult<Value> {
     let entry = shared_llm(py)?.call_method1("resolve_model_info", (provider, short_name))?;
     Ok(pythonize::depythonize(&entry)?)
+}
+
+/// A provider tool's name in any dialect (the shared _dialect_tool_name): at
+/// the top (Anthropic, Gemini, Perplexity) or under `function` (chat
+/// completions); "" when neither has one.
+fn dialect_tool_name(t: &Bound<'_, PyAny>) -> String {
+    fn get<'py>(obj: &Bound<'py, PyAny>, key: &str) -> Option<Bound<'py, PyAny>> {
+        obj.call_method1("get", (key,))
+            .ok()
+            .filter(|v| v.is_truthy().unwrap_or(false))
+    }
+    get(t, "name")
+        .or_else(|| get(t, "function").and_then(|f| get(&f, "name")))
+        .and_then(|n| n.extract::<String>().ok())
+        .unwrap_or_default()
 }
 
 impl LLMManager {
@@ -1343,6 +1431,7 @@ impl LLMManager {
             cli_fallback_model,
             primary_model_info: model_info.clone(),
             provider_impl,
+            full_tools: OnceLock::new(),
             state: Mutex::new(CoreState {
                 model: api_name,
                 has_vision: model_info.get("vision").and_then(Value::as_bool).unwrap_or(true),
@@ -1567,6 +1656,34 @@ impl LLMManager {
                 Err(e)
             }
         }
+    }
+
+    /// Send every tool but the ones named in `names`, or every tool when it
+    /// is empty: the coder hides the tools of the modes that are on (MODES).
+    /// The provider holds its tools in its own dialect (it may have reworked
+    /// the schemas it was given) and reads them on every request, so the cut
+    /// list is set on it; the full list is read off it once. Needs the GIL:
+    /// call it before detaching for send_rust.
+    pub fn hide_tools(&self, py: Python<'_>, names: &[&str]) -> PyResult<()> {
+        let provider = self.provider_impl.bind(py);
+        if self.full_tools.get().is_none() {
+            let full = provider.getattr("tools")?;
+            let _ = self.full_tools.set((!full.is_none()).then(|| full.unbind()));
+        }
+        let Some(Some(full)) = self.full_tools.get() else {
+            return Ok(());
+        };
+        if names.is_empty() {
+            return provider.setattr("tools", full.bind(py));
+        }
+        let cut = PyList::empty(py);
+        for t in full.bind(py).try_iter()? {
+            let t = t?;
+            if !names.contains(&dialect_tool_name(&t).as_str()) {
+                cut.append(&t)?;
+            }
+        }
+        provider.setattr("tools", cut)
     }
 
     /// True when the model batches only on the Responses endpoint with async

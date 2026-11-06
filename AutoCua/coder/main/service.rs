@@ -13,14 +13,16 @@
 //! prompt, the `<user_request=1>` turn, every past step as an assistant turn
 //! with its tool calls plus one tool result per call, and a live
 //! `<persistent_memory>` turn at the end (workspace and cwd, plan, todo,
-//! scratchpad, a web result shown once). Nothing in the lists is rewritten,
-//! so the prompt-cache prefix stays valid.
+//! scratchpad, the skill of each mode that is on, a web result shown once).
+//! Nothing in the lists is rewritten, so the prompt-cache prefix stays
+//! valid.
 //!
 //! Left out, as a terminal run never uses them: the app's history file, the
 //! result file and on_complete, the token-usage markers, the request number
 //! and the subagents' own terminal windows. AgentService still takes those
 //! keyword arguments and ignores them.
 
+use std::collections::HashSet;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError, TryRecvError};
@@ -35,7 +37,7 @@ use serde_json::{json, Map, Value};
 use super::view;
 use crate::controller::cli::service::render_tool_response;
 use crate::controller::service::ControllerView;
-use crate::tool_registry::service::{self as registry, LLMManager, SendOutcome};
+use crate::tool_registry::service::{self as registry, LLMManager, Mode, SendOutcome, MODES};
 use crate::{dumps_pretty, py_str_of, py_strip, truthy};
 
 /// The word in system_prompt.md that current_os() replaces.
@@ -105,6 +107,9 @@ struct LoopState {
     is_first: bool,
     /// Text-only and empty turns since the last turn with calls (3 ends the run).
     json_fail_count: i64,
+    /// Which modes are on, one flag per MODES entry, set by the modes'
+    /// switch calls; all off at the start of every run.
+    modes_on: Vec<bool>,
     /// The tool slot of the web step the digest step backfills.
     web_memory_index: Option<i64>,
     /// (call id, compacted result) of that web step, for the backfill.
@@ -301,6 +306,7 @@ impl AgentService {
             step_number: 0,
             is_first: true,
             json_fail_count: 0,
+            modes_on: vec![false; MODES.len()],
             web_memory_index: None,
             web_pending: None,
         };
@@ -351,6 +357,10 @@ impl AgentService {
             if !scratchpad_notes.is_empty() {
                 pm.push(format!("<scratchpad>\n{scratchpad_notes}\n</scratchpad>"));
             }
+            // Last, the block of each mode that is on, in table order.
+            for mode in active_modes(&lp.modes_on) {
+                pm.push(mode_block(py, mode)?);
+            }
             let mut live = format!("<persistent_memory>\n{}\n</persistent_memory>", pm.join("\n\n"));
             if !pending_web.is_empty() {
                 live.push_str(WEB_DIGEST_CRITICAL);
@@ -391,6 +401,11 @@ impl AgentService {
         lp: &mut LoopState,
     ) -> PyResult<Flow> {
         let llm = self.llm.get();
+        // The model can only call the tools this request gives it, so the
+        // modes work on the request alone: the provider reads its tool list
+        // every request.
+        let hidden = hidden_tools(&lp.modes_on);
+        llm.hide_tools(py, &hidden)?;
 
         let outcome = if stdout_tty() {
             let spinner = Spinner::start();
@@ -417,10 +432,13 @@ impl AgentService {
 
         self.save_raw_response(&dumps_pretty(&raw_response), lp.step_number);
 
-        // No track params: the notes are read off the notes calls below.
+        // No track params: the notes are read off the notes calls below. A
+        // call to a tool a mode took away is rejected like an unknown tool.
+        let allowed: HashSet<String> =
+            registry::coder_tool_names().iter().filter(|name| !hidden.contains(&name.as_str())).cloned().collect();
         let (actions, calls, rejects, _) = registry::tool_calls_to_steps(
             raw_response.get("tool_calls").unwrap_or(&Value::Null),
-            registry::coder_tool_names(),
+            &allowed,
             registry::action_defaults(),
             &[],
         );
@@ -433,7 +451,7 @@ impl AgentService {
         let is_note = |a: &Value| a.get("type").and_then(Value::as_str).is_some_and(|t| NOTES_TOOLS.contains(&t));
         let all_calls = calls.clone();
         let (insight, next_goal) = turn_notes(&actions, &rejects);
-        let note_results: Vec<Value> = actions
+        let mut note_results: Vec<Value> = actions
             .iter()
             .zip(&calls)
             .filter(|(a, _)| is_note(a))
@@ -532,9 +550,24 @@ impl AgentService {
                 );
             }
         }
+        // The modes' switch calls are taken out here, after the turn is
+        // shown and recorded, and answered on their own ids beside the
+        // notes' results. The flags they leave shape the next request only.
+        let mut routed = Vec::new();
+        for (a, c) in actions.into_iter().zip(calls) {
+            match mode_of(&a) {
+                Some(i) => {
+                    let answer = switch_mode(&MODES[i], &mut lp.modes_on[i], &a);
+                    note_results.push(json!({"tool_call_id": call_id(&c), "content": render_tool_response(&answer)}));
+                }
+                None => routed.push((a, c)),
+            }
+        }
+        let (actions, calls): (Vec<Value>, Vec<Value>) = routed.into_iter().unzip();
         if actions.is_empty() {
-            // Nothing to route (only notes calls or rejected calls): persist
-            // the notes' results and the errors, and go on to the next step.
+            // Nothing to route (only notes calls, switch calls or rejected
+            // calls): persist their results and the errors, and go on to the
+            // next step.
             let mut all = note_results;
             all.extend(reject_results);
             set_last(tr, view::encode_results(&all))?;
@@ -881,6 +914,67 @@ fn turn_notes(actions: &[Value], rejects: &[Value]) -> (Value, String) {
         Value::String(String::new())
     };
     (insight, first("next_goal", "value"))
+}
+
+/// The modes that are on, in table order.
+fn active_modes(modes_on: &[bool]) -> impl Iterator<Item = &'static Mode> + '_ {
+    MODES.iter().zip(modes_on).filter(|(_, on)| **on).map(|(mode, _)| mode)
+}
+
+/// The tools the modes that are on take away: all their `hides`, in table
+/// order, each name once.
+fn hidden_tools(modes_on: &[bool]) -> Vec<&'static str> {
+    let mut hidden: Vec<&'static str> = Vec::new();
+    for mode in active_modes(modes_on) {
+        for &name in mode.hides {
+            if !hidden.contains(&name) {
+                hidden.push(name);
+            }
+        }
+    }
+    hidden
+}
+
+/// The index in MODES of the mode whose switch the action calls, if any.
+fn mode_of(action: &Value) -> Option<usize> {
+    let tool = action.get("type").and_then(Value::as_str)?;
+    MODES.iter().position(|mode| mode.tool == tool)
+}
+
+/// One switch call: the mode's flag set as `value` asks ("on" or "off"),
+/// and the result the call is answered with. Any other value is an error
+/// and leaves the flag as it is.
+fn switch_mode(mode: &Mode, on: &mut bool, action: &Value) -> Value {
+    let (now_on, message) = match action.get("value").and_then(Value::as_str) {
+        Some("on") => (true, mode.on_message),
+        Some("off") => (false, mode.off_message),
+        _ => {
+            let message = format!("{} value must be \"on\" or \"off\".", mode.tool);
+            return json!({"status": "error", "action": mode.tool, "message": message});
+        }
+    };
+    *on = now_on;
+    json!({"status": "success", "action": mode.tool, "message": message})
+}
+
+/// A mode's block, last in the live <persistent_memory> while the mode is
+/// on: its on message and its skill, the skill file read fresh every step
+/// (or why it could not be read).
+fn mode_block(py: Python<'_>, mode: &Mode) -> PyResult<String> {
+    // Part by part, so the path is written the way this OS writes it.
+    let mut file = crate::coder_dir(py)?.clone();
+    for part in mode.skill_file.split('/') {
+        file.push(part);
+    }
+    let skill = match crate::read_text(&file) {
+        Ok(text) => format!("<skill name=\"{}\">\n{text}\n</skill>", mode.skill_name),
+        Err(e) => format!(
+            "The {} skill could not be read: {}.",
+            mode.skill_name,
+            crate::sandbox::service::py_os_error(&e, &file)
+        ),
+    };
+    Ok(format!("<{tool}>\n{on}\n\n{skill}\n</{tool}>", tool = mode.tool, on = mode.on_message))
 }
 
 fn print_turn(payload: &str) {
