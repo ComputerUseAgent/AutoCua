@@ -12,9 +12,11 @@
 //! NATIVE TOOLS: the coder and the subagent call these tools natively, with
 //! no JSON envelope. The provider returns structured calls, and
 //! tool_calls_to_steps() converts them into the `[{type, ...}]` action dicts
-//! route_action consumes. The per-step notes (`thinking`, `memory`,
-//! `next_goal`) live on ONE dedicated tool, `reasoning`, called first in
-//! every step; the action tools carry only their own fields. tool_choice is
+//! route_action consumes. The per-step notes live on tools of their own,
+//! batched with the action calls: the coder's `insight` (only when something
+//! new came up) and `next_goal` (every turn), and the subagent's `reasoning`
+//! (`thinking`, `memory`, `next_goal`), called first in every step. The
+//! action tools carry only their own fields. tool_choice is
 //! forced (required / {"type": "any"} / mode="ANY"), so a text-only step is
 //! unrepresentable; the text channel remains for free prose only.
 //!
@@ -46,19 +48,22 @@ use crate::{py_strip, truthy};
 pub const META_KEY: &str = "provider_meta";
 pub const META_PROVIDERS: [&str; 2] = ["openrouter", "google"];
 
-/// The dedicated notes tool: `reasoning`, the coder's and the subagent's. The
-/// parser and show_notes_tool treat a call to it as the step's notes, never
-/// as an action. (The shared Python constant also names other agents' notes
-/// tools, which no list here has.)
-pub const NOTE_TOOLS: &[&str] = &["reasoning"];
+/// The notes tools: the subagent's `reasoning` and the coder's `insight` and
+/// `next_goal`. The parser treats a call to one of them as the step's notes,
+/// never as an action. (The shared Python constant also names other agents'
+/// notes tools, which no list here has.)
+pub const NOTE_TOOLS: &[&str] = &["reasoning", "insight", "next_goal"];
 
-/// The optional note field: `thinking` on the `reasoning` tools. Left out of
-/// the schema's `required` list and out of the "no arguments" error text.
+/// The optional note field: `thinking` on the subagent's `reasoning` tool.
+/// Left out of the schema's `required` list and out of the "no arguments"
+/// error text.
 pub const REASONING_OPTIONAL: &[&str] = &["thinking"];
 
 /// The legacy track params tool_calls_to_steps harvests when it is given
-/// none. No registry carries them any more (the loops always pass their
-/// notes fields); kept so the parser behaves as the shared one.
+/// none. No registry carries them any more: the subagent passes its notes
+/// fields, and the coder passes none, because its loop reads its notes off
+/// its own `insight` and `next_goal` calls. Kept so the parser behaves as
+/// the shared one.
 const LEGACY_TRACK_KEYS: [&str; 2] = ["thinking", "next_goal"];
 
 /// How the mac descriptions name the shell the `shell` tool runs.
@@ -92,7 +97,7 @@ fn fields(list: &[(&str, &str)]) -> Vec<(String, String)> {
 /// unless named in `optional`, so the controller always sees every field of
 /// an action (the only optional one is the `reasoning` tool's `thinking`,
 /// which a route step omits). The coder and the subagent pass no per-call
-/// track params: their notes live on the `reasoning` tool.
+/// track params: their notes live on tools of their own (NOTE_TOOLS).
 fn tool(name: &str, params: &[(&str, Value)], description: &str) -> Value {
     tool_opt(name, params, description, &[])
 }
@@ -126,30 +131,15 @@ fn field_params(list: &[(String, String)]) -> Vec<(&str, Value)> {
         .collect()
 }
 
-/// The coder's `reasoning` tool fields: the step's notes to itself, replayed
-/// in history so the model can read back why it did what it did. `memory` and
-/// `next_goal` are filled every step; `thinking` comes in bursts: a FULL
-/// thinking ends with a ROUTE of the next 3-5 steps, and the steps on that
-/// route omit it (the rules live in the coder prompt's <thinking>). It is the
-/// one OPTIONAL field (REASONING_OPTIONAL): a required string invites
-/// filling, and the snapshot renders a missing or empty one as "skipped". No
-/// step numbers and no verdict codes: nothing in the harness parses them, and
-/// the model cannot count steps reliably, so the verdict is a plain sentence.
-/// Also the coder's track params for tool_calls_to_steps (only the keys and
-/// their order matter there).
-pub fn reasoning_fields() -> &'static Vec<(String, String)> {
-    static P: OnceLock<Vec<(String, String)>> = OnceLock::new();
-    P.get_or_init(|| fields(&[
-        ("thinking", r#"Your reasoning, written for your future self, not for the user. Not every step: think in bursts. Follow <thinking>: "JUDGE: ... UNDERSTAND: ... DECIDE: ... ROUTE: 1. ... 2. ... 3. ..." (FULL) when there is no route or it is used up, a short freeform paragraph (RECOVERY) after a failed guard, 1-3 judgment lines (BRIEF) on a surprise. Omit it (or pass "") on a route step: the previous "Next:" named this step and its guard held."#),
-        ("memory", r#"Follow <memory>. Open with the verdict on the previous step, judged on the actual <Tool_response> (exit code, stderr, output), never assumed: "Last step worked: <what the output proved>" or "Last step failed: <what the output shows>". First step: "Task start." Then the key context the next step needs: important results, paths, errors, where you are in the plan. 2-4 tight lines."#),
-        ("next_goal", r#"Follow <next_goal>: "Doing: <this step> (ToDo: #x <task>). If <concrete success signal> → Next: <planned action | think: <decision to make>>." Name the pending ToDo item; make the "If" something the next <Tool_response> can prove."#),
-    ]))
-}
-
-/// The subagent's `reasoning` tool fields: the same design as the coder's
-/// (route cadence, optional `thinking`), in the subagent's own terms (probes,
-/// path:line finds) and with its Expect guard at the end of `memory`, which
-/// is where the subagent prompt keeps it. Also its track params.
+/// The subagent's `reasoning` tool fields: its notes to itself, replayed in
+/// history so it can read back why it did what it did. `memory` and
+/// `next_goal` are filled every step; `thinking` comes in bursts (the rules
+/// live in the subagent prompt's <thinking>) and is the one OPTIONAL field
+/// (REASONING_OPTIONAL): a required string invites filling, and the snapshot
+/// renders a missing or empty one as "skipped". Its Expect guard sits at the
+/// end of `memory`, which is where the subagent prompt keeps it. Also its
+/// track params for tool_calls_to_steps (only the keys and their order
+/// matter there).
 pub fn subagent_reasoning_fields() -> &'static Vec<(String, String)> {
     static P: OnceLock<Vec<(String, String)>> = OnceLock::new();
     P.get_or_init(|| fields(&[
@@ -159,31 +149,23 @@ pub fn subagent_reasoning_fields() -> &'static Vec<(String, String)> {
     ]))
 }
 
-/// The coder's tools, in the order the model is given them: the notes tool
-/// `reasoning` first, then one tool per action type. route_action keys on
-/// these names and fields, so they must never drift. The descriptions are the
-/// mac coder's own text, with the subagent named as such and the shell named
-/// for this OS (on_this_os).
+/// The coder's tools, in the order the model is given them: the notes tools
+/// `insight` and `next_goal` first, then one tool per action type.
+/// route_action keys on these names and fields, so they must never drift.
+/// The notes tools follow the coder prompt's <insight> and <next_goal>; the
+/// action tools' descriptions are the mac coder's own text, with the
+/// subagent named as such and the shell named for this OS (on_this_os).
 pub fn coder_tools() -> &'static Vec<Value> {
     static T: OnceLock<Vec<Value>> = OnceLock::new();
     T.get_or_init(|| vec![
-        tool_opt("reasoning", &field_params(reasoning_fields()),
-            r#"Your notes to yourself for this step. Call it FIRST in every step, then the calls that do the work, all in the same turn. The harness does nothing with it (its result is just `ok`), but the call is replayed in <agent_history>, so your future self can read the reasoning behind every step.
-- `memory` and `next_goal` are filled every step. `thinking` is not: you think in bursts (see <thinking>). A FULL thinking ends with a ROUTE of the next 3-5 steps; on each step of that route omit `thinking` (or pass ""), and think again only when the route is used up, a guard fails, or the route said "think".
-- It never ends a turn: the calls that do this step's "Doing" always follow it in the SAME message, on a step that thinks too. A message holding only this call is a wasted turn. The one exception is the final review right before `exit`.
-- Not used on the `exit` step: `exit` is always the only call of its turn.
-- Format: reasoning {"thinking": "", "memory": "...", "next_goal": "..."}
-- Examples (each `reasoning` call is followed, in the same turn, by the calls that do its "Doing"):
-  1. Route step (no thinking; "Doing" is the next route line):
-     reasoning {"memory": "Last step worked: replace applied at service.py:233, no mismatch. Verification script ready at ./.AutoCua_verify/test_cache.py.", "next_goal": "Doing: run ./.AutoCua_verify/test_cache.py (ToDo: #3 verify). If output shows 6/6 cases pass → Next: think: judge proof, clean up ./.AutoCua_verify/, mark #3 done."}
-     + shell {"command": "python ./.AutoCua_verify/test_cache.py", "input": ""}
-  2. Planning moment (FULL thinking, ends with the ROUTE):
-     reasoning {"thinking": "JUDGE: PASS, three reports, all anchored, and they agree. UNDERSTAND: known: the cache is a plain dict at service.py:233, put() inserts and nothing evicts; callers api.py:41 and worker.py:88 use only get/put. Assumed: no direct access to the dict elsewhere. DECIDE: OrderedDict inside get/put with a CACHE_MAX constant, no new dependency, callers untouched; the part most likely to be wrong is recency on a hit, so the proof tests exactly that. ROUTE: 1. plan set + todo_list, if both accepted. 2. view service.py:220-250, if the dict and put() sit at the reported anchors. 3. replace put()/get(), add CACHE_MAX, bottom-up, if all apply with no mismatch. 4. write + run ./.AutoCua_verify/test_cache.py, if output shows 4/4 cases pass → think: judge the proof.", "memory": "Last step worked: 3 subagent reports with anchors, consistent. Cache = dict at service.py:233, callers api.py:41 and worker.py:88 use only get/put. Approach: OrderedDict LRU inside get/put. Unverified: no direct dict access elsewhere.", "next_goal": "Doing: write the plan (`plan` set) and derive the ToDo (ToDo: none yet — plan). If both are accepted → Next: view service.py:220-250 to confirm the anchors."}
-     + plan {"op": "set", "from": 0, "to": 0, "value": "..."} + todo_list {"value": "..."}
-  3. Recovery after a failed guard:
-     reasoning {"thinking": "pytest exited 1 with ImportError at test_cache.py:3; the import path is stale after the move. Narrowest fix: correct the import and re-run. Guard: pytest exits 0.", "memory": "Last step failed: pytest exited 1, ImportError in test_cache.py line 3. The code change at service.py:233 is in place.", "next_goal": "Doing: fix the stale import path in test_cache.py (ToDo: #2 fix caching). If pytest exits 0 → Next: re-run the verification script."}
-     + replace {"path": "test_cache.py", "line": 3, "old_block": "...", "new_block": "..."} + shell {"command": "python -m pytest test_cache.py", "input": ""}"#,
-            REASONING_OPTIONAL),
+        tool("insight", &[
+            ("kind", json!({"type": "string", "enum": ["request", "exploration", "result", "failure", "review"]})),
+            ("content", json!({"type": "string"})),
+        ],
+            r#"Follow <insight>. Write down what your thinking concluded when something new came up. `kind` is what arrived: request, exploration, result, failure or review. `content` is markdown in that kind's format."#),
+
+        tool("next_goal", &[("value", json!({"type": "string"}))],
+            r#"Follow <next_goal>. The step you are taking now, written as the outcome it leaves behind: "Goal: <observable outcome of this step> (insight step <k>; ToDo #<n> <task_name>).""#),
 
         tool("shell", &[
             ("command", json!({"type": "string"})),
@@ -395,8 +377,7 @@ pub fn coder_tools() -> &'static Vec<Value> {
 /// The subagent's tools: the read-only subset (shell, view, grep, glob,
 /// scratchpad, exit; no write, replace, web, plan, todo, wait or subagent).
 /// The descriptions are the mac minion prompt's own words. Its notes live on
-/// its own `reasoning` tool (subagent_reasoning_fields), the same design as
-/// the coder's.
+/// its own `reasoning` tool (subagent_reasoning_fields).
 pub fn subagent_tools() -> &'static Vec<Value> {
     static T: OnceLock<Vec<Value>> = OnceLock::new();
     T.get_or_init(|| vec![
@@ -533,12 +514,15 @@ pub fn subagent_tools() -> &'static Vec<Value> {
 /// optional-feeling one. Doubles as the field whitelist: an argument that is
 /// not a key here is dropped from the action (and kept in its call). The key
 /// order is the routed action's key order, which is printed and persisted.
-/// `reasoning` is the notes tool: the loop records it and never routes it.
+/// The notes tools (NOTE_TOOLS: the subagent's `reasoning`, the coder's
+/// `insight` and `next_goal`): the loops record them and never route them.
 pub fn action_defaults() -> &'static Value {
     static D: OnceLock<Value> = OnceLock::new();
     D.get_or_init(|| {
         json!({
             "reasoning": {"thinking": "", "memory": "", "next_goal": ""},
+            "insight": {"kind": "", "content": ""},
+            "next_goal": {"value": ""},
             "shell": {"command": "", "input": ""},
             "view": {"path": "", "start": 0, "end": 0},
             "grep": {"pattern": "", "path": "", "glob": "", "output_mode": "content",
@@ -905,11 +889,11 @@ fn coerce(value: &Value, default: &Value) -> Value {
 ///            too): for each key, the first non-empty value, stripped.
 ///
 /// `allowed` is the loop's name set (coder_tool_names or
-/// subagent_tool_names, minus `reasoning` while the notes tool is paused),
-/// `defaults_map` its defaults (action_defaults; an empty map means
-/// action_defaults, as the Python wrapper does) and `track_params` its notes
-/// fields (reasoning_fields or subagent_reasoning_fields; empty means the
-/// legacy keys).
+/// subagent_tool_names), `defaults_map` its defaults (action_defaults; an
+/// empty map means action_defaults, as the Python wrapper does) and
+/// `track_params` its notes fields (subagent_reasoning_fields; empty means
+/// the legacy keys, which is what the coder passes: its loop reads its notes
+/// off its own `insight` and `next_goal` calls).
 #[allow(clippy::type_complexity)]
 pub fn tool_calls_to_steps(
     tool_calls: &Value,
@@ -934,7 +918,9 @@ pub fn tool_calls_to_steps(
     // (`reasoning`), the action tools do NOT, so a malformed call's
     // "required" list must not name them. A registry without one (older
     // saves replayed against an old map) still carries them on every call.
-    // Read off the defaults map, which is per registry.
+    // Read off the defaults map, which is per registry. The coder passes no
+    // track params, and the legacy keys sit on the shared map's `reasoning`
+    // entry, so its error texts do not name them either.
     let notes_on_own_tool = NOTE_TOOLS.iter().any(|n| {
         dm.get(*n)
             .and_then(Value::as_object)
@@ -1264,9 +1250,6 @@ pub struct LLMManager {
     primary_model_info: Value,
     /// The shared Python provider holding this mode's tool list.
     provider_impl: Py<PyAny>,
-    /// show_notes_tool's (full, without notes tool) lists, read off the
-    /// provider on its first call; None when the provider has no tools.
-    tool_cuts: OnceLock<Option<(Py<PyAny>, Py<PyAny>)>>,
     state: Mutex<CoreState>,
 }
 
@@ -1280,21 +1263,6 @@ fn shared_llm(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
 fn resolve_model_info(py: Python<'_>, provider: &str, short_name: &str) -> PyResult<Value> {
     let entry = shared_llm(py)?.call_method1("resolve_model_info", (provider, short_name))?;
     Ok(pythonize::depythonize(&entry)?)
-}
-
-/// A provider tool's name in any dialect (the shared _dialect_tool_name): at
-/// the top (Anthropic, Gemini, Perplexity) or under `function` (chat
-/// completions); "" when neither has one.
-fn dialect_tool_name(t: &Bound<'_, PyAny>) -> String {
-    fn get<'py>(obj: &Bound<'py, PyAny>, key: &str) -> Option<Bound<'py, PyAny>> {
-        obj.call_method1("get", (key,))
-            .ok()
-            .filter(|v| v.is_truthy().unwrap_or(false))
-    }
-    get(t, "name")
-        .or_else(|| get(t, "function").and_then(|f| get(&f, "name")))
-        .and_then(|n| n.extract::<String>().ok())
-        .unwrap_or_default()
 }
 
 impl LLMManager {
@@ -1375,7 +1343,6 @@ impl LLMManager {
             cli_fallback_model,
             primary_model_info: model_info.clone(),
             provider_impl,
-            tool_cuts: OnceLock::new(),
             state: Mutex::new(CoreState {
                 model: api_name,
                 has_vision: model_info.get("vision").and_then(Value::as_bool).unwrap_or(true),
@@ -1602,44 +1569,6 @@ impl LLMManager {
         }
     }
 
-    /// The provider's full tool list and the same list without the notes
-    /// tool, both Python lists in the provider's own dialect (the provider
-    /// may have reworked the schemas it was given). None when it has no
-    /// tools (mode="text").
-    fn tool_lists(&self, py: Python<'_>) -> PyResult<Option<(Py<PyAny>, Py<PyAny>)>> {
-        let full = self.provider_impl.bind(py).getattr("tools")?;
-        if full.is_none() {
-            return Ok(None);
-        }
-        let cut = PyList::empty(py);
-        for t in full.try_iter()? {
-            let t = t?;
-            if !NOTE_TOOLS.contains(&dialect_tool_name(&t).as_str()) {
-                cut.append(&t)?;
-            }
-        }
-        Ok(Some((full.unbind(), cut.into_any().unbind())))
-    }
-
-    /// Notes pause (coder): send every tool, or every tool but the notes tool
-    /// while the coder has it paused after a run of notes-only turns, so the
-    /// model can only call the tools that do the work. The provider reads its
-    /// `tools` on every request, so the list is swapped onto it; the short
-    /// list is cut from the full one once. Needs the GIL: call it before
-    /// detaching for send_rust.
-    pub fn show_notes_tool(&self, py: Python<'_>, on: bool) -> PyResult<()> {
-        if self.tool_cuts.get().is_none() {
-            let lists = self.tool_lists(py)?;
-            let _ = self.tool_cuts.set(lists);
-        }
-        let Some(Some((full, cut))) = self.tool_cuts.get() else {
-            return Ok(());
-        };
-        self.provider_impl
-            .bind(py)
-            .setattr("tools", if on { full.bind(py) } else { cut.bind(py) })
-    }
-
     /// True when the model batches only on the Responses endpoint with async
     /// tools (GPT-6 Astra, table flag `async_tools`): the loops add the
     /// <async_tools> prompt block and the bundled exit backstop for it. Read
@@ -1708,11 +1637,6 @@ impl LLMManager {
     #[pyo3(name = "async_tools")]
     fn async_tools_py(&self) -> bool {
         self.async_tools()
-    }
-
-    #[pyo3(name = "show_notes_tool")]
-    fn show_notes_tool_py(&self, py: Python<'_>, on: bool) -> PyResult<()> {
-        self.show_notes_tool(py, on)
     }
 
     /// Current model short name (keeps a vertex suffix for routing).

@@ -434,8 +434,8 @@ impl ControllerView {
                     return Ok(json!({"status": "success", "action": "exit", "summary": summary}));
                 }
 
-                // The notes tool is answered by the loop itself; the mac has
-                // no branch for it, so it adds no result here either.
+                // The notes tools are answered by the loop itself; the mac
+                // has no branch for them, so they add no result here either.
                 name if NOTE_TOOLS.contains(&name) => {}
 
                 _ => {

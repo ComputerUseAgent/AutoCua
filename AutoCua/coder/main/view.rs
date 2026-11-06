@@ -164,6 +164,32 @@ pub const SKIPPED_THINKING: &str = "skipped";
 /// The three note fields, in the snapshot's order.
 const NOTE_KEYS: [&str; 3] = ["thinking", "memory", "next_goal"];
 
+/// A wire call's arguments as an object: the JSON text decoded (text that is
+/// not JSON is kept as `raw_arguments`, JSON that is not an object gives
+/// none), or an object as it is.
+fn call_args(func: &Map<String, Value>) -> Map<String, Value> {
+    match func.get("arguments") {
+        Some(Value::String(s)) => match serde_json::from_str::<Value>(s) {
+            Ok(Value::Object(o)) => o,
+            Ok(_) => Map::new(),
+            Err(_) => {
+                let mut m = Map::new();
+                m.insert("raw_arguments".into(), Value::String(s.clone()));
+                m
+            }
+        },
+        Some(Value::Object(o)) => o.clone(),
+        _ => Map::new(),
+    }
+}
+
+/// True for a compressed-memory entry: a turn with no calls whose text is
+/// {"memory_compression": ...}.
+fn is_compression_entry(text: &str, calls: &Value) -> bool {
+    !truthy(calls)
+        && matches!(serde_json::from_str::<Value>(text), Ok(Value::Object(data)) if data.contains_key(COMPRESSION_KEY))
+}
+
 /// DISPLAY-ONLY rendering of one assistant turn as ONE JSON object:
 /// {"thinking", "memory", "next_goal", "action": [{type, ...}]}, always these
 /// four keys. The `reasoning` (or `agent_memory`) call is folded into the
@@ -172,7 +198,8 @@ const NOTE_KEYS: [&str; 3] = ["thinking", "memory", "next_goal"];
 /// call render the same way. `thinking` renders as "skipped" when the step
 /// had none and wrote no message. A compressed-memory entry renders as
 /// itself. The API payload is untouched: the model keeps receiving the
-/// native transcript.
+/// native transcript. The subagent's turns render this way; the coder's
+/// render with coder_snapshot_value.
 pub fn snapshot_value(text: &str, calls: &Value) -> Value {
     if !truthy(calls) {
         if let Ok(Value::Object(data)) = serde_json::from_str::<Value>(text) {
@@ -193,19 +220,7 @@ pub fn snapshot_value(text: &str, calls: &Value) -> Value {
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default();
-        let mut args: Map<String, Value> = match func.get("arguments") {
-            Some(Value::String(s)) => match serde_json::from_str::<Value>(s) {
-                Ok(Value::Object(o)) => o,
-                Ok(_) => Map::new(),
-                Err(_) => {
-                    let mut m = Map::new();
-                    m.insert("raw_arguments".into(), Value::String(s.clone()));
-                    m
-                }
-            },
-            Some(Value::Object(o)) => o.clone(),
-            _ => Map::new(),
-        };
+        let mut args = call_args(&func);
         // Pop UNCONDITIONALLY, then keep the first non-empty value: later
         // calls carry "" and must not render as bogus action fields.
         // shift_remove, not remove: remove is a swap_remove under
@@ -246,6 +261,106 @@ pub fn snapshot_turn(text: &str, calls: &Value) -> String {
     dumps_pretty(&snapshot_value(text, calls))
 }
 
+/// The coder's rendering of one assistant turn, for its snapshot file and
+/// its compression dump. Only what the turn has is kept: "text" when it
+/// wrote a message, "insight" ({"kind", "content"}) when it made one,
+/// "next_goal" when it set one, "action" ([{type, ...}]) when it called other
+/// tools. The `insight` and `next_goal` calls are folded into their keys and
+/// are NOT listed under action; each field is the first non-empty one of its
+/// calls, stripped. A turn that carries a `reasoning` (or `agent_memory`)
+/// call, and a compressed-memory entry, render as snapshot_value renders them.
+pub fn coder_snapshot_value(text: &str, calls: &Value) -> Value {
+    let list: &[Value] = match calls {
+        Value::Array(list) => list,
+        _ => &[],
+    };
+    let name_of = |tc: &Value| {
+        tc.get("function")
+            .and_then(|f| f.get("name"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    if is_compression_entry(text, calls)
+        || list.iter().any(|tc| matches!(name_of(tc).as_str(), "reasoning" | "agent_memory"))
+    {
+        return snapshot_value(text, calls);
+    }
+    let mut insight: Option<(String, String)> = None;
+    let mut next_goal = String::new();
+    let mut actions: Vec<Value> = Vec::new();
+    for tc in list {
+        let func = tc
+            .get("function")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        let args = call_args(&func);
+        let field = |key: &str| py_strip(&py_str_or_empty(args.get(key))).to_string();
+        match name_of(tc).as_str() {
+            "insight" => {
+                let (kind, content) = insight.get_or_insert_with(Default::default);
+                if kind.is_empty() {
+                    *kind = field("kind");
+                }
+                if content.is_empty() {
+                    *content = field("content");
+                }
+            }
+            "next_goal" => {
+                if next_goal.is_empty() {
+                    next_goal = field("value");
+                }
+            }
+            _ => {
+                let mut action = Map::new();
+                let type_value = match func.get("name") {
+                    Some(v) if truthy(v) => v.clone(),
+                    _ => Value::String(String::new()),
+                };
+                action.insert("type".into(), type_value);
+                for (k, v) in args {
+                    action.insert(k, v);
+                }
+                actions.push(Value::Object(action));
+            }
+        }
+    }
+    let mut out = Map::new();
+    let message = py_strip(text);
+    if !message.is_empty() {
+        out.insert("text".into(), Value::String(message.to_string()));
+    }
+    if let Some(insight) = insight.and_then(|(kind, content)| insight_value(&kind, &content)) {
+        out.insert("insight".into(), insight);
+    }
+    if !next_goal.is_empty() {
+        out.insert("next_goal".into(), Value::String(next_goal));
+    }
+    if !actions.is_empty() {
+        out.insert("action".into(), Value::Array(actions));
+    }
+    Value::Object(out)
+}
+
+/// An `insight` as it is saved and shown: {"kind", "content"} with only the
+/// fields that have something in them, or None when both are empty.
+pub fn insight_value(kind: &str, content: &str) -> Option<Value> {
+    let mut map = Map::new();
+    if !kind.is_empty() {
+        map.insert("kind".into(), Value::String(kind.to_string()));
+    }
+    if !content.is_empty() {
+        map.insert("content".into(), Value::String(content.to_string()));
+    }
+    (!map.is_empty()).then_some(Value::Object(map))
+}
+
+/// coder_snapshot_value() as JSON text with indent=2.
+pub fn coder_snapshot_turn(text: &str, calls: &Value) -> String {
+    dumps_pretty(&coder_snapshot_value(text, calls))
+}
+
 // ---------------------------------------------------------------------------
 // HANDOFF COMPRESSION (coder flavor): the two callables CompressionController
 // takes to serve the coder's NATIVE history. compression_dump renders steps
@@ -253,10 +368,10 @@ pub fn snapshot_turn(text: &str, calls: &Value) -> String {
 // and compression_entry builds the splice that replaces them.
 // ---------------------------------------------------------------------------
 
-/// The `reasoning` call's result on the wire. Every provider needs a result
-/// for every call, so it cannot be dropped; this is the smallest one. It
-/// carries no information, so the snapshot file and the compression dump
-/// hide it.
+/// A notes call's result on the wire (the subagent's `reasoning`, the
+/// coder's `insight` and `next_goal`). Every provider needs a result for
+/// every call, so it cannot be dropped; this is the smallest one. It carries
+/// no information, so the snapshot file and the compression dump hide it.
 pub const REASONING_RESULT: &str = "ok";
 
 /// Tool slot paired with the synthetic handoff entry: a plain string, so
@@ -319,17 +434,18 @@ pub fn looks_native(raw: &str) -> bool {
 }
 
 /// One persisted assistant entry -> compressor-readable text. Native turns
-/// render as their snapshot ({thinking, memory, next_goal, action}); older
-/// steps (`full` false) clip every action field to 300 characters, so
-/// commands and paths survive while file bodies don't. Bridge notes and
-/// legacy prose replay verbatim (the compressor prompt knows those shapes).
+/// render as their snapshot (coder_snapshot_value: {insight, next_goal,
+/// action}); older steps (`full` false) clip every action field to 300
+/// characters, so commands and paths survive while file bodies don't. Bridge
+/// notes and legacy prose replay verbatim (the compressor prompt knows those
+/// shapes).
 pub(crate) fn dump_step(raw_entry: &str, full: bool) -> String {
     let step = decode_step(raw_entry);
     let has_calls = matches!(&step.tool_calls, Value::Array(a) if !a.is_empty());
     if !has_calls && !looks_native(raw_entry) {
         return step.content;
     }
-    let mut rendered = snapshot_value(&step.content, &step.tool_calls);
+    let mut rendered = coder_snapshot_value(&step.content, &step.tool_calls);
     if !full {
         if let Value::Object(map) = &mut rendered {
             let clipped: Vec<Value> = match map.get("action") {
@@ -444,7 +560,7 @@ pub fn compression_dump_core(entries: &[String], tools: &[Option<String>], task:
             .and_then(Value::as_str)
             == Some("tool");
         if first_is_tool {
-            // The reasoning call's placeholder result says nothing: skip it.
+            // The notes calls' placeholder result says nothing: skip it.
             let body: Vec<String> = results
                 .iter()
                 .map(|r| py_str_or_empty(r.get("content")))
@@ -591,6 +707,22 @@ pub fn format_terminal(normalized_response: &str) -> String {
     }
     if let Some(memory) = data.get("memory").filter(|v| truthy(v)) {
         parts.push(format!("\u{1f4dd} memory: {}", py_str_of(memory)));
+    }
+    // The coder's `insight`: its content under a line naming its kind.
+    if let Some(insight) = data.get("insight").filter(|v| truthy(v)) {
+        let (kind, content) = match insight {
+            Value::Object(o) => (
+                py_strip(&py_str_or_empty(o.get("kind"))).to_string(),
+                py_str_or_empty(o.get("content")),
+            ),
+            other => (String::new(), py_str_of(other)),
+        };
+        let head = if kind.is_empty() {
+            "\u{1f4a1} insight:".to_string()
+        } else {
+            format!("\u{1f4a1} insight ({kind}):")
+        };
+        parts.push(format!("{head}\n{content}"));
     }
     if let Some(next_goal) = data.get("next_goal").filter(|v| truthy(v)) {
         parts.push(format!("\u{1f3af} next_goal: {}", py_str_of(next_goal)));

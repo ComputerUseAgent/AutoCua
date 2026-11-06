@@ -13,19 +13,18 @@
 //! prompt, the `<user_request=1>` turn, every past step as an assistant turn
 //! with its tool calls plus one tool result per call, and a live
 //! `<persistent_memory>` turn at the end (workspace and cwd, plan, todo,
-//! scratchpad, a web result shown once, the batching reminder). Nothing in
-//! the lists is rewritten, so the prompt-cache prefix stays valid.
+//! scratchpad, a web result shown once). Nothing in the lists is rewritten,
+//! so the prompt-cache prefix stays valid.
 //!
 //! Left out, as a terminal run never uses them: the app's history file, the
 //! result file and on_complete, the token-usage markers, the request number
 //! and the subagents' own terminal windows. AgentService still takes those
 //! keyword arguments and ignores them.
 
-use std::collections::HashSet;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError, TryRecvError};
-use std::sync::{Mutex, MutexGuard, OnceLock, TryLockError};
+use std::sync::{Mutex, MutexGuard, TryLockError};
 use std::time::Duration;
 
 use pyo3::exceptions::{PyAttributeError, PyException, PyKeyError, PyOSError, PyRuntimeError};
@@ -61,38 +60,18 @@ pub fn load_system_prompt(main_dir: &Path) -> std::io::Result<String> {
 /// Steps before the coder stops on its own, so a looping model ends.
 const MAX_CLI_ITERATIONS: i64 = 100;
 
-/// A notes-only turn (the notes call and nothing else) is answered with a
-/// result that says no action ran. After NOTES_PAUSE_AFTER of them in a row
-/// the notes tool is taken out of the tool list for the next
-/// NOTES_PAUSE_STEPS steps, so the model can only call the tools that do the
-/// work; then it comes back.
-const NOTES_PAUSE_AFTER: i64 = 2;
-const NOTES_PAUSE_STEPS: i64 = 5;
-
-/// The coder's notes tool: the step's note to itself, answered and never
-/// routed.
-const NOTES_TOOL: &str = "reasoning";
+/// The coder's notes tools: an `insight` when something new came up and the
+/// step's `next_goal`. Each call is answered `ok` and never routed.
+const NOTES_TOOLS: [&str; 2] = ["insight", "next_goal"];
 
 /// Appended to the system prompt for an `async_tools` model (GPT-6 Astra):
 /// its tool calls run after the turn ends, and the block tells it what that
 /// changes about the rules above it.
 const ASYNC_TOOLS_ADDENDUM: &str = "\n<async_tools>\n\
-Your tool calls run after the turn ends, in the order you emit them, and no result reaches you until the next step's <Tool_response>. The rules above are unchanged: one `reasoning` call first, then the calls that do the step, batched per <efficiency_guideline>. Because nothing comes back mid-turn:\n\
-- Never write a text message in a turn that contains tool calls, and never state that a command succeeded or failed: that verdict belongs to the next step's memory, judged on the <Tool_response>.\n\
+Your tool calls run after the turn ends, in the order you emit them, and no result reaches you until the next step's <Tool_response>. Because nothing comes back mid-turn:\n\
+- Never write a text message in a turn that contains tool calls, and never state that a command succeeded or failed: the next step judges that on the <Tool_response>.\n\
 - `exit` stays the only call of its turn. Never add it after this turn's calls: their results have not arrived, so nothing is verified yet.\n\
 </async_tools>\n";
-
-/// Appended last to the live <persistent_memory> turn on every step while
-/// the notes tool is offered. The model treats its notes tool as a think
-/// step: it calls `reasoning`, ends its turn and acts on the next one, which
-/// wastes one LLM call per step. A rule in the live message moves batching
-/// far more than the same rule in the system prompt. Live message only,
-/// never persisted, so the cached prefix is unchanged.
-const BATCH_REMINDER: &str = "\n\n<critical>This turn must carry the `reasoning` call AND the action calls that do its \
-\"Doing\" in this one response. A step that thinks is no exception: think in `reasoning`, \
-then make the calls for its \"Doing\" in the same response. `reasoning` alone is not a step: its \
-result is only `ok`, so never end the turn after it. The one exception is the final review \
-right before `exit` (and `exit` is always alone).</critical>";
 
 /// Put before a web result in the live turn: the raw result is shown once,
 /// and the scratchpad entries the model records this step become the web
@@ -126,10 +105,6 @@ struct LoopState {
     is_first: bool,
     /// Text-only and empty turns since the last turn with calls (3 ends the run).
     json_fail_count: i64,
-    /// Notes-only turns in a row.
-    reasoning_only_count: i64,
-    /// The last step number with the notes tool off.
-    notes_paused_until: i64,
     /// The tool slot of the web step the digest step backfills.
     web_memory_index: Option<i64>,
     /// (call id, compacted result) of that web step, for the backfill.
@@ -196,9 +171,9 @@ impl AgentService {
     }
 
     /// The step's true memory: every message exactly as sent, except that an
-    /// assistant turn reads as one {thinking, memory, next_goal, action} JSON
-    /// and the `reasoning` call's `ok` is left out, then this step's reply.
-    /// A write error ends the run, as in Python.
+    /// assistant turn reads as one {insight, next_goal, action} JSON
+    /// (view::coder_snapshot_value) and the notes calls' `ok` is left out,
+    /// then this step's reply. A write error ends the run, as in Python.
     fn save_conversation_snapshot(
         &self,
         messages: &[Value],
@@ -220,9 +195,6 @@ impl AgentService {
         for msg in messages {
             let role = msg.get("role").map(py_str_of).unwrap_or_default();
             let content = msg.get("content").unwrap_or(&Value::Null);
-            if role == "tool" && content.as_str() == Some(view::REASONING_RESULT) {
-                continue;
-            }
             // A cache-marked turn carries its text in a parts list.
             let text = match content {
                 Value::String(s) => s.clone(),
@@ -234,10 +206,14 @@ impl AgentService {
                 },
                 other => py_str_of(other),
             };
+            // A notes call's `ok`, also when it is the cache-marked newest result.
+            if role == "tool" && text == view::REASONING_RESULT {
+                continue;
+            }
             out.push_str(&format!("=== MESSAGE {n} (role='{role}') ===\n"));
             n += 1;
             if role == "assistant" {
-                out.push_str(&view::snapshot_turn(&text, msg.get("tool_calls").unwrap_or(&Value::Null)));
+                out.push_str(&view::coder_snapshot_turn(&text, msg.get("tool_calls").unwrap_or(&Value::Null)));
             } else {
                 out.push_str(&text);
             }
@@ -247,7 +223,7 @@ impl AgentService {
         }
         let entry = view::decode_step(current_assistant_response);
         out.push_str("=== CURRENT ASSISTANT RESPONSE (role='assistant') ===\n");
-        out.push_str(&view::snapshot_turn(&entry.content, &entry.tool_calls));
+        out.push_str(&view::coder_snapshot_turn(&entry.content, &entry.tool_calls));
         out.push('\n');
         std::fs::write(&file, out).map_err(|e| os_error(&e, &file))
     }
@@ -325,8 +301,6 @@ impl AgentService {
             step_number: 0,
             is_first: true,
             json_fail_count: 0,
-            reasoning_only_count: 0,
-            notes_paused_until: 0,
             web_memory_index: None,
             web_pending: None,
         };
@@ -382,15 +356,9 @@ impl AgentService {
                 live.push_str(WEB_DIGEST_CRITICAL);
                 live.push_str(&pending_web);
             }
-            // Not while the notes tool is paused: the reminder would ask for
-            // a call the tool list does not offer.
-            let notes_on = lp.step_number > lp.notes_paused_until;
-            if notes_on {
-                live.push_str(BATCH_REMINDER);
-            }
             let messages = self.build_messages(task, &am, &tr, live)?;
 
-            match self.run_step(py, ctl, &am, &tr, task, &messages, notes_on, is_web_digest, &mut lp) {
+            match self.run_step(py, ctl, &am, &tr, task, &messages, is_web_digest, &mut lp) {
                 Ok(Flow::Continue) => {}
                 Ok(Flow::Break) => break,
                 Ok(Flow::Exit) => return Ok("Exit".to_string()),
@@ -419,13 +387,10 @@ impl AgentService {
         tr: &Bound<'_, PyList>,
         task: &str,
         messages: &[Value],
-        notes_on: bool,
         is_web_digest: bool,
         lp: &mut LoopState,
     ) -> PyResult<Flow> {
         let llm = self.llm.get();
-        // The provider reads its tool list every request.
-        llm.show_notes_tool(py, notes_on)?;
 
         let outcome = if stdout_tty() {
             let spinner = Spinner::start();
@@ -452,31 +417,27 @@ impl AgentService {
 
         self.save_raw_response(&dumps_pretty(&raw_response), lp.step_number);
 
-        // While the notes tool is paused it is not offered, so a call to it
-        // is rejected like an unknown tool.
-        let allowed = if notes_on { registry::coder_tool_names() } else { paused_tool_names() };
-        let (actions, calls, rejects, track) = registry::tool_calls_to_steps(
+        // No track params: the notes are read off the notes calls below.
+        let (actions, calls, rejects, _) = registry::tool_calls_to_steps(
             raw_response.get("tool_calls").unwrap_or(&Value::Null),
-            allowed,
+            registry::coder_tool_names(),
             registry::action_defaults(),
-            registry::reasoning_fields(),
+            &[],
         );
         let resp_text = response_text(&raw_response)?;
         let provider_meta = raw_response.get("provider_meta");
 
-        // The notes call is the step's note to itself, not an action: it is
-        // replayed with the turn (all_calls) and answered `ok`, never routed.
-        let is_note = |a: &Value| a.get("type").and_then(Value::as_str) == Some(NOTES_TOOL);
+        // The notes calls (`insight`, `next_goal`) are the step's notes to
+        // itself, not actions: they are replayed with the turn (all_calls)
+        // and answered `ok`, never routed.
+        let is_note = |a: &Value| a.get("type").and_then(Value::as_str).is_some_and(|t| NOTES_TOOLS.contains(&t));
         let all_calls = calls.clone();
-        let note_ids: Vec<Value> = actions
+        let (insight, next_goal) = turn_notes(&actions, &rejects);
+        let note_results: Vec<Value> = actions
             .iter()
             .zip(&calls)
             .filter(|(a, _)| is_note(a))
-            .map(|(_, c)| call_id(c))
-            .collect();
-        let mut note_results: Vec<Value> = note_ids
-            .iter()
-            .map(|id| json!({"tool_call_id": id, "content": view::REASONING_RESULT}))
+            .map(|(_, c)| json!({"tool_call_id": call_id(c), "content": view::REASONING_RESULT}))
             .collect();
         let (actions, calls): (Vec<Value>, Vec<Value>) =
             actions.into_iter().zip(calls).filter(|(a, _)| !is_note(a)).unzip();
@@ -495,39 +456,8 @@ impl AgentService {
             (actions, calls)
         };
 
-        if actions.is_empty() && rejects.is_empty() {
-            if !note_ids.is_empty() {
-                // A notes-only step: recorded and answered like any other,
-                // with a result that says no action ran; the second in a row
-                // pauses the notes tool.
-                lp.reasoning_only_count += 1;
-                let message = if lp.reasoning_only_count >= NOTES_PAUSE_AFTER {
-                    lp.notes_paused_until = lp.step_number + NOTES_PAUSE_STEPS;
-                    lp.reasoning_only_count = 0;
-                    if stdout_tty() {
-                        crate::say!(
-                            "\u{26a0}\u{fe0f} {NOTES_PAUSE_AFTER} notes-only turns in a row: `{NOTES_TOOL}` off for the next {NOTES_PAUSE_STEPS} steps"
-                        );
-                    }
-                    format!(
-                        "No action ran, {NOTES_PAUSE_AFTER} steps in a row: `{NOTES_TOOL}` is off for the next {NOTES_PAUSE_STEPS} steps. Call the tools that do the work directly (or `exit` if the work is done and reviewed); it comes back after that."
-                    )
-                } else {
-                    format!(
-                        "No action ran ({} step(s) in a row): `{NOTES_TOOL}` alone does nothing. If this was the final review and it passed, call `exit` now; otherwise make the calls for its \"Doing\" now, in the same response as the notes.",
-                        lp.reasoning_only_count
-                    )
-                };
-                let answer = render_tool_response(&json!({"status": "success", "action": NOTES_TOOL, "message": message}));
-                note_results = note_ids.iter().map(|id| json!({"tool_call_id": id, "content": answer})).collect();
-                let normalized = view::encode_step(&resp_text, &wire(&all_calls)?, provider_meta);
-                print_turn(&display_payload(&resp_text, &track, json!([])));
-                self.save_conversation_snapshot(messages, &normalized, lp.step_number)?;
-                am.append(&normalized)?;
-                tr.append(view::encode_results(&note_results))?;
-                lp.is_first = false;
-                return Ok(Flow::Continue);
-            }
+        // No tool call at all: a text-only or an empty turn.
+        if actions.is_empty() && rejects.is_empty() && note_results.is_empty() {
             if !resp_text.is_empty() {
                 // Repair, not exit: prose with no tool calls is a dropped-calls
                 // mistake. Keep the turn, answer it, let the model go on.
@@ -542,10 +472,7 @@ impl AgentService {
                     return Ok(Flow::Break);
                 }
                 let normalized = view::encode_step(&resp_text, &json!([]), provider_meta);
-                let mut payload = Map::new();
-                payload.insert("text".into(), Value::String(resp_text.clone()));
-                payload.insert("action".into(), json!([]));
-                print_turn(&dumps_pretty(&Value::Object(payload)));
+                print_turn(&display_payload(&resp_text, &Value::Null, "", json!([])));
                 self.save_conversation_snapshot(messages, &normalized, lp.step_number)?;
                 am.append(&normalized)?;
                 // A plain string slot: it replays as a user turn.
@@ -572,7 +499,6 @@ impl AgentService {
         }
 
         lp.json_fail_count = 0;
-        lp.reasoning_only_count = 0;
 
         // The turn exactly as the model made it, rejected calls included:
         // every result written below must pair with a call of the same id.
@@ -580,7 +506,7 @@ impl AgentService {
         replay.extend(rejects.iter().cloned());
         let normalized = view::encode_step(&resp_text, &wire(&replay)?, provider_meta);
 
-        print_turn(&display_payload(&resp_text, &track, Value::Array(actions.clone())));
+        print_turn(&display_payload(&resp_text, &insight, &next_goal, Value::Array(actions.clone())));
         self.save_conversation_snapshot(messages, &normalized, lp.step_number)?;
 
         // Recorded with an empty slot, filled after routing, so an `exit`
@@ -598,24 +524,22 @@ impl AgentService {
             })
             .collect();
         reject_results.extend(exit_results);
-        if !rejects.is_empty() {
-            if stdout_tty() {
-                for r in &rejects {
-                    crate::say!(
-                        "\u{26a0}\u{fe0f} unknown tool '{}' \u{2014} error returned to the model",
-                        py_str_of(r.get("name").unwrap_or(&Value::Null))
-                    );
-                }
+        if !rejects.is_empty() && stdout_tty() {
+            for r in &rejects {
+                crate::say!(
+                    "\u{26a0}\u{fe0f} unknown tool '{}' \u{2014} error returned to the model",
+                    py_str_of(r.get("name").unwrap_or(&Value::Null))
+                );
             }
-            if actions.is_empty() {
-                // Nothing valid to route: persist the errors (and the note's
-                // result) and let the model correct itself next turn.
-                let mut all = note_results;
-                all.extend(reject_results);
-                set_last(tr, view::encode_results(&all))?;
-                lp.is_first = false;
-                return Ok(Flow::Continue);
-            }
+        }
+        if actions.is_empty() {
+            // Nothing to route (only notes calls or rejected calls): persist
+            // the notes' results and the errors, and go on to the next step.
+            let mut all = note_results;
+            all.extend(reject_results);
+            set_last(tr, view::encode_results(&all))?;
+            lp.is_first = false;
+            return Ok(Flow::Continue);
         }
 
         let mut action_result = ctl.route_action(py, &actions)?;
@@ -905,20 +829,58 @@ fn stdout_tty() -> bool {
     std::io::stdout().is_terminal()
 }
 
-/// One step's display: the model's text, its notes and the routed actions,
-/// printed for a person on a terminal and as JSON into a pipe.
-fn display_payload(resp_text: &str, track: &[(String, String)], actions: Value) -> String {
-    let note = |key: &str| {
-        let value = track.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone()).unwrap_or_default();
-        Value::String(value)
-    };
+/// One step's display: the model's text, its notes (the `insight` and the
+/// `next_goal`, see turn_notes) and the routed actions, printed for a person
+/// on a terminal and as JSON into a pipe. Only what the step has is shown.
+fn display_payload(resp_text: &str, insight: &Value, next_goal: &str, actions: Value) -> String {
     let mut payload = Map::new();
-    payload.insert("text".into(), Value::String(resp_text.to_string()));
-    payload.insert("thinking".into(), note("thinking"));
-    payload.insert("memory".into(), note("memory"));
-    payload.insert("next_goal".into(), note("next_goal"));
-    payload.insert("action".into(), actions);
+    if !crate::py_strip(resp_text).is_empty() {
+        payload.insert("text".into(), Value::String(resp_text.to_string()));
+    }
+    let insight = insight.as_object().and_then(|o| {
+        let field = |key: &str| o.get(key).and_then(Value::as_str).unwrap_or("");
+        view::insight_value(field("kind"), field("content"))
+    });
+    if let Some(insight) = insight {
+        payload.insert("insight".into(), insight);
+    }
+    if !next_goal.is_empty() {
+        payload.insert("next_goal".into(), Value::String(next_goal.to_string()));
+    }
+    if truthy(&actions) {
+        payload.insert("action".into(), actions);
+    }
     dumps_pretty(&Value::Object(payload))
+}
+
+/// The turn's notes, read off its notes calls, the rejected ones too (a
+/// notes call with no arguments at all is rejected): the `insight`
+/// as {"kind", "content"} ("" when the turn has no `insight` call) and the
+/// `next_goal` value ("" when it has none). Each field is the first
+/// non-empty one of its calls, stripped.
+fn turn_notes(actions: &[Value], rejects: &[Value]) -> (Value, String) {
+    // (tool name, its fields): a routed action carries them at its top level.
+    let name = |v: &Value, key: &str| v.get(key).and_then(Value::as_str).unwrap_or("").to_string();
+    let calls: Vec<(String, &Value)> = actions
+        .iter()
+        .map(|a| (name(a, "type"), a))
+        .chain(rejects.iter().map(|r| (name(r, "name"), r.get("arguments").unwrap_or(&Value::Null))))
+        .collect();
+    let first = |tool: &str, key: &str| {
+        calls
+            .iter()
+            .filter(|(n, _)| n == tool)
+            .filter_map(|(_, fields)| fields.get(key).filter(|v| truthy(v)))
+            .map(|v| py_strip(&py_str_of(v)).to_string())
+            .find(|v| !v.is_empty())
+            .unwrap_or_default()
+    };
+    let insight = if calls.iter().any(|(n, _)| n == "insight") {
+        json!({"kind": first("insight", "kind"), "content": first("insight", "content")})
+    } else {
+        Value::String(String::new())
+    };
+    (insight, first("next_goal", "value"))
 }
 
 fn print_turn(payload: &str) {
@@ -927,18 +889,6 @@ fn print_turn(payload: &str) {
     } else {
         crate::out(&view::format_stream_json(payload));
     }
-}
-
-/// The coder's names without the notes tool, offered while it is paused.
-fn paused_tool_names() -> &'static HashSet<String> {
-    static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
-    NAMES.get_or_init(|| {
-        registry::coder_tool_names()
-            .iter()
-            .filter(|name| name.as_str() != NOTES_TOOL)
-            .cloned()
-            .collect()
-    })
 }
 
 /// `(raw_response.get("text") or "").strip()`. Python raises for a text that
