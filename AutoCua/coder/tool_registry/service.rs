@@ -196,7 +196,7 @@ pub const MODES: &[Mode] = &[
     Mode {
         tool: "planning_mode",
         skill_name: "planning",
-        skill_file: "planner/planner.md",
+        skill_file: "main/planner/planner.md",
         hides: &["write", "replace", "update_todo", "exit"],
         description: r#"Follow <operating_procedure>, PLANNING MODE. `value` "on" enters planning mode: the planning skill is loaded into <persistent_memory>, and `write`, `replace`, `update_todo` and `exit` are taken away until you turn it off. `value` "off" leaves planning mode and gives them back."#,
         on_message: "Planning mode active. Editing of code is prohibited. Flip planning mode off to continue editing.",
