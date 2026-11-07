@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use pyo3::prelude::*;
 use serde_json::{Map, Value};
 
-use crate::agent::android_use::service::read_text;
+use crate::android::agent::android_use::service::read_text;
 
 pub struct DomainKnowledgeService {
     /// AutoCua_data/skills/android: the user's own skills (added from the UI
@@ -37,7 +37,7 @@ impl DomainKnowledgeService {
         let (dir, defaults) = match Self::folders(py) {
             Ok(found) => found,
             Err(_) => {
-                let here = crate::agent_dir(py)
+                let here = crate::android::agent_dir(py)
                     .map(|d| d.join("skills"))
                     .unwrap_or_else(|_| PathBuf::from("."));
                 (here, BTreeMap::new())
@@ -50,13 +50,13 @@ impl DomainKnowledgeService {
     /// (the user's skills folder, created empty on first use, the shipped
     /// defaults): skills_dir("android") and default_skills("android").
     fn folders(py: Python<'_>) -> PyResult<(PathBuf, BTreeMap<String, String>)> {
-        let dir = crate::data_root(py)?.join("skills").join("android");
+        let dir = crate::android::data_root(py)?.join("skills").join("android");
         // Best effort, as skills_dir's mkdir is: a read-only or full disk
         // leaves the user's folder missing, not the shipped defaults.
         if let Err(e) = std::fs::create_dir_all(&dir) {
             eprintln!("mkdir {}: {e}", dir.display());
         }
-        let shipped = crate::android_dir(py)?
+        let shipped = crate::android::android_dir(py)?
             .parent()
             .map(|p| p.join("default_skills").join("android"))
             .unwrap_or_default();
@@ -152,7 +152,7 @@ impl DomainKnowledgeService {
         if let Some(md) = by_key.get(&name) {
             return md_name(md);
         }
-        for (display_name, package) in crate::controller::tool::open_app::service::installed_apps() {
+        for (display_name, package) in crate::android::controller::tool::open_app::service::installed_apps() {
             if Self::norm(&package) == name {
                 if let Some(md) = by_key.get(&Self::norm(&display_name)) {
                     let md = md_name(md);

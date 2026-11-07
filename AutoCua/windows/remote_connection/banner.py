@@ -2459,9 +2459,9 @@ class CoderBannerManager:
                                                     while a minion runs + coder idle)
         todo_update(task_id, todo_text)            todo changed      → render checklist
         task_end(task_id, status, summary)         coder done        → hide iff no await
-        minion_start(parent_id, m_id, query)       minion begins     → add spinner row
-        minion_line(m_id, line, stream)            minion stdout     → stream into the row
-        minion_end(m_id, status, summary)          minion done       → remove the row
+        subagent_start(parent_id, m_id, query)     subagent begins    → add spinner row
+        subagent_line(m_id, line, stream)          subagent stdout    → stream into the row
+        subagent_end(m_id, status, summary)        subagent done      → remove the row
         await_end()                                halt over         → hide panel
 
     `task_start` whose description starts with "[minion] " is a bare top-level
@@ -2557,7 +2557,7 @@ class CoderBannerManager:
             if hide:
                 self._banner.coder_stop()
 
-        elif event_type == "minion_start":
+        elif event_type == "subagent_start":
             parent_id = args[0] if len(args) > 0 else None
             minion_id = args[1] if len(args) > 1 else None
             if minion_id is None:
@@ -2569,7 +2569,7 @@ class CoderBannerManager:
             # main agent halts at cli_await). coderShow reveals it on await_start.
             self._banner.add_minion(parent_id, minion_id)
 
-        elif event_type == "minion_line":
+        elif event_type == "subagent_line":
             minion_id = args[0] if len(args) > 0 else None
             line = args[1] if len(args) > 1 else ""
             with self._lock:
@@ -2582,7 +2582,7 @@ class CoderBannerManager:
             ):
                 self._banner.set_minion_line(minion_id, _redact_secrets(line))
 
-        elif event_type == "minion_end":
+        elif event_type == "subagent_end":
             minion_id = args[0] if len(args) > 0 else None
             with self._lock:
                 self._minion_ids.discard(minion_id)

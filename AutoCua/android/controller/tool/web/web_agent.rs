@@ -143,7 +143,7 @@ pub fn web_search(
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let hex: String = py.import("uuid")?.call_method0("uuid4")?.getattr("hex")?.extract()?;
     let sid = format!("web_{secs}_{}", &hex[..6]);
-    let run_dir = crate::data_root(py)?.join("web_fallback").join(&sid);
+    let run_dir = crate::android::data_root(py)?.join("web_fallback").join(&sid);
     // Through pathlib, as on iOS: a folder that cannot be made fails with
     // Python's error, which names it.
     py.import("pathlib")?

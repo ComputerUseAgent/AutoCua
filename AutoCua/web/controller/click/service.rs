@@ -14,8 +14,8 @@ use std::time::Duration;
 use pyo3::prelude::*;
 use serde_json::{json, Map, Value};
 
-use crate::browser::{web_store_url, Cdp, CdpFail, ScannerInner, WEB_STORE_BLOCKED};
-use crate::controller::service::{
+use crate::web::browser::{web_store_url, Cdp, CdpFail, ScannerInner, WEB_STORE_BLOCKED};
+use crate::web::controller::service::{
     err, label_for, py_float_str, py_float_value, py_int_value, rect_for, reject_viewport,
     resolve_element_id, scan_op, with_cursor, ActResult,
 };

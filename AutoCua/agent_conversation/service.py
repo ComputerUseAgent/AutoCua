@@ -58,6 +58,11 @@ logger = logging.getLogger("agent_conversation")
 # root, so chats / api keys / everything else can never disagree about it.
 from AutoCua import data_root, install_dir, _ensure
 
+# A Shell use chat's bridge note is one `insight` call whose id starts with
+# this. The Rust coder looks for the same prefix (coder/main/service.rs
+# BRIDGE_ID_PREFIX): keep the two identical.
+SHELL_BRIDGE_ID_PREFIX = "bridge_"
+
 
 class ConversationService:
     """Owns all conversation-memory persistence + optimization for the UI."""
@@ -223,8 +228,8 @@ class ConversationService:
         """Move pre-AutoCua_data chats into `dest` exactly once.
 
         WHERE IT RUNS: lazily, on the first root() call in each process. That
-        covers EVERY entry point — the GUI, the --cli-mode / --minion-mode
-        re-execs, a bare import of this module — with no ordering requirement on
+        covers EVERY entry point — the GUI, the agents' child processes, a
+        bare import of this module — with no ordering requirement on
         app.py, and it only runs when chat data is actually touched.
 
         IDEMPOTENT + CRASH-SAFE BY CONSTRUCTION, with NO on-disk 'done' marker:
@@ -440,6 +445,8 @@ class ConversationService:
             return False
         if not isinstance(d, dict):
             return False
+        if ConversationService._shell_bridge_id(d):
+            return True
         keys = set(d.keys())
         goal = str(d.get("next_goal", ""))
         # Main-agent bridge (both generations): pre-thinking {memory, next_goal}
@@ -447,11 +454,61 @@ class ConversationService:
         # the shape shell chats saved before the coder's native-tools bridge.
         if keys in ({"memory", "next_goal"}, {"thinking", "memory", "next_goal"}):
             return goal.startswith("Previous run concluded.")
-        # Shell (coder) bridge: labeled convention — memory folded into
+        # Shell (coder) bridge of the old Python coder: memory folded into
         # next_goal ("memory: ... next_goal: ..."), no standalone memory key.
         if keys == {"thinking", "next_goal"}:
             return goal.startswith("memory: ") and "next_goal: Previous run concluded." in goal
         return False
+
+    @staticmethod
+    def _shell_bridge_id(d):
+        """The id of a Shell use bridge's insight call, when `d` (a parsed
+        step) is one: a coder step with exactly one `insight` call whose id
+        starts with SHELL_BRIDGE_ID_PREFIX."""
+        if not isinstance(d, dict) or set(d.keys()) != {"content", "tool_calls"}:
+            return None
+        calls = d.get("tool_calls")
+        if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
+            return None
+        call_id = str(calls[0].get("id") or "")
+        name = (calls[0].get("function") or {}).get("name")
+        return call_id if name == "insight" and call_id.startswith(SHELL_BRIDGE_ID_PREFIX) else None
+
+    @staticmethod
+    def _shell_bridge(status, message, request_no):
+        """A Shell use chat's bridge: one `insight` call (the coder's own kind
+        of step) saying how request N ended, so the next request continues
+        from it. No thinking: the coder has none."""
+        n = int(request_no or 0)
+        what = f"request {n}" if n else "the request"
+        if status == "success":
+            kind, text = "result", f"{what[0].upper()}{what[1:]} is done. Continue from here."
+        elif status == "error":
+            reason = f": {message}" if message else ""
+            kind, text = "failure", f"{what[0].upper()}{what[1:]} ended with an error{reason}. Continue from here."
+        else:
+            kind, text = "result", f"The agent stopped {what} before it finished. Continue from here."
+        call = {
+            "id": f"{SHELL_BRIDGE_ID_PREFIX}{n}",
+            "type": "function",
+            "function": {"name": "insight",
+                         "arguments": json.dumps({"kind": kind, "content": text}, ensure_ascii=False)},
+        }
+        return {"content": "", "tool_calls": [call]}
+
+    @staticmethod
+    def _bridge_slot(bridge_entry, request):
+        """The bridge's slot once the next request is here: a Shell use bridge
+        is an insight call, so its `ok` comes first and the request follows
+        as a user turn; an older bridge is plain text, so the request alone."""
+        try:
+            call_id = ConversationService._shell_bridge_id(json.loads(str(bridge_entry)))
+        except Exception:
+            call_id = None
+        if call_id:
+            return json.dumps([{"tool_call_id": call_id, "content": "ok"},
+                               {"role": "user", "content": request}], ensure_ascii=False)
+        return request
 
     def _build_history(self, task, assistant_messages, tool_responses,
                        status, message, prior_task=None, agent_mode=None,
@@ -490,8 +547,9 @@ class ConversationService:
         # phrase it saw in context must never be eaten.
         if full_assistant and tools[-1] is None and self._is_terminal_note(full_assistant[-1]):
             if agent_mode == "shell" and request_no and str(task or "").strip():
-                tools[-1] = (f"<user_request={int(request_no)}>\n{task}"
-                             f"\n</user_request={int(request_no)}>")
+                tools[-1] = self._bridge_slot(
+                    full_assistant[-1],
+                    f"<user_request={int(request_no)}>\n{task}\n</user_request={int(request_no)}>")
             else:
                 full_assistant.pop()
                 tools.pop()
@@ -500,16 +558,9 @@ class ConversationService:
         # resume it becomes the most-recent step, so the agent's builder replays
         # every real step's tool result beneath it.
         if agent_mode == "shell":
-            # Shell (coder) bridge — the coder's native-tool-calling
-            # conventions: thinking uses its "skipped" convention, and memory
-            # folds into the labeled next_goal ("memory: ... next_goal: ...")
-            # because the native step format has no standalone memory field.
-            note = {
-                "thinking": "skipped",
-                "next_goal": (f"memory: {done_message} "
-                              "next_goal: Previous run concluded. "
-                              "Awaiting the user's next request."),
-            }
+            # Shell (coder) bridge: one insight, how request N ended; the next
+            # request fills its empty slot after the insight's `ok`.
+            note = self._shell_bridge(status, message, request_no)
         else:
             note = {
                 "thinking": "not required",   # matches the step schema's skip convention
@@ -603,7 +654,8 @@ class ConversationService:
                 # The latest step's response is generated AFTER last_messages was
                 # built, so append it as the final assistant turn (like main.py).
                 final_response = (assistant_messages or [None])[-1]
-                text = self._render_messages(last_messages, header, final_response)
+                text = self._render_messages(last_messages, header, final_response,
+                                             coder=agent_mode == "shell")
                 self._write_text(self._memory_log_file(session_id), text)
 
             self._touch_index(
@@ -637,16 +689,19 @@ class ConversationService:
         return content if isinstance(content, str) else str(content)
 
     @staticmethod
-    def _render_tool_calls(calls) -> str:
+    def _render_tool_calls(calls, coder=False) -> str:
         """Readable view of a native assistant turn's tool_calls: the tracking
         params pulled OUT of the call arguments into their own fields, then one
         action entry per call — the same shape the agents' snapshot views use.
         Without this the whole step renders as an empty assistant turn (all its
         substance rides in the calls).
 
-        `memory` is a MAIN-DRIVER tracking param (the coder folds memory into
-        next_goal and never sends one), so it is rendered only when present —
-        coder turns keep their exact previous rendering."""
+        `memory` is a MAIN-DRIVER tracking param, so it is rendered only when
+        present. coder=True (a Shell use chat): the Rust coder's turn as its own
+        conversation log shows it, `insight` and `next_goal` being calls of their
+        own, and only what the turn has: {insight, next_goal, action}."""
+        if coder:
+            return ConversationService._render_coder_calls(calls)
         thinking = memory = next_goal = ""
         actions = []
         for tc in calls or []:
@@ -675,7 +730,41 @@ class ConversationService:
         return json.dumps(rendered, indent=2, ensure_ascii=False)
 
     @staticmethod
-    def _render_persisted_step(entry) -> str:
+    def _call_name_args(tc):
+        """(name, arguments dict) of one native tool call."""
+        fn = (tc or {}).get("function") or {}
+        args = fn.get("arguments")
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except (ValueError, TypeError):
+                args = {"raw_arguments": args}
+        return fn.get("name") or "", dict(args) if isinstance(args, dict) else {}
+
+    @staticmethod
+    def _render_coder_calls(calls) -> str:
+        """A Rust coder turn: its insight ({kind, content}), its next_goal and
+        its other calls as `action`, each only when the turn has it."""
+        insight, next_goal, actions = None, "", []
+        for tc in calls or []:
+            name, args = ConversationService._call_name_args(tc)
+            if name == "insight" and insight is None:
+                insight = {"kind": args.get("kind", ""), "content": args.get("content", "")}
+            elif name == "next_goal" and not next_goal:
+                next_goal = str(args.get("value", "") or "").strip()
+            else:
+                actions.append({"type": name, **args})
+        rendered = {}
+        if insight:
+            rendered["insight"] = insight
+        if next_goal:
+            rendered["next_goal"] = next_goal
+        if actions:
+            rendered["action"] = actions
+        return json.dumps(rendered, indent=2, ensure_ascii=False)
+
+    @staticmethod
+    def _render_persisted_step(entry, coder=False) -> str:
         """A persisted assistant entry, readable: a native {content, tool_calls}
         step renders like the live turns (provider_meta dropped — it is opaque
         provider blobs, unreadable by design); anything else (old-format step
@@ -687,8 +776,10 @@ class ConversationService:
         if (isinstance(d, dict) and isinstance(d.get("tool_calls"), list)
                 and ("content" in d or d.get("tool_calls"))):
             content = str(d.get("content") or "")
-            block = ConversationService._render_tool_calls(d["tool_calls"])
-            return (content + "\n" + block) if content else block
+            block = ConversationService._render_tool_calls(d["tool_calls"], coder)
+            if coder and not d["tool_calls"]:
+                block = ""   # a coder turn of plain text (the bridge note)
+            return (content + "\n" + block) if (content and block) else (content or block)
         return str(entry or "")
 
     @staticmethod
@@ -700,20 +791,25 @@ class ConversationService:
             data = json.loads(str(raw))
         except Exception:
             return str(raw)
-        if isinstance(data, list) and all(isinstance(d, dict) and "tool_call_id" in d for d in data):
+        if isinstance(data, list) and all(
+                isinstance(d, dict) and ("tool_call_id" in d or d.get("role") == "user") for d in data):
+            # A Shell use bridge's slot ends on the next request, a user turn.
             return "\n".join(str(d.get("content") or "") for d in data)
         return str(raw)
 
-    def _render_messages(self, messages, header_lines=None, final_response=None):
+    def _render_messages(self, messages, header_lines=None, final_response=None, coder=False):
         """Render an exact messages payload to the human-readable conversation log
         (same shape as main.py's conversation_N.txt): SYSTEM PROMPT block, then
         each ASSISTANT / USER / TOOL turn in the order sent. Native (coder)
         assistant turns get their tool_calls rendered readably; main-agent turns
-        carry no tool_calls and render exactly as before."""
+        carry no tool_calls and render exactly as before. coder=True (a Shell
+        use chat): the Rust coder's turns as its own log shows them, without
+        the `ok` that answers each insight / next_goal call."""
         bar = "=" * 60
         out = list(header_lines or [])
         if header_lines:
             out += [bar, ""]
+        note_ids = set()
         for m in messages or []:
             role = str(m.get("role", "?")).upper()
             content = self._content_text(m.get("content", ""))
@@ -721,13 +817,18 @@ class ConversationService:
                 out += ["=== SYSTEM PROMPT ===", content, "", bar, ""]
                 continue
             calls = m.get("tool_calls")
+            if coder and role == "ASSISTANT":
+                note_ids = {(tc or {}).get("id") for tc in calls or []
+                            if self._call_name_args(tc)[0] in ("insight", "next_goal")}
+            if coder and role == "TOOL" and m.get("tool_call_id") in note_ids and content.strip() == "ok":
+                continue
             if calls:
-                block = self._render_tool_calls(calls)
+                block = self._render_tool_calls(calls, coder)
                 content = (content + "\n" + block) if content else block
             out += [f"--- {role} ---", content, ""]
         if final_response:
             out += ["--- ASSISTANT (final response) ---",
-                    self._render_persisted_step(final_response), ""]
+                    self._render_persisted_step(final_response, coder), ""]
         return "\n".join(out) + "\n"
 
     def list_sessions(self):
@@ -835,7 +936,7 @@ class ConversationService:
             out += ["", "--- ASSISTANT ---"]
             if i == 0 and task:
                 out += ["<User_Task>", task, "</User_Task>", ""]
-            out.append(self._render_persisted_step(step))
+            out.append(self._render_persisted_step(step, meta.get("agent_mode") == "shell"))
             tr = tools[i] if i < len(tools) else None
             if tr:
                 out += ["", "--- USER ---", "<tool_response>",

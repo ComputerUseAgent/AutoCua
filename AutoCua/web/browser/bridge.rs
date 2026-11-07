@@ -43,8 +43,8 @@ use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tungstenite::http::StatusCode;
 use tungstenite::{accept_hdr, Message, WebSocket};
 
-use crate::browser::{SResult, ScanErr};
-use crate::stage_bridge;
+use crate::web::browser::{SResult, ScanErr};
+use crate::web::stage_bridge;
 
 /// How long a request waits for the extension to dial in (or back in: its worker
 /// redials half a second after a close) before giving up.
@@ -160,7 +160,7 @@ pub fn launch_chrome(
     restore: bool,
     extra: &[String],
 ) -> SResult<()> {
-    let chrome = crate::browser::find_chrome()?;
+    let chrome = crate::web::browser::find_chrome()?;
     let mut cmd = Command::new(chrome);
     if let Some(dir) = user_data_dir {
         fs::create_dir_all(dir)
@@ -193,7 +193,7 @@ pub fn launch_chrome(
 /// worker woke: `take_chrome` waits for its dial.
 fn wake_extension(extension_id: &str) -> bool {
     let url = format!("chrome-extension://{extension_id}/wake.html");
-    let Ok(chrome) = crate::browser::find_chrome() else { return false };
+    let Ok(chrome) = crate::web::browser::find_chrome() else { return false };
     let mut cmd = if cfg!(target_os = "macos") {
         let bundle = chrome
             .ancestors()
@@ -250,7 +250,7 @@ pub fn quit_chrome_on(dir: &Path) -> bool {
     let _ = Command::new("kill").arg(pid.to_string()).status();
     let dir = dir.to_path_buf();
     for _ in 0..80 {
-        if !crate::browser::profile_locked_by_live_chrome(&dir) {
+        if !crate::web::browser::profile_locked_by_live_chrome(&dir) {
             break;
         }
         std::thread::sleep(Duration::from_millis(250));
@@ -275,7 +275,7 @@ pub fn quit_chrome_on(dir: &Path) -> bool {
     let sent = win::chrome_on(dir).is_some_and(win::end_session);
     let dir = dir.to_path_buf();
     for _ in 0..if sent { 80 } else { 12 } {
-        if !crate::browser::profile_locked_by_live_chrome(&dir) {
+        if !crate::web::browser::profile_locked_by_live_chrome(&dir) {
             return true;
         }
         std::thread::sleep(Duration::from_millis(250));
@@ -333,7 +333,7 @@ mod win {
     /// frames, visible and owned by nothing). False when it has none, or Windows
     /// refused the message (a Chrome running elevated takes none from here).
     pub fn end_session(pid: u32) -> bool {
-        match crate::browser::win_tabs::windows_of(pid).first() {
+        match crate::web::browser::win_tabs::windows_of(pid).first() {
             Some(&(hwnd, _)) => unsafe {
                 PostMessageW(hwnd as Hwnd, WM_ENDSESSION, 1, ENDSESSION_CLOSEAPP) != 0
             },
@@ -502,7 +502,7 @@ impl Bridge {
         if self.connected() {
             return false;
         }
-        !crate::browser::profile_locked_by_live_chrome(&dir)
+        !crate::web::browser::profile_locked_by_live_chrome(&dir)
     }
 
     /// Start Chrome again the way it was started, and wait for the extension to dial
@@ -530,7 +530,7 @@ impl Bridge {
     pub fn take_chrome(&mut self, user_data_dir: Option<PathBuf>) -> SResult<()> {
         let dir = user_data_dir.clone().unwrap_or_else(default_user_data_dir);
         let mut quit = false;
-        if crate::browser::profile_locked_by_live_chrome(&dir) {
+        if crate::web::browser::profile_locked_by_live_chrome(&dir) {
             if self.wait_connected(ATTACH_WAIT)? {
                 self.note_launch(user_data_dir, true, Vec::new());
                 return Ok(());
@@ -581,7 +581,7 @@ impl Bridge {
             if Instant::now() >= deadline {
                 return Ok(false);
             }
-            crate::browser::check_py_signals()?;
+            crate::web::browser::check_py_signals()?;
             std::thread::sleep(Duration::from_millis(50));
         }
     }
@@ -621,7 +621,7 @@ impl Bridge {
             // Checked on every pass, not only when the line is quiet: a steady stream
             // of messages from the extension must not keep a request waiting past its
             // time, or deaf to Ctrl-C (Cdp::rpc does the same).
-            crate::browser::check_py_signals()?;
+            crate::web::browser::check_py_signals()?;
             if Instant::now() >= deadline {
                 return Err(ScanErr::s(format!(
                     "{kind}: no answer from AutoCuaBridge in {}s",
@@ -694,7 +694,7 @@ impl Bridge {
                 }
             }
             if signals {
-                crate::browser::check_py_signals()?;
+                crate::web::browser::check_py_signals()?;
             }
             if Instant::now() >= deadline {
                 return Ok(());
@@ -737,7 +737,7 @@ impl Bridge {
             // bridge is on the line does it: a run's, or the app's idle one.
             Some("save") if m.get("id").is_some_and(Value::is_string) => {
                 let id = m["id"].clone();
-                let outcome = crate::bridge_test::save_next(&m)
+                let outcome = crate::web::bridge_test::save_next(&m)
                     .map(|(dir, n)| json!({ "dir": dir.display().to_string(), "iteration": n }));
                 self.reply(&id, outcome);
             }
@@ -970,12 +970,12 @@ fn idle_serve(src: PathBuf, dest: PathBuf, stop: Arc<AtomicBool>) {
 pub fn idle_bridge_start(py: Python<'_>, src: Option<String>) -> PyResult<()> {
     let src = match src {
         Some(s) => PathBuf::from(s),
-        None => crate::browser_dir(py)?.join("AutoCuaBridge"),
+        None => crate::web::browser_dir(py)?.join("AutoCuaBridge"),
     };
     let dest = stage_bridge::default_dest();
     let mut slot = IDLE
         .lock()
-        .map_err(|_| crate::ScannerError::new_err("idle bridge state poisoned by an earlier panic"))?;
+        .map_err(|_| crate::web::ScannerError::new_err("idle bridge state poisoned by an earlier panic"))?;
     if slot.is_some() {
         return Ok(());
     }
@@ -994,7 +994,7 @@ pub fn idle_bridge_start(py: Python<'_>, src: Option<String>) -> PyResult<()> {
 pub fn idle_bridge_stop(py: Python<'_>) -> PyResult<()> {
     let taken = IDLE
         .lock()
-        .map_err(|_| crate::ScannerError::new_err("idle bridge state poisoned by an earlier panic"))?
+        .map_err(|_| crate::web::ScannerError::new_err("idle bridge state poisoned by an earlier panic"))?
         .take();
     if let Some((stop, thread)) = taken {
         stop.store(true, Ordering::Relaxed);
@@ -1026,11 +1026,11 @@ impl PyBridge {
     fn new(py: Python<'_>, dest: Option<String>, src: Option<String>) -> PyResult<Self> {
         let src = match src {
             Some(s) => PathBuf::from(s),
-            None => crate::browser_dir(py)?.join("AutoCuaBridge"),
+            None => crate::web::browser_dir(py)?.join("AutoCuaBridge"),
         };
         let dest = dest.map(PathBuf::from).unwrap_or_else(stage_bridge::default_dest);
         let bridge = Bridge::open(&src, &dest).map_err(|e| {
-            crate::ScannerError::new_err(format!("could not open the bridge to AutoCuaBridge: {e}"))
+            crate::web::ScannerError::new_err(format!("could not open the bridge to AutoCuaBridge: {e}"))
         })?;
         Ok(PyBridge { inner: Arc::new(Mutex::new(bridge)) })
     }

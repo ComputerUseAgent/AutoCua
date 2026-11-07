@@ -696,6 +696,7 @@
         web:     { shape: 'web',     label: 'searching the web' },
         wait:    { shape: 'loader',  label: 'waiting' },
         minion:  { shape: 'minion',  label: 'dispatched minion' },
+        subagent: { shape: 'minion', label: 'dispatched subagent' },
         plan:    { shape: 'plan',    label: 'planning next steps' },
     };
     // todo_list / update_todo / scratchpad / exit are intentionally absent — they are surfaced

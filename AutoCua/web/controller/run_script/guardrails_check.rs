@@ -1171,8 +1171,8 @@ mod glue {
     use serde_json::json;
 
     use super::{check_page, screen_code, Report};
-    use crate::browser::ScannerInner;
-    use crate::controller::service::scan_op;
+    use crate::web::browser::ScannerInner;
+    use crate::web::controller::service::scan_op;
 
     /// What the pre-check hands on to the post-check and the audit line.
     pub struct Gate {

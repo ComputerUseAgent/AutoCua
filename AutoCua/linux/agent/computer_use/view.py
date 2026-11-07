@@ -8,11 +8,10 @@ from ....memory_compression.agent.service import wrap_handoff, extract_handoff
 
 
 # ---------------------------------------------------------------------------
-# NATIVE TRANSCRIPT CODEC - main-driver flavor (mirrors the coder's codec in
-# agent/coder/view.py, with one delta: legacy tool slots re-wrapped in
-# <tool_response> so schema-era saves replay byte-identically to the old
-# builder). The notes ride on a dedicated call: `reasoning` {thinking,
-# memory, next_goal} in quality mode, as in the coder, and `memory` {next_goal}
+# NATIVE TRANSCRIPT CODEC - the computer-use agent's own (legacy tool slots
+# re-wrapped in <tool_response> so schema-era saves replay byte-identically
+# to the old builder). The notes ride on a dedicated call: `reasoning`
+# {thinking, memory, next_goal} in quality mode, and `memory` {next_goal}
 # in fast mode; older saves carry them as arguments on the action calls, and
 # the renderers read both.
 #

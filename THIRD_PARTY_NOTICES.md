@@ -5,7 +5,7 @@ AutoCua itself is released under the MIT License (see [LICENSE](LICENSE)).
 The components listed below are **third-party works that reach AutoCua's
 users**. A few are redistributed in this repository or in the published
 wheels: React and scheduler (§6), the Rust crates, Rust standard library and
-runtime code compiled into the two prebuilt extensions (§9–§11), and the
+runtime code compiled into the prebuilt extension (§9–§11), and the
 ported thinking-orbs code and the icons in the UI (§21–§23). The rest are
 downloaded, installed or built on the user's own machine. They are **not**
 covered by AutoCua's MIT license and are **not** sublicensed by it. Each
@@ -21,7 +21,7 @@ maker's terms, the question names them: Google's Android SDK terms (§8, §20);
 Google's emulator and system images also ask
 the person to accept Google's terms (§7). The exceptions, each described in its
 section: cargo fetches the Rust crates from crates.io without asking, pinned by
-`Cargo.lock`, when an extension is built from source (§9, §10); Apple's
+`Cargo.lock`, when the extension is built from source (§9); Apple's
 developer disk image, on a Mac where Xcode has no copy, comes after the yes
 from the pymobiledevice3 project's unpinned copy on GitHub, not from Apple
 (§17); the setup scripts install uv, Rust and, on Windows, WinLibs GCC without
@@ -224,88 +224,62 @@ downloads it from Google.
 
 ---
 
-## 9. Rust crates in the web agent — **redistributed; compiled into the prebuilt extension in every wheel**
+## 9. Rust crates in the web agent, the Android agent and the coder — **redistributed; compiled into the prebuilt extension in every wheel**
 
 | | |
 |---|---|
-| **Authors** | The authors named in each crate's license files and `Cargo.toml`. Among them: Brian Smith (`ring`, `untrusted`), Unicode, Inc. (the ICU4X crates below), Carl Lerche (`bytes`), Julien Cretin and Google Inc. (`data-encoding`), Bartłomiej Kamiński (`generic-array`), David Hewitt and Contributors (`pythonize`), David Tolnay (`zmij`, `serde`, `serde_json`), Radzivon Bartoshyk (`moxcms`, `pxfm`), The Fuchsia Authors (`zerocopy`), the PyO3 Project, the image-rs Developers and the rust-url developers |
-| **Upstream** | https://crates.io, at the versions and SHA-256 checksums pinned in [`AutoCua/web/Cargo.lock`](AutoCua/web/Cargo.lock) |
-| **How it reaches you** | **Redistributed, in compiled form only.** maturin builds the crate in `AutoCua/web` and links these crates statically into one extension module, `AutoCua/web/agent_native`. That module ships prebuilt in the Windows x64, Apple Silicon macOS and Linux x86_64 wheels. The crates' sources are not in the wheel. Elsewhere the same module is compiled on the user's machine: by maturin for a pip install from the source distribution, and by `AutoCua/utils/rust.py` (`cargo build --release`) in a checkout. A checkout builds it in the setup scripts' build step, when the desktop app starts, or on the first `"web use"` run. Either way, cargo downloads the crates from crates.io and checks them against `Cargo.lock`. It does so without AutoCua's terminal question. |
-| **Pinned versions** | `AutoCua/web/Cargo.lock`. Each wheel also lists them in `*.dist-info/sboms/agent_native.cyclonedx.json`, with names, versions and SPDX expressions but no license texts or copyright lines. |
-| **License** | Each crate's own, as declared in its `Cargo.toml` (table below). The module links 77 crates on Windows and Linux and 78 on macOS. All are permissive; none is under the GPL, LGPL or MPL. |
-| **Used by** | The web agent (`"web use"`). |
+| **Authors** | The authors named in each crate's license files and `Cargo.toml`. Among them: Brian Smith (`ring`, `untrusted`), Unicode, Inc. (the ICU4X crates below), Carl Lerche (`bytes`), Julien Cretin and Google Inc. (`data-encoding`), Bartłomiej Kamiński (`generic-array`), David Hewitt and Contributors (`pythonize`), David Tolnay (`zmij`, `serde`, `serde_json`), Radzivon Bartoshyk (`moxcms`, `pxfm`), The Fuchsia Authors (`zerocopy`), Volker Ströbel (`jpeg-encoder`), Yevhenii Reizner (`roxmltree`), Andrew Gallant (`walkdir`, `same-file`, `winapi-util`), Microsoft (`windows-sys`, `windows-targets`, `windows_x86_64_gnu`, `windows-link`), the PyO3 Project, the image-rs Developers and the rust-url developers |
+| **Upstream** | https://crates.io, at the versions and SHA-256 checksums pinned in [`AutoCua/Cargo.lock`](AutoCua/Cargo.lock) |
+| **How it reaches you** | **Redistributed, in compiled form only.** maturin builds the one crate in `AutoCua/` (`AutoCua/Cargo.toml`) and links these crates statically into one extension module, `AutoCua/agent_native`, which holds the web agent, the Android agent and the coder. That module ships prebuilt in the Windows x64, Apple Silicon macOS and Linux x86_64 wheels. The crates' sources are not in the wheel. Elsewhere the same module is compiled on the user's machine: by maturin for a pip install from the source distribution, and by `AutoCua/utils/rust.py` (`cargo build --release`) in a checkout. A checkout builds it in the setup scripts' build step, when the desktop app starts, or on the first `"web use"`, `"mobile use, android"` or coder run. Either way, cargo downloads the crates from crates.io and checks them against `Cargo.lock`. It does so without AutoCua's terminal question. |
+| **Pinned versions** | `AutoCua/Cargo.lock`. Each wheel also lists them in `*.dist-info/sboms/agent_native.cyclonedx.json`, with names, versions and SPDX expressions but no license texts or copyright lines. |
+| **License** | Each crate's own, as declared in its `Cargo.toml` (table below). The module links 85 crates on Windows, 81 on Linux and 82 on macOS. All are permissive; none is under the GPL, LGPL or MPL. |
+| **Used by** | The web agent (`"web use"`), the Android agent (`"mobile use, android"`) and the coder (mode `"coder"`). |
 
 | License (each crate's `Cargo.toml`) | Crates linked into the module |
 |---|---|
-| MIT OR Apache-2.0 | base64 0.22.1, block-buffer 0.10.4, cfg-if 1.0.4, chrono 0.4.45, cpufeatures 0.2.17, crypto-common 0.1.7, digest 0.10.7, equivalent 1.0.2, form_urlencoded 1.2.2, getrandom 0.2.17, hashbrown 0.17.1, http 1.5.0, httparse 1.10.1, idna 1.1.0, idna_adapter 1.2.2, image 0.25.10 (see below), indexmap 2.14.0, itoa 1.0.18, libc 0.2.189, log 0.4.33, num-traits 0.2.19, once_cell 1.21.4, percent-encoding 2.3.2, ppv-lite86 0.2.21, pyo3 0.29.3, pyo3-ffi 0.29.3, rand 0.8.7, rand_chacha 0.3.1, rand_core 0.6.4, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11 (see below), serde 1.0.229, serde_core 1.0.229, serde_json 1.0.151, sha1 0.10.7, smallvec 1.15.2, stable_deref_trait 1.2.1, thiserror 1.0.69, tungstenite 0.24.0, typenum 1.20.1, url 2.5.8, utf-8 0.7.6, utf8_iter 1.0.4; windows-link 0.2.1 (Windows), iana-time-zone 0.1.65 (macOS, Linux), core-foundation-sys 0.8.7 (macOS) |
-| Unicode-3.0 | icu_collections, icu_locale_core, icu_normalizer, icu_normalizer_data, icu_properties, icu_properties_data and icu_provider 2.2.0; litemap 0.8.2, potential_utf 0.1.5, tinystr 0.8.3, writeable 0.6.3, yoke 0.8.3, zerofrom 0.1.8, zerotrie 0.2.4, zerovec 0.11.6 |
+| MIT OR Apache-2.0 | base64 0.22.1, block-buffer 0.10.4, cfg-if 1.0.4, chrono 0.4.45, cpufeatures 0.2.17, crypto-common 0.1.7, digest 0.10.7, equivalent 1.0.2, form_urlencoded 1.2.2, getrandom 0.2.17, hashbrown 0.17.1, http 1.5.0, httparse 1.10.1, idna 1.1.0, idna_adapter 1.2.2, image 0.25.10 (see §10), indexmap 2.14.0, itoa 1.0.18, libc 0.2.189, log 0.4.33, num-traits 0.2.19, once_cell 1.21.4, percent-encoding 2.3.2, ppv-lite86 0.2.21, pyo3 0.29.3, pyo3-ffi 0.29.3, rand 0.8.7, rand_chacha 0.3.1, rand_core 0.6.4, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11 (see §10), roxmltree 0.21.1, serde 1.0.229, serde_core 1.0.229, serde_json 1.0.151, sha1 0.10.7, smallvec 1.15.2, stable_deref_trait 1.2.1, thiserror 1.0.69, tungstenite 0.24.0, typenum 1.20.1, url 2.5.8, utf-8 0.7.6, utf8_iter 1.0.4; windows-link 0.2.1, windows-sys 0.52.0, windows-targets 0.52.6 and windows_x86_64_gnu 0.52.6 (Windows), iana-time-zone 0.1.65 (macOS, Linux), core-foundation-sys 0.8.7 (macOS) |
+| Unicode-3.0 | icu_collections, icu_locale_core, icu_normalizer, icu_normalizer_data, icu_properties, icu_properties_data and icu_provider 2.2.0; litemap 0.8.2, potential_utf 0.1.5, tinystr 0.8.3, writeable 0.6.3, yoke 0.8.3, zerofrom 0.1.8, zerotrie 0.2.4, zerovec 0.11.6 (see §10) |
 | MIT | bytes 1.12.1, data-encoding 2.11.1, generic-array 0.14.7, pythonize 0.29.0, zmij 1.0.23 |
-| Unlicense OR MIT | aho-corasick 1.1.5, byteorder 1.5.0, byteorder-lite 0.1.0, memchr 2.8.3 |
+| Unlicense OR MIT | aho-corasick 1.1.5, byteorder 1.5.0, byteorder-lite 0.1.0, memchr 2.8.3, same-file 1.0.6, walkdir 2.5.0 (these two write it `Unlicense/MIT`); winapi-util 0.1.11 (Windows) |
 | Zlib OR Apache-2.0 OR MIT | bytemuck 1.25.2, zune-core 0.5.3, zune-jpeg 0.5.15 |
 | BSD-3-Clause OR Apache-2.0 | moxcms 0.8.1, pxfm 0.1.30 |
 | BSD-2-Clause OR Apache-2.0 OR MIT | zerocopy 0.8.56 |
 | ISC | untrusted 0.9.0 |
-| Apache-2.0 AND ISC | ring 0.17.14 (see below) |
+| Apache-2.0 AND ISC | ring 0.17.14 (see §10) |
+| (MIT OR Apache-2.0) AND IJG | jpeg-encoder 0.7.1 (see §10) |
 
-Three of them carry more than their declared license shows:
+These crates remain under their own licenses and are not covered by AutoCua's
+MIT license. The texts that go with each wheel are listed under *License texts
+that go with the wheels* below.
 
-- **ring 0.17.14** (SHA-256 and random numbers). Its own code is ISC, "Copyright 2015-2025 Brian Smith" (`LICENSE-other-bits`). Code taken from BoringSSL is under the Apache License 2.0 (`LICENSE-BoringSSL`) or ISC, as the top of each file says. `third_party/fiat` is Apache-2.0, "Copyright 2015-2020 the fiat-crypto authors". A `once_cell` polyfill is MIT / Apache-2.0. Its assembly is pregenerated from OpenSSL's Apache-2.0 perlasm scripts, for example `sha512-x86_64.pl`, "Copyright 2005-2016 The OpenSSL Project Authors". The Windows wheel's module contains ring's x86_64 SHA-256 code. ring carries no OpenSSL or SSLeay advertising-clause license and no NOTICE file.
+---
+
+## 10. Crates in that module with more than their declared license — **redistributed; compiled into the prebuilt extension in every wheel**
+
+Four crates of §9's module, and the 15 Unicode-3.0 crates, carry more than
+their declared license shows. They reach you inside §9's module, as §9 describes.
+
+- **ring 0.17.14** (SHA-256 and random numbers, for the web agent). Its own code is ISC, "Copyright 2015-2025 Brian Smith" (`LICENSE-other-bits`). Code taken from BoringSSL is under the Apache License 2.0 (`LICENSE-BoringSSL`) or ISC, as the top of each file says. `third_party/fiat` is Apache-2.0, "Copyright 2015-2020 the fiat-crypto authors". A `once_cell` polyfill is MIT / Apache-2.0. Its assembly is pregenerated from OpenSSL's Apache-2.0 perlasm scripts, for example `sha512-x86_64.pl`, "Copyright 2005-2016 The OpenSSL Project Authors". The Windows wheel's module contains ring's x86_64 SHA-256 code. ring carries no OpenSSL or SSLeay advertising-clause license and no NOTICE file.
 - **image 0.25.10.** The web agent encodes its annotated screenshots with this crate's JPEG encoder. The encoder's forward DCT (`src/codecs/jpeg/transform.rs`) is a Rust translation of `jfdctint.c` from the Independent JPEG Group's libjpeg 9a. It is under the IJG terms: "This software is copyright (C) 1991-2014, Thomas G. Lane, Guido Vollbeding." Those terms ask that copies distributed as executable code only say so in their documentation, which this sentence does: **this software is based in part on the work of the Independent JPEG Group.**
+- **jpeg-encoder 0.7.1** encodes the Android agent's marked screenshots (zune-jpeg decodes the phone helper's JPEGs). It compiles one IJG-derived file, its forward DCT (`src/fdct.rs`), ported from mozjpeg: "Copyright (C) 1991-1996, Thomas G. Lane", with libjpeg-turbo modifications "Copyright (C) 2015, 2020, D. R. Commander". It is under the IJG terms: "This software is copyright (C) 1991-2020, Thomas G. Lane, Guido Vollbeding". The crate includes those terms as `LICENSE-IJG`. The IJG statement under image above covers it too, and `THIRD_PARTY_LICENSES.txt` carries `LICENSE-IJG`.
 - **regex-syntax 0.8.11.** Its Unicode tables (`src/unicode_tables/`) are generated from Unicode's data files. They are under the Unicode data license in `src/unicode_tables/LICENSE-UNICODE`.
 
 The 15 Unicode-3.0 crates share one license text, "Copyright © 2020-2024 Unicode, Inc.". It adds: "Portions of ICU4X may have been adapted from ICU4C and/or ICU4J. ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation and others."
 
 These crates remain under their own licenses and are not covered by AutoCua's
-MIT license. The texts that go with each wheel are listed under *License texts
-that go with the wheels* below.
+MIT license.
 
 ---
 
-## 10. Rust crates in the Android agent — **redistributed; compiled into the prebuilt extension in every wheel**
-
-| | |
-|---|---|
-| **Authors** | The authors named in each crate's license files and `Cargo.toml`. Among them: Volker Ströbel (`jpeg-encoder`), Yevhenii Reizner (`roxmltree`), David Hewitt and Contributors (`pythonize`), David Tolnay (`zmij`, `serde`, `serde_json`) and the PyO3 Project |
-| **Upstream** | https://crates.io, at the versions and SHA-256 checksums pinned in [`AutoCua/android/Cargo.lock`](AutoCua/android/Cargo.lock) |
-| **How it reaches you** | **Redistributed, in compiled form only.** cargo builds the crate in `AutoCua/android` (`AutoCua/utils/rust.py`, `cargo build --release`; for the Linux wheel, `cargo zigbuild` against glibc 2.17, the wheel's manylinux floor) and links these crates statically into one extension module, `AutoCua/android/agent_native`. Each release machine builds it before maturin packs the wheel, and `pyproject.toml` lists it (`include`), so that module ships prebuilt in the Windows x64, Apple Silicon macOS and Linux x86_64 wheels. The crates' sources are not in the wheel. Elsewhere the same module is compiled on the user's machine by `AutoCua/utils/rust.py`: in a checkout, in the setup scripts' build step, when the desktop app starts, or on the first Android run; from a pip install of the source distribution, on the first Android run. Either way, cargo downloads the crates from crates.io and checks them against `Cargo.lock`. It does so without AutoCua's terminal question. |
-| **Pinned versions** | `AutoCua/android/Cargo.lock`. The wheel's `*.dist-info/sboms/agent_native.cyclonedx.json` covers §9's module only, the one maturin builds; this module's crates are listed, with their license texts, in `THIRD_PARTY_LICENSES.txt`. |
-| **License** | Each crate's own, as declared in its `Cargo.toml` (table below). The module links 26 crates on Windows and Linux and 27 on macOS. All are permissive; none is under the GPL, LGPL or MPL. |
-| **Used by** | `"mobile use, android"`. |
-
-| License (each crate's `Cargo.toml`) | Crates linked into the module |
-|---|---|
-| MIT OR Apache-2.0 | base64 0.22.1, chrono 0.4.45, equivalent 1.0.2, hashbrown 0.17.1, indexmap 2.14.2, itoa 1.0.18, libc 0.2.191, num-traits 0.2.19, once_cell 1.21.4, pyo3 0.29.3, pyo3-ffi 0.29.3, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11, roxmltree 0.21.1, serde 1.0.229, serde_core 1.0.229, serde_json 1.0.151; windows-link 0.2.1 (Windows), iana-time-zone 0.1.65 (macOS, Linux), core-foundation-sys 0.8.7 (macOS) |
-| Zlib OR Apache-2.0 OR MIT | zune-core 0.5.3, zune-jpeg 0.5.15 |
-| Unlicense OR MIT | aho-corasick 1.1.5, memchr 2.8.3 |
-| MIT | pythonize 0.29.0, zmij 1.0.23 |
-| (MIT OR Apache-2.0) AND IJG | jpeg-encoder 0.7.1 |
-
-**jpeg-encoder 0.7.1** encodes the Android agent's marked screenshots
-(zune-jpeg decodes the phone helper's JPEGs). It compiles one IJG-derived
-file, its forward DCT (`src/fdct.rs`), ported from mozjpeg:
-"Copyright (C) 1991-1996, Thomas G. Lane", with libjpeg-turbo modifications
-"Copyright (C) 2015, 2020, D. R. Commander". It is under the IJG terms: "This
-software is copyright (C) 1991-2020, Thomas G. Lane, Guido Vollbeding". The
-crate includes those terms as `LICENSE-IJG`. The wheels ship this module
-built, so the IJG statement in §9 covers it too, and `THIRD_PARTY_LICENSES.txt`
-carries `LICENSE-IJG`. `regex-syntax` carries the same Unicode data license as
-in §9.
-
-These crates remain under their own licenses and are not covered by AutoCua's
-MIT license. The texts that go with each wheel are listed under *License texts
-that go with the wheels* below.
-
----
-
-## 11. Rust standard library, GCC and MinGW-w64 runtime code — **redistributed; linked into both prebuilt extensions in every wheel**
+## 11. Rust standard library, GCC and MinGW-w64 runtime code — **redistributed; linked into the prebuilt extension in every wheel**
 
 | | |
 |---|---|
 | **Authors** | The Rust Project Developers (`core`, `alloc`, `std` and the crates `std` is built from); the Free Software Foundation (GCC's `libgcc`, `libgcc_eh` and `crtbegin.o`); the mingw-w64 project (its C runtime start-up code, and `winpthreads`, parts of which are (C) 2010 Lockless Inc.) |
 | **Upstream** | https://github.com/rust-lang/rust (the stable toolchain that builds each wheel; rustc 1.97.1 for the 0.1.5 Windows wheel); https://gcc.gnu.org; https://www.mingw-w64.org |
-| **How it reaches you** | **Redistributed, in compiled form, inside §9's and §10's modules.** rustc links its standard library statically into every extension it builds. The Windows wheel's modules are built with Rust's GNU toolchain (`stable-x86_64-pc-windows-gnu`) and linked by WinLibs GCC (§13). That link also adds, statically, GCC's runtime support code (`libgcc`, its SEH unwinder `libgcc_eh`, and `crtbegin.o`), mingw-w64's C runtime start-up code and its `winpthreads` (`libpthread.a`, which rustc links into every Windows GNU module). The modules need no MinGW DLL. |
+| **How it reaches you** | **Redistributed, in compiled form, inside §9's module.** rustc links its standard library statically into every extension it builds. The Windows wheel's module is built with Rust's GNU toolchain (`stable-x86_64-pc-windows-gnu`) and linked by WinLibs GCC (§13). That link also adds, statically, GCC's runtime support code (`libgcc`, its SEH unwinder `libgcc_eh`, and `crtbegin.o`), mingw-w64's C runtime start-up code and its `winpthreads` (`libpthread.a`, which rustc links into every Windows GNU module). The module needs no MinGW DLL. |
 | **License** | Rust's standard library: Apache-2.0 OR MIT, except `core`'s Unicode tables (Unicode-3.0, © 1991-2024 Unicode, Inc.). The crates it is built from are listed with their licenses in the toolchain's `share/doc/rust/COPYRIGHT-library.html`. The 0.1.5 Windows module also contains `addr2line` 0.25.1 and `object` 0.37.3, which that file does not list (dual MIT / Apache-2.0 upstream). GCC's runtime libraries: GPL-3.0-or-later with the GCC Runtime Library Exception 3.1. Its §1 reads: "You have permission to propagate a work of Target Code formed by combining the Runtime Library with Independent Modules, even if such propagation would otherwise violate the terms of GPLv3, provided that all Target Code was generated by Eligible Compilation Processes. You may then convey such a combination under terms of your choice, consistent with the licensing of the Independent Modules." mingw-w64 runtime: the terms in its `COPYING.MinGW-w64-runtime.txt`. Most of the runtime is public domain, and the file lists the notices some parts require in binary copies. `winpthreads`: MIT ("Copyright (c) 2011 mingw-w64 project"), with BSD 3-Clause parts ("(C) 2010 Lockless Inc."). |
-| **Used by** | Both extensions (§9, §10). |
+| **Used by** | The extension (§9). |
 
 This code remains under its own licenses and is not covered by AutoCua's MIT
 license.
@@ -320,7 +294,7 @@ license.
 | **Upstream** | https://rustup.rs (`https://win.rustup.rs/x86_64`, `https://sh.rustup.rs`), stable channel, not pinned |
 | **How it reaches you** | **Not vendored in this repository or in the wheel.** When no `cargo` is found, `setup_windows.bat` (step 7) downloads `rustup-init.exe` and runs it with `-y --default-toolchain stable-x86_64-pc-windows-gnu --profile minimal`. `setup_mac.sh` and `setup_linux.sh` (step 4) download `https://sh.rustup.rs` and run it with `-y --profile minimal`. These steps do not ask first. The installer adds `~/.cargo/bin` to PATH or to the shell profile. AutoCua's Python code never installs Rust. |
 | **License** | Rust, cargo and rustup: MIT OR Apache-2.0. The toolchain also contains LLVM (Apache-2.0 WITH LLVM-exception) and the other components listed in its `share/doc/rust/COPYRIGHT.html`, with their texts in `share/doc/rust/licenses/`. The Windows GNU toolchain also carries MinGW binaries (`rust-mingw`). Its `share/doc/README.txt` says these are "licensed either under the terms of the GNU General Public License, or the GNU General Public License with the GCC Runtime Library Exception" (`COPYING3`, `COPYING.RUNTIME`). |
-| **Used by** | Building §9's and §10's modules in a checkout or from the source distribution. |
+| **Used by** | Building §9's module in a checkout or from the source distribution. |
 
 The Rust toolchain remains under its own licenses and is not covered by
 AutoCua's MIT license. AutoCua does not redistribute it.
@@ -335,7 +309,7 @@ AutoCua's MIT license. AutoCua does not redistribute it.
 | **Upstream** | https://winlibs.com, through winget's `BrechtSanders.WinLibs.POSIX.UCRT` package, at whatever version winget offers (for example `gcc-16.1.0-mingw-w64ucrt-14.0.0-r4`: GCC 16.1.0, Binutils 2.47, GDB 17.2, MinGW-w64 14.0.0, NASM 3.01, CMake 4.4.1) |
 | **How it reaches you** | **Not vendored in this repository or in the wheel.** When no `gcc` is on PATH, `setup_windows.bat` (step 8) runs `winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity` and adds the package's `bin` folder to the user PATH. The step does not ask first, and its flags accept winget's source and package agreements on the user's behalf. |
 | **License** | Each component has its own. GCC, Binutils and GDB: GPL-3.0-or-later. GCC's runtime libraries: GPL-3.0-or-later with the GCC Runtime Library Exception 3.1 (§11). The mingw-w64 runtime and `winpthreads`: their own permissive terms (§11). NASM: BSD 2-Clause. CMake: BSD 3-Clause. The installed package contains no license files for GCC, mingw-w64 or winpthreads; the upstream projects publish them. |
-| **Used by** | Compiling C for the Rust builds on Windows (`ring`'s C code, §9) and linking every Windows module, including the two prebuilt in the Windows wheel (§11). |
+| **Used by** | Compiling C for the Rust builds on Windows (`ring`'s C code, §9) and linking every Windows module, including the one prebuilt in the Windows wheel (§11). |
 
 The WinLibs tools remain under their own licenses and are not covered by
 AutoCua's MIT license. AutoCua does not redistribute them.
@@ -548,7 +522,7 @@ with the wheel's binary parts (§9–§11) and the UI code it ships (§6,
 
 | License | What a copy must carry, per the license text | Where it is |
 |---|---|---|
-| IJG (`image`'s JPEG encoder, §9; `jpeg-encoder`'s, §10) | The statement "this software is based in part on the work of the Independent JPEG Group" in the documentation of executable-only copies | §9 of this file, and `THIRD_PARTY_LICENSES.txt` |
+| IJG (`image`'s and `jpeg-encoder`'s JPEG encoders, §10) | The statement "this software is based in part on the work of the Independent JPEG Group" in the documentation of executable-only copies | §10 of this file, and `THIRD_PARTY_LICENSES.txt` |
 | MIT (React and scheduler, §6; thinking-orbs, §21; Feather, §22; Octicons, §23) | The copyright notice and the permission notice | This file |
 | ISC (Lucide, §22) | The copyright notice and the permission notice | This file (§22) |
 | The crates in §9 and §10, under their own licenses: MIT and ISC (`untrusted`, `ring`), Apache-2.0 (`ring`'s BoringSSL, OpenSSL and fiat-crypto code, and the Apache option of the dual-licensed crates), Unicode-3.0 and Unicode's data-file license (the ICU4X crates, `regex-syntax`'s tables), BSD (if the BSD option of `moxcms`, `pxfm` or `zerocopy` is relied on), IJG (`jpeg-encoder`'s `LICENSE-IJG`) | MIT and ISC: the copyright notice and the permission notice. Apache-2.0: a copy of the license; none of the crates has a NOTICE file. Unicode: the copyright and permission notice, with the copies or in their documentation. BSD: the notice, conditions and disclaimer in the documentation. IJG: the statement above. | `THIRD_PARTY_LICENSES.txt` |
@@ -558,7 +532,7 @@ with the wheel's binary parts (§9–§11) and the UI code it ships (§6,
 
 `THIRD_PARTY_LICENSES.txt` sits beside this file and is listed with it in
 `license-files`, so every wheel carries both. For each crate linked into §9's
-and §10's modules, at its `Cargo.lock` version, it holds the crate's own
+module, at its `Cargo.lock` version, it holds the crate's own
 license files (`LICENSE*`, `COPYING`, `UNLICENSE`). It also holds `ring`'s
 `LICENSE-BoringSSL`, `LICENSE-other-bits`, `third_party/fiat/LICENSE` and
 `src/polyfill/once_cell/LICENSE-*`, `jpeg-encoder`'s `LICENSE-IJG`, and
@@ -566,7 +540,7 @@ license files (`LICENSE*`, `COPYING`, `UNLICENSE`). It also holds `ring`'s
 toolchain's `share/doc/rust/COPYRIGHT-library.html` and the licenses of
 `addr2line` and `object`, and, for the Windows wheel, mingw-w64's
 `COPYING.MinGW-w64-runtime.txt`. It is rebuilt from those sources whenever
-either `Cargo.lock` or the toolchain changes (`python -m AutoCua.utils.third_party_licenses`).
+`Cargo.lock` or the toolchain changes (`python -m AutoCua.utils.third_party_licenses`).
 
 ---
 

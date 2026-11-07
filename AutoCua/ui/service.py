@@ -10,7 +10,7 @@ app.py is gone and main.py is the only entry point:
 
 This module is imported ONLY for UI mode, so its import-time bootstrap
 (stdio fixup, banner-mode stdio, the compiled build's embedded open() patch)
-never touches a terminal run. The coder/minion/controller/telegram modules
+never touches a terminal run. The controller/telegram modules
 that did `from app import debug_log, IS_COMPILED, app_data_dir` take their
 try/except fallbacks now. For binary builds, point Nuitka at main.py (or at
 this file); Nuitka follows imports."""
@@ -110,14 +110,9 @@ else:
 # Build / process flags + debug logging (compiled binary only)
 # =============================================================================
 IS_COMPILED = getattr(sys, 'frozen', False) or '__compiled__' in dir()
-IS_CLI_SUBPROCESS = "--cli-mode" in sys.argv
 # Any re-exec of AutoCua.exe that must NOT clobber the parent's debug log / wipe
-# the parent's scratchpad (--cli-mode / --minion-mode / --banner-mode).
-IS_SECONDARY_PROCESS = (
-    IS_CLI_SUBPROCESS
-    or "--banner-mode" in sys.argv
-    or "--minion-mode" in sys.argv
-)
+# the parent's scratchpad (--banner-mode).
+IS_SECONDARY_PROCESS = "--banner-mode" in sys.argv
 # Started by the Chromium desktop shell (AutoCua/desktop/main.js): this
 # process is the backend only, and the window belongs to the shell (see
 # DesktopWindow).
@@ -135,7 +130,7 @@ MACOS_BUNDLE_ID = "com.ashishyadav.AutoCua"
 
 
 def app_data_dir() -> Path:
-    """Root for cli_agent_result/ + cli_minion_result/ + settings/chats in the
+    """Root for cli_agent_result/ + settings/chats in the
     binary build. Compiled: ~/Library/Application Support/AutoCua (macOS) /
     %LOCALAPPDATA%/AutoCua (Windows). Dev: the repo root (where app.py lives)."""
     if IS_COMPILED:
@@ -2098,26 +2093,26 @@ def send_cli_event_to_frontend(event_type, *args):
             webview_window.evaluate_js(
                 f"window.cliTaskTodo && window.cliTaskTodo('{task_id}', '{todo_payload}')"
             )
-        elif event_type == "minion_start":
+        elif event_type == "subagent_start":
             parent_task_id = _js_escape(args[0] if len(args) > 0 else "")
             task_id = _js_escape(args[1] if len(args) > 1 else "")
             query = _js_escape(args[2] if len(args) > 2 else "")
             webview_window.evaluate_js(
-                f"window.cliMinionStart && window.cliMinionStart('{parent_task_id}', '{task_id}', '{query}')"
+                f"window.cliSubagentStart && window.cliSubagentStart('{parent_task_id}', '{task_id}', '{query}')"
             )
-        elif event_type == "minion_end":
+        elif event_type == "subagent_end":
             task_id = _js_escape(args[0] if len(args) > 0 else "")
             status = _js_escape(args[1] if len(args) > 1 else "complete")
             summary = _js_escape(args[2] if len(args) > 2 else "")
             webview_window.evaluate_js(
-                f"window.cliMinionEnd && window.cliMinionEnd('{task_id}', '{status}', '{summary}')"
+                f"window.cliSubagentEnd && window.cliSubagentEnd('{task_id}', '{status}', '{summary}')"
             )
-        elif event_type == "minion_line":
+        elif event_type == "subagent_line":
             task_id = _js_escape(args[0] if len(args) > 0 else "")
             line = _js_escape(args[1] if len(args) > 1 else "")
             stream = _js_escape(args[2] if len(args) > 2 else "out")
             webview_window.evaluate_js(
-                f"window.cliMinionLine && window.cliMinionLine('{task_id}', '{line}', '{stream}')"
+                f"window.cliSubagentLine && window.cliSubagentLine('{task_id}', '{line}', '{stream}')"
             )
         elif event_type == "pill_web_loading_start":
             task_id = _js_escape(args[0] if len(args) > 0 else "")
@@ -2283,7 +2278,7 @@ def _start_agent_run(data, via=None, hooks=None):
         # runs the main agent. run_pkg alone can't catch this — shell chats
         # share the desktop PLATFORM_PKG — hence the dedicated agent_mode marker.
         if (_sess.get("agent_mode") or "") == "shell":
-            return jsonify({'error': 'This chat is locked to Shell use — open a new chat to switch mode'}), 400
+            return jsonify({'error': 'This chat is locked to Coder — open a new chat to switch mode'}), 400
 
         # Per-chat mode lock: a chat that already ran in one mode only accepts
         # that mode (the UI greys the other option; this is the backstop).
@@ -2347,7 +2342,7 @@ def _start_agent_run(data, via=None, hooks=None):
                 # A browser / iOS / Android sub-agent's box closes the same way (sub_end),
                 # but its id is a small number a newer run can use again, so it
                 # stops once a newer run is on (sending it cleared the old boxes).
-                if (event_type in ("task_end", "await_end", "minion_end") or run_is_current()
+                if (event_type in ("task_end", "await_end", "subagent_end") or run_is_current()
                         or (event_type == "sub_end" and active_agent_session_id is None)):
                     send_cli_event_to_frontend(event_type, *args)
 
@@ -2817,9 +2812,10 @@ _ADB_NOT_NOW = "adb-not-now"
 
 
 def _prepare_native() -> None:
-    """What the terminal sees before any window: a checkout's builds of the
-    two Rust agents (the first start, a minute or two, cargo's lines as it
-    goes), then adb for an Android phone, offered once (_offer_adb). Run by
+    """What the terminal sees before any window: a checkout's build of the
+    Rust agents, web, Android and coder in one extension (the first start, a
+    minute or two, cargo's lines as it goes), then adb for an Android phone,
+    offered once (_offer_adb). Run by
     the process the person started, before the desktop shell or the window,
     so nothing builds or asks behind a window and the terminal shows it all,
     in order. Built, not imported: an import keeps agent_native.pyd loaded
@@ -2827,17 +2823,16 @@ def _prepare_native() -> None:
     replaced, so another process's rebuild (computer use's android_agent
     child, a terminal run) would fail to install. The emulator and its
     images are still fetched on first use, after their yes. A pip wheel
-    ships both agents built, a packaged app too. Printed when a build fails,
+    ships the extension built, a packaged app too. Printed when a build fails,
     since debug_exception is silent in a checkout."""
     if IS_COMPILED:
         return
     if (_REPO_ROOT / "main.py").is_file():
         from AutoCua.utils import rust
-        for what, build in (("web", rust.ensure_web_agent_built), ("android", rust.ensure_android_agent_built)):
-            try:
-                build()
-            except Exception as e:
-                print(f"[{what}] AGENT NOT BUILT — {e}", flush=True)
+        try:
+            rust.ensure_built()
+        except Exception as e:
+            print(f"[rust] AGENTS NOT BUILT — {e}", flush=True)
     _offer_adb()
     # Google Chrome is never downloaded: say once, here, when it is missing
     # (the page shows its popup too, /api/chrome)
@@ -2938,11 +2933,11 @@ def run_shell_task(task, provider, model, api_key, run_pkg,
     stream.
 
     That reuse is the point. Rather than re-implement the subprocess spawn, the
-    stdout reader threads, the `__MINION_UI_EVENT__` bridge and the cli_*
-    lifecycle, this drives the platform ControllerView's existing `sub_agent`
-    (dispatch) + `agent_wait` (block) actions — the two the main agent itself
-    uses. macOS and Windows go through the same two calls; only run_pkg differs,
-    and the coder subprocess command is already branched inside ControllerView.
+    stdout reader threads and the cli_* lifecycle, this drives the platform
+    ControllerView's existing `sub_agent` (dispatch) + `agent_wait` (block)
+    actions, the two the main agent itself uses. Every OS goes through the same
+    two calls; only run_pkg differs, and ControllerView starts the coder
+    (python -m AutoCua.coder).
 
     Args:
         task: the user's typed request, handed to the coder verbatim.
@@ -2960,18 +2955,13 @@ def run_shell_task(task, provider, model, api_key, run_pkg,
         f"AutoCua.{run_pkg}.controller.view"
     ).ControllerView
 
-    # cli_mode=True with NO session_id: keeps this run off the MAIN agent's
-    # scratchpad/todo files (it writes to the shared cli_milestone/ folder
-    # instead) without minting a per-run sandbox folder on the Desktop.
-    # cli_report_usage: the coder emits per-LLM-call token usage markers, so
-    # the memory bar tracks a Shell-use run the way it tracks Computer use.
-    # cli_history_file / cli_request_no: the chat's conversation channel — the
-    # coder seeds from the file, snapshots back into it, and tags its task
-    # <user_request=N>.
+    # cli_report_usage, cli_history_file and cli_request_no reach the coder
+    # as --report-usage, --history and --request-no: its token usage for the
+    # memory bar, and the chat's conversation channel (the coder seeds from
+    # the file, snapshots back into it, and tags its task <user_request=N>).
     controller = ControllerView(
         provider=provider,
         model=model,
-        cli_mode=True,
         cli_callback=cli_callback,
         api_key=api_key,
         stop_event=stop_event,
@@ -3092,7 +3082,7 @@ def start_shell():
         # freezes the terminal mid-run forever. They are keyed by task_id, so a
         # stale one is a no-op for whatever run is on screen now. (sub_end, a
         # sub-agent box's close, is one too; Shell use starts none.)
-        _CLI_TEARDOWN_EVENTS = ("task_end", "await_end", "minion_end", "sub_end")
+        _CLI_TEARDOWN_EVENTS = ("task_end", "await_end", "subagent_end", "sub_end")
 
         def shell_cli_callback(event_type, *args):
             # Everything else follows the main agent's rule: once the run is
@@ -4062,11 +4052,16 @@ def delete_chat(chat_id):
         return jsonify({'error': 'Failed to delete'}), 500
 
 
-def _read_main_system_prompt():
-    """Best-effort read of the active platform's computer_use system prompt, so a
-    downloaded conversation log shows the same SYSTEM PROMPT block as a main.py run."""
+def _read_main_system_prompt(agent_mode=None):
+    """Best-effort read of the system prompt of the agent that owns a chat, so
+    a downloaded conversation log shows the same SYSTEM PROMPT block as a
+    main.py run: the coder's for a Shell use chat, else the active platform's
+    computer_use one. Only for chats saved without their exact log."""
     try:
-        p = get_platform_path() / "agent" / "computer_use" / "system_prompt.md"
+        if agent_mode == "shell":
+            p = Path(__file__).resolve().parent.parent / "coder" / "main" / "system_prompt.md"
+        else:
+            p = get_platform_path() / "agent" / "computer_use" / "system_prompt.md"
         with open(p, "r", encoding="utf-8") as f:
             return f.read()
     except Exception:
@@ -4078,7 +4073,8 @@ def download_chat(chat_id):
     """Debug: write a session's saved memory as a human-readable conversation log
     (.txt) to the user's Downloads folder and return the saved path."""
     try:
-        path = conversation.export_to_downloads(chat_id, system_prompt=_read_main_system_prompt())
+        mode = (conversation.get_session(chat_id) or {}).get("agent_mode")
+        path = conversation.export_to_downloads(chat_id, system_prompt=_read_main_system_prompt(mode))
         if not path:
             return jsonify({'error': 'Nothing saved for this chat yet'}), 404
         return jsonify({'status': 'saved', 'path': path})
@@ -4571,8 +4567,8 @@ def _opt_out_of_app_nap():
 # main()
 # =============================================================================
 def main():
-    # --banner-mode / --cli-mode / --minion-mode are handled first — these
-    # re-exec'd children must not boot a second webview / Flask / Telegram bot.
+    # --banner-mode is handled first: this re-exec'd child must not boot a
+    # second webview / Flask / Telegram bot.
     if "--banner-mode" in sys.argv and IS_WINDOWS:
         # In dev the banner spawns via `python -m …banner`, but the Nuitka binary
         # has no `-m`, so StatusBanner.show() re-execs AutoCua.exe with this flag.
@@ -4606,8 +4602,7 @@ def main():
 
     # Wire the Telegram remote-control bot. Windows mounts a Flask blueprint plus a
     # polling bot; macOS and Linux register the blueprint and start the polling
-    # bot. Only the real GUI process runs it — the cli/minion children
-    # dispatch + return below.
+    # bot. Only the real GUI process runs it, not the banner child.
     if not IS_SECONDARY_PROCESS:
         if IS_WINDOWS:
             try:
@@ -4638,30 +4633,6 @@ def main():
                 print(f"[telegram] IMPORT/INIT FAILED: {_tg_e!r}", file=sys.stderr, flush=True)
                 _tg_tb.print_exc(file=sys.stderr)
                 debug_exception("telegram_bot_init")
-
-    if "--cli-mode" in sys.argv:
-        sys.argv.remove("--cli-mode")
-        try:
-            cli_main = importlib.import_module(
-                f"AutoCua.{PLATFORM_PKG}.agent.coder.__main__"
-            ).main
-            cli_main()
-        except Exception:
-            debug_exception("CLI mode")
-        return
-
-    if "--minion-mode" in sys.argv:
-        # Required from the compiled binary, where the controller re-execs AutoCua
-        # with --minion-mode instead of `python -m ...minions`.
-        sys.argv.remove("--minion-mode")
-        try:
-            minion_main = importlib.import_module(
-                f"AutoCua.{PLATFORM_PKG}.agent.minions.__main__"
-            ).main
-            minion_main()
-        except Exception:
-            debug_exception("Minion mode")
-        return
 
     # macOS: never nap, in the pywebview window's process and in the Chromium
     # shell's backend alike (the shell's own process opts out in main.js).

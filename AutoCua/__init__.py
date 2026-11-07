@@ -48,9 +48,9 @@ logger = logging.getLogger("AutoCua.paths")
 
 DATA_DIR_NAME = "AutoCua_data"
 
-# Absolute-path override; wins over the rules below. The --cli-mode /
-# --minion-mode / --banner-mode children are spawned with os.environ.copy(), so
-# they inherit it and parent + children can never disagree on the data root.
+# Absolute-path override; wins over the rules below. The --banner-mode child
+# and the agents' child processes are spawned with os.environ.copy(), so they
+# inherit it and parent + children can never disagree on the data root.
 ENV_DATA_DIR = "AutoCua_DATA_DIR"
 
 # Compiled (Nuitka) binary vs dev run — mirrors the detection in app.py.

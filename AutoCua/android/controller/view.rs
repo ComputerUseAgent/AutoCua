@@ -33,7 +33,7 @@ use super::tool::back::service as back;
 use super::tool::vault::service::{vault_service, DEVICE_ENTRIES, MAX_PIN_ATTEMPTS, TEXT_FIELDS};
 use super::tool::videoplayer::service as videoplayer;
 use super::tool::web::service::WebService;
-use crate::agent::android_use::view::{py_str_of, truthy};
+use crate::android::agent::android_use::view::{py_str_of, truthy};
 
 /// Python `str(x or "")`.
 fn str_or_empty(v: &Value) -> String {
@@ -117,7 +117,7 @@ impl ControllerView {
         api_key: Option<String>,
         stop_event: Option<Py<PyAny>>,
     ) -> PyResult<Self> {
-        let android_dir = crate::android_dir(py)?;
+        let android_dir = crate::android::android_dir(py)?;
         let task_tracker = TaskTrackerService::new(android_dir).map_err(|e| PyIOError::new_err(e.to_string()))?;
         let scratchpad_service = ScratchpadService::new(android_dir).map_err(|e| PyIOError::new_err(e.to_string()))?;
         Ok(ControllerView {

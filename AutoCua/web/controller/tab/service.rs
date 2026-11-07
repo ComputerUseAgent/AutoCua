@@ -22,9 +22,9 @@ use std::sync::{Arc, Mutex};
 use pyo3::prelude::*;
 use serde_json::{json, Value};
 
-use crate::browser::{web_store_url, Cdp, CdpFail, SResult, ScanErr, ScannerInner, WEB_STORE_BLOCKED};
-use crate::controller::service::{err, py_int_value, scan_op, ActResult};
-use crate::agent::main_driver::view::py_str_of;
+use crate::web::browser::{web_store_url, Cdp, CdpFail, SResult, ScanErr, ScannerInner, WEB_STORE_BLOCKED};
+use crate::web::controller::service::{err, py_int_value, scan_op, ActResult};
+use crate::web::agent::main_driver::view::py_str_of;
 
 /// How long a navigation waits for the page's load event. A lapse is not an
 /// error: the scanner settles the page again before the next scan, so a slow

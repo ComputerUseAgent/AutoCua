@@ -26,8 +26,8 @@ use super::service::{ActErr, ControllerService};
 use super::{
     click, dialog, done, input, keyboard, run_script, scratchpad, scroll, skills, tab, todo_tracker, vault, wait,
 };
-use crate::browser::{truthy, web_store_url, BrowserScanner, ScannerInner, WEB_STORE_BLOCKED};
-use crate::agent::main_driver::view::py_str_of;
+use crate::web::browser::{truthy, web_store_url, BrowserScanner, ScannerInner, WEB_STORE_BLOCKED};
+use crate::web::agent::main_driver::view::py_str_of;
 
 /// The page actions a popup (a JavaScript alert, confirm or prompt) holding the
 /// current tab freezes (see `one`). run_script
@@ -284,7 +284,7 @@ impl ControllerView {
             .ok()
             .flatten();
         if held.is_some() && HELD_BY_POPUP.contains(&kind.as_str()) {
-            let refused = json!({"status": "error", "tool": kind, "message": crate::browser::DIALOG_OPEN});
+            let refused = json!({"status": "error", "tool": kind, "message": crate::web::browser::DIALOG_OPEN});
             return Ok((refused, false));
         }
         // A tab that got onto the Chrome Web Store anyway (a redirect, a script) takes
@@ -555,7 +555,7 @@ pub fn _route_action_debug<'py>(
     actions: Bound<'py, PyAny>,
     application_name: Option<String>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let web_dir = crate::web_dir(py)?.clone();
+    let web_dir = crate::web::web_dir(py)?.clone();
     let inner = scanner.get().inner.clone();
     let view = ControllerView::new(&web_dir, None, false, inner.clone(), None)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;

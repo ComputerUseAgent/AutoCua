@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex};
 use pyo3::prelude::*;
 use serde_json::{json, Value};
 
-use crate::browser::ScannerInner;
-use crate::controller::service::{err, py_int_value, scan_op, ActResult};
+use crate::web::browser::ScannerInner;
+use crate::web::controller::service::{err, py_int_value, scan_op, ActResult};
 
 /// Press button [id] of the popup holding the current tab; `value` is typed into a
 /// prompt's text box first when the button is OK.

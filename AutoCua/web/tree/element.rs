@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use crate::browser::{Cdp, CdpFail};
+use crate::web::browser::{Cdp, CdpFail};
 
 /// Ceiling on one CDP call. A cold DOMSnapshot of a heavy page is seconds of
 /// real work, so this is generous by design — it is a guard against a wedged
