@@ -17,10 +17,14 @@
 //! Nothing in the lists is rewritten, so the prompt-cache prefix stays
 //! valid.
 //!
-//! Left out, as a terminal run never uses them: the app's history file, the
-//! result file and on_complete, the token-usage markers, the request number
-//! and the subagents' own terminal windows. AgentService still takes those
-//! keyword arguments and ignores them.
+//! The app's Shell use adds three arguments. history_file: the chat's
+//! history, which seeds the run and is rewritten after every step, with the
+//! exact last request for the chat's memory log. request_no: which request
+//! of the chat this run answers, sent as <user_request=N>. report_usage:
+//! each call's token usage, sent up a stdout marker for the memory bar. A
+//! child run from AutoCua/coder/__main__.py (ui_markers) also sends its todo
+//! list that way, for the coder's card. The result file belongs to that
+//! entry; task and on_complete are taken and ignored.
 
 use std::collections::HashSet;
 use std::io::IsTerminal;
@@ -122,6 +126,23 @@ struct RunState {
     tool_responses: Py<PyList>,
     /// The <tool> block waiting for the next step.
     pending_web_response: String,
+    /// The exact last request sent to the model (Null before the first),
+    /// for the app's memory log.
+    last_messages: Value,
+    /// The chat's first request: the opening <user_request=1> turn of a
+    /// resumed chat.
+    original_task: String,
+    /// This run's request as it fills the bridge slot; set only when the
+    /// chat's history ended on a bridge.
+    seed_request_marker: Option<String>,
+    /// The <manual_mode> block of hand-typed terminal commands, while it
+    /// rides the opening turn (no bridge slot took it).
+    seed_manual_block: Option<String>,
+    /// The <manual_mode> block reached the model (stamped into every
+    /// snapshot; the app re-queues the commands without it).
+    manual_delivered: bool,
+    /// The final snapshot is written: nothing may write the file again.
+    history_finalized: bool,
 }
 
 /// The coder agent service: the agent loop over the coder's tools.
@@ -135,6 +156,15 @@ pub struct AgentService {
     /// right after each LLM call. Python hands it to the compression only.
     stop_event: Option<Py<PyAny>>,
     session_id: String,
+    /// Shell use: the chat's history file; None for a run with no chat.
+    history_file: Option<PathBuf>,
+    /// Which request of the chat this run answers (1 for a fresh one).
+    request_no: i64,
+    /// Shell use: each call's token usage up the stdout marker pipe.
+    report_usage: bool,
+    /// A child of the app (AutoCua/coder/__main__.py): the todo list goes up
+    /// the stdout marker pipe too.
+    ui_markers: bool,
     llm: Py<LLMManager>,
     controller: Mutex<ControllerView>,
     compression: Py<PyAny>,
@@ -160,6 +190,104 @@ impl AgentService {
             }
             None => Ok(false),
         }
+    }
+
+    /// Shell use: seed the run from the chat's history file, which the app
+    /// writes: the chat's first request as `task`, its steps, and maybe a
+    /// <manual_mode> block. When the history ends on a bridge (the insight
+    /// the app adds after every run), this run's request fills the bridge's
+    /// empty slot, after that insight's `ok`, as <user_request=N>. A file
+    /// that does not read starts the run fresh.
+    fn load_seed(&self, py: Python<'_>, task: &str, am: &Bound<'_, PyList>, tr: &Bound<'_, PyList>) -> PyResult<()> {
+        let Some(path) = &self.history_file else {
+            return Ok(());
+        };
+        let data = match std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()) {
+            Some(Value::Object(data)) => data,
+            _ => return Ok(()),
+        };
+        let mut state = self.state();
+        if let Some(first) = data.get("task").and_then(Value::as_str).filter(|t| !t.is_empty()) {
+            state.original_task = first.to_string();
+        }
+        // Commands the user typed at the shared terminal since the last run.
+        state.seed_manual_block = data.get("manual_mode").filter(|v| truthy(v)).map(py_str_of);
+        let steps: Vec<String> = match data.get("assistant_messages") {
+            Some(Value::Array(steps)) => steps.iter().map(py_str_of).collect(),
+            _ => Vec::new(),
+        };
+        if steps.is_empty() {
+            return Ok(());
+        }
+        let slots: &[Value] = match data.get("tool_responses") {
+            Some(Value::Array(slots)) => slots,
+            _ => &[],
+        };
+        for (i, step) in steps.iter().enumerate() {
+            am.append(step)?;
+            match slots.get(i) {
+                None | Some(Value::Null) => tr.append(py.None())?,
+                Some(slot) => tr.append(py_str_of(slot))?,
+            }
+        }
+        let last = steps.len() - 1;
+        if tr.get_item(last)?.is_none() && is_bridge_entry(&steps[last]) {
+            let n = self.request_no;
+            let mut fill = format!("<user_request={n}>\n{task}\n</user_request={n}>");
+            if let Some(block) = state.seed_manual_block.take() {
+                // The hand-typed commands in their place: after the previous
+                // run, before this request. Kept with the slot from now on.
+                fill = format!("{block}\n\n{fill}");
+                state.manual_delivered = true;
+            }
+            tr.set_item(last, bridge_slot(&steps[last], &fill))?;
+            state.seed_request_marker = Some(fill);
+        }
+        Ok(())
+    }
+
+    /// Shell use: rewrite the chat's history file with the conversation as
+    /// it stands, after every step and at the end, through a temp file, so
+    /// a hard-killed run reads back whole to its last finished step. Never
+    /// after the final snapshot: the app reads and deletes the file then.
+    fn write_history_snapshot(&self, py: Python<'_>) {
+        let Some(path) = &self.history_file else {
+            return;
+        };
+        let payload = {
+            let state = self.state();
+            if state.history_finalized {
+                return;
+            }
+            let text = |item: Bound<'_, PyAny>| match item.str() {
+                Ok(s) => Value::String(s.to_string_lossy().into_owned()),
+                Err(_) => Value::Null,
+            };
+            let steps: Vec<Value> = state.assistant_messages.bind(py).iter().map(text).collect();
+            let slots: Vec<Value> = state
+                .tool_responses
+                .bind(py)
+                .iter()
+                .map(|slot| if slot.is_none() { Value::Null } else { text(slot) })
+                .collect();
+            json!({
+                "task": state.original_task,
+                "assistant_messages": steps,
+                "tool_responses": slots,
+                "last_messages": state.last_messages,
+                "manual_delivered": state.manual_delivered,
+            })
+        };
+        let tmp = path.with_extension("tmp");
+        if std::fs::write(&tmp, crate::coder::dumps(&payload)).is_ok() {
+            let _ = std::fs::rename(&tmp, path);
+        }
+    }
+
+    /// The final snapshot, written before the result file.
+    fn finalize_history(&self, py: Python<'_>) {
+        self.write_history_snapshot(py);
+        self.state().history_finalized = true;
     }
 
     /// The one-time "agent started" banner, on a terminal only.
@@ -259,13 +387,39 @@ impl AgentService {
         tr: &Bound<'_, PyList>,
         live: String,
     ) -> PyResult<Vec<Value>> {
+        // The opening turn stays the same for the whole chat: a resumed chat
+        // opens with its first request, and this run's request sits in the
+        // bridge slot (load_seed), after the previous run's ending. A fresh
+        // run, or a history with no bridge slot, opens with this request.
+        let (opening, degraded_head) = {
+            let state = self.state();
+            if state.seed_request_marker.is_some() {
+                (format!("<user_request=1>\n{}\n</user_request=1>", state.original_task), None)
+            } else {
+                let n = self.request_no;
+                let mut opening = format!("<user_request={n}>\n{task}\n</user_request={n}>");
+                if let Some(block) = &state.seed_manual_block {
+                    opening = format!("{block}\n\n{opening}");
+                }
+                // A history with no bridge slot: the chat's first request
+                // goes on the first replayed turn instead.
+                let head = (!state.original_task.is_empty() && state.original_task != task)
+                    .then(|| format!("<User_Task>\n{}\n</User_Task>\n\n", state.original_task));
+                (opening, head)
+            }
+        };
         let mut messages = vec![
             json!({"role": "system", "content": self.system_prompt}),
-            json!({"role": "user", "content": format!("<user_request=1>\n{task}\n</user_request=1>")}),
+            json!({"role": "user", "content": opening}),
         ];
         for i in 0..am.len() {
             let raw_entry = am.get_item(i)?.str()?.to_string_lossy().into_owned();
-            let entry = view::decode_step(&raw_entry);
+            let mut entry = view::decode_step(&raw_entry);
+            if i == 0 {
+                if let Some(head) = &degraded_head {
+                    entry.content = format!("{head}{}", entry.content);
+                }
+            }
             let mut asst = Map::new();
             asst.insert("role".into(), json!("assistant"));
             asst.insert("content".into(), Value::String(entry.content));
@@ -298,13 +452,22 @@ impl AgentService {
             let mut state = self.state();
             state.assistant_messages = am.clone().unbind();
             state.tool_responses = tr.clone().unbind();
+            state.last_messages = Value::Null;
+            state.original_task = task.to_string();
+            state.seed_request_marker = None;
+            state.seed_manual_block = None;
+            state.manual_delivered = false;
+            state.history_finalized = false;
         }
+        // Shell use: the chat so far, from its history file. A seeded run is
+        // not a first step: the dialogue already exists.
+        self.load_seed(py, task, &am, &tr)?;
         let compression = self.compression.bind(py);
         compression.call_method0("reset")?;
 
         let mut lp = LoopState {
             step_number: 0,
-            is_first: true,
+            is_first: am.is_empty(),
             json_fail_count: 0,
             modes_on: vec![false; MODES.len()],
             web_memory_index: None,
@@ -320,14 +483,20 @@ impl AgentService {
             }
 
             // Splice a finished background compression in place (loop thread only).
+            let before = am.len();
             let shifted = compression.call_method1("apply_pending", (&am, &tr, lp.web_memory_index))?;
             lp.web_memory_index = if shifted.is_none() { None } else { Some(shifted.extract::<i64>()?) };
+            if am.len() != before {
+                // A hard-killed run, and the app's save, read the spliced history.
+                self.write_history_snapshot(py);
+            }
 
             lp.step_number += 1;
             let mut is_web_digest = false;
 
             if lp.step_number > MAX_CLI_ITERATIONS {
                 crate::say!("CLI Agent reached max iterations ({MAX_CLI_ITERATIONS})");
+                self.finalize_history(py);
                 return Ok("Max iterations reached".to_string());
             }
 
@@ -367,11 +536,26 @@ impl AgentService {
                 live.push_str(&pending_web);
             }
             let messages = self.build_messages(task, &am, &tr, live)?;
+            self.state().last_messages = Value::Array(messages.clone());
 
-            match self.run_step(py, ctl, &am, &tr, task, &messages, is_web_digest, &mut lp) {
-                Ok(Flow::Continue) => {}
+            let flow = self.run_step(py, ctl, &am, &tr, &messages, is_web_digest, &mut lp);
+            if flow.is_ok() {
+                // The call went through, so a <manual_mode> block on the
+                // opening turn reached the model.
+                let mut state = self.state();
+                if state.seed_manual_block.is_some() {
+                    state.manual_delivered = true;
+                }
+            }
+            match flow {
+                Ok(Flow::Continue) => self.write_history_snapshot(py),
                 Ok(Flow::Break) => break,
-                Ok(Flow::Exit) => return Ok("Exit".to_string()),
+                Ok(Flow::Exit) => {
+                    // Before the result file: the app reads and deletes the
+                    // history file as soon as that appears.
+                    self.finalize_history(py);
+                    return Ok("Exit".to_string());
+                }
                 Err(e) => {
                     // Python's `except Exception`: KeyboardInterrupt and
                     // other BaseExceptions go on up.
@@ -395,7 +579,6 @@ impl AgentService {
         ctl: &mut ControllerView,
         am: &Bound<'_, PyList>,
         tr: &Bound<'_, PyList>,
-        task: &str,
         messages: &[Value],
         is_web_digest: bool,
         lp: &mut LoopState,
@@ -421,6 +604,10 @@ impl AgentService {
             SendOutcome::Native(v) => v,
             SendOutcome::Text(s) => Value::String(s),
         };
+        if self.report_usage {
+            // The app's memory bar: this call's usage, context size included.
+            send_marker("token_usage", json!([llm.last_usage_value()]));
+        }
 
         if self.stop_set(py)? {
             return Ok(Flow::Break);
@@ -428,7 +615,10 @@ impl AgentService {
 
         // Context size is fresh in last_usage, and the lists hold only the
         // finished steps here (this one is appended below).
-        self.compression.bind(py).call_method1("maybe_trigger", (am, tr, task))?;
+        // The chat's first request, as the compressor reads it: "Task" and
+        // request 1 (this run's request sits in its bridge slot).
+        let first_task = self.state().original_task.clone();
+        self.compression.bind(py).call_method1("maybe_trigger", (am, tr, first_task))?;
 
         self.save_raw_response(&dumps_pretty(&raw_response), lp.step_number);
 
@@ -576,6 +766,14 @@ impl AgentService {
         }
 
         let mut action_result = ctl.route_action(py, &actions)?;
+        if self.ui_markers
+            && actions.iter().any(|a| {
+                matches!(a.get("type").and_then(Value::as_str), Some("todo_list" | "update_todo"))
+            })
+        {
+            // The coder's card in the app: its todo checklist, live.
+            send_marker("todo_update", json!([read_todo_from_file(ctl)]));
+        }
 
         if action_result.get("action").and_then(Value::as_str) == Some("exit") {
             // Close the pairing: a call with no result is a malformed
@@ -707,10 +905,10 @@ impl AgentService {
 
 #[pymethods]
 impl AgentService {
-    /// The mac signature. Only provider, model, save_conversation, api_key,
-    /// stop_event and external_terminal are used; the app's arguments are taken and ignored,
-    /// and **_extra takes what agent_launcher forwards for other agents (its
-    /// signature filter cannot read an extension type's arguments).
+    /// The mac signature. task and on_complete are taken and ignored;
+    /// **_extra takes what agent_launcher forwards for other agents (its
+    /// signature filter cannot read an extension type's arguments), and
+    /// ui_markers from AutoCua/coder/__main__.py.
     #[new]
     #[pyo3(signature = (provider, model, save_conversation=None, api_key=None, stop_event=None,
         task=None, on_complete=None, external_terminal=None, report_usage=None, request_no=None,
@@ -732,7 +930,34 @@ impl AgentService {
         history_file: Option<Bound<'_, PyAny>>,
         _extra: Option<Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
-        let _ = (task, on_complete, report_usage, request_no, history_file);
+        let _ = (task, on_complete);
+        let report_usage = match &report_usage {
+            Some(v) => v.is_truthy()?,
+            None => false,
+        };
+        // max(1, int(request_no or 1))
+        let request_no = match &request_no {
+            Some(v) if v.is_truthy()? => match v.extract::<i64>() {
+                Ok(n) => n,
+                Err(_) => v.str()?.to_string_lossy().trim().parse::<i64>().unwrap_or(1),
+            },
+            _ => 1,
+        }
+        .max(1);
+        let history_file = match &history_file {
+            Some(v) if !v.is_none() => {
+                let path: String = py.import("os")?.call_method1("fspath", (v,))?.extract()?;
+                (!path.is_empty()).then(|| PathBuf::from(path))
+            }
+            _ => None,
+        };
+        let ui_markers = match &_extra {
+            Some(extra) => match extra.get_item("ui_markers")? {
+                Some(v) => v.is_truthy()?,
+                None => false,
+            },
+            None => false,
+        };
         let save_conversation = match &save_conversation {
             Some(v) => v.is_truthy()?,
             None => false,
@@ -759,13 +984,16 @@ impl AgentService {
             LLMManager::build(py, &provider, &model, api_key.as_deref(), true, "main", "quality")?,
         )?;
 
-        let controller =
+        let mut controller =
             ControllerView::new(py, &provider, &model, &session_id, api_key.as_deref(), false, external_terminal, save_conversation)?;
+        controller.ui_markers = ui_markers;
 
         // Rolling handoff compression: the shared controller with this
         // crate's two transcript callables. It reads the instance and
-        // builds its own text-mode manager from the class. No UI, so no
-        // token callback: the controller skips a missing one.
+        // builds its own text-mode manager from the class. Its token
+        // callback, in Shell use only (report_usage), sends its
+        // {"memory_compression": "start"|"end"} up the token_usage marker
+        // for the app's memory ring; otherwise none, which it skips.
         let compression = {
             let cls = py
                 .import("AutoCua.memory_compression.controller")?
@@ -777,7 +1005,12 @@ impl AgentService {
                 Some(event) => event.clone_ref(py),
                 None => py.None(),
             };
-            cls.call((llm.clone_ref(py), py.get_type::<LLMManager>(), py.None(), stop), Some(&kwargs))?
+            let notice: Py<PyAny> = if report_usage {
+                pyo3::wrap_pyfunction!(compression_notice, py)?.into_any().unbind()
+            } else {
+                py.None()
+            };
+            cls.call((llm.clone_ref(py), py.get_type::<LLMManager>(), notice, stop), Some(&kwargs))?
                 .unbind()
         };
 
@@ -803,6 +1036,10 @@ impl AgentService {
             save_conversation,
             stop_event,
             session_id,
+            history_file,
+            request_no,
+            report_usage,
+            ui_markers,
             llm,
             controller: Mutex::new(controller),
             compression,
@@ -811,6 +1048,12 @@ impl AgentService {
                 assistant_messages: PyList::empty(py).unbind(),
                 tool_responses: PyList::empty(py).unbind(),
                 pending_web_response: String::new(),
+                last_messages: Value::Null,
+                original_task: String::new(),
+                seed_request_marker: None,
+                seed_manual_block: None,
+                manual_delivered: false,
+                history_finalized: false,
             }),
         })
     }
@@ -849,6 +1092,9 @@ impl AgentService {
             }
         };
         let result = self.run_agent_loop(py, &mut ctl, &task);
+        // Shell use: the final snapshot on every other way out (a stop, an
+        // error, a third turn without calls); a no-op after an exit's.
+        self.write_history_snapshot(py);
         // Python's finally: stop a dangling compression indicator.
         let finished = self.compression.bind(py).call_method0("finish_run");
         // On every way out (exit, an error that ended the run, Ctrl+C) no
@@ -867,6 +1113,83 @@ impl AgentService {
 
 fn stdout_tty() -> bool {
     std::io::stdout().is_terminal()
+}
+
+/// The id of the bridge's insight call: the note the app adds after every
+/// run of a Shell use chat (agent_conversation's terminal note) is one
+/// `insight` call with an id of this shape, bridge_<request number>.
+const BRIDGE_ID_PREFIX: &str = "bridge_";
+
+/// The bridge's insight call id, when `raw` is today's bridge.
+fn bridge_call_id(raw: &str) -> Option<String> {
+    let Ok(Value::Object(data)) = serde_json::from_str::<Value>(raw) else {
+        return None;
+    };
+    let calls = data.get("tool_calls")?.as_array()?;
+    let [call] = calls.as_slice() else {
+        return None;
+    };
+    let id = call.get("id")?.as_str()?;
+    let name = call.get("function")?.get("name")?.as_str()?;
+    (name == "insight" && id.starts_with(BRIDGE_ID_PREFIX)).then(|| id.to_string())
+}
+
+/// The note the app adds after every run of a chat, in any of its shapes.
+/// Structural, so a real step that only echoes its words never matches.
+fn is_bridge_entry(raw: &str) -> bool {
+    if bridge_call_id(raw).is_some() {
+        return true;
+    }
+    let Ok(Value::Object(data)) = serde_json::from_str::<Value>(raw) else {
+        return false;
+    };
+    let mut keys: Vec<&str> = data.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    let goal = data.get("next_goal").map(py_str_of).unwrap_or_default();
+    match keys.as_slice() {
+        // The notes the older agents saved, plain text when replayed.
+        ["memory", "next_goal"] | ["memory", "next_goal", "thinking"] => goal.starts_with("Previous run concluded."),
+        ["next_goal", "thinking"] => goal.starts_with("memory: ") && goal.contains("next_goal: Previous run concluded."),
+        _ => false,
+    }
+}
+
+/// The bridge's slot once the next request is here: today's bridge is an
+/// insight call, so its `ok` comes first and the request follows as a user
+/// turn; an older bridge is plain text, so the request alone.
+fn bridge_slot(bridge: &str, request: &str) -> String {
+    match bridge_call_id(bridge) {
+        Some(id) => crate::coder::dumps(&json!([
+            {"tool_call_id": id, "content": view::REASONING_RESULT},
+            {"role": "user", "content": request},
+        ])),
+        None => request.to_string(),
+    }
+}
+
+/// The compression's token callback (Shell use): its
+/// {"memory_compression": "start"|"end"} goes up the token_usage marker, so
+/// the app's memory ring shows the handoff running.
+#[pyfunction]
+fn compression_notice(notice: &Bound<'_, PyAny>) -> PyResult<()> {
+    let notice: Value = pythonize::depythonize(notice)?;
+    send_marker("token_usage", json!([notice]));
+    Ok(())
+}
+
+/// One line for the app, which reads this child's stdout: the controller
+/// that started the coder takes the marker off the stream and passes the
+/// event on (token_usage to the memory bar, todo_update to the coder's
+/// card, subagent_start / subagent_line / subagent_end to its subagent
+/// bots). Never on a terminal.
+pub(crate) fn send_marker(event: &str, args: Value) {
+    if stdout_tty() {
+        return;
+    }
+    crate::coder::out(&format!(
+        "__CODER_UI_EVENT__:{}",
+        crate::coder::dumps(&json!({"event": event, "args": args}))
+    ));
 }
 
 /// One step's display: the model's text, its notes (the `insight` and the

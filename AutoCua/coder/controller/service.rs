@@ -207,6 +207,10 @@ pub struct ControllerView {
     /// The same for window children (by pid): their marks go at the next
     /// look once they are gone.
     delivered_windows: Vec<DeliveredWindow>,
+    /// The coder runs as the app's child (AutoCua/coder/__main__.py): each
+    /// subagent's start, output lines and end go up the stdout marker pipe,
+    /// for the coder card's subagent bots.
+    pub(crate) ui_markers: bool,
 }
 
 impl ControllerView {
@@ -246,6 +250,7 @@ impl ControllerView {
             subagent_tasks: Vec::new(),
             delivered: Vec::new(),
             delivered_windows: Vec::new(),
+            ui_markers: false,
         })
     }
 
@@ -297,6 +302,9 @@ impl ControllerView {
         let mut windows = false;
         let mut result_files: Vec<PathBuf> = Vec::new();
         for mut task in std::mem::take(&mut self.subagent_tasks) {
+            if self.ui_markers {
+                crate::coder::main::service::send_marker("subagent_end", json!([task.session_id, "stopped", ""]));
+            }
             children.extend(task.child.take());
             if let Some(launcher) = task.launcher.take() {
                 reap(launcher);
@@ -635,7 +643,8 @@ impl ControllerView {
         let started = if self.external_terminal {
             open_window(&launch, Arc::clone(&stderr_tail))
         } else {
-            spawn_child(&launch, Arc::clone(&stderr_tail), false).map(|(child, reader)| (child, reader, false))
+            let forward = self.ui_markers.then(|| session_id.clone());
+            spawn_child(&launch, Arc::clone(&stderr_tail), false, forward).map(|(child, reader)| (child, reader, false))
         };
         let (child, launcher, window, stderr_reader, start_error) = match started {
             Ok((launcher, reader, true)) => (None, Some(launcher), true, Some(reader), String::new()),
@@ -654,6 +663,12 @@ impl ControllerView {
             stderr_reader,
             read_error_logged: false,
         });
+        if self.ui_markers {
+            crate::coder::main::service::send_marker(
+                "subagent_start",
+                json!([session_id, format!("{mode}: {task_text}")]),
+            );
+        }
         Ok(session_id)
     }
 
@@ -698,6 +713,16 @@ impl ControllerView {
                             self.delivered_windows.push(DeliveredWindow { pid, result_file: task.result_file.clone() });
                         }
                         None => remove_marks(&task.result_file),
+                    }
+                    if self.ui_markers {
+                        let (status, summary) = match &report {
+                            Ok((summary, status)) => (py_str_of(status), py_str_of(summary)),
+                            Err(why) => ("error".to_string(), why.clone()),
+                        };
+                        crate::coder::main::service::send_marker(
+                            "subagent_end",
+                            json!([task.session_id, status, summary]),
+                        );
                     }
                     completed.push(Completion { session_id: task.session_id, report });
                 }
@@ -759,6 +784,7 @@ fn spawn_child(
     launch: &Launch<'_>,
     tail: Arc<Mutex<VecDeque<String>>>,
     console: bool,
+    forward: Option<String>,
 ) -> Result<(Child, JoinHandle<()>), String> {
     let mut cmd = Command::new(launch.executable);
     #[cfg(windows)]
@@ -789,7 +815,11 @@ fn spawn_child(
         stop_now(child);
         return Err("its output pipes could not be opened".to_string());
     };
-    if thread::Builder::new().name("subagent-stdout".into()).spawn(move || drain(stdout)).is_err() {
+    let reading = move || match forward {
+        Some(id) => forward_lines(stdout, &id),
+        None => drain(stdout),
+    };
+    if thread::Builder::new().name("subagent-stdout".into()).spawn(reading).is_err() {
         stop_now(child);
         return Err("can't start new thread".to_string());
     }
@@ -908,19 +938,19 @@ fn open_window(launch: &Launch<'_>, tail: Arc<Mutex<VecDeque<String>>>) -> Resul
         }
     }
     log("No terminal emulator found to show the subagent: it runs piped");
-    spawn_child(launch, tail, false).map(|(child, reader)| (child, reader, false))
+    spawn_child(launch, tail, false, None).map(|(child, reader)| (child, reader, false))
 }
 
 /// Windows: the subagent itself, in a console window of its own; its handle
 /// stays, so it is watched as a piped child.
 #[cfg(windows)]
 fn open_window(launch: &Launch<'_>, tail: Arc<Mutex<VecDeque<String>>>) -> Result<(Child, JoinHandle<()>, bool), String> {
-    spawn_child(launch, tail, true).map(|(child, reader)| (child, reader, false))
+    spawn_child(launch, tail, true, None).map(|(child, reader)| (child, reader, false))
 }
 
 #[cfg(not(any(unix, windows)))]
 fn open_window(launch: &Launch<'_>, tail: Arc<Mutex<VecDeque<String>>>) -> Result<(Child, JoinHandle<()>, bool), String> {
-    spawn_child(launch, tail, false).map(|(child, reader)| (child, reader, false))
+    spawn_child(launch, tail, false, None).map(|(child, reader)| (child, reader, false))
 }
 
 /// Start what opens the window, in a process group of its own (a terminal
@@ -1007,6 +1037,27 @@ fn on_path(binary: &str) -> bool {
 
 /// Read a pipe to its end and drop what comes (Python passed it on to the
 /// app's UI, which a terminal run does not have).
+/// A piped subagent's stdout, line by line, up the stdout marker pipe as
+/// subagent_line (the coder card's subagent bot shows it working). Read to
+/// the end like drain, so a chatty child never blocks on a full pipe.
+fn forward_lines(pipe: impl Read, id: &str) {
+    let mut reader = BufReader::new(pipe);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => break,
+            Ok(_) => {
+                let text = String::from_utf8_lossy(&buf);
+                let line = text.trim_end_matches(['\r', '\n']);
+                crate::coder::main::service::send_marker("subagent_line", json!([id, line, "out"]));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => break,
+        }
+    }
+}
+
 fn drain(mut pipe: impl Read) {
     let mut buf = [0u8; 8192];
     loop {

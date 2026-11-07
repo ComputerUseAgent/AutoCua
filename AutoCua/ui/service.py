@@ -2093,26 +2093,26 @@ def send_cli_event_to_frontend(event_type, *args):
             webview_window.evaluate_js(
                 f"window.cliTaskTodo && window.cliTaskTodo('{task_id}', '{todo_payload}')"
             )
-        elif event_type == "minion_start":
+        elif event_type == "subagent_start":
             parent_task_id = _js_escape(args[0] if len(args) > 0 else "")
             task_id = _js_escape(args[1] if len(args) > 1 else "")
             query = _js_escape(args[2] if len(args) > 2 else "")
             webview_window.evaluate_js(
-                f"window.cliMinionStart && window.cliMinionStart('{parent_task_id}', '{task_id}', '{query}')"
+                f"window.cliSubagentStart && window.cliSubagentStart('{parent_task_id}', '{task_id}', '{query}')"
             )
-        elif event_type == "minion_end":
+        elif event_type == "subagent_end":
             task_id = _js_escape(args[0] if len(args) > 0 else "")
             status = _js_escape(args[1] if len(args) > 1 else "complete")
             summary = _js_escape(args[2] if len(args) > 2 else "")
             webview_window.evaluate_js(
-                f"window.cliMinionEnd && window.cliMinionEnd('{task_id}', '{status}', '{summary}')"
+                f"window.cliSubagentEnd && window.cliSubagentEnd('{task_id}', '{status}', '{summary}')"
             )
-        elif event_type == "minion_line":
+        elif event_type == "subagent_line":
             task_id = _js_escape(args[0] if len(args) > 0 else "")
             line = _js_escape(args[1] if len(args) > 1 else "")
             stream = _js_escape(args[2] if len(args) > 2 else "out")
             webview_window.evaluate_js(
-                f"window.cliMinionLine && window.cliMinionLine('{task_id}', '{line}', '{stream}')"
+                f"window.cliSubagentLine && window.cliSubagentLine('{task_id}', '{line}', '{stream}')"
             )
         elif event_type == "pill_web_loading_start":
             task_id = _js_escape(args[0] if len(args) > 0 else "")
@@ -2278,7 +2278,7 @@ def _start_agent_run(data, via=None, hooks=None):
         # runs the main agent. run_pkg alone can't catch this — shell chats
         # share the desktop PLATFORM_PKG — hence the dedicated agent_mode marker.
         if (_sess.get("agent_mode") or "") == "shell":
-            return jsonify({'error': 'This chat is locked to Shell use — open a new chat to switch mode'}), 400
+            return jsonify({'error': 'This chat is locked to Coder — open a new chat to switch mode'}), 400
 
         # Per-chat mode lock: a chat that already ran in one mode only accepts
         # that mode (the UI greys the other option; this is the backstop).
@@ -2342,7 +2342,7 @@ def _start_agent_run(data, via=None, hooks=None):
                 # A browser / iOS / Android sub-agent's box closes the same way (sub_end),
                 # but its id is a small number a newer run can use again, so it
                 # stops once a newer run is on (sending it cleared the old boxes).
-                if (event_type in ("task_end", "await_end", "minion_end") or run_is_current()
+                if (event_type in ("task_end", "await_end", "subagent_end") or run_is_current()
                         or (event_type == "sub_end" and active_agent_session_id is None)):
                     send_cli_event_to_frontend(event_type, *args)
 
@@ -2956,9 +2956,9 @@ def run_shell_task(task, provider, model, api_key, run_pkg,
     ).ControllerView
 
     # cli_report_usage, cli_history_file and cli_request_no reach the coder
-    # as --report-usage, --history and --request-no (the memory bar, and the
-    # chat's conversation channel). The Rust coder (AutoCua/coder) takes them
-    # but does not use them yet.
+    # as --report-usage, --history and --request-no: its token usage for the
+    # memory bar, and the chat's conversation channel (the coder seeds from
+    # the file, snapshots back into it, and tags its task <user_request=N>).
     controller = ControllerView(
         provider=provider,
         model=model,
@@ -3082,7 +3082,7 @@ def start_shell():
         # freezes the terminal mid-run forever. They are keyed by task_id, so a
         # stale one is a no-op for whatever run is on screen now. (sub_end, a
         # sub-agent box's close, is one too; Shell use starts none.)
-        _CLI_TEARDOWN_EVENTS = ("task_end", "await_end", "minion_end", "sub_end")
+        _CLI_TEARDOWN_EVENTS = ("task_end", "await_end", "subagent_end", "sub_end")
 
         def shell_cli_callback(event_type, *args):
             # Everything else follows the main agent's rule: once the run is
@@ -4052,11 +4052,16 @@ def delete_chat(chat_id):
         return jsonify({'error': 'Failed to delete'}), 500
 
 
-def _read_main_system_prompt():
-    """Best-effort read of the active platform's computer_use system prompt, so a
-    downloaded conversation log shows the same SYSTEM PROMPT block as a main.py run."""
+def _read_main_system_prompt(agent_mode=None):
+    """Best-effort read of the system prompt of the agent that owns a chat, so
+    a downloaded conversation log shows the same SYSTEM PROMPT block as a
+    main.py run: the coder's for a Shell use chat, else the active platform's
+    computer_use one. Only for chats saved without their exact log."""
     try:
-        p = get_platform_path() / "agent" / "computer_use" / "system_prompt.md"
+        if agent_mode == "shell":
+            p = Path(__file__).resolve().parent.parent / "coder" / "main" / "system_prompt.md"
+        else:
+            p = get_platform_path() / "agent" / "computer_use" / "system_prompt.md"
         with open(p, "r", encoding="utf-8") as f:
             return f.read()
     except Exception:
@@ -4068,7 +4073,8 @@ def download_chat(chat_id):
     """Debug: write a session's saved memory as a human-readable conversation log
     (.txt) to the user's Downloads folder and return the saved path."""
     try:
-        path = conversation.export_to_downloads(chat_id, system_prompt=_read_main_system_prompt())
+        mode = (conversation.get_session(chat_id) or {}).get("agent_mode")
+        path = conversation.export_to_downloads(chat_id, system_prompt=_read_main_system_prompt(mode))
         if not path:
             return jsonify({'error': 'Nothing saved for this chat yet'}), 404
         return jsonify({'status': 'saved', 'path': path})

@@ -102,18 +102,23 @@ pub fn decode_results(raw: &str) -> Vec<Value> {
         return Vec::new();
     }
     if let Ok(Value::Array(items)) = serde_json::from_str::<Value>(raw) {
-        let all_keyed = items
-            .iter()
-            .all(|d| d.as_object().is_some_and(|o| o.contains_key("tool_call_id")));
-        if all_keyed {
+        let is_result = |d: &Value| d.as_object().is_some_and(|o| o.contains_key("tool_call_id"));
+        // A user turn after the results: the next request of a Shell use
+        // chat, after the `ok` of the insight that ended the previous run.
+        let is_user = |d: &Value| d.get("role").and_then(Value::as_str) == Some("user");
+        if items.iter().all(|d| is_result(d) || is_user(d)) {
             return items
                 .iter()
                 .map(|d| {
-                    json!({
-                        "role": "tool",
-                        "tool_call_id": d.get("tool_call_id").cloned().unwrap_or(Value::Null),
-                        "content": py_str_or_empty(d.get("content")),
-                    })
+                    if is_result(d) {
+                        json!({
+                            "role": "tool",
+                            "tool_call_id": d.get("tool_call_id").cloned().unwrap_or(Value::Null),
+                            "content": py_str_or_empty(d.get("content")),
+                        })
+                    } else {
+                        json!({"role": "user", "content": py_str_or_empty(d.get("content"))})
+                    }
                 })
                 .collect();
         }
@@ -369,13 +374,6 @@ pub fn coder_snapshot_turn(text: &str, calls: &Value) -> String {
 /// no information, so the snapshot file and the compression dump hide it.
 pub const REASONING_RESULT: &str = "ok";
 
-/// Tool slot paired with the synthetic handoff entry: a plain string, so
-/// decode_results replays it as a USER turn. The splice never orphans a
-/// role:"tool" result and never leaves two assistant turns adjacent.
-pub const COMPRESSION_NOTE: &str = "<history_compressed>\nEarlier steps of this session were \
-compressed into the memory_compression block above. Trust it as accurate memory and \
-continue from the state it describes.\n</history_compressed>";
-
 /// A compiled pattern; None only if it could not compile, which the callers
 /// treat as "no match".
 fn regex_once(cell: &'static OnceLock<Option<Regex>>, pattern: &str) -> Option<&'static Regex> {
@@ -392,16 +390,29 @@ pub fn extract_handoff(text: &str) -> Option<String> {
         .map(|m| m.as_str().to_string())
 }
 
-/// The handoff document inside a compressed-memory entry's content, else
-/// None. Reads the {"memory_compression": ...} shape, and the older
-/// <handoff> tag for chats saved before it.
-pub fn compressed_memory(content: &str) -> Option<String> {
-    if let Ok(Value::Object(data)) = serde_json::from_str::<Value>(content) {
+/// The id of the compressed memory's insight call (one at a time: the next
+/// compression replaces it with the steps it covers).
+pub const COMPRESSION_CALL_ID: &str = "memory_compression";
+
+/// The handoff document of a compressed-memory entry, else None. Reads
+/// today's shape, one `insight` call of kind `memory` (id
+/// COMPRESSION_CALL_ID), and the older ones for chats saved before it: a
+/// {"memory_compression": ...} text turn, and the <handoff> tag.
+pub fn compressed_memory(step: &Step) -> Option<String> {
+    if let Some([call]) = step.tool_calls.as_array().map(Vec::as_slice) {
+        let func = call.get("function").and_then(Value::as_object).cloned().unwrap_or_default();
+        let is_memory = call.get("id").and_then(Value::as_str) == Some(COMPRESSION_CALL_ID)
+            && func.get("name").and_then(Value::as_str) == Some("insight");
+        if is_memory {
+            return call_args(&func).get("content").and_then(Value::as_str).map(str::to_string);
+        }
+    }
+    if let Ok(Value::Object(data)) = serde_json::from_str::<Value>(&step.content) {
         if let Some(Value::String(doc)) = data.get(COMPRESSION_KEY) {
             return Some(doc.clone());
         }
     }
-    extract_handoff(content)
+    extract_handoff(&step.content)
 }
 
 /// Python's _clip: str(value), cut to `limit` characters with a note of how
@@ -522,7 +533,7 @@ pub fn compression_dump_core(entries: &[String], tools: &[Option<String>], task:
     let mut start = 0usize;
     if let Some(prev) = entries
         .first()
-        .and_then(|e| compressed_memory(&decode_step(e).content))
+        .and_then(|e| compressed_memory(&decode_step(e)))
     {
         out.push(String::new());
         out.push("=== PREVIOUS HANDOFF ===".to_string());
@@ -556,8 +567,10 @@ pub fn compression_dump_core(entries: &[String], tools: &[Option<String>], task:
             == Some("tool");
         if first_is_tool {
             // The notes calls' placeholder result says nothing: skip it.
+            let role = |r: &Value| r.get("role").and_then(Value::as_str).map(str::to_string);
             let body: Vec<String> = results
                 .iter()
+                .filter(|r| role(r).as_deref() == Some("tool"))
                 .map(|r| py_str_or_empty(r.get("content")))
                 .filter(|c| c != REASONING_RESULT)
                 .collect();
@@ -566,32 +579,39 @@ pub fn compression_dump_core(entries: &[String], tools: &[Option<String>], task:
                 out.push("--- USER ---".to_string());
                 out.push(body.join("\n"));
             }
-        } else if let Some(m) = find_user_request(tr) {
-            step_no = 0; // step numbering restarts after every new task
-            let req = format!(
-                "<updated_user_request no=\"{n}\">\n{b}\n</updated_user_request no=\"{n}\">",
-                n = m.num,
-                b = m.body
-            );
-            // A bridge slot can carry more than the request, e.g. the
-            // <manual_mode> block of commands the user typed between runs.
-            // Keep it, or the handoff summary loses what the user did.
-            let rest = format!(
-                "{}{}",
-                tr.get(..m.start).unwrap_or(""),
-                tr.get(m.end..).unwrap_or("")
-            );
-            let extra = py_strip(&rest);
-            out.push(String::new());
-            out.push("--- USER ---".to_string());
-            out.push(if extra.is_empty() { req } else { format!("{extra}\n\n{req}") });
+            // A Shell use bridge's slot: after the insight's `ok`, the chat's
+            // next request as a user turn.
+            for r in results.iter().filter(|r| role(r).as_deref() == Some("user")) {
+                push_user_turn(&mut out, &py_str_or_empty(r.get("content")), &mut step_no);
+            }
         } else {
-            out.push(String::new());
-            out.push("--- USER ---".to_string());
-            out.push(tr.to_string());
+            push_user_turn(&mut out, tr, &mut step_no);
         }
     }
     out.join("\n") + "\n"
+}
+
+/// One user turn of the dump: a <user_request=N> becomes the compressor's
+/// <updated_user_request no="N"> and restarts the step numbering; any other
+/// text goes as it is. A bridge slot can carry more than the request, e.g.
+/// the <manual_mode> block of commands the user typed between runs: it is
+/// kept before the request, or the handoff summary loses what the user did.
+fn push_user_turn(out: &mut Vec<String>, raw: &str, step_no: &mut u64) {
+    out.push(String::new());
+    out.push("--- USER ---".to_string());
+    let Some(m) = find_user_request(raw) else {
+        out.push(raw.to_string());
+        return;
+    };
+    *step_no = 0;
+    let req = format!(
+        "<updated_user_request no=\"{n}\">\n{b}\n</updated_user_request no=\"{n}\">",
+        n = m.num,
+        b = m.body
+    );
+    let rest = format!("{}{}", raw.get(..m.start).unwrap_or(""), raw.get(m.end..).unwrap_or(""));
+    let extra = py_strip(&rest);
+    out.push(if extra.is_empty() { req } else { format!("{extra}\n\n{req}") });
 }
 
 /// Coder flavor of memory_compression's build_dump: steps [0..k] of the
@@ -631,10 +651,10 @@ pub fn compression_dump(
 }
 
 /// (entry, tool_slot) replacing entries [0..k] after a handoff lands: ONE
-/// content-only native assistant turn whose content is
-/// {"memory_compression": <the whole handoff document>} and nothing else,
-/// paired with the plain-string note slot. step_k_entry is unused: signature
-/// parity with the controller's main-agent default.
+/// coder step, an `insight` call of kind `memory` whose content is the whole
+/// handoff document, paired with that call's `ok`, as every insight is.
+/// step_k_entry is unused: signature parity with the controller's
+/// main-agent default.
 #[pyfunction]
 #[pyo3(signature = (step_k_entry, handoff_text))]
 pub fn compression_entry(
@@ -643,13 +663,17 @@ pub fn compression_entry(
 ) -> PyResult<(String, String)> {
     let _ = step_k_entry;
     let doc = match handoff_text.cast::<PyString>() {
-        Ok(s) => Value::String(s.to_string_lossy().into_owned()),
-        Err(_) => pythonize::depythonize(handoff_text)?,
+        Ok(s) => s.to_string_lossy().into_owned(),
+        Err(_) => py_str_of(&pythonize::depythonize::<Value>(handoff_text)?),
     };
-    let mut wrapper = Map::new();
-    wrapper.insert(COMPRESSION_KEY.into(), doc);
-    let content = dumps_pretty(&Value::Object(wrapper));
-    Ok((encode_step(&content, &json!([]), None), COMPRESSION_NOTE.to_string()))
+    let call = json!({
+        "id": COMPRESSION_CALL_ID,
+        "type": "function",
+        "function": {"name": "insight", "arguments": dumps(&json!({"kind": "memory", "content": doc}))},
+    });
+    let entry = encode_step("", &json!([call]), None);
+    let slot = encode_results(&[json!({"tool_call_id": COMPRESSION_CALL_ID, "content": REASONING_RESULT})]);
+    Ok((entry, slot))
 }
 
 // ---------------------------------------------------------------------------

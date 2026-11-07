@@ -44,7 +44,7 @@ Each step includes:
 - Previous steps are stored as real conversation turns: the `insight` call when that step made one, its `next_goal` call, then the action calls it made, each with its <Tool_response> attached to the call that produced it.
 - Your thinking is never stored: it happened natively and privately, and only its conclusions were written. Everything you once understood, decided and intended is therefore in your insights. The latest `insight` is where your current model of the code, your approach, your step list and its branches live — read it instead of re-deriving; it is the course you are on.
 - The latest `next_goal` names the step you just took and the state it was meant to leave behind: the <Tool_response> is judged against it.
-- Older steps may be replaced by one `{"memory_compression": "..."}` block: your compressed memory of everything before it. Trust it as accurate and continue from the state it describes.
+- Older steps may be replaced by one `insight` of kind `memory`: your compressed memory of everything before it. Trust it as accurate and continue from the state it describes.
 </agent_history>
 
 <operating_procedure>

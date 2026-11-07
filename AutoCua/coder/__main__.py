@@ -10,8 +10,12 @@ Usage:
         --provider openrouter --model gemini-3.6-flash --result path/to/result.json
 
 It takes the arguments the old Python coder took (AutoCua/<os>/agent/coder),
-so the controllers start it the same way. --report-usage, --request-no and
---history are accepted and ignored: the Rust coder does not use them yet.
+so the controllers start it the same way. The app's Shell use adds three:
+--history (the chat's history file: the run is seeded from it and rewrites
+it after every step, so a chat remembers its earlier requests), --request-no
+(which request of the chat this is) and --report-usage (each call's token
+usage, for the memory bar). With stdout read by the app (not a terminal),
+the usage and the todo list go up as marker lines the controller takes off.
 The API key comes in --api_key or in the AutoCua_CODER_API_KEY environment
 variable; without either the provider falls back to .env and the app's
 saved key.
@@ -85,11 +89,13 @@ def main():
     parser.add_argument("--no_external_terminal", action="store_true", default=False,
                         help="Run the coder's subagents without their own terminal windows, "
                              "their output piped (the app passes it)")
-    # Still passed by the app's Shell use; the Rust coder ignores them.
+    # The app's Shell use: the chat's conversation and its memory bar.
     parser.add_argument("--report-usage", action="store_true", default=False,
-                        help=argparse.SUPPRESS)
-    parser.add_argument("--request-no", type=int, default=1, help=argparse.SUPPRESS)
-    parser.add_argument("--history", type=str, default=None, help=argparse.SUPPRESS)
+                        help="Send each call's token usage up stdout (the app's memory bar)")
+    parser.add_argument("--request-no", type=int, default=1,
+                        help="Which request of the chat this is (1 = first)")
+    parser.add_argument("--history", type=str, default=None,
+                        help="The chat's history file: seeded from, rewritten after every step")
     args = parser.parse_args()
 
     # Taken out of the environment once read, so the coder's own shell
@@ -100,7 +106,9 @@ def main():
         from AutoCua.coder import AgentService
 
         agent = AgentService(provider=args.provider, model=args.model, save_conversation=True,
-                             api_key=api_key, external_terminal=not args.no_external_terminal)
+                             api_key=api_key, external_terminal=not args.no_external_terminal,
+                             report_usage=args.report_usage, request_no=args.request_no,
+                             history_file=args.history, ui_markers=not sys.stdout.isatty())
         outcome = agent.process_request(args.task)
     except KeyboardInterrupt:
         _write_result(args.result, args.task, "Stopped before the coder finished.", "partial")

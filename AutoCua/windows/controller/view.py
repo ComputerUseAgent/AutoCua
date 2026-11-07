@@ -60,6 +60,11 @@ def _read_new_lines(path: Path, live: dict, key: str) -> list:
     return [line.strip() for line in lines if line.strip()]
 
 
+# A coder child's stdout line meant for the app, not its terminal box (see
+# _handle_coder_marker).
+CODER_UI_MARKER = "__CODER_UI_EVENT__:"
+
+
 class ControllerView:
     def __init__(self, provider: str = None, model: str = None, web_callback=None, shell_callback=None, cli_callback=None, api_key: str = None, stop_event=None, external_terminal: bool = False, cli_report_usage: bool = False, cli_request_no: int = None, cli_history_file=None):
         """Initialize the Controller View - central router for all actions
@@ -73,17 +78,18 @@ class ControllerView:
             api_key: Optional runtime API key for LLM providers (passed to CLI agent)
             stop_event: Optional threading.Event for stopping actions mid-execution
             external_terminal: If True, dispatched CLI sub-agents are launched in their own visible cmd console (CREATE_NEW_CONSOLE) instead of having their stdout/stderr piped back. Used by main.py headless mode so the user can watch sub-agent progress live.
-            cli_report_usage: If True, dispatched CLI agents get `--report-usage`
-                (for the frontend memory bar; the Rust coder takes it but does not
-                use it yet). Only the Shell-use path (frontend run_shell_task) sets
-                this; main-agent dispatches never do.
+            cli_report_usage: If True, dispatched CLI agents get `--report-usage`:
+                the coder sends each call's token usage up its stdout, for the
+                frontend memory bar. Only the Shell-use path (frontend
+                run_shell_task) sets this; main-agent dispatches never do.
             cli_request_no: Which request of the ongoing Shell-use conversation the
-                dispatched task is (passed to the coder as --request-no; the Rust
-                coder does not use it yet). None = omit (request 1).
+                dispatched task is (passed to the coder as --request-no, its
+                <user_request=N>). None = omit (request 1).
             cli_history_file: Path to the Shell-use conversation-history file.
-                When set, dispatched CLI agents get `--history <path>` (the Rust
-                coder takes it but does not use it yet). Only the Shell-use path
-                (frontend run_shell_task) passes this; main-agent dispatches never do.
+                When set, dispatched CLI agents get `--history <path>`: the coder
+                seeds from it and rewrites it after every step. Only the Shell-use
+                path (frontend run_shell_task) passes this; main-agent dispatches
+                never do.
         """
         self.api_key = api_key
         self.stop_event = stop_event
@@ -174,6 +180,9 @@ class ControllerView:
                     line = str(raw)
                 if line == "" and stream == "err":
                     continue
+                if line.startswith(CODER_UI_MARKER):
+                    self._handle_coder_marker(line, task_id)
+                    continue
                 self._safe_cli_emit("task_line", task_id, line, stream)
         except Exception as e:
             logger.error(f"_read_cli_stream({task_id}, {stream}) error: {e}")
@@ -182,6 +191,35 @@ class ControllerView:
                 pipe.close()
             except Exception:
                 pass
+
+    def _handle_coder_marker(self, line: str, task_id: str):
+        """A marker line from a piped coder (AutoCua/coder/__main__.py), taken off
+        its output and passed on: `token_usage` to Shell use's memory bar,
+        `todo_update` to the coder card's checklist (tagged with its task_id),
+        and the coder's subagents as the card's subagent bots (subagent_start
+        under this task_id, subagent_line, subagent_end)."""
+        try:
+            payload = json.loads(line[len(CODER_UI_MARKER):])
+        except Exception as e:
+            logger.error(f"Bad coder marker: {e} | line={line[:200]!r}")
+            return
+        args = payload.get("args") or []
+        event = payload.get("event")
+        if event == "token_usage":
+            self._safe_cli_emit("token_usage", args[0] if args else {})
+        elif event == "todo_update":
+            self._safe_cli_emit("todo_update", task_id, args[0] if args else "")
+        # The coder's subagents, as the card's subagent bots: start (under
+        # this coder's task_id), each output line, end.
+        elif event == "subagent_start":
+            self._safe_cli_emit("subagent_start", task_id, args[0] if args else "",
+                                args[1] if len(args) > 1 else "")
+        elif event == "subagent_line":
+            self._safe_cli_emit("subagent_line", args[0] if args else "",
+                                args[1] if len(args) > 1 else "", args[2] if len(args) > 2 else "out")
+        elif event == "subagent_end":
+            self._safe_cli_emit("subagent_end", args[0] if args else "",
+                                args[1] if len(args) > 1 else "complete", args[2] if len(args) > 2 else "")
 
     def _cli_agent_complete_callback(self, result: dict, result_file: Path):
         """Callback when CLI agent finishes execution"""
@@ -904,19 +942,20 @@ class ControllerView:
                     if self.api_key:
                         cli_cmd.extend(["--api_key", self.api_key])
 
-                    # Shell use: for the memory bar (the Rust coder does not use
-                    # it yet). Never set for main-agent dispatches (this view's
-                    # flag is False there).
+                    # Shell use: the coder sends its token usage up stdout for
+                    # the memory bar. Never set for main-agent dispatches (this
+                    # view's flag is False there).
                     if self.cli_report_usage:
                         cli_cmd.append("--report-usage")
 
                     # Shell-use conversation: which request of the chat this is
-                    # (the Rust coder does not use it yet). Omitted -> 1.
+                    # (the coder's <user_request=N>). Omitted -> 1.
                     if self.cli_request_no and int(self.cli_request_no) > 1:
                         cli_cmd.extend(["--request-no", str(int(self.cli_request_no))])
 
-                    # Shell-use conversation: the chat's history file (the Rust
-                    # coder does not use it yet). Absent for main-agent dispatches.
+                    # Shell-use conversation: the chat's history file (the coder
+                    # seeds from it and snapshots back into it). Absent for
+                    # main-agent dispatches.
                     if self.cli_history_file:
                         cli_cmd.extend(["--history", str(self.cli_history_file)])
 
