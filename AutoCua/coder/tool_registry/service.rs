@@ -12,11 +12,10 @@
 //! NATIVE TOOLS: the coder and the subagent call these tools natively, with
 //! no JSON envelope. The provider returns structured calls, and
 //! tool_calls_to_steps() converts them into the `[{type, ...}]` action dicts
-//! route_action consumes. The per-step notes live on tools of their own,
-//! batched with the action calls: the coder's `insight` (only when something
-//! new came up) and `next_goal` (every turn), and the subagent's `reasoning`
-//! (`thinking`, `memory`, `next_goal`), called first in every step. The
-//! action tools carry only their own fields. tool_choice is
+//! route_action consumes. The per-step notes live on two tools of their own,
+//! batched with the action calls and the same for the coder and the
+//! subagent: `insight` (only when something new came up) and `next_goal`
+//! (every probe turn). The action tools carry only their own fields. tool_choice is
 //! forced (required / {"type": "any"} / mode="ANY"), so a text-only step is
 //! unrepresentable; the text channel remains for free prose only.
 //!
@@ -48,22 +47,16 @@ use crate::{py_strip, truthy};
 pub const META_KEY: &str = "provider_meta";
 pub const META_PROVIDERS: [&str; 2] = ["openrouter", "google"];
 
-/// The notes tools: the subagent's `reasoning` and the coder's `insight` and
-/// `next_goal`. The parser treats a call to one of them as the step's notes,
-/// never as an action. (The shared Python constant also names other agents'
-/// notes tools, which no list here has.)
-pub const NOTE_TOOLS: &[&str] = &["reasoning", "insight", "next_goal"];
-
-/// The optional note field: `thinking` on the subagent's `reasoning` tool.
-/// Left out of the schema's `required` list and out of the "no arguments"
-/// error text.
-pub const REASONING_OPTIONAL: &[&str] = &["thinking"];
+/// The notes tools, the coder's and the subagent's: `insight` and
+/// `next_goal`. Each loop answers a call to one of them `ok` itself and never
+/// routes it, and the controller adds no result for one. (The shared Python
+/// constant also names other agents' notes tools, which no list here has.)
+pub const NOTE_TOOLS: &[&str] = &["insight", "next_goal"];
 
 /// The legacy track params tool_calls_to_steps harvests when it is given
-/// none. No registry carries them any more: the subagent passes its notes
-/// fields, and the coder passes none, because its loop reads its notes off
-/// its own `insight` and `next_goal` calls. Kept so the parser behaves as
-/// the shared one.
+/// none. No registry carries them any more: both loops pass none, because
+/// each reads its notes off its own `insight` and `next_goal` calls. Kept so
+/// the parser behaves as the shared one.
 const LEGACY_TRACK_KEYS: [&str; 2] = ["thinking", "next_goal"];
 
 /// How the mac descriptions name the shell the `shell` tool runs.
@@ -86,32 +79,19 @@ fn on_this_os(description: &str) -> String {
     description.replacen(MAC_SHELL, shell_name(), 1)
 }
 
-fn fields(list: &[(&str, &str)]) -> Vec<(String, String)> {
-    list.iter().map(|(k, d)| (k.to_string(), d.to_string())).collect()
-}
-
 /// Build one canonical tool def: name + parameters + description. The
 /// REGISTRY is the single source of tool documentation: each tool's rules
 /// live in its `description`, which flows to every provider dialect. Tool
-/// defs sit in the cached prefix, so this bills once. All params are required
-/// unless named in `optional`, so the controller always sees every field of
-/// an action (the only optional one is the `reasoning` tool's `thinking`,
-/// which a route step omits). The coder and the subagent pass no per-call
-/// track params: their notes live on tools of their own (NOTE_TOOLS).
+/// defs sit in the cached prefix, so this bills once. Every param is
+/// required, so the controller always sees every field of an action. The
+/// coder and the subagent pass no per-call track params: their notes live on
+/// tools of their own (NOTE_TOOLS).
 fn tool(name: &str, params: &[(&str, Value)], description: &str) -> Value {
-    tool_opt(name, params, description, &[])
-}
-
-fn tool_opt(name: &str, params: &[(&str, Value)], description: &str, optional: &[&str]) -> Value {
     let mut props = Map::new();
     for (k, schema) in params {
         props.insert((*k).to_string(), schema.clone());
     }
-    let required: Vec<Value> = props
-        .keys()
-        .filter(|k| !optional.contains(&k.as_str()))
-        .map(|k| json!(k))
-        .collect();
+    let required: Vec<Value> = props.keys().map(|k| json!(k)).collect();
     let mut out = Map::new();
     out.insert("name".into(), json!(name));
     out.insert(
@@ -124,30 +104,28 @@ fn tool_opt(name: &str, params: &[(&str, Value)], description: &str, optional: &
     Value::Object(out)
 }
 
-/// The notes fields as a tool's params: {"type": "string", "description"}.
-fn field_params(list: &[(String, String)]) -> Vec<(&str, Value)> {
-    list.iter()
-        .map(|(k, d)| (k.as_str(), json!({"type": "string", "description": d})))
-        .collect()
+/// The notes tools, the same two for the coder and the subagent, first in
+/// each list: `insight` when something new came up and `next_goal` every
+/// probe turn. They follow the prompts' <insight> and <next_goal>; the loops
+/// answer them (NOTE_TOOLS). `goal_format` is the agent's own `next_goal`
+/// format, the one its prompt gives.
+fn notes_tools(goal_format: &str) -> Vec<Value> {
+    vec![
+        tool("insight", &[
+            ("kind", json!({"type": "string", "enum": ["request", "exploration", "result", "failure", "review"]})),
+            ("content", json!({"type": "string"})),
+        ],
+            r#"Follow <insight>. Write down what your thinking concluded when something new came up. `kind` is what arrived: request, exploration, result, failure or review. `content` is markdown in that kind's format."#),
+
+        tool("next_goal", &[("value", json!({"type": "string"}))],
+            &format!(r#"Follow <next_goal>. The step you are taking now, written as the outcome it leaves behind: "{goal_format}""#)),
+    ]
 }
 
-/// The subagent's `reasoning` tool fields: its notes to itself, replayed in
-/// history so it can read back why it did what it did. `memory` and
-/// `next_goal` are filled every step; `thinking` comes in bursts (the rules
-/// live in the subagent prompt's <thinking>) and is the one OPTIONAL field
-/// (REASONING_OPTIONAL): a required string invites filling, and the snapshot
-/// renders a missing or empty one as "skipped". Its Expect guard sits at the
-/// end of `memory`, which is where the subagent prompt keeps it. Also its
-/// track params for tool_calls_to_steps (only the keys and their order
-/// matter there).
-pub fn subagent_reasoning_fields() -> &'static Vec<(String, String)> {
-    static P: OnceLock<Vec<(String, String)>> = OnceLock::new();
-    P.get_or_init(|| fields(&[
-        ("thinking", r#"Your reasoning, written for your future self, not for the parent. Not every step: think in bursts. Follow <thinking>: "JUDGE: ... UNDERSTAND: ... DECIDE: ... ROUTE: 1. ... 2. ... 3. ..." (FULL) when there is no route or it is used up, a short freeform paragraph (RECOVERY) after a failed Expect, 1-3 judgment lines (BRIEF) on a surprise. Omit it (or pass "") on a route step: the previous "Next:" named this probe and its Expect held."#),
-        ("memory", r#"Follow <memory>. Open with the verdict on the previous probe, judged on the actual <Tool_response>, never assumed: "Last probe worked: <what it found or confirmed>" or "Last probe failed: <what the output shows>". First step: "Task start." Then the confirmed path:line finds and open questions. END with the predicted result of THIS step's probe prefixed "Expect:", so the next step can judge against it. Keep it tight."#),
-        ("next_goal", r#"Follow <next_goal>: "This step: <what I will do now>. Next: <follow-up | think>." Usually one probe or a tight pair (grep, then view); if the last probe failed, state the recovery. "Next: think" when the outcome decides the route."#),
-    ]))
-}
+/// The coder's `next_goal` format (main/system_prompt.md, <next_goal>).
+const CODER_GOAL_FORMAT: &str = "Goal: <observable outcome of this step> (insight step <k>; ToDo #<n> <task_name>).";
+/// The subagent's (subagent/system_prompt.md, <next_goal>): no ToDo there.
+const SUBAGENT_GOAL_FORMAT: &str = "Goal: <evidence this step brings in> (insight step <k>).";
 
 /// One mode of the coder, turned on and off with its own switch tool:
 /// {"value": "on"} or {"value": "off"}. Every mode is off when a run starts.
@@ -210,25 +188,15 @@ fn mode_tool(mode: &Mode) -> Value {
 }
 
 /// The coder's tools, in the order the model is given them: the notes tools
-/// `insight` and `next_goal` first, then one tool per action type.
-/// route_action keys on these names and fields, so they must never drift.
-/// The notes tools follow the coder prompt's <insight> and <next_goal>; the
-/// action tools' descriptions are the mac coder's own text, with the shell
-/// named for this OS (on_this_os), except `plan` (the owner's text for
-/// planning mode) and `subagent` (its two modes, workflow and critic).
-/// The modes' switches (MODES) sit right before `plan`, in table order.
+/// (notes_tools) first, then one tool per action type. route_action keys on
+/// these names and fields, so they must never drift. The action tools'
+/// descriptions are the mac coder's own text, with the shell named for this
+/// OS (on_this_os), except `plan` (the owner's text for planning mode) and
+/// `subagent` (its two modes, workflow and critic). The modes' switches
+/// (MODES) sit right before `plan`, in table order.
 pub fn coder_tools() -> &'static Vec<Value> {
     static T: OnceLock<Vec<Value>> = OnceLock::new();
-    T.get_or_init(|| [vec![
-        tool("insight", &[
-            ("kind", json!({"type": "string", "enum": ["request", "exploration", "result", "failure", "review"]})),
-            ("content", json!({"type": "string"})),
-        ],
-            r#"Follow <insight>. Write down what your thinking concluded when something new came up. `kind` is what arrived: request, exploration, result, failure or review. `content` is markdown in that kind's format."#),
-
-        tool("next_goal", &[("value", json!({"type": "string"}))],
-            r#"Follow <next_goal>. The step you are taking now, written as the outcome it leaves behind: "Goal: <observable outcome of this step> (insight step <k>; ToDo #<n> <task_name>).""#),
-
+    T.get_or_init(|| [notes_tools(CODER_GOAL_FORMAT), vec![
         tool("shell", &[
             ("command", json!({"type": "string"})),
             ("input", json!({"type": "string"})),
@@ -441,29 +409,13 @@ plan {"op": "set", "from": 0, "to": 0, "value": "# Goal\nThe scratchpad cache in
     ]].concat())
 }
 
-/// The subagent's tools: the read-only subset (shell, view, grep, glob,
-/// scratchpad, exit; no write, replace, web, plan, todo, wait or subagent).
-/// The descriptions are the mac minion prompt's own words. Its notes live on
-/// its own `reasoning` tool (subagent_reasoning_fields).
+/// The subagent's tools: the notes tools (notes_tools), then the read-only
+/// subset (shell, view, grep, glob, scratchpad, exit; no write, replace, web,
+/// plan, todo, wait or subagent). The action tools' descriptions are the mac
+/// minion prompt's own words.
 pub fn subagent_tools() -> &'static Vec<Value> {
     static T: OnceLock<Vec<Value>> = OnceLock::new();
-    T.get_or_init(|| vec![
-        tool_opt("reasoning", &field_params(subagent_reasoning_fields()),
-            r#"Your notes to yourself for this step. Call it FIRST in every step, then the probe calls that do the work, all in the same turn. The harness does nothing with it (its result is just `ok`), but the call is replayed in <agent_history>, so your future self can read the reasoning behind every step.
-- `memory` and `next_goal` are filled every step. `thinking` is not: you think in bursts (see <thinking>). A FULL thinking ends with a ROUTE of the next 3-5 probes, each with its Expect; on each probe of that route omit `thinking` (or pass ""), and think again only when the route is used up, an Expect fails, or the route said "think". Output that matches its Expect is confirmation, not new information: it goes into `memory` and `scratchpad`, never into a new thinking or a new ROUTE. The usual shape is one FULL, then three or four probes in a row without `thinking`.
-- A step may be `reasoning` alone when you need to think before you probe; the next step then does the work. Do not chain several such steps.
-- Not used on the `exit` step: `exit` is always the only call of its turn.
-- Format: reasoning {"thinking": "", "memory": "...", "next_goal": "..."}
-- Examples:
-  1. Two route steps in a row (no thinking; "This step" is the next route line, the Expect is that line's prediction):
-     reasoning {"memory": "Last probe worked: grep found _read_scratchpad at service.py:254 (definition confirmed). Expect: view 240-270 shows the def and its return.", "next_goal": "This step: view service.py 240-270 to confirm the function. Next: view subagents/service.py around its hit."}
-     reasoning {"memory": "Last probe worked: view shows the def at :254 and its return at :271; recorded. Expect: subagents/service.py around its hit shows a call, not a comment.", "next_goal": "This step: view subagents/service.py around its hit. Next: grep the bare name in *.md."}
-  2. Planning moment (FULL, ends with the ROUTE):
-     reasoning {"thinking": "JUDGE: PASS, one definition at service.py:254 as predicted. UNDERSTAND: known: the def line. Assumed: the hits in subagents/service.py and controller/view.py are calls; both unviewed. DECIDE: view each hit in a 20-line range, definition first; then one grep for the bare name in *.md to catch prompt references. ROUTE: 1. view service.py:245-275, expect the def and its return. 2. view subagents/service.py around its hit, expect a call, not a comment. 3. grep the bare name in *.md, expect none → think: coverage review.", "memory": "Last probe worked: one `def` at service.py:254; hits in subagents/service.py and controller/view.py unviewed. Expect: view 245-275 shows the def and its return.", "next_goal": "This step: view service.py 245-275. Next: view subagents/service.py around its hit."}
-  3. Recovery after a failed Expect:
-     reasoning {"thinking": "Empty: grep 'process_request(' under src/ returned nothing though the request says the caller exists. Wrong belief: that the call uses the name with parentheses directly; an alias or wrapper may hide it. Narrowest different probe: case-insensitive files_with_matches for process_request across the repo. Expect 1-3 files. Route holds after this.", "memory": "Last probe failed: grep 'process_request(' returned empty in src/. Expect: case-insensitive grep lists 1-3 files.", "next_goal": "This step: case-insensitive grep 'process_request' across the repo. Next: think."}"#,
-            REASONING_OPTIONAL),
-
+    T.get_or_init(|| [notes_tools(SUBAGENT_GOAL_FORMAT), vec![
         tool("shell", &[
             ("command", json!({"type": "string"})),
             ("input", json!({"type": "string"})),
@@ -568,11 +520,11 @@ pub fn subagent_tools() -> &'static Vec<Value> {
   3. scratchpad {"value": "**Still to verify:** any other callers of `_read_scratchpad_from_file` outside `agent/service.py`"}"#),
 
         tool("exit", &[("value", json!({"type": "string"}))],
-            r#"Deliver your final findings report to the parent CLI agent and end the loop. **This is the only way to terminate.** The `value` must follow the `<exit_format>` template.
+            r#"Deliver your final findings report to the parent CLI agent and end the loop. **This is the only way to terminate.** The `value` is the summary, combined from your scratchpad findings: follow <handoff> and the mode's summary format.
 - Write `value` in Markdown — headings, `-` bullets, `**bold**`, backticks and fenced code blocks as the report needs them.
 - Format: exit {"value": "<structured report in markdown format>"}
 - Must be a standalone action - no other tool calls in the same step."#),
-    ])
+    ]].concat())
 }
 
 /// Per-action defaults, shared by the coder and the subagent (the
@@ -581,15 +533,14 @@ pub fn subagent_tools() -> &'static Vec<Value> {
 /// optional-feeling one. Doubles as the field whitelist: an argument that is
 /// not a key here is dropped from the action (and kept in its call). The key
 /// order is the routed action's key order, which is printed and persisted.
-/// The notes tools (NOTE_TOOLS: the subagent's `reasoning`, the coder's
-/// `insight` and `next_goal`): the loops record them and never route them.
-/// The modes' switches (MODES, added last, one field `value` each) are never
-/// routed either: the coder's loop answers them.
+/// The notes tools (NOTE_TOOLS: `insight` and `next_goal`): the loops record
+/// them and never route them. The modes' switches (MODES, added last, one
+/// field `value` each) are never routed either: the coder's loop answers
+/// them.
 pub fn action_defaults() -> &'static Value {
     static D: OnceLock<Value> = OnceLock::new();
     D.get_or_init(|| {
         let mut defaults = json!({
-            "reasoning": {"thinking": "", "memory": "", "next_goal": ""},
             "insight": {"kind": "", "content": ""},
             "next_goal": {"value": ""},
             "shell": {"command": "", "input": ""},
@@ -964,9 +915,9 @@ fn coerce(value: &Value, default: &Value) -> Value {
 /// `allowed` is the loop's name set (coder_tool_names or
 /// subagent_tool_names), `defaults_map` its defaults (action_defaults; an
 /// empty map means action_defaults, as the Python wrapper does) and
-/// `track_params` its notes fields (subagent_reasoning_fields; empty means
-/// the legacy keys, which is what the coder passes: its loop reads its notes
-/// off its own `insight` and `next_goal` calls).
+/// `track_params` its notes fields (empty means the legacy keys, which is
+/// what both loops pass: each reads its notes off its own `insight` and
+/// `next_goal` calls).
 #[allow(clippy::type_complexity)]
 pub fn tool_calls_to_steps(
     tool_calls: &Value,
@@ -987,18 +938,6 @@ pub fn tool_calls_to_steps(
         Some(o) => o,
         None => action_defaults().as_object().unwrap_or(&empty),
     };
-    // When the registry has a dedicated notes tool carrying the track params
-    // (`reasoning`), the action tools do NOT, so a malformed call's
-    // "required" list must not name them. A registry without one (older
-    // saves replayed against an old map) still carries them on every call.
-    // Read off the defaults map, which is per registry. The coder passes no
-    // track params, and the legacy keys sit on the shared map's `reasoning`
-    // entry, so its error texts do not name them either.
-    let notes_on_own_tool = NOTE_TOOLS.iter().any(|n| {
-        dm.get(*n)
-            .and_then(Value::as_object)
-            .is_some_and(|fields| track.iter().all(|(k, _)| fields.contains_key(k)))
-    });
     let list = tool_calls.as_array().cloned().unwrap_or_default();
     for (i, call) in list.iter().enumerate() {
         let name = call
@@ -1050,18 +989,11 @@ pub fn tool_calls_to_steps(
         // tool name is rejected, so the model gets an error keyed to its own
         // call id and re-issues the step. Narrow on purpose: ONLY a fully
         // empty argument object; a partial call still gets default-filled.
+        // The error names the tool's own fields: the notes live on their own
+        // tools, so no action tool carries the track params.
         if !defaults.is_empty() && args.is_empty() {
-            let optional: &[&str] = if name == "reasoning" { REASONING_OPTIONAL } else { &[] };
-            let mut required: Vec<String> = defaults
-                .keys()
-                .filter(|k| !optional.contains(&k.as_str()))
-                .cloned()
-                .collect();
-            if !notes_on_own_tool {
-                required.extend(track.iter().map(|(k, _)| k.clone()));
-            }
+            let mut required: Vec<String> = defaults.keys().cloned().collect();
             required.sort_unstable();
-            required.dedup();
             rejects.push(json!({
                 "id": call_id,
                 "name": name,

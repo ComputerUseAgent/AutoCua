@@ -7,12 +7,19 @@
 //! mac minion) and the end-of-batch wait that turns each subagent's report
 //! into its call's result. The result dicts, their key order and texts, the
 //! early returns and the whole-batch error are the mac ones. Left out: the
-//! GUI services and tools, the old nested action format, external terminal
-//! windows, the web animation and the UI events.
+//! GUI services and tools, the old nested action format, the web animation
+//! and the UI events.
 //!
 //! Changes from Python, on purpose:
 //! - a subagent that ends without a valid result file is reported with its
 //!   exit code and last stderr lines, where Python waited for it forever;
+//! - a subagent in its own terminal window (external_terminal) is watched
+//!   through two files its window writes beside its result, its pid and its
+//!   exit code, so a crash, a closed window or a window that never starts
+//!   it (no pid within a minute of opening) is reported too, where Python
+//!   waited forever; on Windows it keeps its process handle; the mac window
+//!   runs the command from a script file, since a typed line is cut at the
+//!   tty's 1024 bytes;
 //! - `wait` and `update_todo` with a value that is not a number take the
 //!   first number in it ("2s", "#3"), else that one call gets an error
 //!   result, where Python failed the whole batch;
@@ -26,6 +33,7 @@
 //!   nothing and gets an error result.
 
 use std::collections::VecDeque;
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -55,6 +63,12 @@ const SLICE: Duration = Duration::from_millis(50);
 const STDERR_TAIL: usize = 20;
 /// How long a crashed subagent's stderr may take to reach its end.
 const STDERR_SETTLE: Duration = Duration::from_millis(500);
+/// How long a window's shell may take to write the exit code once the
+/// subagent in it is gone.
+const MARK_SETTLE: Duration = Duration::from_millis(50);
+/// How long a window's shell may take to start the subagent (the pid it
+/// writes) once the window is open.
+const START_LIMIT: Duration = Duration::from_secs(60);
 /// How long a stopped subagent gets to end on its own before it is killed.
 const STOP_GRACE: Duration = Duration::from_secs(3);
 /// On Ctrl+C, how long the subagents may take to end by themselves before
@@ -71,6 +85,16 @@ const WEB_FAILED: &str = "{\ntool: web,\nstatus: error,";
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// Windows: runs the subagent in a console window of its own
+/// (CREATE_NEW_CONSOLE, 0x10). Python leaves the new console's handles to the
+/// child, where Command would hand it this process's (STARTF_USESTDHANDLES)
+/// and the window would stay empty. This one-liner is the child the coder
+/// holds: its exit code is the subagent's (a Windows status code at or above
+/// 2^31 folded into the signed range, since sys.exit cannot pass a number
+/// past a C long), taskkill /T ends both.
+#[cfg(windows)]
+const WIN_CONSOLE_TRAMPOLINE: &str = "import subprocess, sys; c = subprocess.call(sys.argv[1:], creationflags=16); \
+                                      sys.exit(c - (1 << 32) if c >= (1 << 31) else c)";
 #[cfg(windows)]
 const PATH_LIST_SEP: &str = ";";
 #[cfg(not(windows))]
@@ -113,9 +137,21 @@ struct SubagentTask {
     session_id: String,
     /// Where the child writes `{"task", "summary", "status"}`.
     result_file: PathBuf,
-    /// None when it could not be started (start_error says why).
+    /// None when it could not be started (start_error says why), or when
+    /// it runs in a window.
     child: Option<Child>,
     start_error: String,
+    /// The child runs in its own terminal window (mac and Linux), with no
+    /// handle here: it writes `<result>.pid` as it starts and its window's
+    /// shell writes `<result>.exit` when it ends.
+    window: bool,
+    /// What opened the window (`open`, or the terminal emulator), until
+    /// it exits: one that fails says the window never opened. Never killed,
+    /// the window is the user's.
+    launcher: Option<Child>,
+    /// When the window was opened (the opener's end; its start before that):
+    /// the child's pid is due within START_LIMIT of it.
+    opened: Instant,
     /// The child's last stderr lines, kept by its reader thread.
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
     stderr_reader: Option<JoinHandle<()>>,
@@ -128,6 +164,14 @@ struct SubagentTask {
 struct Completion {
     session_id: String,
     report: Result<(Value, Value), String>,
+}
+
+/// A window child that reported while still running (its interpreter
+/// ending): the pid it wrote and its result's path, whose marks go once it
+/// is gone.
+struct DeliveredWindow {
+    pid: i32,
+    result_file: PathBuf,
 }
 
 /// The central router for the coder's tool calls (and a subagent's).
@@ -148,20 +192,31 @@ pub struct ControllerView {
     api_key: Option<String>,
     /// AutoCua/coder/scratchpad: subagent_result/ goes in it.
     scratch_root: PathBuf,
+    /// Each subagent in a terminal window of its own (main.py's default)
+    /// instead of piped into this process (the app's runs).
+    external_terminal: bool,
+    /// The coder saves its conversation, so its subagents save theirs too
+    /// (cli_subagent_conversation/<their session> in the cwd).
+    save_conversation: bool,
     /// Subagents at work, oldest first. The ones of a batch that returned
     /// early stay here, and the next batch waits for them at its end.
     subagent_tasks: Vec<SubagentTask>,
     /// Children whose report came in while they were still running: reaped
     /// at the next look, or stopped with the rest.
     delivered: Vec<Child>,
+    /// The same for window children (by pid): their marks go at the next
+    /// look once they are gone.
+    delivered_windows: Vec<DeliveredWindow>,
 }
 
 impl ControllerView {
     /// The coder's controller (`subagent_mode` false) or a subagent's (true:
     /// its notes go to their own folder). Makes the session's folders under
     /// AutoCua/coder/scratchpad and its sandbox ~/Desktop/sandbox_workspace/
-    /// <session_id>. Err when the sandbox folder cannot be made, as Python
-    /// raised.
+    /// <session_id>. `external_terminal`: its subagents each get a terminal
+    /// window. `save_conversation`: they save their conversations, as the
+    /// coder saves its own. Err when the sandbox folder cannot be made, as
+    /// Python raised.
     pub fn new(
         py: Python<'_>,
         provider: &str,
@@ -169,6 +224,8 @@ impl ControllerView {
         session_id: &str,
         api_key: Option<&str>,
         subagent_mode: bool,
+        external_terminal: bool,
+        save_conversation: bool,
     ) -> PyResult<ControllerView> {
         let scratch_root = crate::scratch_root(py)?;
         let task_tracker = TaskTrackerService::new(&scratch_root, session_id);
@@ -184,8 +241,11 @@ impl ControllerView {
             model: model.to_string(),
             api_key: api_key.map(str::to_string),
             scratch_root,
+            external_terminal,
+            save_conversation,
             subagent_tasks: Vec::new(),
             delivered: Vec::new(),
+            delivered_windows: Vec::new(),
         })
     }
 
@@ -229,33 +289,78 @@ impl ControllerView {
     /// partial result the first one is writing).
     fn stop_subagents(&mut self, settle: Duration) {
         let mut children: Vec<Child> = Vec::new();
+        // The children in windows (mac and Linux), by the pid each wrote,
+        // read again after each wait (one whose pid comes during it is
+        // stopped too); one that wrote none has nothing of ours to stop.
+        let mut pids: Vec<i32> = Vec::new();
+        let mut pid_files: Vec<PathBuf> = Vec::new();
+        let mut windows = false;
         let mut result_files: Vec<PathBuf> = Vec::new();
         for mut task in std::mem::take(&mut self.subagent_tasks) {
             children.extend(task.child.take());
+            if let Some(launcher) = task.launcher.take() {
+                reap(launcher);
+            }
+            if task.window {
+                windows = true;
+                pid_files.push(mark(&task.result_file, "pid"));
+            }
             result_files.push(task.result_file);
+        }
+        for delivered in std::mem::take(&mut self.delivered_windows) {
+            windows = true;
+            pids.push(delivered.pid);
+            result_files.push(delivered.result_file);
         }
         children.append(&mut self.delivered);
         children.retain_mut(|child| matches!(child.try_wait(), Ok(None)));
-        wait_for_exit(&mut children, settle);
+        pids.retain(|&pid| alive(pid));
+        // Each pid once: one dropped as gone is never picked up again (its
+        // number could be another process's by then).
+        let mut seen: Vec<i32> = Vec::new();
+        let mut late_pids = |pids: &mut Vec<i32>| {
+            for file in &pid_files {
+                if let Some(pid) = read_pid(file).filter(|pid| !seen.contains(pid)) {
+                    seen.push(pid);
+                    if alive(pid) {
+                        pids.push(pid);
+                    }
+                }
+            }
+        };
+        late_pids(&mut pids);
+        wait_for_exit(&mut children, &mut pids, settle);
+        late_pids(&mut pids);
         for child in &children {
             ask_to_stop(child);
         }
-        wait_for_exit(&mut children, STOP_GRACE);
+        for &pid in &pids {
+            ask_pid_to_stop(pid);
+        }
+        wait_for_exit(&mut children, &mut pids, STOP_GRACE);
+        late_pids(&mut pids);
         for child in children {
             stop_now(child);
         }
+        for pid in pids {
+            kill_pid(pid);
+        }
+        if windows {
+            // A window's shell writes the exit code a moment after its child
+            // is gone: not left behind.
+            thread::sleep(MARK_SETTLE);
+        }
         for file in result_files {
             // With the temp file of a write that was cut off (subagent/service.rs
-            // writes <result>.tmp, then renames it).
-            let mut tmp = file.clone().into_os_string();
-            tmp.push(".tmp");
+            // writes <result>.tmp, then renames it) and a window's two marks.
             let _ = std::fs::remove_file(&file);
-            let _ = std::fs::remove_file(PathBuf::from(tmp));
+            let _ = std::fs::remove_file(mark(&file, "tmp"));
+            remove_marks(&file);
         }
     }
 
     fn route(&mut self, py: Python<'_>, actions: &[Value]) -> Result<Value, RouteErr> {
-        self.reap_delivered();
+        self.reap_delivered(py);
         let mut results: Vec<Slot> = Vec::new();
 
         for item in actions {
@@ -326,7 +431,7 @@ impl ControllerView {
                         })));
                     } else {
                         let query = item.get("value").cloned().unwrap_or_else(|| json!(""));
-                        let session_id = self.start_subagent(py, &query)?;
+                        let session_id = self.start_subagent(py, &query, &mode)?;
                         results.push(Slot::Pending { query, mode, session_id });
                     }
                 }
@@ -500,10 +605,11 @@ impl ControllerView {
         Ok(json!({"status": "success", "action": "multiple", "results": results}))
     }
 
-    /// Start one subagent child for `query` and register it (the mac's
-    /// minion branch). Gives the placeholder's session id. A child that
+    /// Start one subagent child for `query` in `mode` and register it (the
+    /// mac's minion branch): piped, or in a terminal window of its own with
+    /// external_terminal. Gives the placeholder's session id. A child that
     /// cannot be started is registered too: the end of the batch reports it.
-    fn start_subagent(&mut self, py: Python<'_>, query: &Value) -> Result<String, RouteErr> {
+    fn start_subagent(&mut self, py: Python<'_>, query: &Value, mode: &str) -> Result<String, RouteErr> {
         let result_dir = self.scratch_root.join("subagent_result");
         std::fs::create_dir_all(&result_dir).map_err(|e| RouteErr::Msg(py_os_error(&e, &result_dir)))?;
         let millis = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
@@ -521,18 +627,29 @@ impl ControllerView {
             task: &task_text,
             provider: &self.provider,
             model: &self.model,
+            mode,
             api_key: self.api_key.as_deref(),
             result_file: &result_file,
+            save_conversation: self.save_conversation,
         };
-        let (child, stderr_reader, start_error) = match spawn_child(&launch, Arc::clone(&stderr_tail)) {
-            Ok((child, reader)) => (Some(child), Some(reader), String::new()),
-            Err(e) => (None, None, e),
+        let started = if self.external_terminal {
+            open_window(&launch, Arc::clone(&stderr_tail))
+        } else {
+            spawn_child(&launch, Arc::clone(&stderr_tail), false).map(|(child, reader)| (child, reader, false))
+        };
+        let (child, launcher, window, stderr_reader, start_error) = match started {
+            Ok((launcher, reader, true)) => (None, Some(launcher), true, Some(reader), String::new()),
+            Ok((child, reader, false)) => (Some(child), None, false, Some(reader), String::new()),
+            Err(e) => (None, None, false, None, e),
         };
         self.subagent_tasks.push(SubagentTask {
             session_id: session_id.clone(),
             result_file,
             child,
             start_error,
+            window,
+            launcher,
+            opened: Instant::now(),
             stderr_tail,
             stderr_reader,
             read_error_logged: false,
@@ -558,7 +675,7 @@ impl ControllerView {
     /// One look at every subagent at work: the finished ones move to
     /// `completed` (Python's watcher and _minion_complete_callback).
     fn collect(&mut self, py: Python<'_>, completed: &mut Vec<Completion>) {
-        self.reap_delivered();
+        self.reap_delivered(py);
         for mut task in std::mem::take(&mut self.subagent_tasks) {
             match check_task(py, &mut task) {
                 None => self.subagent_tasks.push(task),
@@ -566,15 +683,43 @@ impl ControllerView {
                     if let Some(child) = task.child.take() {
                         self.delivered.push(child);
                     }
+                    if let Some(launcher) = task.launcher.take() {
+                        reap(launcher);
+                    }
+                    let lingering = if task.window {
+                        read_pid(&mark(&task.result_file, "pid")).filter(|&pid| alive(pid))
+                    } else {
+                        None
+                    };
+                    match lingering {
+                        // Reported, still ending in its window: its marks go
+                        // once it is gone.
+                        Some(pid) => {
+                            self.delivered_windows.push(DeliveredWindow { pid, result_file: task.result_file.clone() });
+                        }
+                        None => remove_marks(&task.result_file),
+                    }
                     completed.push(Completion { session_id: task.session_id, report });
                 }
             }
         }
     }
 
-    /// Reap the children that delivered their report and have exited since.
-    fn reap_delivered(&mut self) {
+    /// Reap the children that delivered their report and have exited since;
+    /// the marks of the window children among them go once they are gone.
+    fn reap_delivered(&mut self, py: Python<'_>) {
         self.delivered.retain_mut(|child| matches!(child.try_wait(), Ok(None)));
+        let (live, gone): (Vec<DeliveredWindow>, Vec<DeliveredWindow>) =
+            std::mem::take(&mut self.delivered_windows).into_iter().partition(|delivered| alive(delivered.pid));
+        self.delivered_windows = live;
+        if !gone.is_empty() {
+            // A window's shell writes the exit code a moment after its child
+            // is gone: not left behind.
+            py.detach(|| thread::sleep(MARK_SETTLE));
+            for delivered in gone {
+                remove_marks(&delivered.result_file);
+            }
+        }
     }
 }
 
@@ -595,37 +740,36 @@ struct Launch<'a> {
     task: &'a str,
     provider: &'a str,
     model: &'a str,
+    /// "workflow" or "critic": the child reads its mode's prompt block.
+    mode: &'a str,
     api_key: Option<&'a str>,
     result_file: &'a Path,
+    /// The child saves its conversation (--save-conversation).
+    save_conversation: bool,
 }
 
 /// Start the child, `python -m AutoCua.coder.subagent --task Q --provider P
-/// --model M --result PATH`, in this process's folder, with no stdin and its
+/// --model M --mode MODE --result PATH`, in this process's folder, with no stdin and its
 /// stdout and stderr drained on threads (the last stderr lines kept in
 /// `tail`). On unix it stays in this process group, so a terminal Ctrl+C
-/// reaches it too. Err: why it did not start.
-fn spawn_child(launch: &Launch<'_>, tail: Arc<Mutex<VecDeque<String>>>) -> Result<(Child, JoinHandle<()>), String> {
+/// reaches it too. `console`: on Windows, the subagent gets a console window
+/// of its own (behind WIN_CONSOLE_TRAMPOLINE, the child held here). Err: why
+/// it did not start.
+fn spawn_child(
+    launch: &Launch<'_>,
+    tail: Arc<Mutex<VecDeque<String>>>,
+    console: bool,
+) -> Result<(Child, JoinHandle<()>), String> {
     let mut cmd = Command::new(launch.executable);
-    cmd.args([
-        "-m",
-        SUBAGENT_MODULE,
-        "--task",
-        launch.task,
-        "--provider",
-        launch.provider,
-        "--model",
-        launch.model,
-        "--result",
-    ])
-    .arg(launch.result_file);
-    cmd.env("PYTHONUNBUFFERED", "1");
-    // The repo first, so the child imports this AutoCua from any folder.
-    let mut pythonpath = launch.repo_root.as_os_str().to_os_string();
-    if let Some(old) = std::env::var_os("PYTHONPATH").filter(|old| !old.is_empty()) {
-        pythonpath.push(PATH_LIST_SEP);
-        pythonpath.push(old);
+    #[cfg(windows)]
+    if console {
+        cmd.args(["-c", WIN_CONSOLE_TRAMPOLINE, launch.executable]);
     }
-    cmd.env("PYTHONPATH", pythonpath);
+    #[cfg(not(windows))]
+    let _ = console;
+    cmd.args(child_args(launch));
+    cmd.env("PYTHONUNBUFFERED", "1");
+    cmd.env("PYTHONPATH", pythonpath(launch.repo_root));
     // Never on the command line, where any process list shows it.
     if let Some(key) = launch.api_key.filter(|key| !key.is_empty()) {
         cmd.env(API_KEY_VAR, key);
@@ -656,6 +800,209 @@ fn spawn_child(launch: &Launch<'_>, tail: Arc<Mutex<VecDeque<String>>>) -> Resul
             Err("can't start new thread".to_string())
         }
     }
+}
+
+/// The child's arguments: `-m AutoCua.coder.subagent --task Q --provider P
+/// --model M --mode MODE --result PATH`.
+fn child_args(launch: &Launch<'_>) -> Vec<OsString> {
+    let mut args: Vec<OsString> = [
+        "-m",
+        SUBAGENT_MODULE,
+        "--task",
+        launch.task,
+        "--provider",
+        launch.provider,
+        "--model",
+        launch.model,
+        "--mode",
+        launch.mode,
+        "--result",
+    ]
+    .iter()
+    .map(OsString::from)
+    .collect();
+    args.push(launch.result_file.as_os_str().to_os_string());
+    if launch.save_conversation {
+        args.push(OsString::from("--save-conversation"));
+    }
+    args
+}
+
+/// The child's PYTHONPATH: the repo first, so it imports this AutoCua from
+/// any folder, then this process's.
+fn pythonpath(repo_root: &Path) -> OsString {
+    let mut pythonpath = repo_root.as_os_str().to_os_string();
+    if let Some(old) = std::env::var_os("PYTHONPATH").filter(|old| !old.is_empty()) {
+        pythonpath.push(PATH_LIST_SEP);
+        pythonpath.push(old);
+    }
+    pythonpath
+}
+
+// The terminal window of a subagent (external_terminal). What comes back:
+// the process held, its stderr reader, and whether that process only opened
+// a window (true: the mac and Linux opener, watched through the files the
+// window writes) or is the subagent itself (false: a handle, watched as a
+// piped child).
+
+/// macOS: a new Terminal.app window, titled with the mode and the brief,
+/// runs the shell line. The line sits in `<result>.command`, a file Terminal
+/// runs in a new window when `open -a Terminal` hands it over, so nothing is
+/// typed into the window: the mac coder typed its line in with AppleScript's
+/// `do script`, which the tty cuts at 1024 bytes and Terminal garbles when
+/// the window's shell is not ready yet. The window stays open after the
+/// subagent ends, as Terminal keeps a finished .command window by default.
+#[cfg(target_os = "macos")]
+fn open_window(launch: &Launch<'_>, tail: Arc<Mutex<VecDeque<String>>>) -> Result<(Child, JoinHandle<()>, bool), String> {
+    let script_file = mark(launch.result_file, "command");
+    {
+        // Runnable and readable by this user alone: the line may carry the
+        // API key. The first line sets the window's title (Terminal's title
+        // escape), the second is the shell line.
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o700)
+            .open(&script_file)
+            .map_err(|e| py_os_error(&e, &script_file))?;
+        writeln!(
+            file,
+            "#!/bin/sh\nprintf '\\033]0;%s\\007' {}\n{}",
+            sh_quote(&window_title(launch)),
+            shell_line(launch, "")
+        )
+        .map_err(|e| py_os_error(&e, &script_file))?;
+    }
+    let mut cmd = Command::new("open");
+    cmd.arg("-a").arg("Terminal").arg(&script_file);
+    spawn_opener(cmd, tail).map(|(opener, reader)| (opener, reader, true))
+}
+
+/// Linux (and the other unixes): the first terminal emulator found on PATH,
+/// the Linux coder's list in its order, runs the shell line with a shell
+/// kept after it, so the window stays readable. None found: the piped
+/// child, said once.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_window(launch: &Launch<'_>, tail: Arc<Mutex<VecDeque<String>>>) -> Result<(Child, JoinHandle<()>, bool), String> {
+    let line = shell_line(launch, "; exec bash");
+    let title = window_title(launch);
+    let launchers: [(&str, Vec<String>); 6] = [
+        ("gnome-terminal", vec![format!("--title={title}"), "--".into(), "bash".into(), "-c".into(), line.clone()]),
+        ("ptyxis", vec!["--new-window".into(), "-T".into(), title.clone(), "--".into(), "bash".into(), "-c".into(), line.clone()]),
+        ("konsole", vec!["-p".into(), format!("tabtitle={title}"), "-e".into(), "bash".into(), "-c".into(), line.clone()]),
+        ("xfce4-terminal", vec![format!("--title={title}"), "-e".into(), format!("bash -c {}", sh_quote(&line))]),
+        ("x-terminal-emulator", vec!["-e".into(), "bash".into(), "-c".into(), line.clone()]),
+        ("xterm", vec!["-T".into(), title.clone(), "-e".into(), "bash".into(), "-c".into(), line.clone()]),
+    ];
+    for (binary, args) in launchers {
+        if !on_path(binary) {
+            continue;
+        }
+        let mut cmd = Command::new(binary);
+        cmd.args(&args);
+        match spawn_opener(cmd, Arc::clone(&tail)) {
+            Ok((opener, reader)) => return Ok((opener, reader, true)),
+            Err(e) => log(&format!("Failed to start {binary} for the subagent: {e}")),
+        }
+    }
+    log("No terminal emulator found to show the subagent: it runs piped");
+    spawn_child(launch, tail, false).map(|(child, reader)| (child, reader, false))
+}
+
+/// Windows: the subagent itself, in a console window of its own; its handle
+/// stays, so it is watched as a piped child.
+#[cfg(windows)]
+fn open_window(launch: &Launch<'_>, tail: Arc<Mutex<VecDeque<String>>>) -> Result<(Child, JoinHandle<()>, bool), String> {
+    spawn_child(launch, tail, true).map(|(child, reader)| (child, reader, false))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn open_window(launch: &Launch<'_>, tail: Arc<Mutex<VecDeque<String>>>) -> Result<(Child, JoinHandle<()>, bool), String> {
+    spawn_child(launch, tail, false).map(|(child, reader)| (child, reader, false))
+}
+
+/// Start what opens the window, in a process group of its own (a terminal
+/// Ctrl+C here never cuts the opening short), with no stdin, its stdout
+/// dropped and its last stderr lines kept for a failure report.
+#[cfg(unix)]
+fn spawn_opener(mut cmd: Command, tail: Arc<Mutex<VecDeque<String>>>) -> Result<(Child, JoinHandle<()>), String> {
+    use std::os::unix::process::CommandExt;
+    cmd.process_group(0);
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| py_os_error(&e, Path::new(cmd.get_program())))?;
+    let Some(stderr) = child.stderr.take() else {
+        stop_now(child);
+        return Err("its stderr pipe could not be opened".to_string());
+    };
+    match thread::Builder::new().name("subagent-opener".into()).spawn(move || keep_tail(stderr, &tail)) {
+        Ok(reader) => Ok((child, reader)),
+        Err(_) => {
+            stop_now(child);
+            Err("can't start new thread".to_string())
+        }
+    }
+}
+
+/// The line the window's shell runs: into this process's folder, the
+/// child's environment as assignments (Terminal.app does not inherit it),
+/// the piped child's command line, then its exit code into `<result>.exit`;
+/// `after` closes the line (Linux keeps a shell for the window).
+#[cfg(unix)]
+fn shell_line(launch: &Launch<'_>, after: &str) -> String {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| launch.repo_root.to_path_buf());
+    let mut words = vec![format!("cd {} &&", sh_quote(&cwd.to_string_lossy()))];
+    if let Some(key) = launch.api_key.filter(|key| !key.is_empty()) {
+        words.push(format!("{API_KEY_VAR}={}", sh_quote(key)));
+    }
+    words.push("PYTHONUNBUFFERED=1".to_string());
+    words.push(format!("PYTHONPATH={}", sh_quote(&pythonpath(launch.repo_root).to_string_lossy())));
+    words.push(sh_quote(launch.executable));
+    words.extend(child_args(launch).iter().map(|arg| sh_quote(&arg.to_string_lossy())));
+    let exit_file = mark(launch.result_file, "exit");
+    format!("{} ; echo $? > {}{after}", words.join(" "), sh_quote(&exit_file.to_string_lossy()))
+}
+
+/// "Subagent (<mode>): <the brief's first 60 characters>", quotes made
+/// single and line breaks spaces, as the mac coder titled its windows.
+#[cfg(unix)]
+fn window_title(launch: &Launch<'_>) -> String {
+    let brief: String = launch
+        .task
+        .chars()
+        .take(60)
+        .map(|c| match c {
+            '"' => '\'',
+            '\n' | '\r' => ' ',
+            c => c,
+        })
+        .collect();
+    format!("Subagent ({}): {brief}", launch.mode)
+}
+
+/// Python's shlex.quote: as is when every character is a safe ASCII one,
+/// else in single quotes.
+#[cfg(unix)]
+fn sh_quote(s: &str) -> String {
+    if s.is_empty() {
+        return "''".to_string();
+    }
+    if s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_@%+=:,./-".contains(&b)) {
+        return s.to_string();
+    }
+    format!("'{}'", s.replace('\'', "'\"'\"'"))
+}
+
+/// Python's shutil.which: the binary is an executable file in a PATH folder.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn on_path(binary: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::env::var_os("PATH").is_some_and(|path| {
+        std::env::split_paths(&path).any(|dir| {
+            std::fs::metadata(dir.join(binary)).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        })
+    })
 }
 
 /// Read a pipe to its end and drop what comes (Python passed it on to the
@@ -702,6 +1049,9 @@ fn keep_tail(pipe: impl Read, tail: &Mutex<VecDeque<String>>) {
 /// One look at a subagent: its report, the text saying it gave none, or
 /// None while it is still at work.
 fn check_task(py: Python<'_>, task: &mut SubagentTask) -> Option<Result<(Value, Value), String>> {
+    if task.window {
+        return check_window(py, task);
+    }
     if let Some(report) = take_result(task) {
         return Some(Ok(report));
     }
@@ -718,6 +1068,103 @@ fn check_task(py: Python<'_>, task: &mut SubagentTask) -> Option<Result<(Value, 
         return Some(Ok(report));
     }
     Some(Err(crash_text(py, task, status)))
+}
+
+/// One look at a subagent in its own window, which left no handle: its
+/// report once it is there (as for a piped child, before its process ends),
+/// the text saying it gave none once its process has ended (its window's
+/// shell wrote the exit code to `<result>.exit`, or the pid in
+/// `<result>.pid` is gone, the window closed), or None while it is at work.
+/// Before the pid is there, an opener that failed, or a window that shows
+/// no sign of it in time, is the start failure.
+fn check_window(py: Python<'_>, task: &mut SubagentTask) -> Option<Result<(Value, Value), String>> {
+    if let Some(report) = take_result(task) {
+        return Some(Ok(report));
+    }
+    let exit_file = mark(&task.result_file, "exit");
+    let mut code = read_number(&exit_file);
+    if code.is_none() {
+        match read_pid(&mark(&task.result_file, "pid")) {
+            Some(pid) if alive(pid) => return None,
+            // Gone: its shell writes the exit code a moment after.
+            Some(_) => {
+                py.detach(|| thread::sleep(MARK_SETTLE));
+                code = read_number(&exit_file);
+            }
+            None => return not_started(py, task),
+        }
+    }
+    // The child writes its result before it exits: one last look.
+    if let Some(report) = take_result(task) {
+        return Some(Ok(report));
+    }
+    Some(Err(match code {
+        Some(code) => format!("{NO_RESULT} It exited with code {code}."),
+        None => format!("{NO_RESULT} Its process is gone without an exit code (its window closed?)."),
+    }))
+}
+
+/// Before the window's child has written its pid: None while the opener
+/// runs, or ended well and the child is due; the start failure when the
+/// opener ended badly (the window never opened: `open` refused, the
+/// emulator could not start), or when no pid came START_LIMIT after it
+/// ended well (the window was closed before its shell ran the command, or
+/// the shell's start-up blocks).
+fn not_started(py: Python<'_>, task: &mut SubagentTask) -> Option<Result<(Value, Value), String>> {
+    if let Some(launcher) = task.launcher.as_mut() {
+        let status = match launcher.try_wait() {
+            Ok(None) => return None,
+            Ok(Some(status)) => status,
+            Err(e) => return Some(Err(format!("{NO_RESULT} Its terminal window could not be watched: {e}"))),
+        };
+        task.launcher = None;
+        if !status.success() {
+            let mut text = format!(
+                "{NO_RESULT} It failed to start: its terminal window did not open (exit code {}).",
+                exit_code(status)
+            );
+            text.push_str(&stderr_lines(py, task));
+            return Some(Err(text));
+        }
+        task.opened = Instant::now();
+    }
+    if task.opened.elapsed() < START_LIMIT {
+        return None;
+    }
+    Some(Err(format!(
+        "{NO_RESULT} It failed to start: no sign of it in its window after {} s.",
+        START_LIMIT.as_secs()
+    )))
+}
+
+/// `<result>.<ext>`: the files beside the result: the ones a window writes
+/// (pid, exit), the mac window's command script (command) and the result's
+/// own temp file.
+fn mark(result_file: &Path, ext: &str) -> PathBuf {
+    let mut path = result_file.as_os_str().to_os_string();
+    path.push(".");
+    path.push(ext);
+    PathBuf::from(path)
+}
+
+/// Delete a result's pid and exit marks and its command script, once nobody
+/// reads them.
+fn remove_marks(result_file: &Path) {
+    let _ = std::fs::remove_file(mark(result_file, "pid"));
+    let _ = std::fs::remove_file(mark(result_file, "exit"));
+    let _ = std::fs::remove_file(mark(result_file, "command"));
+}
+
+/// The whole number a mark holds; None while it is not there or not
+/// written yet.
+fn read_number(path: &Path) -> Option<i64> {
+    std::fs::read_to_string(path).ok()?.trim().parse().ok()
+}
+
+/// The pid a mark holds. Only a positive one: a signal to 0 or below would
+/// go to a whole group.
+fn read_pid(path: &Path) -> Option<i32> {
+    i32::try_from(read_number(path)?).ok().filter(|&pid| pid > 0)
 }
 
 /// The report in the result file, once it is there; the file is deleted
@@ -770,6 +1217,13 @@ fn py_type_name(v: &Value) -> &'static str {
 /// The report of a child that exited without a result: the mac text, its
 /// exit code and its last stderr lines.
 fn crash_text(py: Python<'_>, task: &mut SubagentTask, status: ExitStatus) -> String {
+    let mut text = format!("{NO_RESULT} It exited with code {}.", exit_code(status));
+    text.push_str(&stderr_lines(py, task));
+    text
+}
+
+/// "\nLast stderr lines:\n..." from the task's reader, or "" with none.
+fn stderr_lines(py: Python<'_>, task: &mut SubagentTask) -> String {
     // Its stderr ends with it: give the reader a moment for the last lines.
     if let Some(reader) = task.stderr_reader.take() {
         let deadline = Instant::now().checked_add(STDERR_SETTLE);
@@ -784,7 +1238,7 @@ fn crash_text(py: Python<'_>, task: &mut SubagentTask, status: ExitStatus) -> St
     }
     let tail: Vec<String> =
         task.stderr_tail.lock().unwrap_or_else(PoisonError::into_inner).iter().cloned().collect();
-    let mut text = format!("{NO_RESULT} It exited with code {}.", exit_code(status));
+    let mut text = String::new();
     if !tail.is_empty() {
         text.push_str("\nLast stderr lines:\n");
         text.push_str(&tail.join("\n"));
@@ -873,13 +1327,56 @@ fn ask_to_stop(child: &Child) {
 #[cfg(not(any(unix, windows)))]
 fn ask_to_stop(_child: &Child) {}
 
+// A child in a window (mac and Linux) is reached by the pid it wrote, the
+// way its handle would be: asked to stop with SIGINT, killed after the grace,
+// looked at with signal 0. On Windows it keeps a handle, and these are never
+// reached.
+
+/// Whether the process is still there (or a zombie not yet reaped).
+#[cfg(unix)]
+fn alive(pid: i32) -> bool {
+    // SAFETY: signal 0 sends nothing; it only asks whether pid exists.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+}
+
+#[cfg(unix)]
+fn ask_pid_to_stop(pid: i32) {
+    // SAFETY: kill only sends a signal, and read_pid gave a positive pid.
+    unsafe {
+        libc::kill(pid, libc::SIGINT);
+    }
+}
+
+#[cfg(unix)]
+fn kill_pid(pid: i32) {
+    // SAFETY: as above.
+    unsafe {
+        libc::kill(pid, libc::SIGKILL);
+    }
+}
+
+#[cfg(not(unix))]
+fn alive(_pid: i32) -> bool {
+    false
+}
+
+#[cfg(not(unix))]
+fn ask_pid_to_stop(_pid: i32) {}
+
+#[cfg(not(unix))]
+fn kill_pid(_pid: i32) {}
+
 /// Wait up to `limit` for the children to exit; the ones that did are
-/// reaped and dropped from the list.
-fn wait_for_exit(children: &mut Vec<Child>, limit: Duration) {
+/// reaped and dropped from the list, the pids gone from theirs.
+fn wait_for_exit(children: &mut Vec<Child>, pids: &mut Vec<i32>, limit: Duration) {
     let deadline = Instant::now().checked_add(limit);
-    while !children.is_empty() && deadline.is_some_and(|d| Instant::now() < d) {
+    while !(children.is_empty() && pids.is_empty()) && deadline.is_some_and(|d| Instant::now() < d) {
         thread::sleep(Duration::from_millis(50));
         children.retain_mut(|child| matches!(child.try_wait(), Ok(None)));
+        pids.retain(|&pid| alive(pid));
     }
 }
 

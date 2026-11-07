@@ -198,8 +198,8 @@ fn is_compression_entry(text: &str, calls: &Value) -> bool {
 /// call render the same way. `thinking` renders as "skipped" when the step
 /// had none and wrote no message. A compressed-memory entry renders as
 /// itself. The API payload is untouched: the model keeps receiving the
-/// native transcript. The subagent's turns render this way; the coder's
-/// render with coder_snapshot_value.
+/// native transcript. Only replayed turns that carry a `reasoning` call
+/// render this way now; coder_snapshot_value renders every other turn.
 pub fn snapshot_value(text: &str, calls: &Value) -> Value {
     if !truthy(calls) {
         if let Ok(Value::Object(data)) = serde_json::from_str::<Value>(text) {
@@ -254,11 +254,6 @@ pub fn snapshot_value(text: &str, calls: &Value) -> Value {
         if t.is_empty() { SKIPPED_THINKING.to_string() } else { t.to_string() }
     };
     json!({"thinking": thinking, "memory": memory, "next_goal": next_goal, "action": actions})
-}
-
-/// snapshot_value() as JSON text with indent=2.
-pub fn snapshot_turn(text: &str, calls: &Value) -> String {
-    dumps_pretty(&snapshot_value(text, calls))
 }
 
 /// The coder's rendering of one assistant turn, for its snapshot file and
@@ -368,8 +363,8 @@ pub fn coder_snapshot_turn(text: &str, calls: &Value) -> String {
 // and compression_entry builds the splice that replaces them.
 // ---------------------------------------------------------------------------
 
-/// A notes call's result on the wire (the subagent's `reasoning`, the
-/// coder's `insight` and `next_goal`). Every provider needs a result for
+/// A notes call's result on the wire (the `insight` and `next_goal` of the
+/// coder and the subagent). Every provider needs a result for
 /// every call, so it cannot be dropped; this is the smallest one. It carries
 /// no information, so the snapshot file and the compression dump hide it.
 pub const REASONING_RESULT: &str = "ok";

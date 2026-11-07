@@ -68,19 +68,13 @@ pub mod controller {
 pub mod sandbox {
     pub mod service;
 }
-/// The subagent (the mac coder's minion): a read-only helper the coder starts
-/// as a child process, the same kind of loop with its own tools and prompt.
+/// The subagent (the mac coder's minion): a read-only investigator the coder
+/// starts as a child process, the coder's kind of loop with its own tools
+/// and its prompt, which is system_prompt.md with the block of the mode it
+/// runs in filled in at run time: workflow/workflow.md or critic/critic.md,
+/// each a prompt file with no code beside it.
 pub mod subagent {
     pub mod service;
-    pub mod view;
-    /// The subagent's workflows.
-    pub mod workflow {
-        pub mod service;
-    }
-    /// The subagent's critic.
-    pub mod critic {
-        pub mod service;
-    }
 }
 
 // ---------------------------------------------------------------------------

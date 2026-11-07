@@ -545,8 +545,8 @@ impl AgentService {
         if !rejects.is_empty() && stdout_tty() {
             for r in &rejects {
                 crate::say!(
-                    "\u{26a0}\u{fe0f} unknown tool '{}' \u{2014} error returned to the model",
-                    py_str_of(r.get("name").unwrap_or(&Value::Null))
+                    "\u{26a0}\u{fe0f} {} \u{2014} error returned to the model",
+                    py_str_of(r.get("error").unwrap_or(&Value::Null))
                 );
             }
         }
@@ -707,8 +707,8 @@ impl AgentService {
 
 #[pymethods]
 impl AgentService {
-    /// The mac signature. Only provider, model, save_conversation, api_key
-    /// and stop_event are used; the app's arguments are taken and ignored,
+    /// The mac signature. Only provider, model, save_conversation, api_key,
+    /// stop_event and external_terminal are used; the app's arguments are taken and ignored,
     /// and **_extra takes what agent_launcher forwards for other agents (its
     /// signature filter cannot read an extension type's arguments).
     #[new]
@@ -732,10 +732,16 @@ impl AgentService {
         history_file: Option<Bound<'_, PyAny>>,
         _extra: Option<Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
-        let _ = (task, on_complete, external_terminal, report_usage, request_no, history_file);
+        let _ = (task, on_complete, report_usage, request_no, history_file);
         let save_conversation = match &save_conversation {
             Some(v) => v.is_truthy()?,
             None => false,
+        };
+        // Each subagent in a terminal window of its own, the mac default;
+        // None too (the app passes False for its piped runs).
+        let external_terminal = match &external_terminal {
+            Some(v) => v.is_truthy()?,
+            None => true,
         };
         let api_key: Option<String> = match &api_key {
             Some(v) => Some(v.str()?.to_string_lossy().into_owned()),
@@ -753,7 +759,8 @@ impl AgentService {
             LLMManager::build(py, &provider, &model, api_key.as_deref(), true, "main", "quality")?,
         )?;
 
-        let controller = ControllerView::new(py, &provider, &model, &session_id, api_key.as_deref(), false)?;
+        let controller =
+            ControllerView::new(py, &provider, &model, &session_id, api_key.as_deref(), false, external_terminal, save_conversation)?;
 
         // Rolling handoff compression: the shared controller with this
         // crate's two transcript callables. It reads the instance and
@@ -865,7 +872,7 @@ fn stdout_tty() -> bool {
 /// One step's display: the model's text, its notes (the `insight` and the
 /// `next_goal`, see turn_notes) and the routed actions, printed for a person
 /// on a terminal and as JSON into a pipe. Only what the step has is shown.
-fn display_payload(resp_text: &str, insight: &Value, next_goal: &str, actions: Value) -> String {
+pub(crate) fn display_payload(resp_text: &str, insight: &Value, next_goal: &str, actions: Value) -> String {
     let mut payload = Map::new();
     if !crate::py_strip(resp_text).is_empty() {
         payload.insert("text".into(), Value::String(resp_text.to_string()));
@@ -891,7 +898,7 @@ fn display_payload(resp_text: &str, insight: &Value, next_goal: &str, actions: V
 /// as {"kind", "content"} ("" when the turn has no `insight` call) and the
 /// `next_goal` value ("" when it has none). Each field is the first
 /// non-empty one of its calls, stripped.
-fn turn_notes(actions: &[Value], rejects: &[Value]) -> (Value, String) {
+pub(crate) fn turn_notes(actions: &[Value], rejects: &[Value]) -> (Value, String) {
     // (tool name, its fields): a routed action carries them at its top level.
     let name = |v: &Value, key: &str| v.get(key).and_then(Value::as_str).unwrap_or("").to_string();
     let calls: Vec<(String, &Value)> = actions
@@ -977,7 +984,7 @@ fn mode_block(py: Python<'_>, mode: &Mode) -> PyResult<String> {
     Ok(format!("<{tool}>\n{on}\n\n{skill}\n</{tool}>", tool = mode.tool, on = mode.on_message))
 }
 
-fn print_turn(payload: &str) {
+pub(crate) fn print_turn(payload: &str) {
     if stdout_tty() {
         crate::out(&view::format_terminal(payload));
     } else {

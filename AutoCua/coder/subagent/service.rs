@@ -1,40 +1,45 @@
-//! The subagent's loop: the Rust copy of mac/agent/minions/service.py (the
-//! mac coder's minion), the non-Claude path. It runs in the child process the
-//! coder starts for each `subagent` call: `python -m AutoCua.coder.subagent`
+//! The subagent's loop: the read-only investigator the coder starts as a
+//! child process for one `subagent` call, in one of two modes, workflow or
+//! critic. It runs in that child: `python -m AutoCua.coder.subagent`
 //! (__main__.py beside this file) calls run_subagent.
 //!
-//! A read-only scout with the coder's loop shape: every step rebuilds the
+//! The loop has the coder's shape (main/service.rs): every step rebuilds the
 //! request from the native transcript (each past step as the assistant turn
 //! with its own tool calls, then one result per call) plus a live tail with
-//! the workspace and the scratchpad notes. Its own prompt (system_prompt.md
-//! beside this file, a byte copy of the mac minion's, read at run time), its
-//! own tools (the `reasoning` notes tool, shell, view, grep, glob, scratchpad
-//! and exit) and its own notes file (cli_subagent/<session>/milestone.md).
+//! the workspace and the scratchpad. The notes tools `insight` and
+//! `next_goal` are answered `ok` under their own ids and never routed, and a
+//! turn with only notes calls just goes on. Its prompt is system_prompt.md
+//! beside this file with the mode's block (workflow/workflow.md or
+//! critic/critic.md) in place of `{mode}` and the OS filled in, read at run
+//! time; its tools are the coder's two notes tools plus shell, view, grep,
+//! glob, scratchpad and exit; its notes file is
+//! cli_subagent/<session>/milestone.md.
 //!
 //! It ends on `exit`, on step 101, after three turns in a row without a tool
 //! call, or on an error, and it ALWAYS leaves its report in the result file
 //! (written whole, then renamed into place), so the coder never waits on a
-//! subagent that died. Left out of the mac copy: the Claude path, the stop
-//! event (nothing ever set it) and the debug log (a no-op).
+//! subagent that died. A run that cannot start on its mode (an unknown mode,
+//! a mode file that does not read) leaves a partial report too, and its
+//! error then goes on up, so the child exits 1.
 
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
-use pyo3::exceptions::{PyAttributeError, PyException, PyKeyboardInterrupt, PyOSError};
+use pyo3::exceptions::{PyAttributeError, PyException, PyKeyboardInterrupt, PyOSError, PyValueError};
 use pyo3::prelude::*;
 use serde_json::{json, Map, Value};
 
 use crate::controller::cli::service::render_tool_response;
 use crate::controller::service::ControllerView;
+use crate::main::service::{current_os, display_payload, print_turn, turn_notes};
 use crate::main::view::{
-    decode_results, decode_step, encode_results, encode_step, snapshot_turn, wire_calls_from,
+    coder_snapshot_turn, decode_results, decode_step, encode_results, encode_step, wire_calls_from,
     REASONING_RESULT,
 };
 use crate::sandbox::service::py_os_error;
-use crate::subagent::view::{extract_json, format_stream_json};
 use crate::tool_registry::service::{
-    action_defaults, drop_bundled_terminal, subagent_reasoning_fields, subagent_tool_names,
-    tool_calls_to_steps, LLMManager, SendOutcome,
+    action_defaults, drop_bundled_terminal, subagent_tool_names, tool_calls_to_steps, LLMManager,
+    SendOutcome, NOTE_TOOLS,
 };
 use crate::{dumps_pretty, py_err_str, py_str_of, py_strip, truthy};
 
@@ -42,8 +47,15 @@ use crate::{dumps_pretty, py_err_str, py_str_of, py_strip, truthy};
 /// coding. Step 101 ends it with a partial report.
 const MAX_SUBAGENT_ITERATIONS: i64 = 100;
 
-/// The notes tool: its call is answered "ok" and never routed.
-const NOTES_TOOL: &str = "reasoning";
+/// The modes and the block file of each, relative to this folder, with `/`
+/// between the parts on every OS.
+const MODE_FILES: [(&str, &str); 2] = [("workflow", "workflow/workflow.md"), ("critic", "critic/critic.md")];
+
+/// The line of system_prompt.md the mode's block replaces.
+const MODE_PLACEHOLDER: &str = "{mode}";
+
+/// The word in system_prompt.md that current_os() replaces.
+const OS_PLACEHOLDER: &str = "{current_os}";
 
 /// Providers whose request gets the prompt-cache marker. Matched against the
 /// provider string as given, as Python does ("OpenRouter" gets none).
@@ -51,14 +63,12 @@ const CACHE_PROVIDERS: [&str; 3] = ["openrouter", "anthropic", "aws"];
 
 /// Appended to the system prompt for an `async_tools` model (GPT-6 Astra):
 /// its tool calls run after the turn ends, and the block tells it what that
-/// changes about the rules above it.
-const ASYNC_TOOLS_ADDENDUM: &str = concat!(
-    "\n<async_tools>\n",
-    "Your tool calls run after the turn ends, in the order you emit them, and no result reaches you until the next step's <Tool_response>. The rules above are unchanged: one `reasoning` call first, then the calls that do the step, batched per <efficiency_guideline>. Because nothing comes back mid-turn:\n",
-    "- Never write a text message in a turn that contains tool calls, and never state that a probe succeeded or failed: that verdict belongs to the next step's memory, judged on the <Tool_response>.\n",
-    "- `exit` stays the only call of its turn. Never add it after this turn's calls: their results have not arrived, so nothing is verified yet.\n",
-    "</async_tools>\n",
-);
+/// changes about the rules above it. The coder's text (main/service.rs).
+const ASYNC_TOOLS_ADDENDUM: &str = "\n<async_tools>\n\
+Your tool calls run after the turn ends, in the order you emit them, and no result reaches you until the next step's <Tool_response>. Because nothing comes back mid-turn:\n\
+- Never write a text message in a turn that contains tool calls, and never state that a command succeeded or failed: the next step judges that on the <Tool_response>.\n\
+- `exit` stays the only call of its turn. Never add it after this turn's calls: their results have not arrived, so nothing is verified yet.\n\
+</async_tools>\n";
 
 /// The result of a turn with no tool call at all. No call means no call id
 /// to key a tool result to, so it rides a plain user turn (decode_results
@@ -90,6 +100,11 @@ fn os_err(e: &std::io::Error, path: &Path) -> PyErr {
     PyOSError::new_err(py_os_error(e, path))
 }
 
+/// A call's "id" (null when it has none).
+fn call_id(call: &Value) -> Value {
+    call.get("id").cloned().unwrap_or(Value::Null)
+}
+
 /// uuid.uuid4().hex[:8], asked of Python's uuid module.
 fn new_session_id(py: Python<'_>) -> PyResult<String> {
     let hex: String = py.import("uuid")?.call_method0("uuid4")?.getattr("hex")?.extract()?;
@@ -101,6 +116,29 @@ fn new_session_id(py: Python<'_>) -> PyResult<String> {
 fn py_now(py: Python<'_>) -> PyResult<String> {
     let now = py.import("datetime")?.getattr("datetime")?.call_method0("now")?;
     Ok(now.str()?.to_string_lossy().into_owned())
+}
+
+/// The subagent's prompt for `mode`: subagent/system_prompt.md with the
+/// mode's block (MODE_FILES) in place of `{mode}` and the OS in place of
+/// `{current_os}`, both files read fresh from this folder. A mode that is
+/// not workflow or critic is a ValueError; a file that does not read is its
+/// OSError. Either ends the run before it starts (see run_subagent).
+fn load_subagent_prompt(py: Python<'_>, mode: &str) -> PyResult<String> {
+    let Some((_, block_file)) = MODE_FILES.iter().find(|(name, _)| *name == mode) else {
+        return Err(PyValueError::new_err(format!(
+            "subagent mode must be \"workflow\" or \"critic\", not '{mode}'"
+        )));
+    };
+    let dir = crate::coder_dir(py)?.join("subagent");
+    let base_path = dir.join("system_prompt.md");
+    let base = crate::read_text(&base_path).map_err(|e| os_err(&e, &base_path))?;
+    // Part by part, so the path is written the way this OS writes it.
+    let mut block_path = dir;
+    for part in block_file.split('/') {
+        block_path.push(part);
+    }
+    let block = crate::read_text(&block_path).map_err(|e| os_err(&e, &block_path))?;
+    Ok(base.replace(MODE_PLACEHOLDER, &block).replace(OS_PLACEHOLDER, current_os()))
 }
 
 /// The report of a loop that ended without `exit`.
@@ -138,58 +176,13 @@ fn write_result(path: &Path, task: &str, summary: &str, status: &str) -> std::io
     Ok(())
 }
 
-/// The step's notes, harvested from its calls (tool_calls_to_steps' track).
-struct Notes {
-    thinking: String,
-    memory: String,
-    next_goal: String,
-}
-
-impl Notes {
-    fn from_track(track: &[(String, String)]) -> Notes {
-        let get = |key: &str| {
-            track
-                .iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, v)| v.clone())
-                .unwrap_or_default()
-        };
-        Notes { thinking: get("thinking"), memory: get("memory"), next_goal: get("next_goal") }
-    }
-}
-
-/// `str(leaked.get(key) or "").strip() or current`: a note field of a step
-/// written as JSON text.
-fn leaked_field(leaked: &Map<String, Value>, key: &str, current: &str) -> String {
-    let value = match leaked.get(key) {
-        Some(v) if truthy(v) => py_str_of(v),
-        _ => String::new(),
-    };
-    let value = py_strip(&value);
-    if value.is_empty() { current.to_string() } else { value.to_string() }
-}
-
-/// The per-step print: the step as pretty JSON, `thinking` (the step's own
-/// prose when it had none), `memory`, `next_goal` and the routed actions.
-fn display(notes: &Notes, resp_text: &str, actions: &[Value]) -> String {
-    let thinking = if notes.thinking.is_empty() { resp_text } else { notes.thinking.as_str() };
-    let payload = dumps_pretty(&json!({
-        "thinking": thinking,
-        "memory": notes.memory,
-        "next_goal": notes.next_goal,
-        "action": actions,
-    }));
-    format_stream_json(&payload)
-}
-
 /// One `role: "tool"` result per call the model made, each keyed to that
 /// call's id. When a batch produced one combined result (it returned early),
 /// the first id carries it and the rest point at it: the pairing must stay
 /// complete or providers reject the turn.
 fn pair_results(action_result: &Value, calls: &[Value]) -> Vec<Value> {
-    let id_of = |c: &Value| c.get("id").cloned().unwrap_or(Value::Null);
     if calls.len() <= 1 {
-        let id = calls.first().map(id_of).unwrap_or_else(|| json!("call_0"));
+        let id = calls.first().map(call_id).unwrap_or_else(|| json!("call_0"));
         return vec![json!({"tool_call_id": id, "content": render_tool_response(action_result)})];
     }
     let per = if action_result.get("action").and_then(Value::as_str) == Some("multiple") {
@@ -201,17 +194,17 @@ fn pair_results(action_result: &Value, calls: &[Value]) -> Vec<Value> {
         return calls
             .iter()
             .zip(per)
-            .map(|(c, r)| json!({"tool_call_id": id_of(c), "content": render_tool_response(r)}))
+            .map(|(c, r)| json!({"tool_call_id": call_id(c), "content": render_tool_response(r)}))
             .collect();
     }
     let mut out = Vec::with_capacity(calls.len());
     let mut rest = calls.iter();
     if let Some(first) = rest.next() {
-        out.push(json!({"tool_call_id": id_of(first), "content": render_tool_response(action_result)}));
+        out.push(json!({"tool_call_id": call_id(first), "content": render_tool_response(action_result)}));
     }
     for c in rest {
         out.push(json!({
-            "tool_call_id": id_of(c),
+            "tool_call_id": call_id(c),
             "content": "(result included in the first tool result of this batch)",
         }));
     }
@@ -236,11 +229,9 @@ struct LoopState {
     history: Vec<(String, String)>,
     /// Turns in a row without a tool call (text only or empty).
     json_fail_count: u32,
-    /// Turns in a row that called only the notes tool.
-    reasoning_only_count: u32,
 }
 
-/// One subagent run: the mac minion's AgentService.
+/// One subagent run.
 struct Subagent {
     /// As given: the prompt-cache check reads it raw.
     provider: String,
@@ -256,8 +247,8 @@ struct Subagent {
 impl Subagent {
     /// In Python's order: the session id, the LLM manager (it raises when the
     /// provider cannot be built, for example without an API key), the
-    /// controller (it makes the session's folders), the prompt, then the
-    /// conversation folders.
+    /// controller (it makes the session's folders), then the conversation
+    /// folders. `system_prompt` is the mode's prompt (load_subagent_prompt).
     fn new(
         py: Python<'_>,
         task: &str,
@@ -265,12 +256,11 @@ impl Subagent {
         model: &str,
         api_key: Option<&str>,
         save_conversation: bool,
+        mut system_prompt: String,
     ) -> PyResult<Subagent> {
         let session_id = new_session_id(py)?;
         let llm = LLMManager::build(py, provider, model, api_key, true, "subagent", "quality")?;
-        let controller = ControllerView::new(py, provider, model, &session_id, api_key, true)?;
-        let prompt_path = crate::coder_dir(py)?.join("subagent").join("system_prompt.md");
-        let mut system_prompt = crate::read_text(&prompt_path).map_err(|e| os_err(&e, &prompt_path))?;
+        let controller = ControllerView::new(py, provider, model, &session_id, api_key, true, false, false)?;
         // An `async_tools` model runs its calls after the turn ends; the
         // block tells it what that changes.
         if llm.async_tools() {
@@ -381,7 +371,9 @@ impl Subagent {
     }
 
     /// Exactly what the LLM received at this step, plus the step itself
-    /// (save_conversation only). A write error ends the step like Python's.
+    /// (save_conversation only), each assistant turn rendered as the coder
+    /// renders its own (coder_snapshot_turn: only the keys the turn has).
+    /// A write error ends the step like Python's.
     fn save_snapshot(
         &self,
         py: Python<'_>,
@@ -397,15 +389,12 @@ impl Subagent {
         out.push_str(&format!("Step: {step_number}\n"));
         out.push_str(&format!("Time: {}\n", py_now(py)?));
         out.push_str(&format!("{bar}\n\n"));
-        // Every message as sent, except the notes call's "ok", which says
+        // Every message as sent, except a notes call's "ok", which says
         // nothing.
         let mut n = 0;
         for msg in messages {
             let role = msg.get("role").and_then(Value::as_str).unwrap_or("");
             let content = msg.get("content").unwrap_or(&Value::Null);
-            if role == "tool" && content.as_str() == Some(REASONING_RESULT) {
-                continue;
-            }
             let text = match content {
                 Value::String(s) => s.clone(),
                 Value::Array(parts) => match parts.first() {
@@ -416,10 +405,14 @@ impl Subagent {
                 },
                 other => py_str_of(other),
             };
+            // Also when it is the cache-marked newest result.
+            if role == "tool" && text == REASONING_RESULT {
+                continue;
+            }
             out.push_str(&format!("=== MESSAGE {n} (role='{role}') ===\n"));
             n += 1;
             if role == "assistant" {
-                out.push_str(&snapshot_turn(&text, msg.get("tool_calls").unwrap_or(&Value::Null)));
+                out.push_str(&coder_snapshot_turn(&text, msg.get("tool_calls").unwrap_or(&Value::Null)));
             } else {
                 out.push_str(&text);
             }
@@ -427,7 +420,7 @@ impl Subagent {
         }
         let entry = decode_step(current);
         out.push_str("=== CURRENT ASSISTANT RESPONSE (role='assistant') ===\n");
-        out.push_str(&snapshot_turn(&entry.content, &entry.tool_calls));
+        out.push_str(&coder_snapshot_turn(&entry.content, &entry.tool_calls));
         out.push('\n');
         std::fs::write(&path, out).map_err(|e| os_err(&e, &path))
     }
@@ -437,7 +430,7 @@ impl Subagent {
     /// Exception ends the loop with the partial report, as Python's `except
     /// Exception`; anything else (Ctrl+C) is returned as the error.
     fn run_loop(&mut self, py: Python<'_>) -> PyResult<(String, &'static str)> {
-        let mut st = LoopState { history: Vec::new(), json_fail_count: 0, reasoning_only_count: 0 };
+        let mut st = LoopState { history: Vec::new(), json_fail_count: 0 };
         let mut step_number: i64 = 0;
         loop {
             step_number += 1;
@@ -468,7 +461,8 @@ impl Subagent {
         Ok((ended_summary(&self.read_scratchpad()), "partial"))
     }
 
-    /// One step: ask the model, record its turn, route its calls.
+    /// One step, the coder's way: ask the model, record its turn, answer its
+    /// notes calls, route its probes and pair the results back to the calls.
     fn step(
         &mut self,
         py: Python<'_>,
@@ -492,18 +486,14 @@ impl Subagent {
 
         // The subagent's name set answers a coder-only call (write, replace,
         // subagent, ...) with an error result instead of ever routing it:
-        // the read-only guarantee.
+        // the read-only guarantee. No track params: the notes are read off
+        // the notes calls below.
         let tool_calls = message.get("tool_calls").cloned().unwrap_or(Value::Null);
-        let (actions, calls, rejects, track) = tool_calls_to_steps(
-            &tool_calls,
-            subagent_tool_names(),
-            action_defaults(),
-            subagent_reasoning_fields(),
-        );
-        let mut notes = Notes::from_track(&track);
+        let (actions, calls, rejects, _) =
+            tool_calls_to_steps(&tool_calls, subagent_tool_names(), action_defaults(), &[]);
         // `(message.get("text") or "").strip()`: text that is not a string
         // (a provider's list of content parts) fails the step, as in Python.
-        let mut resp_text = match message.get("text") {
+        let resp_text = match message.get("text") {
             Some(Value::String(s)) => py_strip(s).to_string(),
             Some(v) if truthy(v) => {
                 return Err(PyAttributeError::new_err(format!(
@@ -518,164 +508,111 @@ impl Subagent {
             _ => json!({}),
         };
 
-        // `reasoning` is the step's note to itself, not a probe. Its fields
-        // are already in `notes`; the call leaves the batch but stays in
-        // all_calls, which the assistant turn replays, and is answered "ok".
+        // The notes calls (`insight`, `next_goal`) are the step's notes to
+        // itself, not probes: they are replayed with the turn (all_calls)
+        // and answered `ok`, never routed.
+        let is_note = |a: &Value| a.get("type").and_then(Value::as_str).is_some_and(|t| NOTE_TOOLS.contains(&t));
         let all_calls = calls.clone();
-        let mut note_ids: Vec<Value> = Vec::new();
-        let mut kept_actions: Vec<Value> = Vec::new();
-        let mut kept_calls: Vec<Value> = Vec::new();
-        for (a, c) in actions.into_iter().zip(calls) {
-            if a.get("type").and_then(Value::as_str) == Some(NOTES_TOOL) {
-                note_ids.push(c.get("id").cloned().unwrap_or(Value::Null));
-            } else {
-                kept_actions.push(a);
-                kept_calls.push(c);
-            }
-        }
-        let mut note_results: Vec<Value> = note_ids
+        let (insight, next_goal) = turn_notes(&actions, &rejects);
+        let note_results: Vec<Value> = actions
             .iter()
-            .map(|id| json!({"tool_call_id": id, "content": REASONING_RESULT}))
+            .zip(&calls)
+            .filter(|(a, _)| is_note(a))
+            .map(|(_, c)| json!({"tool_call_id": call_id(c), "content": REASONING_RESULT}))
             .collect();
-        let mut actions = kept_actions;
-        let mut calls = kept_calls;
+        let (actions, calls): (Vec<Value>, Vec<Value>) =
+            actions.into_iter().zip(calls).filter(|(a, _)| !is_note(a)).unzip();
 
         // Backstop for an `async_tools` model: an `exit` bundled after this
         // turn's calls is dropped from the batch and answered with an error
         // result, which rides with the rejects below.
         let mut exit_results: Vec<Value> = Vec::new();
-        if self.llm.async_tools() {
-            let (a, c, r) = drop_bundled_terminal(actions, calls, &rejects, "exit");
-            actions = a;
-            calls = c;
-            exit_results = r;
-            if !exit_results.is_empty() && is_tty() {
+        let (actions, calls) = if self.llm.async_tools() {
+            let (actions, calls, dropped) = drop_bundled_terminal(actions, calls, &rejects, "exit");
+            if !dropped.is_empty() && is_tty() {
                 crate::say!("⚠️ `exit` bundled with other calls: ignored, it must be the only call of its turn");
             }
-        }
+            exit_results = dropped;
+            (actions, calls)
+        } else {
+            (actions, calls)
+        };
 
-        if actions.is_empty() && rejects.is_empty() && !resp_text.is_empty() {
-            // Leaked-step salvage: a model that writes its whole step as JSON
-            // text instead of calling tools. A dict with an action list is
-            // adopted, filtered to the subagent's tools (no defaults, no
-            // coercion).
-            let leaked = match serde_json::from_str::<Value>(&resp_text) {
-                Ok(v) => Some(v),
-                Err(_) => extract_json(&resp_text),
-            };
-            if let Some(Value::Object(leaked)) = leaked {
-                if let Some(Value::Array(items)) = leaked.get("action") {
-                    let salvaged: Vec<Value> = items
-                        .iter()
-                        .filter(|a| {
-                            a.get("type")
-                                .and_then(Value::as_str)
-                                .is_some_and(|t| subagent_tool_names().contains(t))
-                        })
-                        .cloned()
-                        .collect();
-                    if !salvaged.is_empty() {
-                        actions = salvaged;
-                        notes = Notes {
-                            thinking: leaked_field(&leaked, "thinking", &notes.thinking),
-                            memory: leaked_field(&leaked, "memory", &notes.memory),
-                            next_goal: leaked_field(&leaked, "next_goal", &notes.next_goal),
-                        };
-                        resp_text = String::new();
-                        if is_tty() {
-                            crate::say!("⚠️ subagent wrote its step as text — salvaged the action");
-                        }
-                    }
-                }
-            }
-        }
-
-        // The assistant turn exactly as the model produced it, echoed back
-        // next step. Rejected calls ride along too: every result written
-        // below must pair with a call of the same id.
-        let mut replayed = all_calls;
-        replayed.extend(rejects.iter().cloned());
-        let wire_calls = Value::Array(wire_calls_from(&replayed).map_err(PyException::new_err)?);
-        let mut reject_results: Vec<Value> = rejects
-            .iter()
-            .map(|r| {
-                json!({
-                    "tool_call_id": r.get("id").cloned().unwrap_or(Value::Null),
-                    "content": format!("error: {}", r.get("error").and_then(Value::as_str).unwrap_or("")),
-                })
-            })
-            .collect();
-        reject_results.extend(exit_results);
-        let entry = encode_step(&resp_text, &wire_calls, Some(&step_meta));
-
-        if actions.is_empty() {
-            if let Some(first) = rejects.first() {
-                // A disallowed or unknown tool: keep the turn, answer each bad
-                // call with an error keyed to ITS id, and let the subagent
-                // correct itself on the next step.
-                if is_tty() {
-                    let name = first.get("name").map(py_str_of).unwrap_or_default();
-                    crate::say!("⚠️ subagent called disallowed tool '{name}' — error returned");
-                }
-                note_results.extend(reject_results);
-                st.history.push((entry, encode_results(&note_results)));
-                return Ok(Flow::Next);
-            }
-            if !note_ids.is_empty() {
-                // A notes-only step: the subagent chose to think before it
-                // probes, a normal step. Only a RUN of them is bounded: from
-                // the third in a row, the result carries a reminder to act.
-                st.reasoning_only_count += 1;
-                if st.reasoning_only_count >= 3 {
-                    let content = render_tool_response(&json!({
-                        "status": "success",
-                        "action": NOTES_TOOL,
-                        "message": format!(
-                            "{} steps in a row without a probe: call a tool that does the work in this turn.",
-                            st.reasoning_only_count
-                        ),
-                    }));
-                    note_results = note_ids
-                        .iter()
-                        .map(|id| json!({"tool_call_id": id, "content": content}))
-                        .collect();
-                }
-                crate::out(&display(&notes, &resp_text, &[]));
-                self.save_snapshot(py, messages, &entry, step_number)?;
-                st.history.push((entry, encode_results(&note_results)));
-                return Ok(Flow::Next);
-            }
-            // No call at all: a talk-only turn is kept and answered "no tool
-            // called"; an empty one is retried. Both count toward the three
-            // strikes.
+        // No tool call at all: a text-only or an empty turn, taken as the
+        // coder takes them. Both count toward the three strikes.
+        if actions.is_empty() && rejects.is_empty() && note_results.is_empty() {
             st.json_fail_count += 1;
+            if !resp_text.is_empty() {
+                // Repair, not exit: prose with no tool calls is a dropped-calls
+                // mistake. Keep the turn, answer it, let the model go on.
+                if is_tty() {
+                    crate::say!(
+                        "⚠️ message had no tool calls \u{2014} asking the model to act ({}/3)",
+                        st.json_fail_count
+                    );
+                }
+                if st.json_fail_count >= 3 {
+                    return Ok(Flow::Stop);
+                }
+                let entry = encode_step(&resp_text, &json!([]), Some(&step_meta));
+                print_turn(&display_payload(&resp_text, &Value::Null, "", json!([])));
+                self.save_snapshot(py, messages, &entry, step_number)?;
+                // A plain string slot: it replays as a user turn.
+                st.history.push((entry, no_tool_called()));
+                return Ok(Flow::Next);
+            }
+            // A truly empty turn: retry it under the same step number.
             if is_tty() {
-                crate::say!(
-                    "⚠️ subagent produced no tool call — asking it to act ({}/3)",
-                    st.json_fail_count
-                );
+                crate::say!("⚠️ empty response from the model \u{2014} retrying ({}/3)", st.json_fail_count);
             }
             if st.json_fail_count >= 3 {
                 return Ok(Flow::Stop);
             }
-            if resp_text.is_empty() {
-                return Ok(Flow::Retry);
-            }
-            st.history.push((encode_step(&resp_text, &json!([]), Some(&step_meta)), no_tool_called()));
-            return Ok(Flow::Next);
+            return Ok(Flow::Retry);
         }
 
         st.json_fail_count = 0;
-        st.reasoning_only_count = 0;
 
-        crate::out(&display(&notes, &resp_text, &actions));
+        // The turn exactly as the model made it, rejected calls included:
+        // every result written below must pair with a call of the same id.
+        let mut replayed = all_calls;
+        replayed.extend(rejects.iter().cloned());
+        let wire_calls = Value::Array(wire_calls_from(&replayed).map_err(PyException::new_err)?);
+        let entry = encode_step(&resp_text, &wire_calls, Some(&step_meta));
+
+        print_turn(&display_payload(&resp_text, &insight, &next_goal, Value::Array(actions.clone())));
         self.save_snapshot(py, messages, &entry, step_number)?;
+
+        // The notes' ok first, then each rejected call's error keyed to ITS
+        // id, then the routed results.
+        let mut results = note_results;
+        results.extend(rejects.iter().map(|r| {
+            json!({
+                "tool_call_id": call_id(r),
+                "content": format!("error: {}", py_str_of(r.get("error").unwrap_or(&Value::Null))),
+            })
+        }));
+        results.extend(exit_results);
+        if is_tty() {
+            for r in &rejects {
+                crate::say!(
+                    "⚠️ {} \u{2014} error returned to the model",
+                    py_str_of(r.get("error").unwrap_or(&Value::Null))
+                );
+            }
+        }
+        if actions.is_empty() {
+            // Nothing to route (only notes calls or rejected calls): persist
+            // their results and the errors, and go on to the next step.
+            st.history.push((entry, encode_results(&results)));
+            return Ok(Flow::Next);
+        }
 
         let action_result = self.controller.route_action(py, &actions)?;
 
         if action_result.get("action").and_then(Value::as_str) == Some("exit") {
-            // Python also closes the call/result pairing of this last turn in
-            // the history, which is never read again; left out.
+            // The run is over: this last turn is never read again, so its
+            // call/result pairing is not closed.
             let summary = match action_result.get("summary") {
                 None => "Findings ready.".to_string(),
                 Some(Value::Null) => String::new(),
@@ -686,43 +623,55 @@ impl Subagent {
 
         // ONE canonical result shape, the coder's: a JSON head plus the raw
         // output in its own clipped <output> block.
-        let action_results = pair_results(&action_result, &calls);
-        note_results.extend(reject_results);
-        note_results.extend(action_results);
-        st.history.push((entry, encode_results(&note_results)));
+        results.extend(pair_results(&action_result, &calls));
+        st.history.push((entry, encode_results(&results)));
         Ok(Flow::Next)
     }
 }
 
 /// The subagent child's whole run (coder/subagent/__main__.py calls it): the
-/// loop on `task`, then the result file {"task", "summary", "status":
-/// "complete" | "partial"} at `result_path`, ALWAYS written (also when the
-/// run could not start, failed or was interrupted, with the reason in the
-/// summary), then "Result written to: <path>". Returns the summary.
-/// KeyboardInterrupt (and any other non-Exception) is raised again once the
-/// partial result is written; a result file that cannot be written raises
-/// OSError.
+/// loop on `task` in `mode` ("workflow" or "critic"), then the result file
+/// {"task", "summary", "status": "complete" | "partial"} at `result_path`,
+/// ALWAYS written (also when the run could not start, failed or was
+/// interrupted, with the reason in the summary), then "Result written to:
+/// <path>". Returns the summary. KeyboardInterrupt (and any other
+/// non-Exception), and the error of a run that could not start on its mode,
+/// are raised again once the partial result is written; a result file that
+/// cannot be written raises OSError.
 #[pyfunction]
-#[pyo3(signature = (task, provider, model, result_path, api_key=None, save_conversation=false))]
+#[pyo3(signature = (task, provider, model, result_path, mode, api_key=None, save_conversation=false))]
+#[allow(clippy::too_many_arguments)]
 pub fn run_subagent(
     py: Python<'_>,
     task: String,
     provider: String,
     model: String,
     result_path: String,
+    mode: String,
     api_key: Option<String>,
     save_conversation: bool,
 ) -> PyResult<String> {
     let mut findings = String::new();
-    let outcome = match Subagent::new(py, &task, &provider, &model, api_key.as_deref(), save_conversation) {
-        Ok(mut agent) => {
-            let out = agent.run_loop(py);
-            if out.is_err() {
-                findings = agent.read_scratchpad();
+    // An error that goes on up once the result is written, whatever its
+    // type: the run could not start on its mode, so the child must exit 1.
+    let mut flies = false;
+    let outcome = match load_subagent_prompt(py, &mode) {
+        Ok(prompt) => {
+            match Subagent::new(py, &task, &provider, &model, api_key.as_deref(), save_conversation, prompt) {
+                Ok(mut agent) => {
+                    let out = agent.run_loop(py);
+                    if out.is_err() {
+                        findings = agent.read_scratchpad();
+                    }
+                    out
+                }
+                Err(e) => Err(e),
             }
-            out
         }
-        Err(e) => Err(e),
+        Err(e) => {
+            flies = true;
+            Err(e)
+        }
     };
     let (summary, status, pending) = match outcome {
         Ok((summary, status)) => (summary, status, None),
@@ -736,7 +685,7 @@ pub fn run_subagent(
             };
             // An Exception is reported in the result and the run returns;
             // Ctrl+C (and the like) goes on up once the result is written.
-            let pending = if e.is_instance_of::<PyException>(py) { None } else { Some(e) };
+            let pending = if flies || !e.is_instance_of::<PyException>(py) { Some(e) } else { None };
             (failed_summary(&reason, &findings), "partial", pending)
         }
     };
