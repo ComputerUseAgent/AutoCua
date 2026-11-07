@@ -21,9 +21,9 @@ use std::sync::{Arc, Mutex};
 use pyo3::prelude::*;
 use serde_json::{json, Value};
 
-use crate::agent::main_driver::view::py_str_of;
-use crate::browser::{Cdp, CdpFail, ScannerInner};
-use crate::controller::service::{err, scan_op, ActResult};
+use crate::web::agent::main_driver::view::py_str_of;
+use crate::web::browser::{Cdp, CdpFail, ScannerInner};
+use crate::web::controller::service::{err, scan_op, ActResult};
 
 /// A chord longer than this is not a shortcut any page defines.
 pub const MAX_KEYS: usize = 3;

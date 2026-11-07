@@ -43,7 +43,7 @@ class AnthropicProvider:
         # description}) — the model's output contract. None only for
         # mode="text" (plain prose).
         # Deepcopy before stripping: the dialect converter aliases the shared
-        # CODER_TOOLS parameter dicts — stripping in place would mutate the
+        # registry's parameter dicts — stripping in place would mutate the
         # registry for every other provider.
         self.tools = None
         if tools:

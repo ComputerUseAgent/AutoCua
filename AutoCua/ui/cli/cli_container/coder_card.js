@@ -4,7 +4,7 @@
 // can stack several later. Look ported from coder_animation.html + the proven native banner
 // (banner.py COMPACT_HTML). Styles: cli/cli_container/coder_card.css (scoped .coder-card).
 //
-// API: create(desc) -> { el, setLine, addMinion, setMinionLine, endMinion,
+// API: create(desc) -> { el, setLine, addSubagent, setSubagentLine, endSubagent,
 //                        setWeb, setDone, dispose }
 (function () {
     'use strict';
@@ -613,7 +613,7 @@
         if (!a || typeof a !== 'object' || !a.type) return '';
         switch (a.type) {
             case 'shell':   return '$ ' + clip(a.command || a.value || '', 240);
-            case 'view':    return 'view ' + (a.path || '') + ((a.start || a.end) ? ('  :' + (a.start || 0) + '-' + (a.end || 0)) : '');
+            case 'read':    return 'read ' + (a.path || '') + ((a.start || a.end) ? ('  :' + (a.start || 0) + '-' + (a.end || 0)) : '');
             case 'grep':    return 'grep "' + clip(a.pattern || '', 120) + '"' + (a.path ? (' in ' + a.path) : '') + (a.glob ? (' (' + a.glob + ')') : '');
             case 'glob':    return 'glob ' + (a.pattern || a.path || '');
             case 'write':   return 'write ' + (a.path || '');
@@ -621,6 +621,7 @@
             case 'web':     return 'web "' + clip(a.value || a.query || '', 160) + '"';
             case 'wait':    return 'wait ' + (a.value || '1') + 's';
             case 'minion':  return 'minion: ' + clip(a.value || a.query || '', 200);
+            case 'subagent': return 'subagent' + (a.mode ? ' (' + a.mode + ')' : '') + ': ' + clip(a.value || '', 200);
             // Shell use prints the answer whole under it (cli_stage.js), so just 'done' there.
             case 'exit':    return 'done' + ((a.value && !all) ? (' — ' + clip(a.value, 240)) : '');
             // Surfaced elsewhere on the compact card, so silent there — but narrated in full
@@ -1154,7 +1155,7 @@
             toolTimer = setTimeout(function () { toolTimer = null; playTools(); }, TOOL_GAP_MS);
         }
         function hasExit(obj) { return actionList(obj).some(function (a) { return a && a.type === 'exit'; }); }
-        function hasMinion(obj) { return actionList(obj).some(function (a) { return a && a.type === 'minion'; }); }
+        function hasMinion(obj) { return actionList(obj).some(function (a) { return a && (a.type === 'minion' || a.type === 'subagent'); }); }
 
         // ---- hand-typed terminal (Shell use) ----------------------------------------
         // The `>` prompt is a real input: Enter runs the command through /api/shell-exec
@@ -1374,7 +1375,7 @@
             // Anticipate the next step once this packet's tools finish playing — but NOT after
             // a dispatched minion: the coder is blocked until that minion returns, so the chain
             // would sit on the opening beats while nothing is being asked. It stops at
-            // "dispatched minion" and endMinion() restarts the opening phase.
+            // "dispatched subagent" and endSubagent() restarts the opening phase.
             anticipateNext = !hasExit(obj) && !hasMinion(obj);
             playTools();   // covers a packet with no chain tools — hand straight to the next opening
         }
@@ -1526,7 +1527,7 @@
             return b.face;
         }
 
-        function addMinion(id, query) {
+        function addSubagent(id, query) {
             startFunLines();   // a minion is off working — the head-side line cycles fun "thinking" lines
             if (header) mbotIn(id);
             var row = document.createElement('div');
@@ -1539,7 +1540,7 @@
             // Each minion streams its live output (initial = query) AND grows its own
             // horizontal action sub-chain, parsed from the same per-minion JSON. Shell use:
             // no sub-chain under the row; its tools play on its Minion bot's face instead.
-            minionStreams[id] = makeLineStreamer(row.querySelector('.mline'), query || 'minion');
+            minionStreams[id] = makeLineStreamer(row.querySelector('.mline'), query || 'subagent');
             if (ICONS && !header) minionChains[id] = ICONS.createChain(row.querySelector('.cc-mchain'), { orientation: 'horizontal' });
             minionParsers[id] = makeActionParser(function (obj) {
                 // Shell use: same rule as the coder — the minion's row streams its OWN
@@ -1554,7 +1555,7 @@
             if (window.requestAnimationFrame) requestAnimationFrame(layoutTrunk); else layoutTrunk();
         }
 
-        function setMinionLine(id, line) {
+        function setSubagentLine(id, line) {
             // Default: the raw line IS the row's text. In Shell use the parser below
             // streams the parsed prose instead, so the raw JSON never lands in the row.
             if (!header && minionStreams[id]) minionStreams[id].push(line);
@@ -1604,9 +1605,9 @@
         // The minion is done — DON'T wait for its streaming or show a mark. Immediately fade the
         // whole row (line + L + tool sub-chain) and collapse its height to 0 so the rows below
         // slide up; then remove it and re-anchor the trunk.
-        function endMinion(id, status) {
+        function endSubagent(id, status) {
             var row = findRow(id);
-            if (!row || row.classList.contains('leaving')) return;   // idempotent (cliMinionEnd can repeat)
+            if (!row || row.classList.contains('leaving')) return;   // idempotent (cliSubagentEnd can repeat)
             if (header) mbotOut(id);                                 // its bot sinks away now
 
             // stop streaming into a row that's leaving
@@ -1783,9 +1784,9 @@
             botOn: botOn,
             botToAnswer: botToAnswer,
             botEnd: botEnd,
-            addMinion: addMinion,
-            setMinionLine: setMinionLine,
-            endMinion: endMinion,
+            addSubagent: addSubagent,
+            setSubagentLine: setSubagentLine,
+            endSubagent: endSubagent,
             setWeb: setWeb,
             setDone: setDone,
             // The run's scratchpad notes, in order — cli_stage.js snapshots these at task

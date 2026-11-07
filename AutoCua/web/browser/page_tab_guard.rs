@@ -223,7 +223,7 @@ mod macos {
         let mut cmd = Command::new(python);
         cmd.arg("-c")
             .arg(format!(
-                "from AutoCua.web.agent_native import page_tab_guard_serve; page_tab_guard_serve({port})"
+                "from AutoCua.agent_native.web import page_tab_guard_serve; page_tab_guard_serve({port})"
             ))
             .env("PYTHONPATH", path)
             .stdin(Stdio::null())
@@ -356,7 +356,7 @@ mod macos {
 
     /// Note every tab that appears, until the browser goes away.
     fn watch_tabs(port: u16) -> Option<()> {
-        let version = crate::browser::chrome_http(port, "/json/version", "GET").ok()?;
+        let version = crate::web::browser::chrome_http(port, "/json/version", "GET").ok()?;
         let url = version.get("webSocketDebuggerUrl")?.as_str()?.to_string();
         let stream = TcpStream::connect(("127.0.0.1", port)).ok()?;
         let (mut ws, _) = tungstenite::client(url.as_str(), stream).ok()?;

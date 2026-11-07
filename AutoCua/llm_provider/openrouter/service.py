@@ -23,7 +23,7 @@ def _wrap_for_gemini(content) -> str:
     google/gemini-3.1-pro-preview, `<Tool_response>` + a JSON head + an
     <output> block came back `MALFORMED_RESPONSE` with an EMPTY turn, and an
     envelope whose output body merely CONTAINED braces (a viewed .json file,
-    `view`'s own [N] line numbers, any code) reached the model as scraped
+    `read`'s own [N] line numbers, any code) reached the model as scraped
     fragments — `[{},[2],[3],{"react":"18.0.0"},[4],[5]]` in place of the file.
     That is the bug behind a coder that reads every command as "no output" and
     then invents paths it never saw.

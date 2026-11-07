@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 use pyo3::prelude::*;
 use roxmltree::Node;
 
-use crate::controller::service::controller_service;
-use crate::tree::element::{bounds, read_tree, screenshot_rgb};
+use crate::android::controller::service::controller_service;
+use crate::android::tree::element::{bounds, read_tree, screenshot_rgb};
 
 /// One look at the screen every quarter second, nine of them: 2 s.
 const LOOKS: usize = 9;

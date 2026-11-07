@@ -1,15 +1,13 @@
 # `pip install AutoCua` — one wheel per OS/arch holding the AutoCua package
-# and both Rust extensions prebuilt, so no Rust is needed on the user's
-# machine: the web agent's (AutoCua/web), which maturin builds, and the
-# Android agent's (AutoCua/android), which the release machine builds into
-# place first and `include` below carries. Built with maturin:
+# and the Rust extension prebuilt, so no Rust is needed on the user's machine:
+# the one crate in AutoCua/ (the web agent, the Android agent and the coder),
+# which maturin builds. Built with maturin:
 #
 #   pip install maturin
-#   python -c "import AutoCua.android.agent"   # builds AutoCua/android/agent_native.*
 #   maturin build --release -o dist            # -> dist/autocua-*.whl
 #
 # note/pypi-release.md has the per-machine commands. A checkout keeps working
-# exactly as before (python main.py, the setup scripts, cargo building both
+# exactly as before (python main.py, the setup scripts, cargo building the
 # agents on first import).
 
 [build-system]
@@ -98,45 +96,34 @@ Homepage = "https://github.com/AutoCua/AutoCua"
 Source = "https://github.com/AutoCua/AutoCua"
 
 [tool.maturin]
-# The crate lives inside the package (AutoCua/web) and is imported as
-# AutoCua.web.agent_native; python-source = "." makes ./AutoCua the package.
-manifest-path = "AutoCua/web/Cargo.toml"
-module-name = "AutoCua.web.agent_native"
+# The one crate lives inside the package (AutoCua/Cargo.toml: the web agent,
+# the Android agent and the coder) and is imported as AutoCua.agent_native;
+# python-source = "." makes ./AutoCua the package.
+manifest-path = "AutoCua/Cargo.toml"
+module-name = "AutoCua.agent_native"
 python-source = "."
-# The Android agent's extension, AutoCua/android/agent_native, the second
-# crate: maturin builds one crate per wheel (manifest-path above), so each
-# release machine builds this one into place before `maturin build`
-# (`python -c "import AutoCua.android.agent"` — AutoCua/utils/rust.py; on Linux
-# `cargo zigbuild` against the wheel's glibc floor; note/pypi-release.md), and
-# it is named here because maturin's package walk honours .gitignore, where
-# *.py[cod] and *.so cover it: unlisted, it never reaches the wheel. The
-# crate's sources ship too (unlike the web crate's, below): a wheel that pip
-# builds from the sdist on a platform without one of ours has no module in
-# it, and rust.py builds it from them on the first Android run. One line per
-# platform's suffix; the one that matches nothing is skipped.
-include = [
-    { path = "AutoCua/android/agent_native.pyd", format = "wheel" },   # Windows
-    { path = "AutoCua/android/agent_native.so", format = "wheel" },    # macOS, Linux
-]
 exclude = [
     # wheel-only: the crate sources stay in the sdist so it can build, but a
-    # wheel ships the compiled extension — no Cargo.toml beside it means the
+    # wheel ships the compiled extension — no Cargo.toml in it means the
     # loader never tries cargo.
+    { path = "AutoCua/*.rs", format = "wheel" },
     { path = "AutoCua/web/**/*.rs", format = "wheel" },
-    { path = "AutoCua/web/*.rs", format = "wheel" },
-    { path = "AutoCua/web/Cargo.toml", format = "wheel" },
-    { path = "AutoCua/web/Cargo.lock", format = "wheel" },
-    { path = "AutoCua/web/build.rs", format = "wheel" },
+    { path = "AutoCua/android/**/*.rs", format = "wheel" },
+    { path = "AutoCua/coder/**/*.rs", format = "wheel" },
+    { path = "AutoCua/Cargo.toml", format = "wheel" },
+    { path = "AutoCua/Cargo.lock", format = "wheel" },
     # never shipped
-    "AutoCua/web/target/**",
+    "AutoCua/target/**",
     "AutoCua/web/scratchpad/**",
-    "AutoCua/android/target/**",
     "AutoCua/android/scratchpad/**",
+    "AutoCua/coder/scratchpad/**",
     # the licence-file generator (AutoCua/utils/third_party_licenses.py): a
     # maintainer's tool that reads the cargo registry, not part of the app
     { path = "AutoCua/utils/third_party_licenses.py", format = "wheel" },
-    # rust.py's staging copy of either extension (agent_native.pyd.new),
-    # which only a crash leaves behind — and which .gitignore does not cover
+    # rust.py's staging copy of the extension (agent_native.pyd.new), which
+    # only a crash leaves behind — and which .gitignore does not cover; the
+    # second line is for the per-agent ones from before the crates became one
+    "AutoCua/agent_native.*.new",
     "AutoCua/*/agent_native.*.new",
     "AutoCua/mac/scratchpad/**",
     "AutoCua/windows/scratchpad/**",

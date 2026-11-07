@@ -19,7 +19,7 @@ use regex::Regex;
 use serde_json::{json, Map, Value};
 
 use super::view;
-use crate::browser::{truthy, BrowserScanner, CHROME_PORT};
+use crate::web::browser::{truthy, BrowserScanner, CHROME_PORT};
 
 // Run-boundary request markers: on resume, the bridge entry that ended the
 // prior run gets its empty tool slot filled with the NEW run's request, so the
@@ -162,7 +162,7 @@ fn persistent_memory(todo_list: &str, scratchpad: &str, skills: &str, domain: &s
 /// step once there is one. The files are under AutoCua_data/scrapes/<run>/;
 /// `index_read` brings one back in full. Empty before the first index.
 fn scraped_index_block() -> String {
-    let lines = crate::controller::run_script::service::window::index_lines();
+    let lines = crate::web::controller::run_script::service::window::index_lines();
     if lines.is_empty() {
         String::new()
     } else {
@@ -173,17 +173,17 @@ fn scraped_index_block() -> String {
 /// The <skills> and <domain_knowledge> blocks of <persistent_memory>
 /// (controller/skills): the domain knowledge follows the current tab's url
 /// first. Each is empty when it has nothing.
-fn skills_blocks(py: Python<'_>, scanner: &crate::browser::BrowserScanner) -> (String, String) {
+fn skills_blocks(py: Python<'_>, scanner: &crate::web::browser::BrowserScanner) -> (String, String) {
     let url = scanner.current_url(py).unwrap_or_default();
-    crate::controller::skills::service::follow_url(&url);
-    (crate::controller::skills::service::block(), crate::controller::skills::service::domain_block())
+    crate::web::controller::skills::service::follow_url(&url);
+    (crate::web::controller::skills::service::block(), crate::web::controller::skills::service::domain_block())
 }
 
 /// The <vault> block of <persistent_memory> (controller/vault): the key names
 /// saved for the current tab's site, empty when there are none.
-fn vault_block(py: Python<'_>, scanner: &crate::browser::BrowserScanner) -> String {
+fn vault_block(py: Python<'_>, scanner: &crate::web::browser::BrowserScanner) -> String {
     let url = scanner.current_url(py).unwrap_or_default();
-    crate::controller::vault::service::block(py, &url)
+    crate::web::controller::vault::service::block(py, &url)
 }
 
 /// <all_tabs>: every open tab with its url — empty string on a digest step.
@@ -305,7 +305,7 @@ fn point_scrape_at_indexes(
         .map(|(n, title, pending)| format!("stored at index [{n}]: {}. pending: {pending}", title.trim()))
         .collect();
     let mut pointer = json!({"status": "success", "tool": "run_script", "message": lines.join("\n")});
-    if let Some(dir) = crate::controller::run_script::service::window::run_dir() {
+    if let Some(dir) = crate::web::controller::run_script::service::window::run_dir() {
         // Where the files are: a run continued from this history adopts the
         // folder again (seeded_scrapes_dir), so the lines stay true.
         pointer["scrapes_dir"] = json!(dir.to_string_lossy());
@@ -401,10 +401,10 @@ pub struct AgentService {
     save_conversation: bool,
     browser_port: u16,
     system_prompt: String,
-    llm_manager: Py<crate::tool_registry::service::LLMManager>,
+    llm_manager: Py<crate::web::tool_registry::service::LLMManager>,
     stop_event: Option<Py<PyAny>>,
     scanner: Py<BrowserScanner>,
-    controller: crate::controller::view::ControllerView,
+    controller: crate::web::controller::view::ControllerView,
     compression: Py<PyAny>,
     text_callback: Option<Py<PyAny>>,
     tool_callback: Option<Py<PyAny>>,
@@ -736,7 +736,7 @@ impl AgentService {
         _extra: Option<Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
         let _ = cli_callback;
-        let agent_dir = crate::agent_dir(py)?;
+        let agent_dir = crate::web::agent_dir(py)?;
 
         // Parallel runs hand each agent a session id (scopes the shared
         // scratchpad) and single_tab=true (one dedicated tab, no tab tools).
@@ -778,7 +778,7 @@ impl AgentService {
         };
         let llm_manager = Py::new(
             py,
-            crate::tool_registry::service::LLMManager::build(
+            crate::web::tool_registry::service::LLMManager::build(
                 py, &provider, &model, api_key_str, false, "main", &speed_final, single_tab,
             )?,
         )?;
@@ -801,20 +801,20 @@ impl AgentService {
             _ => CHROME_PORT,
         };
         let headless_flag = headless;
-        let browser_dir = crate::browser_dir(py)?;
+        let browser_dir = crate::web::browser_dir(py)?;
         // Chrome itself, installed now if it is missing (utils/chrome.py).
-        crate::ensure_chrome(py);
+        crate::web::ensure_chrome(py);
         let scanner = if !headless_flag {
             // A named profile (tests) is a user data folder of the agent's own; none
             // names the person's Chrome. Resolved on the PYTHON side: AutoCua/__init__.py
             // alone knows where AutoCua_data lives.
             let user_data = match browser_profile.as_deref() {
-                Some(name) => Some(crate::browser_profile_dir(py, Some(name))?),
+                Some(name) => Some(crate::web::browser_profile_dir(py, Some(name))?),
                 None => None,
             };
             let src = browser_dir.join("AutoCuaBridge");
             let bridge = py
-                .detach(move || crate::bridge::open_on_chrome(&src, user_data))
+                .detach(move || crate::web::bridge::open_on_chrome(&src, user_data))
                 .map_err(PyErr::from)?;
             let scanner = BrowserScanner::create(&browser_dir, 0, frontend_callback, None, single_tab);
             if let Ok(mut inner) = scanner.inner.lock() {
@@ -827,11 +827,11 @@ impl AgentService {
             // collides with a visible Chrome already holding the default profile: on
             // Windows that collision is silent, Chrome hands the launch to the running
             // instance and the debug port never opens.
-            crate::ensure_browser(py, browser_port_num, headless_flag);
-            let profile = crate::browser_profile_dir(py, browser_profile.as_deref()).ok();
+            crate::web::ensure_browser(py, browser_port_num, headless_flag);
+            let profile = crate::web::browser_profile_dir(py, browser_profile.as_deref()).ok();
             let launch_profile = profile.clone();
             py.detach(move || {
-                crate::browser::launch_chrome_impl(browser_port_num, headless_flag, launch_profile)
+                crate::web::browser::launch_chrome_impl(browser_port_num, headless_flag, launch_profile)
             })
             .map_err(PyErr::from)?;
             let scanner = Py::new(
@@ -863,7 +863,7 @@ impl AgentService {
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_default();
-        let controller = crate::controller::view::ControllerView::new(
+        let controller = crate::web::controller::view::ControllerView::new(
             &web_dir,
             session_id.as_deref(),
             single_tab,
@@ -972,10 +972,12 @@ impl AgentService {
         };
 
         // Runtime memory compression (rolling handoff): the dump/entry hooks
-        // are this driver's OWN — the pyfunctions exported by this module.
+        // are this driver's OWN — the pyfunctions exported by this module's
+        // web part.
         let own_mod = py
-            .import("AutoCua.web.agent_native")
-            .or_else(|_| py.import("agent_native"))?;
+            .import("AutoCua.agent_native")
+            .or_else(|_| py.import("agent_native"))?
+            .getattr("web")?;
         let compression_cls =
             py.import("AutoCua.memory_compression.controller")?
                 .getattr("CompressionController")?;
@@ -985,7 +987,7 @@ impl AgentService {
         let compression = compression_cls.call(
             (
                 llm_manager.clone_ref(py),
-                py.get_type::<crate::tool_registry::service::LLMManager>(),
+                py.get_type::<crate::web::tool_registry::service::LLMManager>(),
                 match &token_callback {
                     Some(c) => c.clone_ref(py).into_any(),
                     None => py.None(),
@@ -1077,16 +1079,16 @@ impl AgentService {
         // tool) are numbered from 1 and stored in a folder of their own,
         // AutoCua_data/scrapes/<run>/, made on the first index. Nothing of an
         // earlier run carries over.
-        let scrapes_dir = crate::data_root(py).ok().map(|root| {
+        let scrapes_dir = crate::web::data_root(py).ok().map(|root| {
             root.join("scrapes").join(format!(
                 "{}_{}",
                 chrono::Local::now().format("%Y-%m-%d_%H-%M-%S"),
                 std::process::id()
             ))
         });
-        crate::controller::run_script::service::window::new_run(scrapes_dir);
-        if let Some(web) = crate::web_dir(py).ok().and_then(|d| d.parent().map(|p| p.join("default_skills").join("web"))) {
-            crate::controller::skills::service::new_run(&web.join("skills"), &web.join("domain_skill"));
+        crate::web::controller::run_script::service::window::new_run(scrapes_dir);
+        if let Some(web) = crate::web::web_dir(py).ok().and_then(|d| d.parent().map(|p| p.join("default_skills").join("web"))) {
+            crate::web::controller::skills::service::new_run(&web.join("skills"), &web.join("domain_skill"));
         }
 
         let mut step_number: i64 = 0;
@@ -1132,7 +1134,7 @@ impl AgentService {
                 // scrape mode's exit pointer names their folder, and the
                 // files there are the list (window.rs resume).
                 if let Some(dir) = seeded_scrapes_dir(&tr) {
-                    crate::controller::run_script::service::window::resume(dir);
+                    crate::web::controller::run_script::service::window::resume(dir);
                 }
                 is_resumed = true;
                 is_first_iteration = false; // continuation, not a fresh dialogue
@@ -1171,7 +1173,7 @@ impl AgentService {
         // A fresh chat has typed nothing yet. A continuation keeps what the
         // vault typed: Chrome stays up, so the page may still show it.
         if !is_resumed {
-            crate::controller::vault::service::new_run();
+            crate::web::controller::vault::service::new_run();
         }
         // ---------------------------------------------------------------------
 
@@ -1347,7 +1349,7 @@ impl AgentService {
             // A value the vault typed shows in the page it went into (the
             // field's value in the tree, a label around it, a url): it reads
             // as [vault].
-            let page_block = crate::controller::vault::service::hide(&page_block);
+            let page_block = crate::web::controller::vault::service::hide(&page_block);
 
             // Construct user message based on iteration
             let mut user_message: String;
@@ -1605,8 +1607,8 @@ impl AgentService {
             .detach(|| core.send_rust(&msgs, &shots))
             .map_err(PyErr::from)?;
         let raw_response: Value = match outcome {
-            crate::tool_registry::service::SendOutcome::Native(v) => v,
-            crate::tool_registry::service::SendOutcome::Text(s) => Value::String(s),
+            crate::web::tool_registry::service::SendOutcome::Native(v) => v,
+            crate::web::tool_registry::service::SendOutcome::Text(s) => Value::String(s),
         };
 
         // Memory bar: forward this call's exact token usage.
@@ -1660,23 +1662,23 @@ impl AgentService {
         let track_params: &[(String, String)] = if in_scrape_mode {
             &[]
         } else if fast {
-            crate::tool_registry::service::main_memory_fields_fast()
+            crate::web::tool_registry::service::main_memory_fields_fast()
         } else if claude {
-            crate::tool_registry::service::claude_reasoning_fields()
+            crate::web::tool_registry::service::claude_reasoning_fields()
         } else {
-            crate::tool_registry::service::main_reasoning_fields()
+            crate::web::tool_registry::service::main_reasoning_fields()
         };
         let names = if in_scrape_mode {
-            crate::tool_registry::service::scrape_mode_names()
+            crate::web::tool_registry::service::scrape_mode_names()
         } else if fast {
-            crate::tool_registry::service::main_tool_names_fast()
+            crate::web::tool_registry::service::main_tool_names_fast()
         } else if claude {
-            crate::tool_registry::service::main_tool_names_claude()
+            crate::web::tool_registry::service::main_tool_names_claude()
         } else {
-            crate::tool_registry::service::main_tool_names()
+            crate::web::tool_registry::service::main_tool_names()
         };
         let (actions_val, calls, rejects, track_vec) =
-            crate::tool_registry::service::tool_calls_to_steps(
+            crate::web::tool_registry::service::tool_calls_to_steps(
                 raw_response.get("tool_calls").unwrap_or(&Value::Null),
                 track_params,
                 names,
@@ -2058,7 +2060,7 @@ impl AgentService {
                 .route_action(py, &Value::Array(actions_val.clone()))?;
             // The pictures a scrape read took this step go with the next
             // input; a step without a read leaves none (run_script window.rs).
-            let shots = crate::controller::run_script::service::window::take_shots();
+            let shots = crate::web::controller::run_script::service::window::take_shots();
             if let Ok(mut st) = self.state.lock() {
                 st.scrape_shots = shots;
             }
@@ -2101,7 +2103,7 @@ impl AgentService {
                     st.scrape_mode = entered && !left;
                     if entered && st.scrape_start.is_none() {
                         st.scrape_start = Some(am.len() - 1);
-                        crate::controller::run_script::service::window::mark_mode_start();
+                        crate::web::controller::run_script::service::window::mark_mode_start();
                         // A compression still in flight would land inside the
                         // mode and move this start: dropped; the next trigger
                         // comes after the exit.
@@ -2109,8 +2111,8 @@ impl AgentService {
                     }
                     if entered {
                         // The mode's rules: the agent may remove them after.
-                        crate::controller::skills::service::load_named(
-                            crate::controller::skills::service::SCRAPING_SKILL,
+                        crate::web::controller::skills::service::load_named(
+                            crate::web::controller::skills::service::SCRAPING_SKILL,
                         );
                     }
                 }
@@ -2120,7 +2122,7 @@ impl AgentService {
                 if let Some(start) = retire {
                     let retired = am.len().saturating_sub(start + 1);
                     retire_scrape_mode(am, tr, start)?;
-                    let stored = crate::controller::run_script::service::window::mode_indexes();
+                    let stored = crate::web::controller::run_script::service::window::mode_indexes();
                     point_scrape_at_indexes(tr, start, &stored)?;
                     println!(
                         "Scraping mode left: {retired} step(s) retired from the history, {} index(es) stored.",

@@ -34,7 +34,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde_json::{json, Map, Value};
 
-use crate::agent::android_use::view::{py_str_of, truthy};
+use crate::android::agent::android_use::view::{py_str_of, truthy};
 
 /// The transcript carries an optional per-turn `provider_meta` on assistant
 /// messages: the provider's OWN metadata for that turn (Gemini 3 thought

@@ -17,13 +17,13 @@ use std::time::{Duration, Instant};
 use pyo3::prelude::*;
 use serde_json::{json, Map, Value};
 
-use crate::browser::{truthy, Cdp, CdpFail, ScannerInner};
-use crate::controller::click::service::press;
-use crate::controller::service::{
+use crate::web::browser::{truthy, Cdp, CdpFail, ScannerInner};
+use crate::web::controller::click::service::press;
+use crate::web::controller::service::{
     label_for, rect_for, reject_viewport, resolve_element_id, with_cursor, ActResult,
     ACTION_SETTLE_CAP_MS,
 };
-use crate::agent::main_driver::view::py_str_of;
+use crate::web::agent::main_driver::view::py_str_of;
 
 /// How long a click gets to land focus in a field: the settle's own cap,
 /// since a widget that moves focus when its transition ends (Google Flights'

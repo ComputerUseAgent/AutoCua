@@ -5,32 +5,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ScratchpadService:
-    def __init__(self, cli_mode: bool = False, session_id: str = None, minion_mode: bool = False):
-        """Initialize the Scratchpad Service
-
-        Args:
-            cli_mode: If True, uses cli_milestone folder for isolation from main agent
-            session_id: Optional unique session ID for isolated scratchpad folders (cli_mode only)
-            minion_mode: If True, uses cli_minion folder so minion sub-agent sessions don't
-                pollute the parent CLI agent's cli_milestone folder. Requires cli_mode=True.
-        """
+    def __init__(self):
+        """Initialize the Scratchpad Service"""
         current_dir = os.path.dirname(os.path.abspath(__file__))
         # Go up two levels from AutoCua/mac/controller/scratchpad/ to reach mac/
         mac_dir = os.path.dirname(os.path.dirname(current_dir))
 
         # On-disk storage paths kept as "milestone/milestone.md" to preserve existing data
         # and avoid the scratchpad/scratchpad/scratchpad.md collision with the parent dir.
-        if cli_mode and minion_mode:
-            subdir = "cli_minion"
-        elif cli_mode:
-            subdir = "cli_milestone"
-        else:
-            subdir = "milestone"
-
-        if cli_mode and session_id:
-            self.scratchpad_dir = os.path.join(mac_dir, "scratchpad", subdir, session_id)
-        else:
-            self.scratchpad_dir = os.path.join(mac_dir, "scratchpad", subdir)
+        self.scratchpad_dir = os.path.join(mac_dir, "scratchpad", "milestone")
 
         self.scratchpad_file = os.path.join(self.scratchpad_dir, "milestone.md")
 
@@ -65,17 +48,6 @@ class ScratchpadService:
         except Exception as e:
             logger.error(f"Error appending scratchpad entry: {str(e)}")
             return False
-
-    def read_scratchpad(self):
-        """Read current scratchpad content"""
-        try:
-            if os.path.exists(self.scratchpad_file):
-                with open(self.scratchpad_file, "r", encoding="utf-8") as f:
-                    return f.read().strip()
-            return ""
-        except Exception as e:
-            logger.error(f"Error reading scratchpad: {str(e)}")
-            return ""
 
     def clear_scratchpad(self):
         """Clear the scratchpad file"""

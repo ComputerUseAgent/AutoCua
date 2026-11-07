@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use serde_json::{Map, Value};
 
-use crate::agent::android_use::view::py_str_of;
+use crate::android::agent::android_use::view::py_str_of;
 
 /// Python's int(x): the whole number, or int()'s own complaint.
 pub fn py_int(v: &Value) -> Result<i64, String> {

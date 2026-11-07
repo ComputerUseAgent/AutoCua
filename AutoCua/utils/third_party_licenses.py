@@ -1,9 +1,9 @@
 """Regenerate THIRD_PARTY_LICENSES.txt: the licence texts the wheels' prebuilt Rust code must carry.
 
-Every wheel ships two Rust extension modules already compiled: the web agent
-(AutoCua/web/agent_native) and the Android agent (AutoCua/android/agent_native).
-Linking copies other people's code into them: the crates pinned in each
-Cargo.lock, the Rust standard library (compiler-builtins and its bundled libm
+Every wheel ships one Rust extension module already compiled,
+AutoCua/agent_native: the web agent, the Android agent and the coder.
+Linking copies other people's code into it: the crates pinned in
+AutoCua/Cargo.lock, the Rust standard library (compiler-builtins and its bundled libm
 included) and
 the runtime code the linkers add: MinGW-w64's and GCC's on Windows, Zig's on
 Linux. Their licences allow binary copies only together with their licence
@@ -13,7 +13,7 @@ which pyproject.toml's license-files puts in every wheel's
 
 WHAT IT READS (nothing is downloaded, built or changed)
     cargo      `cargo tree --edges normal,no-proc-macro --target <triple>`
-               (--offline --locked) for each crate and each wheel target: the
+               (--offline --locked) for the crate and each wheel target: the
                crates actually linked. Build- and dev-dependencies and
                proc-macros run at compile time only and do not ship.
                `cargo metadata` gives each crate's folder in the registry.
@@ -41,11 +41,11 @@ WHAT IT READS (nothing is downloaded, built or changed)
                rustc-literal-escaper) is not in a cdylib and is marked so.
     this file  the texts at the bottom that no toolchain on disk carries, each
                with its source URL and SHA-256: MINGW_RUNTIME and WINPTHREADS,
-               MinGW-w64's terms for the Windows modules; COMPILER_BUILTINS,
+               MinGW-w64's terms for the Windows module; COMPILER_BUILTINS,
                the LICENSE.txt of std's in-tree compiler-builtins crate, which
                COPYRIGHT-library.html leaves out; and ZIG, the licence of the
                Zig toolchain whose linker builds the Linux wheel (maturin
-               --zig) and may add Zig's compiler-rt to the modules.
+               --zig) and may add Zig's compiler-rt to the module.
 
 Identical texts are printed once, listing every crate@version that uses them.
 Copies that differ only in their copyright lines share one text, with each
@@ -55,13 +55,12 @@ no change to a Cargo.lock or the toolchain leaves the file as it was.
     python -m AutoCua.utils.third_party_licenses           # regenerate the file
     python -m AutoCua.utils.third_party_licenses --check   # exit 1 if it is out of date
 
-Rerun it before building wheels whenever AutoCua/web/Cargo.lock,
-AutoCua/android/Cargo.lock or the Rust toolchain changes, and commit the
-result. rust-toolchain.toml at the repo root pins the toolchain (channel
+Rerun it before building wheels whenever AutoCua/Cargo.lock or the Rust
+toolchain changes, and commit the result. rust-toolchain.toml at the repo root pins the toolchain (channel
 RUST_RELEASE below), so every release machine links the std the file
 describes; cargo and rustc run from the repo, so they are that toolchain.
-It needs the crates in the local cargo registry (any build of the two crates
-leaves them there; otherwise `cargo fetch` in each crate folder) and, for the
+It needs the crates in the local cargo registry (`cargo fetch` in AutoCua/
+gets them all; a build gets only its own target's) and, for the
 exact list of std's crates, each wheel target's std (`rustup target add
 <triple>`); without one it says so and uses the others.
 """
@@ -81,10 +80,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]      # AutoCua/utils/ -> the repo
 OUTPUT = REPO / "THIRD_PARTY_LICENSES.txt"
 
-# The extension modules the wheels ship prebuilt: crate folder, what it is.
+# The extension module the wheels ship prebuilt: crate folder, what it is.
 MODULES = (
-    ("AutoCua/web", "the web agent"),
-    ("AutoCua/android", "the Android agent"),
+    ("AutoCua", "the web agent, the Android agent and the coder"),
 )
 
 # One wheel per target (note/pypi-release.md): Windows x64 built with Rust's
@@ -717,23 +715,23 @@ def generate():
         "THIRD-PARTY LICENCES: AutoCua's prebuilt Rust extensions",
         "=" * 57,
         "",
-        _fill("AutoCua's wheels ship two Rust extension modules prebuilt: "
-              "AutoCua/web/agent_native (the web agent) and AutoCua/android/agent_native "
-              "(the Android agent), each compiled for the wheel's target: "
+        _fill("AutoCua's wheels ship one Rust extension module prebuilt: "
+              "AutoCua/agent_native (the web agent, the Android agent and the coder), "
+              "compiled for the wheel's target: "
               + ", ".join(f"{t} ({label[t]})" for t in triples) + ". "
-              "Compiling them links in third-party code: the crates pinned in "
-              "AutoCua/web/Cargo.lock and AutoCua/android/Cargo.lock, the Rust standard library "
+              "Compiling it links in third-party code: the crates pinned in "
+              "AutoCua/Cargo.lock, the Rust standard library "
               "(with compiler-builtins and the libm it bundles) and the runtime code the "
               "linkers add: MinGW-w64's and GCC's on Windows, Zig's on Linux. This file holds "
               "the licence texts and notices that code's licences ask binary copies to carry. "
               "THIRD_PARTY_NOTICES.md describes each component; AutoCua's own MIT licence "
               "(LICENSE) covers none of it."),
         "",
-        _fill(f"Generated by AutoCua/utils/third_party_licenses.py from the two Cargo.lock files, the "
+        _fill(f"Generated by AutoCua/utils/third_party_licenses.py from AutoCua/Cargo.lock, the "
               f"cargo registry and the Rust toolchain, {rustc_version}: the release that "
               f"rust-toolchain.toml at the repository root pins, so every machine that builds "
               f"a wheel links the standard library described here. Do not edit it by hand: "
-              f"after a change to either Cargo.lock or to the pinned toolchain, run"),
+              f"after a change to Cargo.lock or to the pinned toolchain, run"),
         "",
         "    python -m AutoCua.utils.third_party_licenses",
         "",
@@ -742,7 +740,7 @@ def generate():
         "",
         "Contents",
         "  1. Independent JPEG Group",
-        "  2. Crates linked into each module",
+        "  2. Crates linked into the module",
         "  3. Rust standard library",
         "  4. Runtime code the linkers add (Windows x64 and Linux x86_64 wheels)",
         "  5. Copyright lines in compiled sources",
@@ -766,7 +764,7 @@ def generate():
         out.append("No linked crate holds code derived from the Independent JPEG Group's.")
     out += ["", ""]
 
-    out += _heading(2, "CRATES LINKED INTO EACH MODULE")
+    out += _heading(2, "CRATES LINKED INTO THE MODULE")
     out += [_fill("Normal dependencies only, per target, as `cargo tree --edges "
                   "normal,no-proc-macro --target <triple>` resolves them: build-dependencies, "
                   "dev-dependencies and proc-macros run at compile time and are not linked. "
@@ -790,7 +788,7 @@ def generate():
         out += ["", ""]
 
     out += _heading(3, "RUST STANDARD LIBRARY")
-    out += [_fill(f"rustc links its standard library into every module. Its notices, from "
+    out += [_fill(f"rustc links its standard library into the module. Its notices, from "
                   f"the toolchain's share/doc/rust/COPYRIGHT-library.html ({rustc_version}):"), "",
             textwrap.indent(prose.text(), "  "), ""]
     if in_tree_keys:
@@ -826,12 +824,12 @@ def generate():
     out += _heading(4, "RUNTIME CODE THE LINKERS ADD (WINDOWS X64 AND LINUX X86_64 WHEELS)")
     out += [_fill("Linking a module can copy runtime code from the linker's own toolchain "
                   "into it, beyond the crates and the standard library. The macOS arm64 "
-                  "wheel's modules link Apple's system libraries dynamically; the other two "
+                  "wheel's module links Apple's system libraries dynamically; the other two "
                   "wheels' carry what follows."), ""]
     title = "Windows x64 wheel (x86_64-pc-windows-gnu, MinGW-w64 GCC)"
     out += [title, "-" * len(title),
-            _fill("Both modules are built with Rust's GNU toolchain and linked by MinGW-w64 "
-                  "GCC, which adds runtime code to them statically:"), ""]
+            _fill("The module is built with Rust's GNU toolchain and linked by MinGW-w64 "
+                  "GCC, which adds runtime code to it statically:"), ""]
     for item in (
             "MinGW-w64's C runtime start-up code (dllcrt2.o) and parts of its runtime "
             "libraries (libmingw32, libmingwex, the CRT import libraries). Their terms: "
@@ -852,11 +850,11 @@ def generate():
                 _normalize(text), ""]
     title = f"Linux x86_64 wheel (maturin --zig, ziglang {ZIG_VERSION})"
     out += [title, "-" * len(title),
-            _fill(f"Both modules are linked by Zig's `zig cc` (`maturin build --release --zig` "
+            _fill(f"The module is linked by Zig's `zig cc` (`maturin build --release --zig` "
                   f"with the ziglang {ZIG_VERSION} package; note/pypi-release.md), which may add "
                   f"Zig's own compiler-rt (its implementations of the routines compilers call "
-                  f"for the operations they lower to calls) to them statically. Its terms are "
-                  f"Zig's LICENSE (MIT, Zig contributors), below. Neither module compiles C++, "
+                  f"for the operations they lower to calls) to it statically. Its terms are "
+                  f"Zig's LICENSE (MIT, Zig contributors), below. The module compiles no C++, "
                   f"so LLVM's libc++ (Apache-2.0 WITH LLVM-exception, no notice condition) is "
                   f"not linked in."),
             ""]
@@ -921,7 +919,7 @@ def main():
 
 # -- MinGW-w64's terms ----------------------------------------------------------
 #
-# The Windows modules carry MinGW-w64 runtime code (see section 4 of the
+# The Windows module carries MinGW-w64 runtime code (see section 4 of the
 # output), but neither Rust's toolchain nor WinLibs' GCC ships these texts, so
 # they are copied here from mingw-w64's own repository at v14.0.0, the
 # MinGW-w64 release in the WinLibs GCC that links the Windows wheel. Trailing
@@ -1562,8 +1560,8 @@ or licenses.
 # -- Zig's terms ------------------------------------------------------------------
 #
 # The Linux wheel is built with `maturin build --release --zig` (the ziglang
-# package pinned in note/pypi-release.md), so Zig's `zig cc` links its modules
-# and may add Zig's own compiler-rt to them (neither module compiles C++, so
+# package pinned in note/pypi-release.md), so Zig's `zig cc` links its module
+# and may add Zig's own compiler-rt to it (the module compiles no C++, so
 # LLVM's libc++ stays out). Zig's LICENSE is copied here from the
 # tagged release. The SHA-256 is of the file as served. Refresh ZIG_VERSION,
 # the text and the hash when the release note moves to another ziglang.

@@ -26,8 +26,8 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde_json::{json, Map, Value};
 
-use crate::browser::truthy;
-use crate::agent::main_driver::view::py_str_of;
+use crate::web::browser::truthy;
+use crate::web::agent::main_driver::view::py_str_of;
 
 /// The transcript carries an optional per-turn `provider_meta` on assistant
 /// messages — the provider's OWN metadata for that turn. Only these providers

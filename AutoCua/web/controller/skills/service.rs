@@ -18,8 +18,8 @@ use std::sync::Mutex;
 
 use serde_json::{json, Value};
 
-use crate::agent::main_driver::view::py_str_of;
-use crate::controller::service::{err, py_int_value, ActErr, ActResult};
+use crate::web::agent::main_driver::view::py_str_of;
+use crate::web::controller::service::{err, py_int_value, ActErr, ActResult};
 
 /// The skill a scrape read needs, loaded as the mode opens (`load_named`).
 pub const SCRAPING_SKILL: &str = "scraping.md";

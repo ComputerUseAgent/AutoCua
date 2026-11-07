@@ -17,12 +17,13 @@
 #                  Android's android.jar and d8 once into
 #                  ~/.AutoCua/android-build (about 300 MB). Commit the jar and
 #                  nobody else needs Java.
-#   Rust + cargo   a checkout builds the Android crate, AutoCua/android, with
-#                  them (https://rustup.rs), like the web crate; the pip
-#                  wheels ship it prebuilt, so pip users need neither. Its
-#                  crates (zune-jpeg, jpeg-encoder, roxmltree, pyo3, ...) are
-#                  in AutoCua/android/Cargo.toml; none compiles C or C++,
-#                  cargo only links through the system C compiler.
+#   Rust + cargo   a checkout builds the one Rust crate, AutoCua/Cargo.toml
+#                  (the web and Android agents and the coder), with them
+#                  (https://rustup.rs); the pip wheels ship it prebuilt, so
+#                  pip users need neither. The Android part's crates
+#                  (zune-jpeg, jpeg-encoder, roxmltree, pyo3, ...) compile no
+#                  C or C++; the web part's ring does, with the system C
+#                  compiler cargo also links through.
 #
 #   uv pip install --python .venv/bin/python -r requirements_android.txt
 #   # or:  pip install -r requirements_android.txt

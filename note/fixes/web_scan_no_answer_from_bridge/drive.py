@@ -17,7 +17,7 @@ import time
 
 # The checkout this note lives in: note/fixes/<this folder>/drive.py
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
-from AutoCua.web.agent_native import Bridge  # noqa: E402
+from AutoCua.web.agent import Bridge  # noqa: E402  (builds the extension first if needed)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--label", required=True)

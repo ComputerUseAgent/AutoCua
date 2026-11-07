@@ -688,7 +688,7 @@
        Fixed, generic captions like the main agent — NOT the real command / args. */
     var CODER_TOOL_MAP = {
         shell:   { shape: 'shell',   label: 'executed shell' },
-        view:    { shape: 'view',    label: 'viewed a file' },
+        read:    { shape: 'view',    label: 'read a file' },
         grep:    { shape: 'grep',    label: 'used grep' },
         glob:    { shape: 'glob',    label: 'used glob' },
         write:   { shape: 'write',   label: 'wrote a file' },
@@ -696,6 +696,7 @@
         web:     { shape: 'web',     label: 'searching the web' },
         wait:    { shape: 'loader',  label: 'waiting' },
         minion:  { shape: 'minion',  label: 'dispatched minion' },
+        subagent: { shape: 'minion', label: 'dispatched subagent' },
         plan:    { shape: 'plan',    label: 'planning next steps' },
     };
     // todo_list / update_todo / scratchpad / exit are intentionally absent — they are surfaced

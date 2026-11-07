@@ -13,8 +13,8 @@ use std::time::Duration;
 use pyo3::prelude::*;
 use serde_json::{Map, Value};
 
-use crate::browser::{truthy, SResult, ScanErr, ScannerInner};
-use crate::agent::main_driver::view::py_str_of;
+use crate::web::browser::{truthy, SResult, ScanErr, ScannerInner};
+use crate::web::agent::main_driver::view::py_str_of;
 
 /// [1] is the page itself on every scan — the scanner reserves it. It is a
 /// scroll target, never a control.
