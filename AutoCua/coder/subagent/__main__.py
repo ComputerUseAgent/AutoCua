@@ -60,6 +60,9 @@ def main():
     api_key = os.environ.pop("AutoCua_CODER_API_KEY", None) or None
 
     try:
+        from AutoCua.utils.rust import ensure_built
+
+        ensure_built()
         from AutoCua.agent_native.coder import run_subagent
 
         run_subagent(args.task, args.provider, args.model, args.result, args.mode,

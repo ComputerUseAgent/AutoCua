@@ -196,4 +196,4 @@ def ensure_built() -> None:
     """The one Rust extension (AutoCua/agent_native): the web agent, the
     Android agent and the coder, built once."""
     _ensure_built(_PACKAGE, "web, Android and coder agents",
-                  "Every other mode (computer use, shell use, iOS)")
+                  "Every other mode (computer use, iOS)")
