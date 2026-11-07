@@ -12,4 +12,4 @@
 # and Chrome restarted.
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE/../../../.." || exit 1
-exec python3 -c 'import AutoCua.web.agent; from AutoCua.web.agent_native import bridge_test; bridge_test()'
+exec python3 -c 'import AutoCua.web.agent; from AutoCua.agent_native.web import bridge_test; bridge_test()'

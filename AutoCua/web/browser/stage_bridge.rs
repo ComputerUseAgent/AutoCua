@@ -232,11 +232,11 @@ fn id_path_bytes(path: &Path) -> Vec<u8> {
 pub fn stage_bridge(py: Python<'_>, dest: Option<String>, src: Option<String>) -> PyResult<(String, String)> {
     let src = match src {
         Some(s) => PathBuf::from(s),
-        None => crate::browser_dir(py)?.join("AutoCuaBridge"),
+        None => crate::web::browser_dir(py)?.join("AutoCuaBridge"),
     };
     let dest = dest.map(PathBuf::from).unwrap_or_else(default_dest);
     let staged = stage(&src, &dest).map_err(|e| {
-        crate::ScannerError::new_err(format!("could not stage AutoCuaBridge into {}: {e}", dest.display()))
+        crate::web::ScannerError::new_err(format!("could not stage AutoCuaBridge into {}: {e}", dest.display()))
     })?;
     Ok((staged.display().to_string(), extension_id(&staged)))
 }

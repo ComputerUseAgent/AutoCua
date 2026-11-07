@@ -51,9 +51,9 @@ use super::scratchpad::service::ScratchpadService;
 use super::task_tracker::service::TaskTrackerService;
 use super::tool::plan::service::PlanService;
 use super::tool::web::service::WebService;
-use crate::sandbox::service::{py_os_error, py_repr_str};
-use crate::tool_registry::service::NOTE_TOOLS;
-use crate::{py_err_str, py_str_of, truthy};
+use crate::coder::sandbox::service::{py_os_error, py_repr_str};
+use crate::coder::tool_registry::service::NOTE_TOOLS;
+use crate::coder::{py_err_str, py_str_of, truthy};
 
 /// The end-of-batch wait looks at the subagents this often, in seconds.
 const AWAIT_POLL: f64 = 0.5;
@@ -227,7 +227,7 @@ impl ControllerView {
         external_terminal: bool,
         save_conversation: bool,
     ) -> PyResult<ControllerView> {
-        let scratch_root = crate::scratch_root(py)?;
+        let scratch_root = crate::coder::scratch_root(py)?;
         let task_tracker = TaskTrackerService::new(&scratch_root, session_id);
         let plan_service = PlanService::new(&scratch_root, session_id);
         let scratchpad_service = ScratchpadService::new(&scratch_root, session_id, subagent_mode);
@@ -418,7 +418,7 @@ impl ControllerView {
                     let mode = arg_str(item, "mode", "");
                     let error = if !SUBAGENT_MODES.contains(&mode.as_str()) {
                         Some("subagent mode must be \"workflow\" or \"critic\".")
-                    } else if crate::py_strip(&arg_str(item, "value", "")).is_empty() {
+                    } else if crate::coder::py_strip(&arg_str(item, "value", "")).is_empty() {
                         Some("subagent value must be a brief, not empty.")
                     } else {
                         None
@@ -1191,7 +1191,7 @@ fn take_result(task: &mut SubagentTask) -> Option<(Value, Value)> {
 /// The result file's summary and status (Python's `.get("summary", "")` and
 /// `.get("status", "complete")`), or why it cannot be read.
 fn read_result(path: &Path) -> Result<(Value, Value), String> {
-    let text = crate::read_text(path).map_err(|e| py_os_error(&e, path))?;
+    let text = crate::coder::read_text(path).map_err(|e| py_os_error(&e, path))?;
     match serde_json::from_str::<Value>(&text).map_err(|e| e.to_string())? {
         Value::Object(map) => Ok((
             map.get("summary").cloned().unwrap_or_else(|| json!("")),
@@ -1431,7 +1431,7 @@ fn arg_int(item: &Value, key: &str, default: i64) -> i64 {
     match item.get(key) {
         Some(Value::Number(n)) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)).unwrap_or(default),
         Some(Value::Bool(b)) => i64::from(*b),
-        Some(Value::String(s)) => crate::py_strip(s).parse().unwrap_or(default),
+        Some(Value::String(s)) => crate::coder::py_strip(s).parse().unwrap_or(default),
         _ => default,
     }
 }

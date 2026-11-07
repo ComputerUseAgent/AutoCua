@@ -21,8 +21,8 @@ use pyo3::prelude::*;
 use regex::{Regex, RegexBuilder};
 use serde_json::{json, Map, Value};
 
-use crate::sandbox::service::{has_nul, py_home_dir, py_os_error, py_repr_str, py_resolve, Sandbox};
-use crate::{dumps_pretty, py_splitlines, py_strip};
+use crate::coder::sandbox::service::{has_nul, py_home_dir, py_os_error, py_repr_str, py_resolve, Sandbox};
+use crate::coder::{dumps_pretty, py_splitlines, py_strip};
 
 // ---------------------------------------------------------------------------
 // The output envelope
@@ -375,7 +375,7 @@ impl CLIService {
             return Ok(Value::Object(response));
         }
 
-        if result.get("timeout").is_some_and(crate::truthy) {
+        if result.get("timeout").is_some_and(crate::coder::truthy) {
             let message = result.get("message").cloned().unwrap_or_else(|| {
                 json!("Command timed out (may need input - use input parameter if program requires user input)")
             });
@@ -391,7 +391,7 @@ impl CLIService {
             return Ok(Value::Object(response));
         }
 
-        let succeeded = result.get("success").is_some_and(crate::truthy);
+        let succeeded = result.get("success").is_some_and(crate::coder::truthy);
         let mut response = Map::new();
         response.insert("status".into(), json!(if succeeded { "success" } else { "error" }));
         response.insert("action".into(), json!("shell"));
@@ -404,7 +404,7 @@ impl CLIService {
         }
         let shown = if clean_output.is_empty() { "(no output)".to_string() } else { clean_output };
         response.insert("output".into(), json!(shown));
-        if let Some(error) = result.get("error").filter(|v| crate::truthy(v)) {
+        if let Some(error) = result.get("error").filter(|v| crate::coder::truthy(v)) {
             response.insert("error".into(), error.clone());
         }
         Ok(Value::Object(response))
@@ -1025,7 +1025,7 @@ fn py_slice_len(len: usize, k: i64) -> usize {
 
 /// Path.read_text(encoding="utf-8"): strict, with Python's error texts.
 fn read_strict(p: &Path) -> Result<String, String> {
-    match crate::read_text(p) {
+    match crate::coder::read_text(p) {
         Ok(text) => Ok(text),
         Err(e) if e.kind() == io::ErrorKind::InvalidData => match fs::read(p) {
             Ok(bytes) => match std::str::from_utf8(&bytes) {
@@ -1182,7 +1182,7 @@ fn user_home(name: &str) -> Option<PathBuf> {
     }
     // SAFETY: on success pw_dir is a NUL-terminated string inside buf.
     let dir = unsafe { CStr::from_ptr(pwd.pw_dir) }.to_bytes().to_vec();
-    Some(crate::sandbox::service::py_home_rstrip(OsStr::from_bytes(&dir)))
+    Some(crate::coder::sandbox::service::py_home_rstrip(OsStr::from_bytes(&dir)))
 }
 
 /// ~user on Windows: a sibling of the current user's profile folder.

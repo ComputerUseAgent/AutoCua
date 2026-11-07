@@ -35,7 +35,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString};
 use serde_json::{json, Map, Value};
 
-use crate::{py_strip, truthy};
+use crate::coder::{py_strip, truthy};
 
 /// The transcript carries an optional per-turn `provider_meta` on assistant
 /// messages: the provider's OWN metadata for that turn (Gemini 3 thought
@@ -662,7 +662,7 @@ pub fn dialect_tools(provider: &str, registry: &[Value]) -> Vec<Value> {
 
 // -- Python's str() and int() on JSON values ---------------------------------
 
-/// Python `str(value)` of a JSON-decoded value. Unlike crate::py_str_of, a
+/// Python `str(value)` of a JSON-decoded value. Unlike crate::coder::py_str_of, a
 /// list or dict comes out the way Python writes it (`['ls', '-la']`,
 /// `{'a': 1}`) and a float as Python's repr (`1e-07`), so a coerced argument
 /// reads exactly as in the Python coder.
@@ -1151,7 +1151,7 @@ fn send_err(py: Python<'_>, e: PyErr) -> SendErr {
         .and_then(|m| m.getattr("RefusalError"))
         .and_then(|ty| e.value(py).is_instance(&ty))
         .unwrap_or(false);
-    let msg = crate::py_err_str(py, &e);
+    let msg = crate::coder::py_err_str(py, &e);
     if refused {
         SendErr::Refused(msg)
     } else {

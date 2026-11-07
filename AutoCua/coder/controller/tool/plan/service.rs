@@ -23,7 +23,7 @@ fn log(text: &str) {
 
 /// Python's `not value or not value.strip()`.
 fn is_blank(value: &str) -> bool {
-    crate::py_strip(value).is_empty()
+    crate::coder::py_strip(value).is_empty()
 }
 
 /// Python's `value.rstrip("\n").split("\n")`.
@@ -80,8 +80,8 @@ impl PlanService {
         if !self.plan_no_file.exists() {
             return 0;
         }
-        match crate::read_text(&self.plan_no_file) {
-            Ok(text) => crate::py_strip(&text).parse().unwrap_or(0),
+        match crate::coder::read_text(&self.plan_no_file) {
+            Ok(text) => crate::coder::py_strip(&text).parse().unwrap_or(0),
             Err(_) => 0,
         }
     }
@@ -99,7 +99,7 @@ impl PlanService {
         if !self.plan_file.exists() {
             return None;
         }
-        match crate::read_text(&self.plan_file) {
+        match crate::coder::read_text(&self.plan_file) {
             Ok(content) if is_blank(&content) => None,
             Ok(content) => Some(split_lines(&content)),
             Err(e) => {

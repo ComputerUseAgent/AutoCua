@@ -34,8 +34,8 @@ use pyo3::prelude::*;
 use serde_json::{json, Value};
 use tungstenite::Message;
 
-use crate::bridge;
-use crate::stage_bridge;
+use crate::web::bridge;
+use crate::web::stage_bridge;
 /// element.rs DEBUG_DIR: relative to the working directory, the repo root when
 /// test.command runs.
 const DEBUG_DIR: &str = "debug";
@@ -227,10 +227,10 @@ pub fn bridge_test(py: Python<'_>, chrome_args: Option<Vec<String>>, profile: Op
     replace_previous()?;
     // A run as far as the lock goes: the app's idle line steps aside while this serves.
     let _run = bridge::hold_run_lock();
-    let src = crate::browser_dir(py)?.join("AutoCuaBridge");
+    let src = crate::web::browser_dir(py)?.join("AutoCuaBridge");
     let dest = stage_bridge::default_dest();
     let staged = stage_bridge::stage(&src, &dest).map_err(|e| {
-        crate::ScannerError::new_err(format!("could not stage AutoCuaBridge into {}: {e}", dest.display()))
+        crate::web::ScannerError::new_err(format!("could not stage AutoCuaBridge into {}: {e}", dest.display()))
     })?;
     let id = stage_bridge::extension_id(&staged);
     let listener = TcpListener::bind("127.0.0.1:0")?;

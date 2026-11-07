@@ -29,19 +29,19 @@ use pyo3::exceptions::{PyAttributeError, PyException, PyKeyboardInterrupt, PyOSE
 use pyo3::prelude::*;
 use serde_json::{json, Map, Value};
 
-use crate::controller::cli::service::render_tool_response;
-use crate::controller::service::ControllerView;
-use crate::main::service::{current_os, display_payload, print_turn, turn_notes};
-use crate::main::view::{
+use crate::coder::controller::cli::service::render_tool_response;
+use crate::coder::controller::service::ControllerView;
+use crate::coder::main::service::{current_os, display_payload, print_turn, turn_notes};
+use crate::coder::main::view::{
     coder_snapshot_turn, decode_results, decode_step, encode_results, encode_step, wire_calls_from,
     REASONING_RESULT,
 };
-use crate::sandbox::service::py_os_error;
-use crate::tool_registry::service::{
+use crate::coder::sandbox::service::py_os_error;
+use crate::coder::tool_registry::service::{
     action_defaults, drop_bundled_terminal, subagent_tool_names, tool_calls_to_steps, LLMManager,
     SendOutcome, NOTE_TOOLS,
 };
-use crate::{dumps_pretty, py_err_str, py_str_of, py_strip, truthy};
+use crate::coder::{dumps_pretty, py_err_str, py_str_of, py_strip, truthy};
 
 /// A subagent run is bounded: its job is finding things, not multi-step
 /// coding. Step 101 ends it with a partial report.
@@ -129,15 +129,15 @@ fn load_subagent_prompt(py: Python<'_>, mode: &str) -> PyResult<String> {
             "subagent mode must be \"workflow\" or \"critic\", not '{mode}'"
         )));
     };
-    let dir = crate::coder_dir(py)?.join("subagent");
+    let dir = crate::coder::coder_dir(py)?.join("subagent");
     let base_path = dir.join("system_prompt.md");
-    let base = crate::read_text(&base_path).map_err(|e| os_err(&e, &base_path))?;
+    let base = crate::coder::read_text(&base_path).map_err(|e| os_err(&e, &base_path))?;
     // Part by part, so the path is written the way this OS writes it.
     let mut block_path = dir;
     for part in block_file.split('/') {
         block_path.push(part);
     }
-    let block = crate::read_text(&block_path).map_err(|e| os_err(&e, &block_path))?;
+    let block = crate::coder::read_text(&block_path).map_err(|e| os_err(&e, &block_path))?;
     Ok(base.replace(MODE_PLACEHOLDER, &block).replace(OS_PLACEHOLDER, current_os()))
 }
 

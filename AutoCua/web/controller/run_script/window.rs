@@ -25,8 +25,8 @@ use std::time::{Duration, Instant};
 use pyo3::prelude::*;
 use serde_json::{json, Value};
 
-use crate::browser::ScannerInner;
-use crate::controller::service::{err, scan_op, settle_after_action, ActResult};
+use crate::web::browser::ScannerInner;
+use crate::web::controller::service::{err, scan_op, settle_after_action, ActResult};
 
 /// Screens per read; `more` reads as many again.
 pub const SCREENS: usize = 3;

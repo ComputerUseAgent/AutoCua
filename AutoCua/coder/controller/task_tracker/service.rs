@@ -51,7 +51,7 @@ impl TaskTrackerService {
         let mut task_number = 1;
         for line in todo_content.split('\n') {
             // A task line starts with - [ ] or - [x]
-            let stripped = crate::py_strip(line);
+            let stripped = crate::coder::py_strip(line);
             if stripped.starts_with("- [ ]") || stripped.starts_with("- [x]") {
                 numbered.push(format!("#{task_number}. {stripped}"));
                 task_number += 1;
@@ -70,7 +70,7 @@ impl TaskTrackerService {
             log("Todo file doesn't exist");
             return false;
         }
-        let content = match crate::read_text(&self.todo_file) {
+        let content = match crate::coder::read_text(&self.todo_file) {
             Ok(c) => c,
             Err(e) => {
                 log(&format!("Error updating task: {e}"));
@@ -81,7 +81,7 @@ impl TaskTrackerService {
         let prefix = format!("#{task_number}.");
         for line in lines.iter_mut() {
             // The line starts with the task number (e.g. "#1. - [ ]")
-            if crate::py_strip(line).starts_with(&prefix) {
+            if crate::coder::py_strip(line).starts_with(&prefix) {
                 if line.contains("- [x]") {
                     return true; // already complete
                 }

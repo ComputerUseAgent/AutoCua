@@ -149,7 +149,14 @@ screen_record.py
 /AutoCua/agent_conversation/chat_*/
 automation_grant.json
 AutoCua/ios_connector/paired_devices.json
+# cargo's build of the one Rust crate (AutoCua/Cargo.toml: the web agent, the
+# Android agent and the coder).
+/AutoCua/target
+# The old per-agent builds, from before the three crates became one: no longer
+# used, safe to delete.
 /AutoCua/web/target
+/AutoCua/android/target
+/AutoCua/coder/target
 /AutoCua/mac/scratchpad
 /AutoCua/linux/scratchpad
 /AutoCua/windows/scratchpad
@@ -165,13 +172,10 @@ AutoCua/ios_connector/paired_devices.json
 /AutoCua/android_connector/.scrcpy-server.incoming.*
 # Staging file of a helper build (android_connector/build_helper.py); only outlives a crash.
 /AutoCua/android_connector/.autocua-helper.jar.*
-# cargo's build of the Android crate (android/Cargo.toml): the element binary
-# (tree/test.py) and the agent's extension module. The agent's scratchpad.
-/AutoCua/android/target
+# The Android agent's scratchpad.
 /AutoCua/android/scratchpad
-# cargo's build of the coder crate (coder/Cargo.toml), and the coder's
-# scratchpad (todo, plan, notes and subagent results, one folder per run).
-/AutoCua/coder/target
+# The coder's scratchpad (todo, plan, notes and subagent results, one folder
+# per run).
 /AutoCua/coder/scratchpad
 
 # Local-only tooling (never pushed)

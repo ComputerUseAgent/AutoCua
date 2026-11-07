@@ -44,9 +44,9 @@ impl ScratchpadService {
         let attempt = (|| -> std::io::Result<()> {
             let mut existing_count = 0;
             if self.scratchpad_file.exists() {
-                existing_count = crate::read_text(&self.scratchpad_file)?
+                existing_count = crate::coder::read_text(&self.scratchpad_file)?
                     .split('\n')
-                    .filter(|line| !crate::py_strip(line).is_empty())
+                    .filter(|line| !crate::coder::py_strip(line).is_empty())
                     .count();
             }
             let next_number = existing_count + 1;
@@ -70,8 +70,8 @@ impl ScratchpadService {
         if !self.scratchpad_file.exists() {
             return String::new();
         }
-        match crate::read_text(&self.scratchpad_file) {
-            Ok(text) => crate::py_strip(&text).to_string(),
+        match crate::coder::read_text(&self.scratchpad_file) {
+            Ok(text) => crate::coder::py_strip(&text).to_string(),
             Err(e) => {
                 log(&format!("Error reading scratchpad: {e}"));
                 String::new()

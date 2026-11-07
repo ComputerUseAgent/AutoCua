@@ -2817,9 +2817,10 @@ _ADB_NOT_NOW = "adb-not-now"
 
 
 def _prepare_native() -> None:
-    """What the terminal sees before any window: a checkout's builds of the
-    two Rust agents (the first start, a minute or two, cargo's lines as it
-    goes), then adb for an Android phone, offered once (_offer_adb). Run by
+    """What the terminal sees before any window: a checkout's build of the
+    Rust agents, web, Android and coder in one extension (the first start, a
+    minute or two, cargo's lines as it goes), then adb for an Android phone,
+    offered once (_offer_adb). Run by
     the process the person started, before the desktop shell or the window,
     so nothing builds or asks behind a window and the terminal shows it all,
     in order. Built, not imported: an import keeps agent_native.pyd loaded
@@ -2827,17 +2828,16 @@ def _prepare_native() -> None:
     replaced, so another process's rebuild (computer use's android_agent
     child, a terminal run) would fail to install. The emulator and its
     images are still fetched on first use, after their yes. A pip wheel
-    ships both agents built, a packaged app too. Printed when a build fails,
+    ships the extension built, a packaged app too. Printed when a build fails,
     since debug_exception is silent in a checkout."""
     if IS_COMPILED:
         return
     if (_REPO_ROOT / "main.py").is_file():
         from AutoCua.utils import rust
-        for what, build in (("web", rust.ensure_web_agent_built), ("android", rust.ensure_android_agent_built)):
-            try:
-                build()
-            except Exception as e:
-                print(f"[{what}] AGENT NOT BUILT — {e}", flush=True)
+        try:
+            rust.ensure_built()
+        except Exception as e:
+            print(f"[rust] AGENTS NOT BUILT — {e}", flush=True)
     _offer_adb()
     # Google Chrome is never downloaded: say once, here, when it is missing
     # (the page shows its popup too, /api/chrome)

@@ -31,9 +31,9 @@ use pyo3::prelude::*;
 use regex::Regex;
 use serde_json::{json, Value};
 
-use crate::bridge::Bridge;
-use crate::tree::element;
-use crate::ScannerError;
+use crate::web::bridge::Bridge;
+use crate::web::tree::element;
+use crate::web::ScannerError;
 
 pub const CHROME_PORT: u16 = 9222;
 // A blank tab is always about:blank — the URL the ADDRESS BAR shows. The logo
@@ -3034,7 +3034,7 @@ impl ScannerInner {
         // The page-tab guard exits a minute after its browser has gone, and
         // the agent's next step can come later than that.
         if !headless {
-            crate::page_tab_guard::restart(self.port);
+            crate::web::page_tab_guard::restart(self.port);
         }
         // Found up, with this agent's tab still in it: the browser never went
         // away (a port check that failed for a moment), so nothing reopens.
@@ -5053,7 +5053,7 @@ pub fn launch_chrome(
     headless: bool,
     profile_dir: Option<String>,
 ) -> PyResult<bool> {
-    crate::ensure_browser(py, port, headless);
+    crate::web::ensure_browser(py, port, headless);
     let dir = profile_dir.map(PathBuf::from);
     py.detach(move || launch_chrome_impl(port, headless, dir))
         .map_err(PyErr::from)
@@ -5073,7 +5073,7 @@ pub fn is_blank_page(url: Option<Bound<'_, PyAny>>) -> PyResult<bool> {
 /// The logo page as one line of HTML, ready to render into a blank tab.
 #[pyfunction]
 pub fn blank_html(py: Python<'_>) -> PyResult<String> {
-    let browser = crate::browser_dir(py)?;
+    let browser = crate::web::browser_dir(py)?;
     let logo = browser
         .parent()
         .and_then(|p| p.parent())
@@ -5149,7 +5149,7 @@ impl BrowserScanner {
         out_dir: Option<String>,
         single_tab: bool,
     ) -> PyResult<Self> {
-        let browser = crate::browser_dir(py)?;
+        let browser = crate::web::browser_dir(py)?;
         Ok(BrowserScanner::create(
             &browser,
             port,
@@ -5165,12 +5165,12 @@ impl BrowserScanner {
     #[pyo3(signature = (bridge, frontend_callback=None, out_dir=None, single_tab=false))]
     fn over_bridge(
         py: Python<'_>,
-        bridge: PyRef<'_, crate::bridge::PyBridge>,
+        bridge: PyRef<'_, crate::web::bridge::PyBridge>,
         frontend_callback: Option<Py<PyAny>>,
         out_dir: Option<String>,
         single_tab: bool,
     ) -> PyResult<Self> {
-        let browser = crate::browser_dir(py)?;
+        let browser = crate::web::browser_dir(py)?;
         let scanner = BrowserScanner::create(
             &browser,
             0,

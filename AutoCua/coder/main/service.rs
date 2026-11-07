@@ -35,10 +35,10 @@ use pyo3::types::{PyDict, PyList};
 use serde_json::{json, Map, Value};
 
 use super::view;
-use crate::controller::cli::service::render_tool_response;
-use crate::controller::service::ControllerView;
-use crate::tool_registry::service::{self as registry, LLMManager, Mode, SendOutcome, MODES};
-use crate::{dumps_pretty, py_str_of, py_strip, truthy};
+use crate::coder::controller::cli::service::render_tool_response;
+use crate::coder::controller::service::ControllerView;
+use crate::coder::tool_registry::service::{self as registry, LLMManager, Mode, SendOutcome, MODES};
+use crate::coder::{dumps_pretty, py_str_of, py_strip, truthy};
 
 /// The word in system_prompt.md that current_os() replaces.
 const OS_PLACEHOLDER: &str = "{current_os}";
@@ -168,11 +168,11 @@ impl AgentService {
             return;
         }
         let bar = "\u{2500}".repeat(44);
-        crate::out(&format!("\n{bar}"));
-        crate::out("\u{1f916} AutoCua  \u{b7}  agent started");
-        crate::out(&format!("   provider : {}", self.provider));
-        crate::out(&format!("   model    : {}", self.model));
-        crate::out(&format!("{bar}\n"));
+        crate::coder::out(&format!("\n{bar}"));
+        crate::coder::out("\u{1f916} AutoCua  \u{b7}  agent started");
+        crate::coder::out(&format!("   provider : {}", self.provider));
+        crate::coder::out(&format!("   model    : {}", self.model));
+        crate::coder::out(&format!("{bar}\n"));
     }
 
     /// The step's true memory: every message exactly as sent, except that an
@@ -245,7 +245,7 @@ impl AgentService {
         if let Err(e) = std::fs::write(&raw_file, raw_response) {
             crate::say!(
                 "\u{26a0} Error saving raw response: {}",
-                crate::sandbox::service::py_os_error(&e, &raw_file)
+                crate::coder::sandbox::service::py_os_error(&e, &raw_file)
             );
         }
     }
@@ -315,7 +315,7 @@ impl AgentService {
             // Outside the step's guard: an error here ends process_request.
             py.check_signals()?;
             if self.stop_set(py)? {
-                crate::out("Agent stopped.");
+                crate::coder::out("Agent stopped.");
                 break;
             }
 
@@ -378,7 +378,7 @@ impl AgentService {
                     if !e.is_instance_of::<PyException>(py) {
                         return Err(e);
                     }
-                    crate::say!("Error: {}", crate::py_err_str(py, &e));
+                    crate::say!("Error: {}", crate::coder::py_err_str(py, &e));
                     break;
                 }
             }
@@ -466,7 +466,7 @@ impl AgentService {
         let (actions, calls) = if llm.async_tools() {
             let (actions, calls, dropped) = registry::drop_bundled_terminal(actions, calls, &rejects, "exit");
             if !dropped.is_empty() && stdout_tty() {
-                crate::out("\u{26a0}\u{fe0f} `exit` bundled with other calls: ignored, it must be the only call of its turn");
+                crate::coder::out("\u{26a0}\u{fe0f} `exit` bundled with other calls: ignored, it must be the only call of its turn");
             }
             exit_results = dropped;
             (actions, calls)
@@ -771,8 +771,8 @@ impl AgentService {
                 .import("AutoCua.memory_compression.controller")?
                 .getattr("CompressionController")?;
             let kwargs = PyDict::new(py);
-            kwargs.set_item("dump_builder", pyo3::wrap_pyfunction!(crate::main::view::compression_dump, py)?)?;
-            kwargs.set_item("synthetic_entry", pyo3::wrap_pyfunction!(crate::main::view::compression_entry, py)?)?;
+            kwargs.set_item("dump_builder", pyo3::wrap_pyfunction!(crate::coder::main::view::compression_dump, py)?)?;
+            kwargs.set_item("synthetic_entry", pyo3::wrap_pyfunction!(crate::coder::main::view::compression_entry, py)?)?;
             let stop: Py<PyAny> = match &stop_event {
                 Some(event) => event.clone_ref(py),
                 None => py.None(),
@@ -781,7 +781,7 @@ impl AgentService {
                 .unbind()
         };
 
-        let main_dir = crate::main_dir(py)?;
+        let main_dir = crate::coder::main_dir(py)?;
         let mut system_prompt =
             load_system_prompt(&main_dir).map_err(|e| os_error(&e, &main_dir.join("system_prompt.md")))?;
         if llm.get().async_tools() {
@@ -874,7 +874,7 @@ fn stdout_tty() -> bool {
 /// on a terminal and as JSON into a pipe. Only what the step has is shown.
 pub(crate) fn display_payload(resp_text: &str, insight: &Value, next_goal: &str, actions: Value) -> String {
     let mut payload = Map::new();
-    if !crate::py_strip(resp_text).is_empty() {
+    if !crate::coder::py_strip(resp_text).is_empty() {
         payload.insert("text".into(), Value::String(resp_text.to_string()));
     }
     let insight = insight.as_object().and_then(|o| {
@@ -969,16 +969,16 @@ fn switch_mode(mode: &Mode, on: &mut bool, action: &Value) -> Value {
 /// (or why it could not be read).
 fn mode_block(py: Python<'_>, mode: &Mode) -> PyResult<String> {
     // Part by part, so the path is written the way this OS writes it.
-    let mut file = crate::coder_dir(py)?.clone();
+    let mut file = crate::coder::coder_dir(py)?.clone();
     for part in mode.skill_file.split('/') {
         file.push(part);
     }
-    let skill = match crate::read_text(&file) {
+    let skill = match crate::coder::read_text(&file) {
         Ok(text) => format!("<skill name=\"{}\">\n{text}\n</skill>", mode.skill_name),
         Err(e) => format!(
             "The {} skill could not be read: {}.",
             mode.skill_name,
-            crate::sandbox::service::py_os_error(&e, &file)
+            crate::coder::sandbox::service::py_os_error(&e, &file)
         ),
     };
     Ok(format!("<{tool}>\n{on}\n\n{skill}\n</{tool}>", tool = mode.tool, on = mode.on_message))
@@ -986,9 +986,9 @@ fn mode_block(py: Python<'_>, mode: &Mode) -> PyResult<String> {
 
 pub(crate) fn print_turn(payload: &str) {
     if stdout_tty() {
-        crate::out(&view::format_terminal(payload));
+        crate::coder::out(&view::format_terminal(payload));
     } else {
-        crate::out(&view::format_stream_json(payload));
+        crate::coder::out(&view::format_stream_json(payload));
     }
 }
 
@@ -1096,7 +1096,7 @@ fn read_todo_from_file(ctl: &ControllerView) -> String {
     if !todo_file.exists() {
         return String::new();
     }
-    match crate::read_text(todo_file) {
+    match crate::coder::read_text(todo_file) {
         Ok(text) => py_strip(&text).to_string(),
         Err(_) => String::new(),
     }
@@ -1227,14 +1227,14 @@ impl Spinner {
                 let dots = ["", ".", "..", "..."];
                 let mut idx = 0usize;
                 while matches!(stop_rx.try_recv(), Err(TryRecvError::Empty)) {
-                    crate::out_raw(&format!("\r\u{26a1} Working{:<3}", dots[idx % dots.len()]));
+                    crate::coder::out_raw(&format!("\r\u{26a1} Working{:<3}", dots[idx % dots.len()]));
                     idx += 1;
                     if !matches!(stop_rx.recv_timeout(Duration::from_millis(400)), Err(RecvTimeoutError::Timeout)) {
                         break;
                     }
                 }
                 // Clear the line so the step prints cleanly.
-                crate::out_raw(&format!("\r{}\r", " ".repeat(24)));
+                crate::coder::out_raw(&format!("\r{}\r", " ".repeat(24)));
                 let _ = done_tx.send(());
             })
             .ok()?;

@@ -7,7 +7,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::agent::android_use::service::read_text;
+use crate::android::agent::android_use::service::read_text;
 
 pub struct ScratchpadService {
     pub scratchpad_dir: PathBuf,

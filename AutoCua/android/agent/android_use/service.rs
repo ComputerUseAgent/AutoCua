@@ -10,7 +10,7 @@
 //! controller and the tool registry are Rust, in this crate; they are the
 //! next steps, and this file names what it needs from them:
 //!
-//!   crate::tool_registry::service
+//!   crate::android::tool_registry::service
 //!     LLMManager::build(py, provider, model, api_key, cli_agent, mode, speed)
 //!       -> PyResult<LLMManager>, a #[pyclass(frozen)] with `pub provider`
 //!       (lowercased: the cache_control check below compares it to
@@ -42,29 +42,29 @@
 //!     main_reasoning_fields() / main_notes_fields_fast() /
 //!       claude_reasoning_fields() -> &'static Vec<(String, String)>;
 //!     NOTE_TOOLS: the notes tools' names.
-//!   crate::controller::view
+//!   crate::android::controller::view
 //!     ControllerView::new(py, provider, model, web_callback, shell_callback,
 //!       api_key, stop_event) -> PyResult<ControllerView>, Send + Sync (it is
 //!       held by value in a frozen pyclass: a Mutex around whatever changes);
 //!     route_action(py, &Value) -> PyResult<Value>;
 //!     pub task_tracker.todo_file: PathBuf;
 //!     pub scratchpad_service.scratchpad_file: PathBuf.
-//!   crate::controller::tool::open_app::service
+//!   crate::android::controller::tool::open_app::service
 //!     installed_apps() -> Vec<(String, String)>: (the app's name as the
 //!       launcher shows it, its package) for every installed app, from the
 //!       launcher's own cache, no device request (the skills lookup).
-//!   crate::tree::element
+//!   crate::android::tree::element
 //!     UIElementScanner::new(py, frontend_callback) -> PyResult<UIElementScanner>,
 //!       Send + Sync like the controller;
 //!     scan_elements(py) -> PyResult<()>;
 //!     get_scan_data(py) -> PyResult<(String, Option<String>)>: the element
 //!       tree text and the annotated screenshot, base64;
 //!     application_name() -> String: the app in front, "" on the home screen.
-//!   crate (lib.rs)
+//!   crate::android (AutoCua/lib.rs)
 //!     android_dir(py) -> PyResult<&'static PathBuf>, agent_dir(py) and
-//!     data_root(py) -> PyResult<PathBuf>; the pymodule registers
+//!     data_root(py) -> PyResult<PathBuf>; its register() adds
 //!     view::compression_dump and view::compression_entry, which the
-//!     constructor imports from AutoCua.android.agent_native.
+//!     constructor takes from AutoCua.agent_native.android.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -78,10 +78,10 @@ use regex::Regex;
 use serde_json::{json, Map, Value};
 
 use super::view;
-use crate::agent::skills::service::DomainKnowledgeService;
-use crate::controller::view::ControllerView;
-use crate::tool_registry::service::{self as registry, LLMManager, SendOutcome};
-use crate::tree::element::UIElementScanner;
+use crate::android::agent::skills::service::DomainKnowledgeService;
+use crate::android::controller::view::ControllerView;
+use crate::android::tool_registry::service::{self as registry, LLMManager, SendOutcome};
+use crate::android::tree::element::UIElementScanner;
 use view::{py_str_of, truthy};
 
 // Run-boundary request markers: on resume, the bridge entry that ended the
@@ -287,7 +287,7 @@ fn trim_history_entry(entry: &str) -> String {
 /// controller/tool/vault, which reads the "android" section).
 mod vault {
     use super::*;
-    use crate::controller::tool::vault::service::vault_service;
+    use crate::android::controller::tool::vault::service::vault_service;
 
     fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
         py.import("AutoCua.vault.service")
@@ -729,8 +729,8 @@ impl AgentService {
         _extra: Option<Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
         let _ = cli_callback;
-        let android_dir = crate::android_dir(py)?.clone();
-        let agent_dir = crate::agent_dir(py)?;
+        let android_dir = crate::android::android_dir(py)?.clone();
+        let agent_dir = crate::android::agent_dir(py)?;
 
         // Clean up scratchpad for a fresh start
         cleanup_scratchpad(&android_dir)?;
@@ -889,10 +889,11 @@ impl AgentService {
         // reset / maybe_trigger / apply_pending / finish_run. LLMManager is
         // passed as a class: the controller lazily builds its own 2nd
         // text-mode manager from it. The dump/entry hooks are this driver's
-        // OWN: the pyfunctions exported by this module.
+        // OWN: the pyfunctions exported by this module's android part.
         let own_mod = py
-            .import("AutoCua.android.agent_native")
-            .or_else(|_| py.import("agent_native"))?;
+            .import("AutoCua.agent_native")
+            .or_else(|_| py.import("agent_native"))?
+            .getattr("android")?;
         let compression_cls = py
             .import("AutoCua.memory_compression.controller")?
             .getattr("CompressionController")?;

@@ -39,7 +39,7 @@ const BROWSER_FALLBACK_PROVIDERS: [&str; 4] = ["together", "cerebras", "requesty
 
 /// AutoCua/coder/controller/tool/web: this tool's folder.
 fn web_dir(py: Python<'_>) -> PyResult<PathBuf> {
-    Ok(crate::coder_dir(py)?.join("controller").join("tool").join("web"))
+    Ok(crate::coder::coder_dir(py)?.join("controller").join("tool").join("web"))
 }
 
 /// web.md beside this file: every search's system prompt. Read once, as the
@@ -50,7 +50,7 @@ pub(super) fn system_prompt(py: Python<'_>) -> PyResult<&'static str> {
         return Ok(prompt);
     }
     let path = web_dir(py)?.join("web.md");
-    let text = crate::read_text(&path).map_err(|e| PyOSError::new_err(format!("{}: {e}", path.display())))?;
+    let text = crate::coder::read_text(&path).map_err(|e| PyOSError::new_err(format!("{}: {e}", path.display())))?;
     Ok(PROMPT.get_or_init(|| text))
 }
 

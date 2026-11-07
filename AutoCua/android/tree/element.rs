@@ -50,7 +50,7 @@ use serde_json::{json, Map, Value};
 use zune_jpeg::zune_core::bytestream::ZCursor;
 use zune_jpeg::JpegDecoder;
 
-use crate::controller::service::controller_service;
+use crate::android::controller::service::controller_service;
 
 // ========== FLAGS ==========
 /// Set to true to save files to debug folders, false for direct LLM only:

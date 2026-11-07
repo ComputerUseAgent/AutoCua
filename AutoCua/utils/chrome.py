@@ -62,7 +62,7 @@ def _say(text):
 def ensure_chrome():
     """Chrome's executable, or None when it is not installed. Never downloads
     or installs anything and never raises: the web agent calls it by name
-    before every launch (web/lib.rs). When Chrome is missing it says so, once."""
+    before every launch (lib.rs, the web part). When Chrome is missing it says so, once."""
     found = find_chrome()
     if found is None and not os.environ.get(SAID):
         os.environ[SAID] = "1"

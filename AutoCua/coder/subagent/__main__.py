@@ -60,7 +60,7 @@ def main():
     api_key = os.environ.pop("AutoCua_CODER_API_KEY", None) or None
 
     try:
-        from AutoCua.coder.agent_native import run_subagent
+        from AutoCua.agent_native.coder import run_subagent
 
         run_subagent(args.task, args.provider, args.model, args.result, args.mode,
                      api_key=api_key, save_conversation=args.save_conversation)

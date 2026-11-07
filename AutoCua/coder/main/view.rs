@@ -20,7 +20,7 @@ use pyo3::types::{PySlice, PyString};
 use regex::Regex;
 use serde_json::{json, Map, Value};
 
-use crate::{dumps, dumps_pretty, py_str_of, py_strip, truthy};
+use crate::coder::{dumps, dumps_pretty, py_str_of, py_strip, truthy};
 
 /// Python `str(x or "")`: a missing or falsy value gives "".
 fn py_str_or_empty(v: Option<&Value>) -> String {

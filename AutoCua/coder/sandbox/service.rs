@@ -374,7 +374,7 @@ fn is_input_prompt(text: &str) -> bool {
         return false;
     }
     let lower = text.to_lowercase();
-    let text_lower = crate::py_strip(&lower);
+    let text_lower = crate::coder::py_strip(&lower);
     prompt_regexes().iter().any(|re| re.is_match(text_lower))
 }
 
@@ -391,7 +391,7 @@ fn last_output_chunk(buffer: &str, chunk_size: usize) -> String {
         },
         None => buffer,
     };
-    crate::py_strip(tail).to_string()
+    crate::coder::py_strip(tail).to_string()
 }
 
 /// The end of stdout + stderr, as Python's last_chunk.
