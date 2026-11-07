@@ -209,29 +209,29 @@ pub fn coder_tools() -> &'static Vec<Value> {
   1. shell {"command": "find . -type f", "input": ""}
   2. shell {"command": "python calc.py", "input": "5\n10\n"}"#)),
 
-        tool("view", &[
+        tool("read", &[
             ("path", json!({"type": "string"})),
             ("start", json!({"type": "integer"})),
             ("end", json!({"type": "integer"})),
         ],
-            r#"View a file's contents with line numbers. Supports an optional line range — pair this with `grep` to read just the section you need rather than dumping whole files into context.
+            r#"Read a file's contents with line numbers. Supports an optional line range — pair this with `grep` to read just the section you need rather than dumping whole files into context.
 - All fields required. For whole-file reads pass `start: 0, end: 0`. For a range, pass actual line numbers (1-indexed, inclusive).
 - `path` accepts both relative (sandbox cwd) and absolute paths — same as `grep`/`glob`.
 - Whole-file mode caps at 2000 lines. If the file is larger, you'll get the first 2000 plus a footer showing the total line count — re-call with `start`/`end` to read other sections.
 - Files larger than 5 MB are refused. Use `grep` with `head_limit` instead.
-- Output line numbers reflect the file's real line numbers (e.g. `[400] line text` when you view starting at 400), so `write`/`replace` can use them directly without offset arithmetic.
-- Format: view {"path": "file_path", "start": 0, "end": 0}
+- Output line numbers reflect the file's real line numbers (e.g. `[400] line text` when you read starting at 400), so `write`/`replace` can use them directly without offset arithmetic.
+- Format: read {"path": "file_path", "start": 0, "end": 0}
 - Examples:
   1. Whole file (small):
-     view {"path": "src/auth.py", "start": 0, "end": 0}
+     read {"path": "src/auth.py", "start": 0, "end": 0}
   2. Section after a grep hit at line 412:
-     view {"path": "src/auth.py", "start": 400, "end": 440}
+     read {"path": "src/auth.py", "start": 400, "end": 440}
   3. Project file via absolute path:
-     view {"path": "/Users/you/projects/app/src/main.py", "start": 0, "end": 0}
-  4. Pair pattern — grep first, then view a narrow range:
+     read {"path": "/Users/you/projects/app/src/main.py", "start": 0, "end": 0}
+  4. Pair pattern — grep first, then read a narrow range:
      Step 1: grep {"pattern": "process_request\\(", "path": "", "glob": "*.py", "output_mode": "content", "case_insensitive": false, "head_limit": 10, "context": 0}
      (grep returns `AutoCua/mac/agent/cli/service.py:233: ...`)
-     Step 2: view {"path": "AutoCua/mac/agent/cli/service.py", "start": 220, "end": 260}"#),
+     Step 2: read {"path": "AutoCua/mac/agent/cli/service.py", "start": 220, "end": 260}"#),
 
         tool("grep", &[
             ("pattern", json!({"type": "string"})),
@@ -248,7 +248,7 @@ pub fn coder_tools() -> &'static Vec<Value> {
 - Returned `path:line` references are **relative to the `path` you specified**, so they're readable and don't leak full host layout. Noise dirs (`venv`, `.git`, `node_modules`, `__pycache__`, `dist`, `build`, `site-packages`, etc.) are auto-skipped.
 - Three `output_mode`s — pick the one matching your intent:
   - `content` — `path:line: matching_text`. Use when you want to read the actual matches.
-  - `files_with_matches` — one path per line. Use to find which files to `view` next.
+  - `files_with_matches` — one path per line. Use to find which files to `read` next.
   - `count` — `path: N` per file (only files with N ≥ 1). Use for distribution / sanity checks.
 - Binary files, files larger than 8 MB, and lines longer than 200 chars are auto-skipped/truncated to keep output bounded.
 - Format: grep {"pattern": "regex", "path": "dir_or_file", "glob": "*.py", "output_mode": "content", "case_insensitive": false, "head_limit": 50, "context": 0}
@@ -284,10 +284,10 @@ pub fn coder_tools() -> &'static Vec<Value> {
             r#"Write code, text, or any content into a file.
 - Indentation in `content` must match the target file's style.
 - Never write an entire large code in one go; build incrementally — one `write` call per step, one file at a time. Break large code across subsequent iterations.
-- Always `view` the file first to get current line numbers before writing.
+- Always `read` the file first to get current line numbers before writing.
 - `line`: The insertion point. New content starts here; existing lines from this point onward shift down.
   - Empty file: use `line: 1`.
-  - Append at end: use the last line number shown by `view`.
+  - Append at end: use the last line number shown by `read`.
   - Insert in the middle: use the exact line number where new content should begin.
 - Format: write {"path": "file_path", "line": N, "content": "..."}
 - Examples:
@@ -302,7 +302,7 @@ pub fn coder_tools() -> &'static Vec<Value> {
             ("new_block", json!({"type": "string"})),
         ],
             r#"Replace a block of code starting at a specific line.
-- Always `view` the file first to get fresh line numbers before replacing.
+- Always `read` the file first to get fresh line numbers before replacing.
 - `line`: starting line number of the block you want to replace.
 - `old_block`: the exact block of code currently in the file (multi-line, must match precisely).
 - `new_block`: the replacement block (can be more or fewer lines than old_block).
@@ -338,7 +338,7 @@ pub fn coder_tools() -> &'static Vec<Value> {
 1. Full plan (note the headings, newlines, indentation, and inline anchors):
 plan {"op": "set", "from": 0, "to": 0, "value": "# Goal\nThe scratchpad cache in service.py holds at most CACHE_MAX entries and evicts the least recently used one; api.py:41 and worker.py:88 keep working unchanged.\n\n# Findings\n- Cache: module-level dict `_cache` at service.py:41; get() at :63 reads it, put() at :88 inserts; nothing ever deletes — that is the unbounded growth.\n- Callers: api.py:41 and worker.py:88 use only get()/put(); no code reaches into `_cache` directly (grep across src/ returns only service.py).\n- Settings are module constants at service.py:12-20; no config system. Imports at :1-6.\n- Tests: `python -m pytest`; nothing covers the cache today.\n- get() returns early on a hit at :66 — the hit path and the miss path are separate branches.\n\n# Approach\nOrderedDict inside get()/put(): move_to_end on a hit, popitem(last=False) once the size passes CACHE_MAX. About 10 lines, no new dependency, callers untouched.\n- Rejected: functools.lru_cache — entries arrive through explicit put() calls from two sites; there is no pure function to decorate.\n- Rejected: cachetools — a new dependency for one use.\n- Out of scope: thread safety; the worker is single-threaded.\n\n# Edits\n## service.py\n- :1-6 — add `from collections import OrderedDict` to the import block.\n- :12-20 — add `CACHE_MAX = 512` beside the other constants, same naming style.\n- :41 — `_cache = OrderedDict()` in place of the dict.\n- :63 get() — on a hit, `_cache.move_to_end(key)` BEFORE the early return at :66.\n- :88 put() — after insert, `while len(_cache) > CACHE_MAX: _cache.popitem(last=False)`.\n\n# Assumptions & Risks\n- Nothing accesses `_cache` dynamically (getattr/globals): unverifiable by grep; OrderedDict keeps the dict interface, so the consequence is nil.\n- Recency is the part most likely to be wrong: if move_to_end lands on the miss path the cache is FIFO — covered by case 2.\n- CACHE_MAX=0 would evict on every put; nothing sets it, not covered.\n\n# Verification\n- ./.AutoCua_verify/test_cache.py, imports the real `service`, prints N/4, exits 1 on any failure:\n  1. fill to CACHE_MAX+1 → the first key is gone, size == CACHE_MAX.\n  2. get('a') then overflow → 'a' survives, the next-oldest is gone. (most likely to fail)\n  3. overwrite an existing key → size unchanged.\n  4. put/get round-trip returns the value.\n- `python -m pytest` still passes.\n- Cross-file check: a workflow agent confirms api.py:41 and worker.py:88 resolve and use only get/put."}
 2. Append a section: plan {"op": "add", "from": 0, "to": 0, "value": "\n## worker.py\n- :88 — no change: the composite key is built before put() and is opaque to the cache."}
-3. Surgical edit (the view showed put() at :91, not :88 — line [23] of the render above): plan {"op": "edit", "from": 23, "to": 23, "value": "- :91 put() — after insert, `while len(_cache) > CACHE_MAX: _cache.popitem(last=False)`."}"##),
+3. Surgical edit (the read showed put() at :91, not :88 — line [23] of the render above): plan {"op": "edit", "from": 23, "to": 23, "value": "- :91 put() — after insert, `while len(_cache) > CACHE_MAX: _cache.popitem(last=False)`."}"##),
 
         tool("todo_list", &[("value", json!({"type": "string"}))],
             r#"Create the tracking to-do list, derived from the plan.
@@ -410,7 +410,7 @@ plan {"op": "set", "from": 0, "to": 0, "value": "# Goal\nThe scratchpad cache in
 }
 
 /// The subagent's tools: the notes tools (notes_tools), then the read-only
-/// subset (shell, view, grep, glob, scratchpad, exit; no write, replace, web,
+/// subset (shell, read, grep, glob, scratchpad, exit; no write, replace, web,
 /// plan, todo, wait or subagent). The action tools' descriptions are the mac
 /// minion prompt's own words.
 pub fn subagent_tools() -> &'static Vec<Value> {
@@ -434,29 +434,29 @@ pub fn subagent_tools() -> &'static Vec<Value> {
   4. shell {"command": "sed -i '' 's/x/y/' file", "input": ""}
   5. shell {"command": "touch new.txt", "input": ""}"#)),
 
-        tool("view", &[
+        tool("read", &[
             ("path", json!({"type": "string"})),
             ("start", json!({"type": "integer"})),
             ("end", json!({"type": "integer"})),
         ],
-            r#"View a file's contents with line numbers. Supports an optional line range - pair this with `grep` to read just the section you need rather than dumping whole files into context.
+            r#"Read a file's contents with line numbers. Supports an optional line range - pair this with `grep` to read just the section you need rather than dumping whole files into context.
 - All fields required. For whole-file reads pass `start: 0, end: 0`. For a range, pass actual line numbers (1-indexed, inclusive).
 - `path` accepts both relative (sandbox cwd) and absolute paths - same as `grep`/`glob`.
 - Whole-file mode caps at 2000 lines. If the file is larger, you'll get the first 2000 plus a footer showing the total line count - re-call with `start`/`end` to read other sections.
 - Files larger than 5 MB are refused. Use `grep` with `head_limit` instead.
-- Output line numbers reflect the file's real line numbers (e.g. `[400] line text` when you view starting at 400) - quote them exactly in your final report.
-- Format: view {"path": "file_path", "start": 0, "end": 0}
+- Output line numbers reflect the file's real line numbers (e.g. `[400] line text` when you read starting at 400) - quote them exactly in your final report.
+- Format: read {"path": "file_path", "start": 0, "end": 0}
 - Examples:
   1. Whole file (small):
-     view {"path": "src/auth.py", "start": 0, "end": 0}
+     read {"path": "src/auth.py", "start": 0, "end": 0}
   2. Section after a grep hit at line 412:
-     view {"path": "src/auth.py", "start": 400, "end": 440}
+     read {"path": "src/auth.py", "start": 400, "end": 440}
   3. Project file via absolute path:
-     view {"path": "/Users/you/projects/app/src/main.py", "start": 0, "end": 0}
-  4. Pair pattern - grep first, then view a narrow range:
+     read {"path": "/Users/you/projects/app/src/main.py", "start": 0, "end": 0}
+  4. Pair pattern - grep first, then read a narrow range:
      Step 1: grep {"pattern": "process_request\\(", "path": "", "glob": "*.py", "output_mode": "content", "case_insensitive": false, "head_limit": 10, "context": 0}
      (grep returns `AutoCua/mac/agent/cli/service.py:233: ...`)
-     Step 2: view {"path": "AutoCua/mac/agent/cli/service.py", "start": 220, "end": 260}"#),
+     Step 2: read {"path": "AutoCua/mac/agent/cli/service.py", "start": 220, "end": 260}"#),
 
         tool("grep", &[
             ("pattern", json!({"type": "string"})),
@@ -474,7 +474,7 @@ pub fn subagent_tools() -> &'static Vec<Value> {
 - Binary files, files larger than 8 MB, and lines longer than 200 chars are auto-skipped/truncated.
 - Three output_modes:
   - `content` - `path:line: matching_text` (default; use when you want to read matches)
-  - `files_with_matches` - list of paths only (use to find which files to view next)
+  - `files_with_matches` - list of paths only (use to find which files to read next)
   - `count` - `path: N` per file (use for distribution / sanity check)
 - Format: grep {"pattern": "regex", "path": "dir_or_file", "glob": "*.py", "output_mode": "content", "case_insensitive": false, "head_limit": 50, "context": 0}
 - Examples:
@@ -505,7 +505,7 @@ pub fn subagent_tools() -> &'static Vec<Value> {
         tool("scratchpad", &[("value", json!({"type": "string"}))],
             r#"Your durable note store while exploring. Every verified finding goes here immediately so the final exit report can be assembled from it without re-reading files.
 - Purpose: persist `path:line` findings + key facts across iterations.
-- Only write entries after the finding is confirmed by an actual `view`/`grep` result. Never assume.
+- Only write entries after the finding is confirmed by an actual `read`/`grep` result. Never assume.
 - Use one entry per finding (don't pack multiple facts into one line).
 - Use for:
   - confirmed `path:line` definitions, callers, and connections
@@ -544,7 +544,7 @@ pub fn action_defaults() -> &'static Value {
             "insight": {"kind": "", "content": ""},
             "next_goal": {"value": ""},
             "shell": {"command": "", "input": ""},
-            "view": {"path": "", "start": 0, "end": 0},
+            "read": {"path": "", "start": 0, "end": 0},
             "grep": {"pattern": "", "path": "", "glob": "", "output_mode": "content",
                      "case_insensitive": false, "head_limit": 50, "context": 0},
             "glob": {"pattern": "", "path": "", "head_limit": 100},

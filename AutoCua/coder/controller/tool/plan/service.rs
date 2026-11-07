@@ -196,7 +196,7 @@ impl PlanService {
     }
 
     /// Numbered rendering for the <plan> input block: one `[N] text` per
-    /// line, the `view` tool's numbering style, so the agent can use the
+    /// line, the `read` tool's numbering style, so the agent can use the
     /// numbers directly in `plan` edit ranges. "" when no plan yet.
     pub fn render_plan(&self) -> String {
         let Some(lines) = self.read_lines() else {

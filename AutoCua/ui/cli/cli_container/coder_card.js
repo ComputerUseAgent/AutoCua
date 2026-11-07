@@ -613,7 +613,7 @@
         if (!a || typeof a !== 'object' || !a.type) return '';
         switch (a.type) {
             case 'shell':   return '$ ' + clip(a.command || a.value || '', 240);
-            case 'view':    return 'view ' + (a.path || '') + ((a.start || a.end) ? ('  :' + (a.start || 0) + '-' + (a.end || 0)) : '');
+            case 'read':    return 'read ' + (a.path || '') + ((a.start || a.end) ? ('  :' + (a.start || 0) + '-' + (a.end || 0)) : '');
             case 'grep':    return 'grep "' + clip(a.pattern || '', 120) + '"' + (a.path ? (' in ' + a.path) : '') + (a.glob ? (' (' + a.glob + ')') : '');
             case 'glob':    return 'glob ' + (a.pattern || a.path || '');
             case 'write':   return 'write ' + (a.path || '');
