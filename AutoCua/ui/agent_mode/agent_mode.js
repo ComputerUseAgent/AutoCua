@@ -32,7 +32,7 @@
         var state = { mode: 'computer', subs: { computer: 'thispc', mobile: null, shell: null, web: null } };
         var MODE_LABEL = {
             computer: 'Computer use', mobile: 'Mobile use',
-            shell: 'Shell use', web: 'Web use'
+            shell: 'Coder', web: 'Web use'
         };
         var SUB_LABEL = { thispc: 'This PC', daisy: 'Daisy chain', ios: 'iOS', android: 'Android' };
         // iOS needs a Mac: its row is hidden elsewhere (agent_mode.css), and a

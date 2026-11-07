@@ -2048,7 +2048,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dropOne();
     }
 
-    window.cliMinionStart = (parentTaskId, taskId, query) => {
+    window.cliSubagentStart = (parentTaskId, taskId, query) => {
         console.log('[minion] start', parentTaskId, taskId, query);
         if (!parentTaskId || !taskId) return;
         if (!_minionDropQueue.has(parentTaskId)) {
@@ -2066,7 +2066,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Stream a line from a running minion's stdout/stderr into its pill body.
     // Reuses the parent-pill word-pagination runner so minion output looks identical
     // to CLI agent output — same word-by-word fade, same per-page hold.
-    window.cliMinionLine = (taskId, line, stream) => {
+    window.cliSubagentLine = (taskId, line, stream) => {
         const pill = _findMinionPill(taskId);
         if (!pill) return;
         const text = line == null ? '' : String(line);
@@ -2098,7 +2098,7 @@ document.addEventListener('DOMContentLoaded', () => {
         _stopWebFiller(taskId);
     };
 
-    window.cliMinionEnd = (taskId, status, summary) => {
+    window.cliSubagentEnd = (taskId, status, summary) => {
         console.log('[minion] end', taskId, status, summary);
         const pill = _findMinionPill(taskId);
         if (!pill) return;
