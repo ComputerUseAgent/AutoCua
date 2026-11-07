@@ -158,7 +158,7 @@ That is the whole API.
 ### What the wheel brings, and what it cannot
 
 Three of the native pieces are fetched when you say yes to them on the terminal, and one, the
-desktop app's Electron, is offered the same way; the two Rust agents come prebuilt in the wheel.
+desktop app's Electron, is offered the same way; the Rust agents come prebuilt in the wheel.
 WebDriverAgent and Google Chrome are never downloaded: you put them in place yourself, and
 AutoCua tells you how when one is missing.
 Two cannot: a Windows kernel driver, which `pip`
@@ -1133,7 +1133,7 @@ chosen model, and Perplexity Sonar.
 - **Python 3.10 or newer**, installed by you. From a checkout the setup scripts need 3.10 to 3.13
   on macOS, 3.11 to 3.13 on Windows and the distro's 3.10 to 3.14 on Linux, and never download one
 - An **API key** from any supported provider
-- *For the browser and Android agents from source* (a checkout; the wheels ship both prebuilt): **Rust** and a C toolchain — the setup scripts install these for you
+- *For the browser and Android agents and the coder from source* (a checkout; the wheels ship them prebuilt): **Rust** and a C toolchain — the setup scripts install these for you
 - *For the browser agent:* **Google Chrome**, installed by you ([google.com/chrome](https://www.google.com/chrome/)); AutoCua never downloads it
 - *For iOS:* macOS with **full Xcode**, not just the Command Line Tools
 - *For Android:* for the emulator, the computer's hypervisor (built into macOS; Windows Hypervisor Platform on Windows; KVM on Linux), and the emulator fetches itself; for a phone, **USB debugging** on. adb is fetched for you; the Android agent comes prebuilt in the wheel, and a checkout builds it on its first run with **Rust** and a C compiler, which the setup scripts install
@@ -1289,7 +1289,7 @@ Mac, `sudo apt install adb` on Linux, any `adb` on your PATH. Without one, AutoC
 Google's platform-tools into `AutoCua/android_connector/`, pinned by size and SHA-256, after your y:
 the setup scripts do, `python main.py` does once before its window opens (a no is remembered), and
 `python -m AutoCua.android_connector.adb fetch` does on any terminal. In a checkout, `python main.py`
-also builds the two Rust agents in the terminal before the window opens, once, in a minute or two,
+also builds the Rust agents in the terminal before the window opens, once, in a minute or two,
 with the [Rust](https://rustup.rs) and C compiler the setup scripts install; the pip wheels ship them
 prebuilt. `python -m AutoCua.android_connector.adb` fetches adb and shows the phone on its own.
 On Windows the phone may need its maker's USB driver, and on Linux Android's udev rules (for
@@ -1471,7 +1471,7 @@ credit the author and link back to the project.
 
 Some components are **not covered by the MIT licence above**. A few are redistributed in this
 repository or in the wheels: React, the Rust crates compiled into the prebuilt browser and Android
-agents, and ported UI code and icons; their licence texts ship with every wheel. The rest are fetched,
+agents and the coder, and ported UI code and icons; their licence texts ship with every wheel. The rest are fetched,
 installed or built on your machine, from their authors, at setup time or on first use. Full
 details in [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
 
@@ -1483,7 +1483,7 @@ details in [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main
 | **Electron**, by the [Electron](https://github.com/electron/electron) project (OpenJS Foundation) | `AutoCua/utils/electron.py` downloads the official `v44.9.1` release zip for your OS, SHA-256 verified, into a per-user cache, only after you say yes at the first `ui=True` launch (or run `python -m AutoCua.utils.electron`); a checkout's `npm install` in `AutoCua/desktop` works too | MIT; the Chromium and Node.js it bundles keep their own licences |
 | **Android SDK Platform-Tools** (adb), by Google | `AutoCua/android_connector/adb.py` downloads the pinned `r37.0.1` zip for your OS from Google, size and SHA-256 verified, after your yes in the setup scripts or the first time an Android phone is used, unless an `adb` is already on your PATH. Not shipped in this repo | Google's Android SDK terms; adb itself is open source, Apache 2.0 |
 | **Android Emulator and system images**, by Google | `AutoCua/android_connector/emulator.py` downloads the pinned emulator `37.2.12` for your OS, and the Google APIs system image of each Android version a `device="simulation"` run needs, from Google's SDK repository, size and SHA-1 verified (the checksum Google's manifest lists), into a per-user cache | Google's Android SDK terms; the emulator is built on QEMU (GPL v2) |
-| **Rust crates** in the browser agent (PyO3, serde, regex, url with ICU4X, image, ring and others) and in the Android agent (PyO3, serde, regex, zune-jpeg, jpeg-encoder, roxmltree and others) | Compiled into the two prebuilt `agent_native` modules every wheel ships; a checkout or a source build downloads them from crates.io | MIT / Apache 2.0 for most; also ISC, Unicode-3.0 and BSD; part of each JPEG encoder is IJG |
+| **Rust crates** in the browser agent (PyO3, serde, regex, url with ICU4X, image, ring and others), the Android agent (zune-jpeg, jpeg-encoder, roxmltree and others) and the coder (walkdir and others) | Compiled into the one prebuilt `agent_native` module every wheel ships; a checkout or a source build downloads them from crates.io | MIT / Apache 2.0 for most; also ISC, Unicode-3.0 and BSD; part of each JPEG encoder is IJG |
 | **Google Chrome**, by Google | Never downloaded by AutoCua: you install it from [google.com/chrome](https://www.google.com/chrome/); `AutoCua/utils/chrome.py` only checks that it is there | Google's Chrome terms |
 | **FFmpeg**, inside the `imageio-ffmpeg` package | Installed from PyPI as a dependency; AutoCua runs it to encode and compress recordings | GPL (the Windows build: v3 or later) |
 | **React** and its scheduler, by Meta | Built into the committed `AutoCua/ui/index.js` | MIT |
