@@ -7,24 +7,13 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class TaskTrackerService:
-    def __init__(self, cli_mode: bool = False, session_id: str = None):
-        """Initialize the Task Tracker Service
-        
-        Args:
-            cli_mode: If True, uses cli_todo folder for isolation from main agent
-            session_id: Optional unique session ID for isolated todo folders (cli_mode only)
-        """
+    def __init__(self):
+        """Initialize the Task Tracker Service"""
         current_dir = os.path.dirname(os.path.abspath(__file__))
         # Go up two levels from AutoCua/linux/controller/task_tracker/ to reach linux/
         linux_dir = os.path.dirname(os.path.dirname(current_dir))
 
-        if cli_mode:
-            if session_id:
-                self.todo_dir = os.path.join(linux_dir, "scratchpad", "cli_todo", session_id)
-            else:
-                self.todo_dir = os.path.join(linux_dir, "scratchpad", "cli_todo")
-        else:
-            self.todo_dir = os.path.join(linux_dir, "scratchpad", "todo")
+        self.todo_dir = os.path.join(linux_dir, "scratchpad", "todo")
         
         self.todo_file = os.path.join(self.todo_dir, "todo.md")
         

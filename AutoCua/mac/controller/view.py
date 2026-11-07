@@ -17,12 +17,9 @@ from .tool import open_app, ShellService, AppleScriptService
 from .hotkey.service import HotkeyService
 from .tool.web.service import WebService
 from .tool.screenshot import ScreenshotService
-from .tool.plan import PlanService
-from .cli.service import CLIService
 try:
-    from app import debug_log, IS_COMPILED, app_data_dir
+    from app import debug_log, app_data_dir
 except ImportError:
-    IS_COMPILED = False
     def debug_log(message, level="INFO"):
         pass
     def app_data_dir():
@@ -67,53 +64,39 @@ def _read_new_lines(path: Path, live: dict, key: str) -> list:
 
 
 class ControllerView:
-    def __init__(self, provider: str = None, model: str = None, cli_mode: bool = False, session_id: str = None, web_callback=None, shell_callback=None, cli_callback=None, api_key: str = None, stop_event=None, external_terminal: bool = False, minion_mode: bool = False, cli_report_usage: bool = False, cli_request_no: int = None, cli_history_file=None):
+    def __init__(self, provider: str = None, model: str = None, web_callback=None, shell_callback=None, cli_callback=None, api_key: str = None, stop_event=None, external_terminal: bool = False, cli_report_usage: bool = False, cli_request_no: int = None, cli_history_file=None):
         """Initialize the Controller View - central router for all actions
 
         Args:
             provider: LLM provider name for web search
             model: LLM model name for web search
-            cli_mode: If True, uses cli_todo folder for parallel isolation
-            session_id: Optional unique session ID for isolated folders (cli_mode only)
             web_callback: Optional callback for web search status (start/end)
             shell_callback: Optional callback for shell execution status (start/result/end)
             cli_callback: Optional callback for CLI agent streaming (await_start/task_start/task_line/task_end/await_end)
             api_key: Optional runtime API key for LLM providers (passed to CLI agent)
             stop_event: Optional threading.Event for stopping actions mid-execution
             external_terminal: If True, dispatched CLI sub-agents are launched in their own visible OS terminal window (Terminal.app on macOS) instead of having their stdout/stderr piped back. Used by main.py headless mode so the user can watch sub-agent progress live.
-            minion_mode: If True, this ControllerView belongs to a minion sub-agent run.
-                The scratchpad redirects to scratchpad/cli_minion/{session_id}/ so
-                the parent CLI agent's cli_milestone/ stays untouched.
-            cli_report_usage: If True, dispatched CLI agents get `--report-usage`:
-                the coder emits its per-LLM-call token usage as marker events so the
-                frontend memory bar can track it. Only the Shell-use path (frontend
-                run_shell_task) sets this — main-agent dispatches and minions never
-                do, so their coders emit nothing and the gauge stays theirs.
+            cli_report_usage: If True, dispatched CLI agents get `--report-usage`,
+                meant for the frontend memory bar; the Rust coder ignores it for
+                now. Only the Shell-use path (frontend run_shell_task) sets this.
             cli_request_no: Which request of the ongoing Shell-use conversation the
-                dispatched task is (passed to the coder as --request-no; injected
-                into its context as <user_request=N>). None = omit (request 1).
+                dispatched task is (passed to the coder as --request-no, which the
+                Rust coder ignores for now). None = omit (request 1).
             cli_history_file: Path to the Shell-use conversation-history file.
-                When set, dispatched CLI agents get `--history <path>`: the coder
-                seeds its context from it and rewrites it after every step — how a
-                shell CHAT keeps one conversation across runs. Only the Shell-use
-                path (frontend run_shell_task) passes this; main-agent dispatches
-                and minions never do, so their behavior is unchanged.
+                When set, dispatched CLI agents get `--history <path>`, which the
+                Rust coder ignores for now. Only the Shell-use path (frontend
+                run_shell_task) passes this; main-agent dispatches never do.
         """
-        self.cli_mode = cli_mode
-        self.session_id = session_id
         self.api_key = api_key
         self.stop_event = stop_event
         self.external_terminal = external_terminal
-        self.minion_mode = minion_mode
         self.cli_report_usage = cli_report_usage
         self.cli_request_no = cli_request_no
         self.cli_history_file = cli_history_file
         self.controller_service = ControllerService(stop_event=stop_event)
-        self.task_tracker = TaskTrackerService(cli_mode=cli_mode, session_id=session_id)
-        self.plan_service = PlanService(cli_mode=cli_mode, session_id=session_id)
-        self.scratchpad_service = ScratchpadService(cli_mode=cli_mode, session_id=session_id, minion_mode=minion_mode)
+        self.task_tracker = TaskTrackerService()
+        self.scratchpad_service = ScratchpadService()
         self.hotkey_service = HotkeyService(stop_event=stop_event)
-        self.cli_service = CLIService(session_id=session_id) if cli_mode else None
         self.shell_service = ShellService()
         self.applescript_service = AppleScriptService()
         self.screenshot_service = ScreenshotService(self.controller_service, sandbox_workspace=str(self.shell_service.sandbox.sandbox_root))
@@ -151,12 +134,6 @@ class ControllerView:
         self.speed = None             # The main agent's speed, so a browser agent runs the same way
         self.scan_on = True           # The `scan` tool's switch; the main driver reads it each step
 
-        # Minion tracking — parallel to CLI agent but with implicit-blocking semantics:
-        # the action loop dispatches all minions, then blocks at the end until every
-        # spawned minion has written its result. Reuses _cli_agent_lock for thread safety.
-        self._minion_tasks = []       # Active: [{"query": str, "subprocess": Popen, "result_file": Path, "session_id": str}]
-        self._minion_completed = []   # Done: [{"query": str, "session_id": str, "summary": str, "status": str}]
-    
     def _web_loading_animation(self):
         """Display animated loading indicator for web search.
 
@@ -164,8 +141,6 @@ class ControllerView:
         carriage-return overwrite trick only works in a real terminal; in a pipe
         all the partial writes accumulate and stream into the parent's reader as
         ugly text like "🌐 Web 🌐 Web. 🌐 Web..." which then floods the pill.
-        In pipe mode the UI gets a clean web-loading visual via the
-        web_loading_start/end events emitted from the web action handler.
         """
         if not sys.stdout.isatty():
             return
@@ -178,51 +153,12 @@ class ControllerView:
             time.sleep(0.5)
     
     def _safe_cli_emit(self, event_type: str, *args):
-        """Invoke self.cli_callback safely; never let a callback exception bubble up.
-
-        Subprocess fallback: when there's no direct callback (CLI agent running as
-        a piped subprocess of the main agent in app.py UI mode) and stdout is NOT
-        a TTY, emit the event as a tagged JSON marker on stdout. The main agent's
-        reader thread picks the marker up and re-emits it through ITS callback so
-        UI events from the CLI subprocess (like minion lifecycle) reach the pill.
-        Skipped in cli.py terminal mode (stdout is a TTY) — keeps the user's
-        terminal output clean of internal protocol lines.
-        """
+        """Invoke self.cli_callback safely; never let a callback exception bubble up."""
         if self.cli_callback:
             try:
                 self.cli_callback(event_type, *args)
             except Exception as e:
                 logger.error(f"cli_callback({event_type}) failed: {e}")
-            return
-        if self.cli_mode and not sys.stdout.isatty():
-            try:
-                payload = json.dumps({"event": event_type, "args": list(args)}, ensure_ascii=False)
-                sys.stdout.write(f"__MINION_UI_EVENT__:{payload}\n")
-                sys.stdout.flush()
-            except Exception:
-                pass
-
-    def _emit_todo_update(self):
-        """Push the coder's current todo list to the UI so its banner checklist
-        updates live as items are added/marked.
-
-        Guarded by cli_mode: only a CLI/coder subprocess emits this. In that
-        process cli_callback is None, so _safe_cli_emit writes a
-        __MINION_UI_EVENT__ marker on stdout; the parent's _read_cli_stream
-        intercepts it in _handle_minion_marker and re-emits it as a proper
-        `todo_update` event tagged with the coder's task_id. The main agent
-        (cli_mode=False) never emits — its todo isn't a coder card."""
-        if not self.cli_mode:
-            return
-        try:
-            todo_file = getattr(self.task_tracker, "todo_file", None)
-            if not todo_file or not os.path.exists(todo_file):
-                return
-            with open(todo_file, "r", encoding="utf-8") as f:
-                todo_text = f.read()
-            self._safe_cli_emit("todo_update", todo_text)
-        except Exception as e:
-            logger.error(f"_emit_todo_update failed: {e}")
 
     def _spawn_cli_external_terminal(self, cli_cmd: list, task_description: str):
         """Spawn the CLI sub-agent in a new visible Terminal.app window on macOS.
@@ -257,12 +193,6 @@ class ControllerView:
 
         Loops until the pipe closes (subprocess exit). Each line emits a 'task_line'
         event tagged with task_id and stream ("out" or "err").
-
-        Marker lines (`__MINION_UI_EVENT__:<json>`) are intercepted: they're internal
-        protocol from a piped CLI subprocess forwarding minion lifecycle. Re-emit
-        them as proper `minion_start` / `minion_end` events through this controller's
-        own callback (which has the bridge to the frontend). Marker lines never
-        leak into the parent pill's streaming output.
         """
         if pipe is None:
             logger.warning(f"_read_cli_stream({task_id}, {stream}): pipe is None")
@@ -280,9 +210,6 @@ class ControllerView:
                 if line == "" and stream == "err":
                     # don't spam empty stderr lines
                     continue
-                if line.startswith("__MINION_UI_EVENT__:"):
-                    self._handle_minion_marker(line, parent_task_id=task_id)
-                    continue
                 line_count += 1
                 if line_count <= 3 or line_count % 50 == 0:
                     logger.info(f"_read_cli_stream({task_id}, {stream}) line #{line_count}: {line[:120]}")
@@ -295,58 +222,6 @@ class ControllerView:
                 pipe.close()
             except Exception:
                 pass
-
-    def _handle_minion_marker(self, line: str, parent_task_id: str):
-        """Parse a `__MINION_UI_EVENT__:<json>` marker line emitted by a piped CLI
-        subprocess and re-emit it through this controller's own callback as a
-        proper `minion_start` / `minion_end` event.
-
-        `parent_task_id` is the spawning CLI subprocess's task_id (the result-file
-        stem from the coder_agent dispatch) — used so the frontend can attach the
-        new minion pill below the correct parent pill.
-        """
-        try:
-            payload = json.loads(line[len("__MINION_UI_EVENT__:"):].strip())
-        except Exception as e:
-            logger.error(f"Failed to parse minion marker: {e} | line={line!r}")
-            return
-        inner_event = payload.get("event")
-        inner_args = payload.get("args", [])
-        if inner_event == "task_start":
-            minion_task_id = inner_args[0] if len(inner_args) > 0 else ""
-            minion_desc = inner_args[1] if len(inner_args) > 1 else ""
-            if isinstance(minion_desc, str) and minion_desc.startswith("[minion] "):
-                minion_desc = minion_desc[len("[minion] "):]
-            self._safe_cli_emit("minion_start", parent_task_id, minion_task_id, minion_desc)
-        elif inner_event == "task_end":
-            minion_task_id = inner_args[0] if len(inner_args) > 0 else ""
-            status = inner_args[1] if len(inner_args) > 1 else "complete"
-            summary = inner_args[2] if len(inner_args) > 2 else ""
-            self._safe_cli_emit("minion_end", minion_task_id, status, summary)
-        elif inner_event == "task_line":
-            # Minion's stdout/stderr lines — stream into the minion pill body so
-            # the user sees live progress (mirrors how parent CLI pills stream).
-            minion_task_id = inner_args[0] if len(inner_args) > 0 else ""
-            line_text = inner_args[1] if len(inner_args) > 1 else ""
-            line_stream = inner_args[2] if len(inner_args) > 2 else "out"
-            self._safe_cli_emit("minion_line", minion_task_id, line_text, line_stream)
-        elif inner_event == "todo_update":
-            # Coder's todo list changed inside the piped CLI subprocess. Re-emit
-            # tagged with the coder's parent_task_id so the UI routes it to the
-            # right card's checklist.
-            todo_text = inner_args[0] if len(inner_args) > 0 else ""
-            self._safe_cli_emit("todo_update", parent_task_id, todo_text)
-        elif inner_event == "web_loading_start":
-            # Web tool started inside the piped CLI subprocess — flip the parent
-            # CLI pill into web-loading visual state. parent_task_id IS the pill.
-            self._safe_cli_emit("pill_web_loading_start", parent_task_id)
-        elif inner_event == "web_loading_end":
-            self._safe_cli_emit("pill_web_loading_end", parent_task_id)
-        elif inner_event == "token_usage":
-            # Shell-use coder's per-LLM-call token usage — re-emit upward so the
-            # frontend's memory bar rides the exact same pipe Computer use drives.
-            # Only a --report-usage (top-level Shell-use) coder emits these.
-            self._safe_cli_emit("token_usage", inner_args[0] if inner_args else {})
 
     def _cli_agent_complete_callback(self, result: dict, result_file: Path):
         """Callback when CLI agent finishes execution"""
@@ -365,26 +240,6 @@ class ControllerView:
         self._safe_cli_emit("task_end", task_id, result.get("status", "complete"), result.get("summary", ""))
         self._end_await_if_idle()
 
-    def _minion_complete_callback(self, result: dict, result_file: Path, query: str, session_id: str):
-        """Callback when a minion subprocess writes its result file.
-
-        Minion summaries do NOT auto-append to the parent's scratchpad —
-        the structured exit summary is the entire deliverable and surfaces directly as a
-        <minion_completed> tool response on the parent's next iteration.
-        """
-        task_id = result_file.stem
-        with self._cli_agent_lock:
-            self._minion_tasks = [t for t in self._minion_tasks if t["result_file"] != result_file]
-            self._minion_completed.append({
-                "query": query,
-                "session_id": session_id,
-                "summary": result.get("summary", ""),
-                "status": result.get("status", "complete"),
-            })
-            logger.info(f"Minion completed (session {session_id}): {result.get('status', 'complete')}")
-
-        self._safe_cli_emit("task_end", task_id, result.get("status", "complete"), result.get("summary", ""))
-    
     def _end_await_if_idle(self):
         """Close the streaming UI once no coder is left to show. A hold that ends
         early (another sub-agent finished first) leaves it open, so the coder
@@ -663,20 +518,6 @@ class ControllerView:
         except Exception:
             return False
 
-    def get_cli_agent_status(self) -> dict:
-        """Get current CLI agent status for main agent to check"""
-        with self._cli_agent_lock:
-            return {
-                "pending": len(self._cli_tasks) > 0,
-                "pending_count": len(self._cli_tasks),
-                "completed": list(self._cli_completed)
-            }
-    
-    def clear_cli_agent_results(self):
-        """Clear all CLI agent results after main agent has consumed them"""
-        with self._cli_agent_lock:
-            self._cli_completed.clear()
-    
     def stop_cli_agent(self):
         """Terminate all CLI agent subprocesses if running"""
         terminated_ids = []
@@ -738,10 +579,6 @@ class ControllerView:
         """
         Route actions to appropriate service based on action type
         
-        Supports two formats:
-        - New flat format (main agent): [{"type": "click", "id": 8}, {"type": "wait", "value": "2"}, ...]
-        - Old nested format (CLI agent): [{"shell": {"command": "..."}}, {"click": 8}, ...]
-        
         Args:
             action_data (list): The action list from LLM response
             
@@ -763,22 +600,7 @@ class ControllerView:
                                     "message": skip_reason})
                     continue
                 
-                # Detect format: new flat format has "type" key, old nested format doesn't
-                if "type" in action_item:
-                    # New flat format: {"type": "action_type", "id": ..., "value": ..., "text": ..., etc.}
-                    action_type = action_item.get("type")
-                else:
-                    # Old nested format: {"action_key": action_value}
-                    # Extract the action key and route to legacy handler
-                    result = self._route_legacy_action(action_item)
-                    if result:
-                        results.append(result)
-                        if result.get("status") == "stopped":
-                            self.controller_service.release_all_inputs()
-                            return result
-                        if result.get("status") == "error":
-                            return result
-                    continue
+                action_type = action_item.get("type")
                 
                 if not action_type:
                     logger.warning(f"Action item missing 'type' field: {action_item}")
@@ -941,9 +763,6 @@ class ControllerView:
 
                     if self.web_callback:
                         self.web_callback("start")
-                    # In CLI subprocess (no web_callback), this fires the marker bridge
-                    # so the parent CLI pill flips into web-loading visual on the frontend.
-                    self._safe_cli_emit("web_loading_start")
 
                     self._stop_loading = False
                     loading_thread = threading.Thread(target=self._web_loading_animation)
@@ -968,7 +787,6 @@ class ControllerView:
                             self.web_callback("end")
                             # Wait for CSS fade-out to complete before next action
                             time.sleep(0.7)
-                        self._safe_cli_emit("web_loading_end")
 
                     # The browser-agent fallback can run for minutes and honours
                     # stop by returning early — take the normal stopped path.
@@ -1257,56 +1075,38 @@ class ControllerView:
                                    / f"result_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}.json")
                     result_file.parent.mkdir(parents=True, exist_ok=True)
                     
-                    # Build CLI command based on compiled vs dev mode
-                    if IS_COMPILED:
-                        exe_dir = os.path.dirname(sys.executable)
-                        # sys.executable points to embedded 'python' runtime,
-                        # not the actual compiled binary. Use 'AutoCua' on macOS,
-                        # 'AutoCua.exe' on Windows.
-                        if sys.platform == "darwin":
-                            main_exe = os.path.join(exe_dir, "AutoCua")
-                        else:
-                            main_exe = os.path.join(exe_dir, "AutoCua.exe")
-                        cli_cmd = [
-                            main_exe, "--cli-mode",
-                            "--task", task_description,
-                            "--provider", self.provider,
-                            "--model", self.model,
-                            "--result", str(result_file)
-                        ]
-                    else:
-                        cli_cmd = [
-                            sys.executable, "-m", "AutoCua.mac.agent.coder",
-                            "--task", task_description,
-                            "--provider", self.provider,
-                            "--model", self.model,
-                            "--result", str(result_file)
-                        ]
+                    # The Rust coder, through its entry AutoCua/coder/__main__.py
+                    cli_cmd = [
+                        sys.executable, "-m", "AutoCua.coder",
+                        "--task", task_description,
+                        "--provider", self.provider,
+                        "--model", self.model,
+                        "--result", str(result_file)
+                    ]
                     
                     if self.api_key:
                         cli_cmd.extend(["--api_key", self.api_key])
 
-                    # Shell use: this coder's token usage drives the memory bar.
-                    # Never set for main-agent dispatches (this view's flag is
-                    # False there) — and minions have their own dispatch path.
+                    # Shell use: the memory bar flag (the Rust coder ignores it
+                    # for now). Never set for main-agent dispatches (this view's
+                    # flag is False there).
                     if self.cli_report_usage:
                         cli_cmd.append("--report-usage")
 
                     # Shell-use conversation: which request of the chat this is
-                    # (the coder tags its task <user_request=N>). Omitted -> 1.
+                    # (the Rust coder ignores it for now). Omitted -> 1.
                     if self.cli_request_no and int(self.cli_request_no) > 1:
                         cli_cmd.extend(["--request-no", str(int(self.cli_request_no))])
 
-                    # Shell-use conversation: the chat's history file (seed in,
-                    # per-step snapshots out). Absent for main-agent dispatches
-                    # and minions — their coders stay stateless.
+                    # Shell-use conversation: the chat's history file (the Rust
+                    # coder ignores it for now). Absent for main-agent dispatches.
                     if self.cli_history_file:
                         cli_cmd.extend(["--history", str(self.cli_history_file)])
 
                     # Propagate external_terminal to the CLI subprocess. In app.py UI mode
                     # main agent has external_terminal=False; pass --no_external_terminal so
-                    # the spawned CLI keeps its own minions on PIPE (required for the
-                    # __MINION_UI_EVENT__ marker bridge to reach the frontend).
+                    # the spawned coder keeps its own subagents on PIPE, not in terminal
+                    # windows of their own.
                     if not self.external_terminal:
                         cli_cmd.append("--no_external_terminal")
 
@@ -1333,7 +1133,7 @@ class ControllerView:
                                 # OWN SESSION (setsid). Stop kills the coder by process
                                 # GROUP — ui/service.py _kill_process_trees does
                                 # os.killpg(os.getpgid(pid), SIGKILL) — so that the
-                                # minions the coder spawned go down with it. Without
+                                # subagents the coder spawned go down with it. Without
                                 # this the coder inherits OUR group, getpgid() resolves
                                 # to the app's own pgid, and pressing Stop SIGKILLs the
                                 # whole application instead of the agent.
@@ -1421,136 +1221,9 @@ class ControllerView:
                     }
                     results.append(result)
 
-                elif action_type == "minion":
-                    # DISPATCH MODE: spawn a read-only minion sub-agent.
-                    # Multiple minions in one action_list spawn in parallel; the
-                    # implicit-await block at the end of this action loop blocks
-                    # until ALL spawned minions have written their result file.
-                    minion_query = action_item.get("value", "")
-                    logger.info(f"Starting Minion for query: {minion_query}")
-
-                    result_file = app_data_dir() / "cli_minion_result" / f"result_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}.json"
-                    result_file.parent.mkdir(parents=True, exist_ok=True)
-                    minion_session_id = uuid.uuid4().hex[:8]
-
-                    if IS_COMPILED:
-                        exe_dir = os.path.dirname(sys.executable)
-                        if sys.platform == "darwin":
-                            main_exe = os.path.join(exe_dir, "AutoCua")
-                        else:
-                            main_exe = os.path.join(exe_dir, "AutoCua.exe")
-                        cli_cmd = [
-                            main_exe, "--minion-mode",
-                            "--task", minion_query,
-                            "--provider", self.provider,
-                            "--model", self.model,
-                            "--result", str(result_file),
-                        ]
-                    else:
-                        cli_cmd = [
-                            sys.executable, "-m", "AutoCua.mac.agent.minions",
-                            "--task", minion_query,
-                            "--provider", self.provider,
-                            "--model", self.model,
-                            "--result", str(result_file),
-                        ]
-
-                    if self.api_key:
-                        cli_cmd.extend(["--api_key", self.api_key])
-
-                    cli_env = os.environ.copy()
-                    cli_env["PYTHONUNBUFFERED"] = "1"
-                    minion_proc = None
-
-                    if self.external_terminal:
-                        self._spawn_cli_external_terminal(cli_cmd, f"[minion] {minion_query}")
-                    else:
-                        try:
-                            # Deliberately NOT start_new_session: this runs inside the
-                            # CODER process, so the minion must stay in the coder's
-                            # process group. That is what makes one killpg on the
-                            # coder's pgid take every minion down with it — give a
-                            # minion its own session and it survives Stop as an orphan,
-                            # still burning API calls.
-                            minion_proc = subprocess.Popen(
-                                cli_cmd,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                env=cli_env,
-                            )
-                            debug_log(f"Minion subprocess started (PID: {minion_proc.pid})")
-                        except Exception as e:
-                            debug_log(f"Minion subprocess failed to start: {e}", "ERROR")
-
-                    task_id = result_file.stem
-                    with self._cli_agent_lock:
-                        self._minion_tasks.append({
-                            "query": minion_query,
-                            "subprocess": minion_proc,
-                            "result_file": result_file,
-                            "session_id": minion_session_id,
-                        })
-
-                    self._safe_cli_emit("task_start", task_id, f"[minion] {minion_query}")
-                    if minion_proc is not None:
-                        for pipe, stream_name in (
-                            (minion_proc.stdout, "out"),
-                            (minion_proc.stderr, "err"),
-                        ):
-                            t = threading.Thread(
-                                target=self._read_cli_stream,
-                                args=(pipe, task_id, stream_name),
-                                daemon=True,
-                            )
-                            t.start()
-
-                    def watch_minion_result(rf=result_file, q=minion_query, sid=minion_session_id):
-                        while True:
-                            if rf.exists():
-                                try:
-                                    with open(rf, 'r', encoding='utf-8') as f:
-                                        result_data = json.load(f)
-                                    rf.unlink()
-                                    self._minion_complete_callback(result_data, rf, q, sid)
-                                except Exception as e:
-                                    logger.error(f"Error reading minion result: {e}")
-                                break
-                            time.sleep(1)
-
-                    watcher_thread = threading.Thread(target=watch_minion_result)
-                    watcher_thread.daemon = True
-                    watcher_thread.start()
-
-                    # Placeholder — patched after the implicit-await at end of action loop.
-                    results.append({
-                        "_pending_minion": True,
-                        "query": minion_query,
-                        "session_id": minion_session_id,
-                    })
-
-                elif action_type == "plan":
-                    plan_op = action_item.get("op", "set")
-                    success, detail = self.plan_service.apply_op(
-                        plan_op,
-                        action_item.get("value", ""),
-                        action_item.get("from", 0),
-                        action_item.get("to", 0),
-                    )
-                    if success:
-                        result = {"status": "success", "action": "plan_updated", "op": plan_op}
-                        results.append(result)
-                    else:
-                        return {
-                            "status": "error",
-                            "action": "plan_failed",
-                            "op": plan_op,
-                            "message": detail
-                        }
-
                 elif action_type == "todo_list":
                     todo_value = action_item.get("value")
                     self.task_tracker.save_todo(todo_value)
-                    self._emit_todo_update()
                     result = {"status": "success", "action": "todo_created"}
                     results.append(result)
 
@@ -1558,7 +1231,6 @@ class ControllerView:
                     task_number = int(action_item.get("value", "0"))
                     success = self.task_tracker.update_task(task_number)
                     if success:
-                        self._emit_todo_update()
                         result = {"status": "success", "action": "todo_updated", "task": task_number}
                         results.append(result)
                     else:
@@ -1632,172 +1304,35 @@ class ControllerView:
 
                 # Shell command execution (new flat format)
                 elif action_type == "shell":
-                    if self.cli_service:
-                        # CLI agent mode — command + input fields
-                        command = action_item.get("command", "")
-                        input_text = action_item.get("input", None)
-                        result = self.cli_service.shell(command, input_text)
-                    else:
-                        # Main agent mode — value field only, with frontend animation
-                        command = action_item.get("value", "")
-                        
-                        # Signal frontend: terminal card appears, screenshot slides down
-                        if self.shell_callback:
-                            self.shell_callback("start", command)
-                        
-                        result = self.shell_service.run(command)
-                        
-                        # Signal frontend: show success/fail result
-                        if self.shell_callback:
-                            shell_status = result.get("status", "failed")
-                            shell_output = result.get("output", result.get("error", ""))
-                            self.shell_callback("result", {"status": shell_status, "output": shell_output or ""})
-                            # Hold result on screen for 2 seconds
-                            time.sleep(2)
-                            # Signal frontend: terminal card fades out, screenshot slides up
-                            self.shell_callback("end")
-                            # Wait for CSS fade-out to complete before next action
-                            time.sleep(0.7)
-                        
+                    # Main agent mode — value field only, with frontend animation
+                    command = action_item.get("value", "")
+                    
+                    # Signal frontend: terminal card appears, screenshot slides down
+                    if self.shell_callback:
+                        self.shell_callback("start", command)
+                    
+                    result = self.shell_service.run(command)
+                    
+                    # Signal frontend: show success/fail result
+                    if self.shell_callback:
+                        shell_status = result.get("status", "failed")
+                        shell_output = result.get("output", result.get("error", ""))
+                        self.shell_callback("result", {"status": shell_status, "output": shell_output or ""})
+                        # Hold result on screen for 2 seconds
+                        time.sleep(2)
+                        # Signal frontend: terminal card fades out, screenshot slides up
+                        self.shell_callback("end")
+                        # Wait for CSS fade-out to complete before next action
+                        time.sleep(0.7)
+                    
                     results.append(result)
                     if result.get("status") == "error" and result.get("error"):
                         return result
-                
-                elif action_type == "view":
-                    if self.cli_service:
-                        result = self.cli_service.view(
-                            path=action_item.get("path", ""),
-                            start=action_item.get("start", 0),
-                            end=action_item.get("end", 0),
-                        )
-                        results.append(result)
-                    else:
-                        return {
-                            "status": "error",
-                            "action": "view",
-                            "message": "CLI service not initialized (cli_mode=False)"
-                        }
-
-                elif action_type == "grep":
-                    if self.cli_service:
-                        result = self.cli_service.grep(
-                            pattern=action_item.get("pattern", ""),
-                            path=action_item.get("path", ""),
-                            glob_filter=action_item.get("glob", ""),
-                            output_mode=action_item.get("output_mode", "content"),
-                            case_insensitive=action_item.get("case_insensitive", False),
-                            head_limit=action_item.get("head_limit", 50),
-                            context=action_item.get("context", 0),
-                        )
-                        results.append(result)
-                    else:
-                        return {
-                            "status": "error",
-                            "action": "grep",
-                            "message": "CLI service not initialized (cli_mode=False)"
-                        }
-
-                elif action_type == "glob":
-                    if self.cli_service:
-                        result = self.cli_service.glob(
-                            pattern=action_item.get("pattern", ""),
-                            path=action_item.get("path", ""),
-                            head_limit=action_item.get("head_limit", 100),
-                        )
-                        results.append(result)
-                    else:
-                        return {
-                            "status": "error",
-                            "action": "glob",
-                            "message": "CLI service not initialized (cli_mode=False)"
-                        }
-
-                elif action_type == "write":
-                    if self.cli_service:
-                        path = action_item.get("path", "")
-                        line = action_item.get("line", 1)
-                        content = action_item.get("content", "")
-                        result = self.cli_service.write(path, line, content)
-                        results.append(result)
-                    else:
-                        return {
-                            "status": "error",
-                            "action": "write",
-                            "message": "CLI service not initialized (cli_mode=False)"
-                        }
-                
-                elif action_type == "replace":
-                    if self.cli_service:
-                        path = action_item.get("path", "")
-                        line = action_item.get("line", 0)
-                        old_block = action_item.get("old_block", "")
-                        new_block = action_item.get("new_block", "")
-                        result = self.cli_service.replace(path, line, old_block, new_block)
-                        results.append(result)
-                    else:
-                        return {
-                            "status": "error",
-                            "action": "replace",
-                            "message": "CLI service not initialized (cli_mode=False)"
-                        }
-                
-                elif action_type == "exit":
-                    summary = action_item.get("value")
-                    logger.info(f"CLI Agent Exit: {summary}")
-                    return {"status": "success", "action": "exit", "summary": summary}
 
                 # Check if last action was stopped
                 if results and results[-1].get("status") == "stopped":
                     self.controller_service.release_all_inputs()
                     return results[-1]
-
-            # Implicit await: if any minions were dispatched in this action, block
-            # until all of them have written their result files, then patch each
-            # placeholder in `results` with the structured tool response. Single
-            # minion → wait for that one. N minions → wait for all N (parallel).
-            with self._cli_agent_lock:
-                pending_minion_count = len(self._minion_tasks)
-            if pending_minion_count > 0:
-                while True:
-                    if self.stop_event is not None and self.stop_event.is_set():
-                        with self._cli_agent_lock:
-                            for t in self._minion_tasks:
-                                proc = t.get("subprocess")
-                                if proc and proc.poll() is None:
-                                    try:
-                                        proc.terminate()
-                                    except Exception:
-                                        pass
-                            self._minion_tasks.clear()
-                        break
-                    with self._cli_agent_lock:
-                        if not self._minion_tasks:
-                            break
-                    time.sleep(0.5)
-
-                with self._cli_agent_lock:
-                    completed_by_sid = {c["session_id"]: c for c in self._minion_completed}
-                for i, r in enumerate(results):
-                    if isinstance(r, dict) and r.get("_pending_minion"):
-                        sid = r.get("session_id")
-                        completion = completed_by_sid.get(sid)
-                        if completion is None:
-                            results[i] = {
-                                "status": "error",
-                                "action": "minion_completed",
-                                "query": r.get("query", ""),
-                                "output": "Minion did not return a result (subprocess crashed or was terminated).",
-                            }
-                        else:
-                            results[i] = {
-                                "status": "success" if completion.get("status") == "complete" else "error",
-                                "action": "minion_completed",
-                                "query": r.get("query", ""),
-                                "output": completion.get("summary", ""),
-                            }
-                with self._cli_agent_lock:
-                    self._minion_completed = [c for c in self._minion_completed
-                                              if c["session_id"] not in completed_by_sid]
 
             if len(results) == 0:
                 return {"status": "error", "message": "No valid action found"}
@@ -1809,223 +1344,6 @@ class ControllerView:
         except Exception as e:
             logger.error(f"Error routing action: {str(e)}")
             return {"status": "error", "message": str(e)}
-    
-    def _route_legacy_action(self, action_item):
-        """
-        Handle old nested action format used by CLI agent
-        Format: {"action_key": action_value}
-        
-        Args:
-            action_item (dict): Single action in old nested format
-            
-        Returns:
-            dict: Result of the action execution, or None if not handled
-        """
-        for action_key, action_value in action_item.items():
-            
-            if action_key == "click":
-                return self.controller_service.click(action_value)
-            
-            elif action_key == "input":
-                if isinstance(action_value, dict):
-                    element_idx = action_value.get("id")
-                    text_value = action_value.get("value")
-                    return self.controller_service.input(element_idx, text_value)
-            
-            elif action_key == "scroll":
-                if isinstance(action_value, dict):
-                    element_idx = action_value.get("id")
-                    direction = action_value.get("direction")
-                    return self.controller_service.scroll(element_idx, direction)
-            
-            elif action_key == "typewrite":
-                return self.controller_service.typewrite(action_value)
-                    
-            elif action_key == "double_click":
-                return self.controller_service.double_click(action_value)
-                    
-            elif action_key == "right_click":
-                return self.controller_service.right_click(action_value)
-
-            elif action_key == "hotkey":
-                return self.hotkey_service.send(action_value)
-            
-            elif action_key == "wait":
-                wait_time = float(action_value)
-                logger.info(f"Waiting for {wait_time} seconds...")
-                time.sleep(wait_time)
-                logger.info(f"Wait completed")
-                return {"status": "success", "action": "tool", "tool": "wait", "duration": wait_time}
-            
-            elif action_key == "shell":
-                if self.cli_service:
-                    if isinstance(action_value, str):
-                        command = action_value
-                        input_text = None
-                    else:
-                        command = action_value.get("command", "")
-                        input_text = action_value.get("input", None)
-                    return self.cli_service.shell(command, input_text)
-                else:
-                    return {
-                        "status": "error",
-                        "action": "shell",
-                        "message": "CLI service not initialized (cli_mode=False)"
-                    }
-            
-            elif action_key == "view":
-                if self.cli_service:
-                    if isinstance(action_value, dict):
-                        return self.cli_service.view(
-                            path=action_value.get("path", ""),
-                            start=action_value.get("start", 0),
-                            end=action_value.get("end", 0),
-                        )
-                    return self.cli_service.view(action_value)
-                else:
-                    return {
-                        "status": "error",
-                        "action": "view",
-                        "message": "CLI service not initialized (cli_mode=False)"
-                    }
-
-            elif action_key == "grep":
-                if self.cli_service:
-                    if isinstance(action_value, dict):
-                        return self.cli_service.grep(
-                            pattern=action_value.get("pattern", ""),
-                            path=action_value.get("path", ""),
-                            glob_filter=action_value.get("glob", ""),
-                            output_mode=action_value.get("output_mode", "content"),
-                            case_insensitive=action_value.get("case_insensitive", False),
-                            head_limit=action_value.get("head_limit", 50),
-                            context=action_value.get("context", 0),
-                        )
-                    return self.cli_service.grep(pattern=str(action_value))
-                else:
-                    return {
-                        "status": "error",
-                        "action": "grep",
-                        "message": "CLI service not initialized (cli_mode=False)"
-                    }
-
-            elif action_key == "glob":
-                if self.cli_service:
-                    if isinstance(action_value, dict):
-                        return self.cli_service.glob(
-                            pattern=action_value.get("pattern", ""),
-                            path=action_value.get("path", ""),
-                            head_limit=action_value.get("head_limit", 100),
-                        )
-                    return self.cli_service.glob(pattern=str(action_value))
-                else:
-                    return {
-                        "status": "error",
-                        "action": "glob",
-                        "message": "CLI service not initialized (cli_mode=False)"
-                    }
-
-            elif action_key == "write":
-                if self.cli_service:
-                    path = action_value.get("path", "")
-                    line = action_value.get("line", 1)
-                    content = action_value.get("content", "")
-                    return self.cli_service.write(path, line, content)
-                else:
-                    return {
-                        "status": "error",
-                        "action": "write",
-                        "message": "CLI service not initialized (cli_mode=False)"
-                    }
-            
-            elif action_key == "replace":
-                if self.cli_service:
-                    path = action_value.get("path", "")
-                    line = action_value.get("line", 0)
-                    old_block = action_value.get("old_block", "")
-                    new_block = action_value.get("new_block", "")
-                    return self.cli_service.replace(path, line, old_block, new_block)
-                else:
-                    return {
-                        "status": "error",
-                        "action": "replace",
-                        "message": "CLI service not initialized (cli_mode=False)"
-                    }
-                    
-            elif action_key == "web":
-                query = action_value
-                logger.info(f"Performing web search: {query}")
-
-                if self.web_callback:
-                    self.web_callback("start")
-                self._safe_cli_emit("web_loading_start")
-
-                self._stop_loading = False
-                loading_thread = threading.Thread(target=self._web_loading_animation)
-                loading_thread.daemon = True
-                loading_thread.start()
-
-                try:
-                    web_service = WebService(self.provider, self.model, self.api_key,
-                                             stop_event=self.stop_event)
-                    web_result = web_service.search(query)
-                finally:
-                    self._stop_loading = True
-                    loading_thread.join(timeout=1)
-                    if sys.stdout.isatty():
-                        sys.stdout.write("\r" + " " * 50 + "\r")
-                        sys.stdout.flush()
-
-                    if self.web_callback:
-                        self.web_callback("end")
-                    self._safe_cli_emit("web_loading_end")
-
-                if self.stop_event and self.stop_event.is_set():
-                    self.controller_service.release_all_inputs()
-                    return {"status": "stopped", "action": "stop", "message": "Stopped by user"}
-
-                return {
-                    "status": "success",
-                    "action": "tool",
-                    "tool": "web",
-                    "query": query,
-                    "result": web_result
-                }
-            
-            elif action_key == "todo_list":
-                self.task_tracker.save_todo(action_value)
-                self._emit_todo_update()
-                return {"status": "success", "action": "todo_created"}
-
-            elif action_key == "update_todo":
-                success = self.task_tracker.update_task(action_value)
-                if success:
-                    self._emit_todo_update()
-                    return {"status": "success", "action": "todo_updated", "task": action_value}
-                else:
-                    return {
-                        "status": "error",
-                        "action": "todo_update_failed",
-                        "message": "Could not update task"
-                    }
-            
-            elif action_key == "scratchpad":
-                success = self.scratchpad_service.append_scratchpad(action_value)
-                if success:
-                    return {"status": "success", "action": "scratchpad_added", "scratchpad": action_value}
-                else:
-                    return {
-                        "status": "error",
-                        "action": "scratchpad_failed",
-                        "message": "Could not add scratchpad entry"
-                    }
-
-            elif action_key == "exit":
-                summary = action_value
-                logger.info(f"CLI Agent Exit: {summary}")
-                return {"status": "success", "action": "exit", "summary": summary}
-
-        return None
     
     def set_elements(self, elements_mapping, application_name=""):
         """Set the elements mapping in controller service"""

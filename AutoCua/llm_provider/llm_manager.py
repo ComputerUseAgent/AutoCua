@@ -187,10 +187,8 @@ def tool_calls_to_steps(tool_calls: list, allowed, defaults_map, track_params=No
       track   — the tracking params stitched from the step's calls: the first
                 call carries them in full, later calls pass "".
 
-    `allowed` and `defaults_map` come from the caller's tool registry. Each
-    platform's tool_registry/service.py exports this with its own defaults
-    (the coder's tables on the desktops), so the agents' call sites stay as
-    they were."""
+    `allowed` and `defaults_map` come from the caller's tool registry, which
+    re-exports this function, so the agents' call sites stay as they were."""
     actions, calls, rejects = [], [], []
     track = {b: "" for b in (track_params or _TRACK_PARAMS)}
     names = allowed

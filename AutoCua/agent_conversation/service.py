@@ -223,8 +223,8 @@ class ConversationService:
         """Move pre-AutoCua_data chats into `dest` exactly once.
 
         WHERE IT RUNS: lazily, on the first root() call in each process. That
-        covers EVERY entry point — the GUI, the --cli-mode / --minion-mode
-        re-execs, a bare import of this module — with no ordering requirement on
+        covers EVERY entry point — the GUI, the agents' child processes, a
+        bare import of this module — with no ordering requirement on
         app.py, and it only runs when chat data is actually touched.
 
         IDEMPOTENT + CRASH-SAFE BY CONSTRUCTION, with NO on-disk 'done' marker:

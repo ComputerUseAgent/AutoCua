@@ -10,7 +10,7 @@ app.py is gone and main.py is the only entry point:
 
 This module is imported ONLY for UI mode, so its import-time bootstrap
 (stdio fixup, banner-mode stdio, the compiled build's embedded open() patch)
-never touches a terminal run. The coder/minion/controller/telegram modules
+never touches a terminal run. The controller/telegram modules
 that did `from app import debug_log, IS_COMPILED, app_data_dir` take their
 try/except fallbacks now. For binary builds, point Nuitka at main.py (or at
 this file); Nuitka follows imports."""
@@ -110,14 +110,9 @@ else:
 # Build / process flags + debug logging (compiled binary only)
 # =============================================================================
 IS_COMPILED = getattr(sys, 'frozen', False) or '__compiled__' in dir()
-IS_CLI_SUBPROCESS = "--cli-mode" in sys.argv
 # Any re-exec of AutoCua.exe that must NOT clobber the parent's debug log / wipe
-# the parent's scratchpad (--cli-mode / --minion-mode / --banner-mode).
-IS_SECONDARY_PROCESS = (
-    IS_CLI_SUBPROCESS
-    or "--banner-mode" in sys.argv
-    or "--minion-mode" in sys.argv
-)
+# the parent's scratchpad (--banner-mode).
+IS_SECONDARY_PROCESS = "--banner-mode" in sys.argv
 # Started by the Chromium desktop shell (AutoCua/desktop/main.js): this
 # process is the backend only, and the window belongs to the shell (see
 # DesktopWindow).
@@ -135,7 +130,7 @@ MACOS_BUNDLE_ID = "com.ashishyadav.AutoCua"
 
 
 def app_data_dir() -> Path:
-    """Root for cli_agent_result/ + cli_minion_result/ + settings/chats in the
+    """Root for cli_agent_result/ + settings/chats in the
     binary build. Compiled: ~/Library/Application Support/AutoCua (macOS) /
     %LOCALAPPDATA%/AutoCua (Windows). Dev: the repo root (where app.py lives)."""
     if IS_COMPILED:
@@ -2938,11 +2933,11 @@ def run_shell_task(task, provider, model, api_key, run_pkg,
     stream.
 
     That reuse is the point. Rather than re-implement the subprocess spawn, the
-    stdout reader threads, the `__MINION_UI_EVENT__` bridge and the cli_*
-    lifecycle, this drives the platform ControllerView's existing `sub_agent`
-    (dispatch) + `agent_wait` (block) actions — the two the main agent itself
-    uses. macOS and Windows go through the same two calls; only run_pkg differs,
-    and the coder subprocess command is already branched inside ControllerView.
+    stdout reader threads and the cli_* lifecycle, this drives the platform
+    ControllerView's existing `sub_agent` (dispatch) + `agent_wait` (block)
+    actions, the two the main agent itself uses. Every OS goes through the same
+    two calls; only run_pkg differs, and ControllerView starts the coder
+    (python -m AutoCua.coder).
 
     Args:
         task: the user's typed request, handed to the coder verbatim.
@@ -2960,18 +2955,13 @@ def run_shell_task(task, provider, model, api_key, run_pkg,
         f"AutoCua.{run_pkg}.controller.view"
     ).ControllerView
 
-    # cli_mode=True with NO session_id: keeps this run off the MAIN agent's
-    # scratchpad/todo files (it writes to the shared cli_milestone/ folder
-    # instead) without minting a per-run sandbox folder on the Desktop.
-    # cli_report_usage: the coder emits per-LLM-call token usage markers, so
-    # the memory bar tracks a Shell-use run the way it tracks Computer use.
-    # cli_history_file / cli_request_no: the chat's conversation channel — the
-    # coder seeds from the file, snapshots back into it, and tags its task
-    # <user_request=N>.
+    # cli_report_usage, cli_history_file and cli_request_no reach the coder
+    # as --report-usage, --history and --request-no (the memory bar, and the
+    # chat's conversation channel). The Rust coder (AutoCua/coder) takes them
+    # but does not use them yet.
     controller = ControllerView(
         provider=provider,
         model=model,
-        cli_mode=True,
         cli_callback=cli_callback,
         api_key=api_key,
         stop_event=stop_event,
@@ -4571,8 +4561,8 @@ def _opt_out_of_app_nap():
 # main()
 # =============================================================================
 def main():
-    # --banner-mode / --cli-mode / --minion-mode are handled first — these
-    # re-exec'd children must not boot a second webview / Flask / Telegram bot.
+    # --banner-mode is handled first: this re-exec'd child must not boot a
+    # second webview / Flask / Telegram bot.
     if "--banner-mode" in sys.argv and IS_WINDOWS:
         # In dev the banner spawns via `python -m …banner`, but the Nuitka binary
         # has no `-m`, so StatusBanner.show() re-execs AutoCua.exe with this flag.
@@ -4606,8 +4596,7 @@ def main():
 
     # Wire the Telegram remote-control bot. Windows mounts a Flask blueprint plus a
     # polling bot; macOS and Linux register the blueprint and start the polling
-    # bot. Only the real GUI process runs it — the cli/minion children
-    # dispatch + return below.
+    # bot. Only the real GUI process runs it, not the banner child.
     if not IS_SECONDARY_PROCESS:
         if IS_WINDOWS:
             try:
@@ -4638,30 +4627,6 @@ def main():
                 print(f"[telegram] IMPORT/INIT FAILED: {_tg_e!r}", file=sys.stderr, flush=True)
                 _tg_tb.print_exc(file=sys.stderr)
                 debug_exception("telegram_bot_init")
-
-    if "--cli-mode" in sys.argv:
-        sys.argv.remove("--cli-mode")
-        try:
-            cli_main = importlib.import_module(
-                f"AutoCua.{PLATFORM_PKG}.agent.coder.__main__"
-            ).main
-            cli_main()
-        except Exception:
-            debug_exception("CLI mode")
-        return
-
-    if "--minion-mode" in sys.argv:
-        # Required from the compiled binary, where the controller re-execs AutoCua
-        # with --minion-mode instead of `python -m ...minions`.
-        sys.argv.remove("--minion-mode")
-        try:
-            minion_main = importlib.import_module(
-                f"AutoCua.{PLATFORM_PKG}.agent.minions.__main__"
-            ).main
-            minion_main()
-        except Exception:
-            debug_exception("Minion mode")
-        return
 
     # macOS: never nap, in the pywebview window's process and in the Chromium
     # shell's backend alike (the shell's own process opts out in main.js).

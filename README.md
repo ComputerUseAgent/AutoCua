@@ -458,8 +458,8 @@ Run either directly. They start in their own workspace, so point them at an abso
 the work is in an existing project:
 
 ```bash
-python -m AutoCua.mac.agent.coder   --task "refactor the auth module in /Users/me/projects/api" --provider anthropic --model claude-sonnet-5
-python -m AutoCua.mac.agent.minions --task "where is _validate_token defined in /Users/me/projects/api and who calls it?" --provider anthropic --model claude-sonnet-5
+python -m AutoCua.coder          --task "refactor the auth module in /Users/me/projects/api" --provider anthropic --model claude-sonnet-5
+python -m AutoCua.coder.subagent --task "where is _validate_token defined in /Users/me/projects/api and who calls it?" --provider anthropic --model claude-sonnet-5 --mode workflow --result /tmp/scout.json
 ```
 
 ---
@@ -1397,16 +1397,16 @@ AutoCua/
   desktop/                 the app's Chromium window (Electron, fetched on a yes at the first launch)
   default_skills/          the shipped skills, read-only; yours go in AutoCua_data/skills/
   llm_provider/            every LLM endpoint and the model tables, one copy for all platforms
+  Cargo.toml  lib.rs       the one Rust crate for the web agent, the Android agent and the coder
+  coder/                   the coding agent, Rust, one copy for every OS; subagent/ holds its read-only scouts
   mac/  windows/           computer use: agent, controller, tree, sandbox, tool_registry
     agent/computer_use/      the desktop loop
-    agent/coder/             the coding agent
-    agent/minions/           read-only scouts
     controller/tool/         shell, open_app, screenshot, applescript, kernel_input
     tree/                    accessibility scanner and OCR
-  web/                     the Rust browser agent, one crate; browser/AutoCuaBridge/ is the AutoCua Chrome extension
+  web/                     the Rust browser agent; browser/AutoCuaBridge/ is the AutoCua Chrome extension
   ios/                     the iPhone and iPad agent
   ios_connector/           WebDriverAgent transport: cable, Wi-Fi (through Xcode) and simulator sessions
-  android/                 the Android agent, one Rust crate: loop, controller, tool registry, screen reader
+  android/                 the Rust Android agent: loop, controller, tool registry, screen reader
   android_connector/       adb and the phone helper (Helper.java: screenshots and the UI tree): USB, Wi-Fi and emulator sessions
   linux/tree/              the Linux accessibility scanner, see Roadmap
   memory_compression/      context gauge and rolling handoff compression
