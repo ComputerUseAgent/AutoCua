@@ -1,7 +1,7 @@
 import json
 import requests
 from typing import Dict, Any, Optional
-from .. import LLM_HTTP_TIMEOUT, screenshots
+from .. import entry_value, http_timeout, screenshots
 
 class CerebrasProvider:
     """Cerebras API provider for LLM interactions (OpenAI-compatible chat completions)"""
@@ -54,10 +54,11 @@ class CerebrasProvider:
             # Output cap. The handoff manager passes 10k (LLMManager.max_tokens);
             # everything else keeps this default.
             "max_completion_tokens": self.max_tokens or 32768,
-            # The coder and its minions (cli_agent) work through code and
-            # think hard; computer use, web and the memory handoff answer
+            # The table's level for this caller: the coder and its
+            # subagents (coder_effort) work through code and think hard;
+            # computer use, web and the memory handoff (effort) answer
             # every step and stay quick.
-            "reasoning_effort": "high" if self.cli_agent else "low",
+            "reasoning_effort": entry_value(self.model_info, "effort", self.cli_agent),
         }
 
         # No tools (mode="text") -> plain text: omit the tool params entirely.
@@ -69,7 +70,7 @@ class CerebrasProvider:
             data["tool_choice"] = self.model_info.get("tool_choice") or "required"
 
         try:
-            response = self.session.post(self.api_url, json=data, headers=headers, timeout=LLM_HTTP_TIMEOUT)
+            response = self.session.post(self.api_url, json=data, headers=headers, timeout=http_timeout(self.cli_agent))
             response.raise_for_status()
             result = response.json()
             if self.tools:

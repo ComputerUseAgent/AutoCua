@@ -26,6 +26,8 @@
 # nearest supported one (as OpenRouter does) or rejects it outright. That is
 # the reason to keep these conservative: every level here exists on its own
 # model either way.
+from .. import entry_value
+
 MODEL_MAPPINGS = {
     # No OpenAI entry. GPT-6 batches only through the `async` tool flag, and
     # Perplexity strips it (probed 2026-10-01), so here GPT-6 makes one call
@@ -37,19 +39,22 @@ MODEL_MAPPINGS = {
         "api_name": "google/gemini-4-argon",
         "vision": True,
         "display_name": "Gemini 4 Argon",
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium"
     },
     "gemini-3.6-flash": {
         "api_name": "google/gemini-3.6-flash",
         "vision": True,
         "display_name": "Gemini 3.6 Flash",
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium"
     },
     "gemini-3.8-flash": {
         "api_name": "google/gemini-3.8-flash",
         "vision": True,
         "display_name": "Gemini 3.8 Flash",
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium"
     },
     # xAI — note the `xai/` prefix, NOT `x-ai/` as on OpenRouter.
     "grok-4.5": {
@@ -57,7 +62,8 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "Grok 4.5",
         # Grok 4.5 cannot switch reasoning off at all, so `low` is its floor.
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium"
     },
     # No Grok 4.3 or 4.7: on this route both answer 400 "invalid request" to
     # any request that carries a screenshot, and the same request without it
@@ -67,9 +73,11 @@ MODEL_MAPPINGS = {
         "api_name": "perplexity/kimi-k3",
         "vision": True,
         "display_name": "Kimi K3",
-        # K3's ladder is max/high/low with no `medium`, and it defaults to
-        # `max` — the most expensive default of anything in this table.
-        "effort": "low"
+        # K3 defaults to `max`, the most expensive default of anything in
+        # this table. Perplexity takes every level for it, `medium` (the
+        # coder's) included.
+        "effort": "low",
+        "coder_effort": "medium"
     },
     # Z.ai GLM: also under Perplexity's own namespace, like Kimi. Only the
     # Flash model: plain glm-5.3 rejects any request with an image here.
@@ -77,7 +85,10 @@ MODEL_MAPPINGS = {
         "api_name": "perplexity/glm-5.3-flash",
         "vision": True,
         "display_name": "GLM 5.3 Flash",
-        "effort": "low"
+        "effort": "low",
+        # GLM's own ladder is low / high / max, no `medium`: the coder goes
+        # up to `high`.
+        "coder_effort": "high"
     },
     # No `sonar` entry. Perplexity's own search-grounded model is text-only,
     # which makes it unusable for the driver's screenshot step — and while it
@@ -97,7 +108,7 @@ def get_model_info(short_name: str) -> dict:
     }
 
 
-def get_reasoning_params(api_name: str, info: dict = None) -> dict:
+def get_reasoning_params(api_name: str, info: dict = None, cli_agent: bool = False) -> dict:
     """Agent API reasoning config for the model send_request is about to call.
 
     The resolved table entry (`info`) wins when it carries an effort: two
@@ -112,8 +123,8 @@ def get_reasoning_params(api_name: str, info: dict = None) -> dict:
     # The resolved entry wins: two entries may share one api_name (one
     # model at two levels), which a scan by api_name cannot tell apart.
     if info and info.get("effort"):
-        return {"reasoning": {"effort": info["effort"]}}
+        return {"reasoning": {"effort": entry_value(info, "effort", cli_agent)}}
     for entry in MODEL_MAPPINGS.values():
         if entry["api_name"] == api_name and entry.get("effort"):
-            return {"reasoning": {"effort": entry["effort"]}}
+            return {"reasoning": {"effort": entry_value(entry, "effort", cli_agent)}}
     return {}

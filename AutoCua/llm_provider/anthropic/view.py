@@ -8,6 +8,8 @@
 # confident mass, which is what keeps tool-call arguments and schema JSON
 # well-formed. top_k is only a tail guard: it bites when the distribution is
 # unusually flat and otherwise never binds.
+from .. import entry_value
+
 SAMPLING_PARAMS = {"top_p": 0.5, "top_k": 40}
 
 # Thinking, for the models that take it. ADAPTIVE means Claude decides per
@@ -26,6 +28,11 @@ SAMPLING_PARAMS = {"top_p": 0.5, "top_k": 40}
 # billed against the same 4000-token ceiling as the visible answer and the
 # tool-call JSON, and the loop runs tool_choice {"type": "any"}, so a turn
 # that spends its budget thinking loses the tool call it owed.
+#
+# The coder (cli_agent) reads each entry's coder_ fields: coder_effort (one
+# level deeper), and coder_tool_choice auto where the table would force a
+# call, since a forced tool call returns no thinking block. Its output
+# ceiling is out_cap's 32768.
 ADAPTIVE_THINKING = {"type": "adaptive"}
 
 MODEL_MAPPINGS = {
@@ -47,7 +54,9 @@ MODEL_MAPPINGS = {
         # top_k each return 400 "deprecated for this model". Steer it by
         # prompt and by effort.
         "sampling": False,
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium",
+        "coder_tool_choice": "auto"
     },
     "claude-sonnet-5": {
         "api_name": "claude-sonnet-5",
@@ -55,7 +64,9 @@ MODEL_MAPPINGS = {
         "display_name": "Claude Sonnet 5",
         # Same as Opus 5: non-default temperature/top_p/top_k are rejected.
         "sampling": False,
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium",
+        "coder_tool_choice": "auto"
     },
     "claude-sonnet-5.5": {
         "api_name": "claude-sonnet-5-5",
@@ -63,6 +74,7 @@ MODEL_MAPPINGS = {
         "display_name": "Claude Sonnet 5.5",
         "sampling": False,
         "effort": "low",
+        "coder_effort": "medium",
         # Sonnet 5.5 dropped forced tool use: tool_choice "any" (and "tool")
         # is a 400 "not supported for this model", so this entry is sent
         # "auto" instead. The loop's no-tool-called nudge covers a turn that
@@ -75,6 +87,7 @@ MODEL_MAPPINGS = {
         "display_name": "Claude Opus 5.5",
         "sampling": False,
         "effort": "low",
+        "coder_effort": "medium",
         # Same as Sonnet 5.5: forced tool_choice is a 400, so "auto".
         "tool_choice": "auto"
     },
@@ -106,7 +119,7 @@ def get_sampling_params(api_name: str) -> dict:
     return {}
 
 
-def get_thinking_params(api_name: str) -> dict:
+def get_thinking_params(api_name: str, cli_agent: bool = False) -> dict:
     """Adaptive-thinking + effort request fields for the model being called.
 
     Keyed by api_name for the same reason as get_sampling_params: it is what
@@ -122,7 +135,7 @@ def get_thinking_params(api_name: str) -> dict:
         if info["api_name"] == api_name and info.get("effort"):
             return {
                 "thinking": dict(ADAPTIVE_THINKING),
-                "output_config": {"effort": info["effort"]},
+                "output_config": {"effort": entry_value(info, "effort", cli_agent)},
             }
     return {}
 
@@ -132,7 +145,9 @@ def get_tool_choice(api_name: str) -> dict:
     must call a tool) unless its entry sets `tool_choice`.
 
     Keyed by api_name like the two helpers above, so the coder's one-call
-    fallback (Haiku 4.5 / Sonnet 5) keeps "any" while Sonnet 5.5 gets "auto".
+    fallback to Haiku 4.5 keeps "any" while Sonnet 5.5 gets "auto". The
+    coder on Opus 5 or Sonnet 5 (also as its fallback) never gets here:
+    their coder_tool_choice is "auto".
     """
     for info in MODEL_MAPPINGS.values():
         if info["api_name"] == api_name and info.get("tool_choice"):

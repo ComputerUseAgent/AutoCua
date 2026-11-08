@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 
 from .view import get_reasoning_params
 from ..responses import async_route, send as send_responses
-from .. import LLM_HTTP_TIMEOUT, screenshots
+from .. import entry_value, http_timeout, out_cap, screenshots
 
 def _is_gemini_route(model: str) -> bool:
     """True when OpenRouter will hand this request to Google's backend, where a
@@ -67,7 +67,8 @@ class OpenRouterProvider:
                 error_prefix="OpenRouter API request failed",
                 model=model, messages=messages, shot=annotated_screenshot_base64,
                 cli_agent=self.cli_agent, tools=self.tools,
-                reasoning=get_reasoning_params(model, self.model_info),
+                reasoning=get_reasoning_params(model, self.model_info, self.cli_agent),
+                info=self.model_info,
                 # Same routing preference as the chat path. No temperature
                 # (Astra rejects it) and no route:fallback (unverified on this
                 # endpoint).
@@ -153,7 +154,7 @@ class OpenRouterProvider:
             "temperature": 0.2,
             # Output cap. The handoff manager passes 10k (LLMManager.max_tokens);
             # everything else keeps this default.
-            "max_tokens": self.max_tokens or 10000,
+            "max_tokens": self.max_tokens or out_cap(self.cli_agent, 10000, self.model_info),
             "route": "fallback",
             # Without this, OpenRouter load-balances every call across backends
             # by price — so identical steps land on different upstreams and the
@@ -167,7 +168,7 @@ class OpenRouterProvider:
         # OpenRouter's unified `reasoning` field, which it translates to each
         # backend's own control. Left off for a model with no level set and
         # for any hand-typed name, which then keeps its published default.
-        data.update(get_reasoning_params(model, self.model_info))
+        data.update(get_reasoning_params(model, self.model_info, self.cli_agent))
 
         # No tools (mode="text") -> plain text: omit the tool params entirely.
         if self.tools:
@@ -183,7 +184,7 @@ class OpenRouterProvider:
             # no-tool-called nudge + leaked-envelope salvage stay as backstop.
             # A table entry may override the value (Qwen: "auto", the one
             # value its backend accepts with thinking on; see view.py).
-            data["tool_choice"] = self.model_info.get("tool_choice") or "required"
+            data["tool_choice"] = entry_value(self.model_info, "tool_choice", self.cli_agent) or "required"
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -191,7 +192,7 @@ class OpenRouterProvider:
         }
         
         try:
-            response = self.session.post(self.api_url, json=data, headers=headers, timeout=LLM_HTTP_TIMEOUT)
+            response = self.session.post(self.api_url, json=data, headers=headers, timeout=http_timeout(self.cli_agent))
             response.raise_for_status()
             result = response.json()
             if self.tools:
