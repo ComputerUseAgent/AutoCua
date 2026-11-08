@@ -96,6 +96,7 @@ coverage.xml
 /cli_conversation
 # The coder's result files in a dev run (the app's data folder is the repo root).
 /cli_agent_result
+/cli_shell_history
 /cli_minion_conversation
 /cli_subagent_conversation
 /milestone
