@@ -4497,6 +4497,48 @@ def _stay_in_webview():
     os.environ["AUTOCUA_UI"] = "webview"
 
 
+# The shell's stdin pipe, read only by _serve_desktop_shell's thread, which
+# waits for the shell to close it (_keep_shell_pipe).
+_shell_pipe = None
+
+
+def _keep_shell_pipe():
+    """Keep the shell's stdin pipe for _serve_desktop_shell's thread alone and
+    make this process's stdin the null device. Run first in --desktop mode,
+    before this process starts anything. Every process started from here
+    inherits this process's stdin, and on Windows a Python process whose
+    stdin is a pipe that another process is blocked reading never gets past
+    its start: the coder from Coder mode sat at 0 s of CPU and never
+    answered. If the copy fails, the thread reads stdin itself, as before."""
+    global _shell_pipe
+    if sys.stdin is None:
+        return
+    try:
+        fd = sys.stdin.fileno()
+        pipe = os.fdopen(os.dup(fd), "rb", buffering=0)
+        null = os.open(os.devnull, os.O_RDONLY)
+        os.dup2(null, fd)
+    except (OSError, ValueError):
+        debug_exception("keep shell pipe")
+        _shell_pipe = sys.stdin.buffer
+        return
+    os.close(null)
+    _shell_pipe = pipe
+    if os.name == "nt":
+        # Children get Windows' own stdin handle, which dup2 moves only in a
+        # console Python: under pythonw.exe it would still be the pipe, or the
+        # pipe handle dup2 just closed.
+        try:
+            import ctypes
+            import msvcrt
+            from ctypes import wintypes
+            kernel32 = ctypes.WinDLL("kernel32")
+            kernel32.SetStdHandle.argtypes = (wintypes.DWORD, wintypes.HANDLE)
+            kernel32.SetStdHandle(-10 & 0xFFFFFFFF, msvcrt.get_osfhandle(fd))  # STD_INPUT_HANDLE
+        except Exception:
+            debug_exception("stdin handle")
+
+
 def _serve_desktop_shell(win, start_path):
     """--desktop's main loop, in place of webview.start(). Tells the shell
     (AutoCua/desktop/main.js) where the app is, then lives until the shell
@@ -4509,14 +4551,14 @@ def _serve_desktop_shell(win, start_path):
     accessory app: no Dock icon, never the active app."""
     def until_stdin_closes():
         try:
-            while sys.stdin.buffer.read(1):
+            while _shell_pipe.read(1):
                 pass
         except Exception:
             debug_exception("desktop shell stdin")
         win.events.closing.fire()
         os._exit(0)
 
-    if sys.stdin is not None:
+    if _shell_pipe is not None:
         threading.Thread(target=until_stdin_closes, daemon=True).start()
     # The shell came up: the launcher (_launch_desktop_shell) no longer falls
     # back to the pywebview window when it exits.
@@ -4592,6 +4634,9 @@ def main():
     if not IS_SECONDARY_PROCESS and not IS_DESKTOP_SHELL and _launch_desktop_shell():
         return
     if IS_DESKTOP_SHELL:
+        # Before anything is started: the shell's stdin pipe goes to the
+        # thread that waits for it to close, the rest get the null device.
+        _keep_shell_pipe()
         # Work from where the app was launched (_launch_desktop_shell): the
         # agent clears and writes its run folders (conversation/, debug/, ...)
         # relative to it, and after a pip install the folder the shell starts
