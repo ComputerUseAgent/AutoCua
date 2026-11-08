@@ -92,8 +92,8 @@ dependencies = [
 ios = ["pymobiledevice3>=10; sys_platform == 'darwin'"]
 
 [project.urls]
-Homepage = "https://github.com/AutoCua/AutoCua"
-Source = "https://github.com/AutoCua/AutoCua"
+Homepage = "https://github.com/ComputerUseAgent/AutoCua"
+Source = "https://github.com/ComputerUseAgent/AutoCua"
 
 [tool.maturin]
 # The one crate lives inside the package (AutoCua/Cargo.toml: the web agent,

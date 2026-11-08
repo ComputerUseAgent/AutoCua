@@ -8,12 +8,12 @@
 
 [![PyPI](https://img.shields.io/pypi/v/AutoCua?color=4c6ef5&label=pypi)](https://pypi.org/project/AutoCua/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-4c6ef5)](https://pypi.org/project/AutoCua/)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20iOS%20%7C%20Android%20%7C%20Chrome-6c757d)](https://github.com/AutoCua/AutoCua/blob/main/README.md#requirements-and-setup)
-[![License](https://img.shields.io/badge/license-MIT-31a24c)](https://github.com/AutoCua/AutoCua/blob/main/LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20iOS%20%7C%20Android%20%7C%20Chrome-6c757d)](https://github.com/ComputerUseAgent/AutoCua/blob/main/README.md#requirements-and-setup)
+[![License](https://img.shields.io/badge/license-MIT-31a24c)](https://github.com/ComputerUseAgent/AutoCua/blob/main/LICENSE)
 
-[![Desktop input](https://img.shields.io/badge/desktop%20input-real%20hardware%20events-e8590c)](https://github.com/AutoCua/AutoCua/blob/main/README.md#how-it-acts-on-a-screen)
-[![Browser agent](https://img.shields.io/badge/browser%20agent-Rust%20%2B%20a%20Chrome%20extension-b7410e)](https://github.com/AutoCua/AutoCua/blob/main/README.md#the-browser-agent)
-[![Models](https://img.shields.io/badge/models-60%20across%2010%20providers-7048e8)](https://github.com/AutoCua/AutoCua/blob/main/README.md#providers-and-models)
+[![Desktop input](https://img.shields.io/badge/desktop%20input-real%20hardware%20events-e8590c)](https://github.com/ComputerUseAgent/AutoCua/blob/main/README.md#how-it-acts-on-a-screen)
+[![Browser agent](https://img.shields.io/badge/browser%20agent-Rust%20%2B%20a%20Chrome%20extension-b7410e)](https://github.com/ComputerUseAgent/AutoCua/blob/main/README.md#the-browser-agent)
+[![Models](https://img.shields.io/badge/models-60%20across%2010%20providers-7048e8)](https://github.com/ComputerUseAgent/AutoCua/blob/main/README.md#providers-and-models)
 
 <table><tr><td>
 
@@ -25,7 +25,7 @@ pip install AutoCua
 
 https://github.com/user-attachments/assets/f02ac3e9-fe6c-42f8-a685-88001d8d178e
 
-**See everything AutoCua can do → [agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**
+**See everything AutoCua can do → [agent_capabilities.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/agent_capabilities.md)**
 
 | | Windows | Linux | macOS |
 |:--|:--:|:--:|:--:|
@@ -194,7 +194,7 @@ opened as Administrator:
    [github.com/oblitum/Interception/releases](https://github.com/oblitum/Interception/releases)
    (AutoCua is tested with `v1.0.1`). Check it before running anything:
    `certutil -hashfile Interception.zip SHA256` must print the SHA-256 listed in
-   [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
+   [THIRD_PARTY_NOTICES.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
    Then unzip it.
 2. From inside the unzipped folder, install it:
    `"command line installer\install-interception.exe" /install`
@@ -214,7 +214,7 @@ opened as Administrator:
 > It is never bundled because it is dual-licensed **LGPL-3.0 non-commercial / paid commercial**.
 > Shipping it inside the wheel would make this project its distributor to every person who runs
 > `pip install`, which that licence does not allow for free. You receive it from its author.
-> See [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
+> See [THIRD_PARTY_NOTICES.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
 
 ### Linux, from pip
 
@@ -268,7 +268,7 @@ The first scan also downloads the PP-OCRv6 models that read text the desktop doe
   for no and don't ask again, or Enter for not now); without it the same app opens in
   pywebview ([The desktop app](#the-desktop-app)).
 - Put your provider key in a `.env` file, or paste it into Settings in the app.
-- Model names come from **[model_list.txt](https://github.com/AutoCua/AutoCua/blob/main/model_list.txt)** and are case sensitive. A name
+- Model names come from **[model_list.txt](https://github.com/ComputerUseAgent/AutoCua/blob/main/model_list.txt)** and are case sensitive. A name
   that is not on the list is forwarded verbatim and comes back as a 404.
 - Everything the agent keeps, chats, keys, your own skills and browser profiles, lands in an
   `AutoCua_data/` folder created where you run Python from.
@@ -276,7 +276,7 @@ The first scan also downloads the PP-OCRv6 models that read text the desktop doe
 ### From a checkout
 
 ```bash
-git clone https://github.com/AutoCua/AutoCua.git
+git clone https://github.com/ComputerUseAgent/AutoCua.git
 cd AutoCua
 
 bash setup_mac.sh            # macOS
@@ -301,7 +301,7 @@ Every optional flag goes straight into that call (`ui=True`, `speed="fast"`, …
 `ui`, `save_conversation`, `speed`, `external_terminal`, `headless`, `browser_port`,
 `browser_profile`, `extra_tasks`, `device`, `ios_version`, `android_version`, `sim_device`,
 `app_build`, `api_key` and `os`, are documented in
-**[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**.
+**[agent_capabilities.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/agent_capabilities.md)**.
 
 ---
 
@@ -611,7 +611,7 @@ build (`.ipa` or `.app`) in `AutoCua_data/app_build/` and pass its file name. It
 the moment the simulator has booted, at the same time as WebDriverAgent starts, and the agent
 only begins once both are done. No app, no run: a missing file, a failed install or
 `device="hardware"` stops the run with a clear error before the agent starts. Details in
-**[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**.
+**[agent_capabilities.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/agent_capabilities.md)**.
 
 **Three details worth knowing.**
 
@@ -695,7 +695,7 @@ time, with a check of what the computer has. An Android Studio SDK that already 
 and the image is used as it is. The images are Google APIs ones: Google's apps, no Play Store.
 Android 10 is not offered yet (not tried with the helper's screenshots). The emulator draws no
 window of its own: the run shows its screen in AutoCua's own window, the one iOS Simulator runs
-use, one device in the middle or several side by side. Details in **[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**, Part 10.
+use, one device in the middle or several side by side. Details in **[agent_capabilities.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/agent_capabilities.md)**, Part 10.
 
 **A real phone** goes over USB or, from the app, over Wi-Fi:
 
@@ -783,7 +783,7 @@ that User Interface Privilege Isolation blocked, and typing into Windows Securit
 
 > **Licensing.** Interception is dual licensed. LGPL v3.0 for non-commercial use, and
 > **commercial use requires a separate paid licence from its author**. AutoCua's MIT licence
-> does not and cannot grant it. See [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
+> does not and cannot grant it. See [THIRD_PARTY_NOTICES.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
 
 **macOS has no UAC** and AutoCua does not elevate on it. The analogue is TCC, handled entirely
 in user space by the permission wizard and the consent-dialog watcher. There is no `sudo`
@@ -1115,7 +1115,7 @@ Ten providers, all supported on every surface.
 | Requesty | yes | yes | yes | yes | yes |
 | Together AI | yes | yes | yes | yes | yes |
 
-60 model names are listed in **[model_list.txt](https://github.com/AutoCua/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
+60 model names are listed in **[model_list.txt](https://github.com/ComputerUseAgent/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
 that is not on the list gets no validation. It is forwarded verbatim and comes back as a 404.
 
 Keys resolve from the runtime setting first, then the environment or `.env`, so you can
@@ -1422,7 +1422,7 @@ AutoCua/
 
 The macOS, Windows and iOS packages stay structurally identical and **never import each
 other**, because release binaries are platform specific. See
-[AutoCua/Structure.md](https://github.com/AutoCua/AutoCua/blob/main/AutoCua/Structure.md).
+[AutoCua/Structure.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/AutoCua/Structure.md).
 
 ---
 
@@ -1466,9 +1466,9 @@ WebDriverAgent on a paired iPhone on the same Wi-Fi; see [iPhone and iPad](#ipho
 ## Licence, credits and citation
 
 Built and maintained by **Ashish Yadav**. Issues and merge requests are welcome at
-[github.com/AutoCua/AutoCua](https://github.com/AutoCua/AutoCua/issues).
+[github.com/ComputerUseAgent/AutoCua](https://github.com/ComputerUseAgent/AutoCua/issues).
 
-Licensed under the **MIT License**, see [LICENSE](https://github.com/AutoCua/AutoCua/blob/main/LICENSE). You may use, copy, modify, merge,
+Licensed under the **MIT License**, see [LICENSE](https://github.com/ComputerUseAgent/AutoCua/blob/main/LICENSE). You may use, copy, modify, merge,
 publish, distribute, sublicense and sell this software, including commercially. The only
 condition is to retain the copyright and permission notice. Not required but appreciated:
 credit the author and link back to the project.
@@ -1479,7 +1479,7 @@ Some components are **not covered by the MIT licence above**. A few are redistri
 repository or in the wheels: React, the Rust crates compiled into the prebuilt browser and Android
 agents and the coder, and ported UI code and icons; their licence texts ship with every wheel. The rest are fetched,
 installed or built on your machine, from their authors, at setup time or on first use. Full
-details in [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
+details in [THIRD_PARTY_NOTICES.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
 
 | Component | How it reaches you | Licence |
 |---|---|---|
@@ -1503,13 +1503,13 @@ details in [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main
 ### How to cite
 
 > Ashish Yadav. *AutoCua, a multi-agent framework for computer, web, mobile and shell
-> automation.* 2026. https://github.com/AutoCua/AutoCua
+> automation.* 2026. https://github.com/ComputerUseAgent/AutoCua
 
 ```bibtex
 @software{AutoCua2026,
   author = {Ashish Yadav},
   title  = {AutoCua: a multi-agent framework for computer, web, mobile and shell automation},
   year   = {2026},
-  url    = {https://github.com/AutoCua/AutoCua}
+  url    = {https://github.com/ComputerUseAgent/AutoCua}
 }
 ```

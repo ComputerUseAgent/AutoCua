@@ -11,6 +11,9 @@ In main.py, pass them straight to run_agent:
     )
 
 Copy the names exactly as written below (case-sensitive).
+`thinking` is the reasoning level the agents send; `coder` is the level
+Coder mode sends instead (set per model as coder_effort in each
+provider's view.py, next to the normal one).
 A name that is not on this list is NOT validated - it is sent to the
 provider verbatim and comes back as a 404 model_not_found.
 
@@ -18,134 +21,134 @@ provider verbatim and comes back as a 404 model_not_found.
 --------------------------------------------------------------
 provider="openrouter"
 --------------------------------------------------------------
-model name                thinking  vision
+model name                thinking  coder     vision
 --------------------------------------------------------------
-gemini-3.6-flash          minimal   yes
-gemini-3.8-flash          low       yes
-gemini-4-argon            low       yes
-gpt-6-astra               medium    yes
-gpt-6-luna                low       yes
-gpt-6-sol                 low       yes
-gpt-6.1-terra             low       yes
-claude-opus-5             medium    yes
-claude-sonnet-5           low       yes
-claude-sonnet-5.5         low       yes
-claude-opus-5.5           medium    yes
-grok-4.7                  low       yes
-mimo-v2.6-pro-ultraspeed  low       yes
-deepseek-v4.1-flash       low       yes
-deepseek-v4.1-flash-1017  low       yes
-minimax-m3.1-flash        low       yes
-muse-wonder               low       yes
-claude-opus-5-fast        low       yes
-mistral-medium-3.5        none      yes
-qwen3.8-max-0902          low       yes
-qwen3.8-flash             low       yes
+gemini-3.6-flash          minimal   low       yes
+gemini-3.8-flash          low       medium    yes
+gemini-4-argon            low       medium    yes
+gpt-6-astra               medium    high      yes
+gpt-6-luna                low       medium    yes
+gpt-6-sol                 low       medium    yes
+gpt-6.1-terra             low       medium    yes
+claude-opus-5             medium    high      yes
+claude-sonnet-5           low       medium    yes
+claude-sonnet-5.5         low       medium    yes
+claude-opus-5.5           medium    high      yes
+grok-4.7                  low       medium    yes
+mimo-v2.6-pro-ultraspeed  low       low       yes
+deepseek-v4.1-flash       low       medium    yes
+deepseek-v4.1-flash-1017  low       low       yes
+minimax-m3.1-flash        low       medium    yes
+muse-wonder               low       medium    yes
+claude-opus-5-fast        low       medium    yes
+mistral-medium-3.5        none      none      yes
+qwen3.8-max-0902          low       medium    yes
+qwen3.8-flash             low       medium    yes
 
 
 --------------------------------------------------------------
 provider="groq"
 --------------------------------------------------------------
-model name                thinking  vision
+model name                thinking  coder     vision
 --------------------------------------------------------------
-qwen3.8-27b               -         yes
+qwen3.8-27b               -         medium    yes
 
 
 --------------------------------------------------------------
 provider="openai"
 --------------------------------------------------------------
-model name                thinking  vision
+model name                thinking  coder     vision
 --------------------------------------------------------------
-gpt-6-astra               medium    yes
+gpt-6-astra               medium    high      yes
 
 
 --------------------------------------------------------------
 provider="anthropic"
 --------------------------------------------------------------
-model name                thinking  vision
+model name                thinking  coder     vision
 --------------------------------------------------------------
-claude-haiku-4.5          sampling  yes
-claude-opus-5             low       yes
-claude-sonnet-5           low       yes
-claude-sonnet-5.5         low       yes
-claude-opus-5.5           low       yes
+claude-haiku-4.5          sampling  sampling  yes
+claude-opus-5             low       medium    yes
+claude-sonnet-5           low       medium    yes
+claude-sonnet-5.5         low       medium    yes
+claude-opus-5.5           low       medium    yes
 
 
 --------------------------------------------------------------
 provider="google"
 --------------------------------------------------------------
-model name                thinking  vision
+model name                thinking  coder     vision
 --------------------------------------------------------------
-gemini-4-argon            low       yes
-gemini-3.6-flash          low       yes
-gemini-3.8-flash          low       yes
-gemini-4-argon-vertex     low       yes
-gemini-3.6-flash-vertex   low       yes
-gemini-3.8-flash-vertex   low       yes
+gemini-4-argon            low       medium    yes
+gemini-3.6-flash          low       medium    yes
+gemini-3.8-flash          low       medium    yes
+gemini-4-argon-vertex     low       medium    yes
+gemini-3.6-flash-vertex   low       medium    yes
+gemini-3.8-flash-vertex   low       medium    yes
 
 
 --------------------------------------------------------------
 provider="perplexity"
 --------------------------------------------------------------
-model name                thinking  vision
+model name                thinking  coder     vision
 --------------------------------------------------------------
-gemini-4-argon            low       yes
-gemini-3.6-flash          low       yes
-gemini-3.8-flash          low       yes
-grok-4.5                  low       yes
-kimi-k3                   low       yes
-glm-5.3-flash             low       yes
+gemini-4-argon            low       medium    yes
+gemini-3.6-flash          low       medium    yes
+gemini-3.8-flash          low       medium    yes
+grok-4.5                  low       medium    yes
+kimi-k3                   low       medium    yes
+glm-5.3-flash             low       high      yes
 
 
 
 --------------------------------------------------------------
 provider="together"
 --------------------------------------------------------------
-model name                thinking  vision
+model name                thinking  coder     vision
 --------------------------------------------------------------
-minimax-m3                default   yes
-inkling                   default   yes
-muse-glimmer-30b          default   yes
+minimax-m3                default   default   yes
+inkling                   default   default   yes
+muse-glimmer-30b          default   default   yes
 
 
 --------------------------------------------------------------
 provider="cerebras"
 --------------------------------------------------------------
-model name                thinking  vision
+model name                thinking  coder     vision
 --------------------------------------------------------------
-qwen-3.8-27b              low/high  yes
+qwen-3.8-27b              low       high      yes
 
 
 --------------------------------------------------------------
 provider="requesty"
 --------------------------------------------------------------
-model name                thinking  vision
+model name                thinking  coder     vision
 --------------------------------------------------------------
-claude-sonnet-5           low       yes
-claude-sonnet-5.5         low       yes
-claude-opus-5             medium    yes
-claude-opus-5.5           medium    yes
-gemini-3.6-flash          default   yes
-gemini-4-argon            low       yes
-gpt-5.4                   default   yes
-grok-4.7                  low       yes
-particle-1                low       yes
-minimax-m3.1-flash        low       yes
-deepseek-v4.1-flash-1017  none      yes
+claude-sonnet-5           low       medium    yes
+claude-sonnet-5.5         low       medium    yes
+claude-opus-5             medium    high      yes
+claude-opus-5.5           medium    high      yes
+gemini-3.6-flash          default   default   yes
+gemini-4-argon            low       medium    yes
+gpt-5.4                   default   default   yes
+grok-4.7                  low       medium    yes
+particle-1                low       medium    yes
+minimax-m3.1-flash        low       medium    yes
+deepseek-v4.1-flash-1017  none      none      yes
 
 
 --------------------------------------------------------------
 provider="aws"
 --------------------------------------------------------------
-model name                thinking  vision
+model name                thinking  coder     vision
 --------------------------------------------------------------
-kimi-k3                   low       yes
-grok-4.7                  low       yes
-claude-opus-4.7           low       yes
-claude-opus-4.6           low       yes
-claude-sonnet-4.6         low       yes
+kimi-k3                   low       medium    yes
+grok-4.7                  low       medium    yes
+claude-opus-4.7           low       medium    yes
+claude-opus-4.6           low       medium    yes
+claude-sonnet-4.6         low       medium    yes
 
 
 --------------------------------------------------------------
-51 models across 10 providers.
+60 models across 10 providers.
 --------------------------------------------------------------

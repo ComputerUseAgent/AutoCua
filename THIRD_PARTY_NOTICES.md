@@ -548,4 +548,4 @@ toolchain's `share/doc/rust/COPYRIGHT-library.html` and the licenses of
 
 If you believe something here is misattributed, under-attributed, or
 redistributed in a way its license does not permit, please open an issue at
-https://github.com/AutoCua/AutoCua/issues — we will correct it promptly.
+https://github.com/ComputerUseAgent/AutoCua/issues — we will correct it promptly.

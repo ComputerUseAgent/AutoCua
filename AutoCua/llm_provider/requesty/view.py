@@ -28,7 +28,9 @@ MODEL_MAPPINGS = {
         "api_name": "anthropic/claude-sonnet-5",
         "vision": True,
         "display_name": "Claude Sonnet 5",
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium",
+        "coder_tool_choice": "auto"
     },
     # Claude 5.5 rejects forced tool use (see openrouter/view.py), so both
     # carry tool_choice "auto".
@@ -37,19 +39,23 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "Claude Sonnet 5.5",
         "effort": "low",
+        "coder_effort": "medium",
         "tool_choice": "auto"
     },
     "claude-opus-5": {
         "api_name": "anthropic/claude-opus-5",
         "vision": True,
         "display_name": "Claude Opus 5",
-        "effort": "medium"
+        "effort": "medium",
+        "coder_effort": "high",
+        "coder_tool_choice": "auto"
     },
     "claude-opus-5.5": {
         "api_name": "anthropic/claude-opus-5-5",
         "vision": True,
         "display_name": "Claude Opus 5.5",
         "effort": "medium",
+        "coder_effort": "high",
         "tool_choice": "auto"
     },
     "gemini-3.6-flash": {
@@ -62,7 +68,8 @@ MODEL_MAPPINGS = {
         "api_name": "vertex/gemini-4-argon",
         "vision": True,
         "display_name": "Gemini 4 Argon",
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium"
     },
     "gpt-5.4": {
         "api_name": "openai/gpt-5.4",
@@ -73,14 +80,16 @@ MODEL_MAPPINGS = {
         "api_name": "xai/grok-4.7",
         "vision": True,
         "display_name": "Grok 4.7",
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium"
     },
     # Particle AI's own model. It thinks at `high` unless told otherwise.
     "particle-1": {
         "api_name": "particle/particle-1",
         "vision": True,
         "display_name": "Particle-1",
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium"
     },
     # MiniMax's own route (minimaxi/): with "required" it acts in the first
     # turn; "auto" gave the notes call first.
@@ -88,7 +97,8 @@ MODEL_MAPPINGS = {
         "api_name": "minimaxi/minimax-m3.1-flash",
         "vision": True,
         "display_name": "MiniMax M3.1 Flash",
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium"
     },
     # DeepSeek's own route. Its thinking mode refuses a forced tool call (400
     # "Thinking mode does not support this tool_choice") and thinking is on
@@ -97,7 +107,8 @@ MODEL_MAPPINGS = {
         "api_name": "deepseek/deepseek-v4.1-flash-1017",
         "vision": True,
         "display_name": "DeepSeek V4.1 Flash 1017",
-        "effort": "none"
+        "effort": "none",
+        "coder_effort": "none"
     }
 }
 

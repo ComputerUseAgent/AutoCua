@@ -16,8 +16,9 @@
 //! batched with the action calls and the same for the coder and the
 //! subagent: `insight` (only when something new came up) and `next_goal`
 //! (every probe turn). The action tools carry only their own fields. tool_choice is
-//! forced (required / {"type": "any"} / mode="ANY"), so a text-only step is
-//! unrepresentable; the text channel remains for free prose only.
+//! forced (required / {"type": "any"} / mode="ANY") except for a Claude model
+//! that thinks, which runs on auto (a forced call skips its thinking); a
+//! text-only step from it gets the "no tool called" nudge.
 //!
 //! One prompt and one tool list for every model: there is no Claude variant.
 //!
@@ -1240,7 +1241,10 @@ pub struct LLMManager {
     pub model_short_name: String,
     /// Runtime key from the caller (priority over .env and the saved key).
     pub runtime_api_key: Option<String>,
-    /// Coder/subagent flag: it turns on the one-call fallback model. NOT a
+    /// Coder/subagent flag: it turns on the one-call fallback model and, in
+    /// the Python providers, the coder's longer wait, bigger output cap and
+    /// its own table settings (coder_effort, coder_tool_choice,
+    /// coder_max_tokens in each llm_provider/<p>/view.py). NOT a
     /// "native tools" switch: every mode but "text" is native. Each provider
     /// also gates its screenshot splice on `not cli_agent` (the coder sends
     /// no screenshot).
