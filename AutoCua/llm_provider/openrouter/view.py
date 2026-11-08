@@ -21,13 +21,16 @@
 #
 # Reasoning cannot be switched off on Gemini, Grok 4.5 or Qwen — those are
 # mandatory-reasoning models, so the lowest level they publish is the floor.
+from .. import entry_value
+
 MODEL_MAPPINGS = {
     "gemini-3.6-flash": {
         "api_name": "google/gemini-3.6-flash",
         "vision": True,
         "display_name": "Gemini 3.6 Flash",
         # 3.6 Flash is the one Gemini that publishes `minimal`.
-        "effort": "minimal"
+        "effort": "minimal",
+        "coder_effort": "low"
     },
     "gemini-3.8-flash": {
         "api_name": "google/gemini-3.8-flash",
@@ -35,7 +38,8 @@ MODEL_MAPPINGS = {
         "display_name": "Gemini 3.8 Flash",
         # 3.8 Flash publishes low/medium/high only - `minimal` returns an
         # error there - so `low` is its floor.
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium"
     },
     # The plain route, not `google/gemini-4-argon:batch`: the half-price
     # `:batch` twins are refused on chat/completions and on Responses alike
@@ -49,7 +53,8 @@ MODEL_MAPPINGS = {
         # Probed 2026-11-04 with the real driver and coder prompts: `low`
         # batches the notes call with the actions and reads its tool results
         # on the next turn. About ten seconds a call.
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium"
     },
     # OpenAI is GPT-6 Astra at `medium`, the same entry the direct openai
     # provider carries, so switching a model between the two providers is a
@@ -63,7 +68,9 @@ MODEL_MAPPINGS = {
         "display_name": "GPT-6 Astra",
         # Astra publishes low/medium/high/xhigh/max and rejects `none` and
         # `minimal`; one entry, at `medium`.
-        "effort": "medium"
+        "effort": "medium",
+        "coder_effort": "high",
+        "coder_max_tokens": 16000
     },
     # Luna and Sol are OpenRouter only (not in the direct openai table). Both
     # behave like Astra: probed 2026-09-23 with the real driver, coder and
@@ -75,7 +82,9 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "GPT-6 Luna",
         # Accepts every level from none to max; `low` matches the table.
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium",
+        "coder_max_tokens": 16000
     },
     "gpt-6-sol": {
         "api_name": "openai/gpt-6-sol",
@@ -83,7 +92,9 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "GPT-6 Sol",
         # Accepts every level from none to max; `low` matches the table.
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium",
+        "coder_max_tokens": 16000
     },
     # GPT-6.1 Terra behaves like the GPT-6 entries (probed 2026-11-04): on
     # chat/completions it gave the notes call alone three turns in a row, and
@@ -94,19 +105,25 @@ MODEL_MAPPINGS = {
         "async_tools": True,
         "vision": True,
         "display_name": "GPT-6.1 Terra",
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium",
+        "coder_max_tokens": 16000
     },
     "claude-opus-5": {
         "api_name": "anthropic/claude-opus-5",
         "vision": True,
         "display_name": "Claude Opus 5",
-        "effort": "medium"
+        "effort": "medium",
+        "coder_effort": "high",
+        "coder_tool_choice": "auto"
     },
     "claude-sonnet-5": {
         "api_name": "anthropic/claude-sonnet-5",
         "vision": True,
         "display_name": "Claude Sonnet 5",
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium",
+        "coder_tool_choice": "auto"
     },
     # Claude 5.5: Anthropic rejects forced tool use on both ("required" is a
     # 400 "tool_choice: type tool and any are not supported for this model",
@@ -117,6 +134,7 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "Claude Sonnet 5.5",
         "effort": "low",
+        "coder_effort": "medium",
         "tool_choice": "auto"
     },
     "claude-opus-5.5": {
@@ -124,6 +142,7 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "Claude Opus 5.5",
         "effort": "medium",
+        "coder_effort": "high",
         "tool_choice": "auto"
     },
     "grok-4.7": {
@@ -133,7 +152,8 @@ MODEL_MAPPINGS = {
         # Replaces 4.3 and 4.5 (2026-09-22). Probed with a forced tool call:
         # minimal, low and medium are all accepted and batch; `low` matches
         # the rest of the table.
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium"
     },
     "mimo-v2.6-pro-ultraspeed": {
         "api_name": "xiaomi/mimo-v2.6-pro-ultraspeed",
@@ -141,8 +161,9 @@ MODEL_MAPPINGS = {
         "display_name": "MiMo V2.6 Pro UltraSpeed",
         # Probed 2026-09-22: minimal and low both batch a forced tool call
         # in about a second; at `medium` the same probe came back with no
-        # call at all, so `low` it is.
-        "effort": "low"
+        # call at all, so `low` it is, for the coder too (no level up).
+        "effort": "low",
+        "coder_effort": "low"
     },
     "deepseek-v4.1-flash": {
         "api_name": "deepseek/deepseek-v4.1-flash",
@@ -151,7 +172,8 @@ MODEL_MAPPINGS = {
         # Probed 2026-09-22: every level is accepted and batches; the
         # backends (Together, CoreWeave) report zero reasoning tokens at
         # each, so the level is a formality here.
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium"
     },
     "deepseek-v4.1-flash-1017": {
         "api_name": "deepseek/deepseek-v4.1-flash-1017",
@@ -159,8 +181,11 @@ MODEL_MAPPINGS = {
         "display_name": "DeepSeek V4.1 Flash 1017",
         # The 2026-10-17 snapshot, served by DeepSeek itself. Probed
         # 2026-11-04: `low` batches the notes call with the actions in about
-        # two seconds, in the driver and in the coder.
-        "effort": "low"
+        # two seconds, in the driver and in the coder. The coder stays at
+        # `low`: DeepSeek's thinking mode answers a forced tool_choice with
+        # a 400 (requesty/view.py), and this entry forces one.
+        "effort": "low",
+        "coder_effort": "low"
     },
     "minimax-m3.1-flash": {
         "api_name": "minimax/minimax-m3.1-flash",
@@ -169,7 +194,8 @@ MODEL_MAPPINGS = {
         # Probed 2026-11-04: with "required" it batched the notes call and the
         # action in two runs of three, and in the third acted on the next
         # turn; "auto" always split them, so it keeps "required".
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium"
     },
     "muse-wonder": {
         "api_name": "meta/muse-wonder",
@@ -180,6 +206,7 @@ MODEL_MAPPINGS = {
         # "required" for it only. Probed 2026-11-04: `low` batches the notes
         # call with the actions, or acts on the next turn.
         "effort": "low",
+        "coder_effort": "medium",
         "tool_choice": "auto"
     },
     # Left out after the 2026-11-04 probe: meta/muse-spark-open and
@@ -193,7 +220,9 @@ MODEL_MAPPINGS = {
         "api_name": "anthropic/claude-opus-5-fast",
         "vision": True,
         "display_name": "Claude Opus 5 Fast",
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium",
+        "coder_tool_choice": "auto"
     },
     # Still the newest Mistral on OpenRouter — the line has not moved since
     # 2026-04-30, so this entry is current, not stale.
@@ -203,7 +232,8 @@ MODEL_MAPPINGS = {
         "display_name": "Mistral Medium 3.5",
         # Mistral publishes only two levels, high and none, so `none` here
         # means reasoning genuinely off — not "lowest setting" as elsewhere.
-        "effort": "none"
+        "effort": "none",
+        "coder_effort": "none"
     },
     # Qwen: Alibaba's backend rejects tool_choice="required" whenever thinking
     # is on (400 "does not support being set to required or object in
@@ -218,6 +248,7 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "Qwen3.8 Max (0902)",
         "effort": "low",
+        "coder_effort": "medium",
         "tool_choice": "auto"
     },
     "qwen3.8-flash": {
@@ -225,6 +256,7 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "Qwen3.8 Flash",
         "effort": "low",
+        "coder_effort": "medium",
         "tool_choice": "auto"
     },
 }
@@ -241,7 +273,7 @@ def get_model_info(short_name: str) -> dict:
     }
 
 
-def get_reasoning_params(api_name: str, info: dict = None) -> dict:
+def get_reasoning_params(api_name: str, info: dict = None, cli_agent: bool = False) -> dict:
     """OpenRouter's unified reasoning field for the model being called.
 
     The resolved table entry (`info`) wins when it carries an effort: two
@@ -257,8 +289,8 @@ def get_reasoning_params(api_name: str, info: dict = None) -> dict:
     # The resolved entry wins: two entries may share one api_name (one
     # model at two levels), which a scan by api_name cannot tell apart.
     if info and info.get("effort"):
-        return {"reasoning": {"effort": info["effort"]}}
+        return {"reasoning": {"effort": entry_value(info, "effort", cli_agent)}}
     for entry in MODEL_MAPPINGS.values():
         if entry["api_name"] == api_name and entry.get("effort"):
-            return {"reasoning": {"effort": entry["effort"]}}
+            return {"reasoning": {"effort": entry_value(entry, "effort", cli_agent)}}
     return {}

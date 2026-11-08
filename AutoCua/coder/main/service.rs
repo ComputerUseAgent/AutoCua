@@ -1425,7 +1425,7 @@ fn read_todo_from_file(ctl: &ControllerView) -> String {
     }
 }
 
-/// The plan as a <plan no="N"> block, its lines numbered like `view`; ""
+/// The plan as a <plan no="N"> block, its lines numbered like `read`; ""
 /// when there is no plan yet.
 fn read_plan_from_file(ctl: &ControllerView) -> String {
     let rendered = ctl.plan_service.render_plan();

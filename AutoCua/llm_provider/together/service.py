@@ -1,7 +1,7 @@
 import json
 import requests
 from typing import Dict, Any, Optional
-from .. import LLM_HTTP_TIMEOUT, screenshots
+from .. import http_timeout, out_cap, screenshots
 
 class TogetherProvider:
     """Together AI API provider for LLM interactions (OpenAI-compatible chat completions)"""
@@ -57,7 +57,7 @@ class TogetherProvider:
             # risks finish_reason "length" before the tool call is emitted.
             # Output cap. The handoff manager passes 10k (LLMManager.max_tokens);
             # everything else keeps this default.
-            "max_tokens": self.max_tokens or 10000,
+            "max_tokens": self.max_tokens or out_cap(self.cli_agent, 10000, self.model_info),
         }
 
         # No tools (mode="text") -> plain text: omit the tool params entirely.
@@ -69,14 +69,14 @@ class TogetherProvider:
             data["tool_choice"] = self._tool_choice
 
         try:
-            response = self.session.post(self.api_url, json=data, headers=headers, timeout=LLM_HTTP_TIMEOUT)
+            response = self.session.post(self.api_url, json=data, headers=headers, timeout=http_timeout(self.cli_agent))
             if response.status_code == 400 and self.tools and self._tool_choice == "required":
                 # Retry once with "auto". Remember it ONLY if that works — an
                 # unrelated 400 falls through and raises with its own body.
                 # The agent loop repairs the odd text-only turn ("no tool
                 # called"), so "auto" degrades gracefully.
                 data["tool_choice"] = "auto"
-                retry = self.session.post(self.api_url, json=data, headers=headers, timeout=LLM_HTTP_TIMEOUT)
+                retry = self.session.post(self.api_url, json=data, headers=headers, timeout=http_timeout(self.cli_agent))
                 if retry.ok:
                     self._tool_choice = "auto"
                     response = retry

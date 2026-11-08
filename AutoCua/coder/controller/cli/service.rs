@@ -1,4 +1,4 @@
-//! The coder's file tools (view, grep, glob, write, replace) and its shell
+//! The coder's file tools (read, grep, glob, write, replace) and its shell
 //! tool on top of the Sandbox, and the <Tool_response> envelope every routed
 //! tool result is rendered into (the coder and subagent loops both use it).
 //!
@@ -47,12 +47,12 @@ const CLIP_MAX_LINE_CHARS: usize = 2_000;
 /// The shell keeps the last lines too: the verdict is at the end.
 const SHELL_TAIL_LINES: usize = 50;
 
-const VIEW_FOOTER: &str = "... [clipped at ~15k chars — continue with a ranged view starting just after the last [N] shown]";
+const READ_FOOTER: &str = "... [clipped at ~15k chars — continue with a ranged read starting just after the last [N] shown]";
 #[cfg(not(windows))]
-const SHELL_FOOTER: &str = "... [long output clipped — re-run with filters (| head, | tail, | grep) or write to a file and grep/view it]";
+const SHELL_FOOTER: &str = "... [long output clipped — re-run with filters (| head, | tail, | grep) or write to a file and grep/read it]";
 #[cfg(windows)]
-const SHELL_FOOTER: &str = "... [long output clipped — re-run with filters (| Select-Object -First N, | Select-Object -Last N, | Select-String) or write to a file and grep/view it]";
-const DEFAULT_FOOTER: &str = "... [showing a bounded slice — narrow with grep, a view start/end range, or a tighter pattern]";
+const SHELL_FOOTER: &str = "... [long output clipped — re-run with filters (| Select-Object -First N, | Select-Object -Last N, | Select-String) or write to a file and grep/read it]";
+const DEFAULT_FOOTER: &str = "... [showing a bounded slice — narrow with grep, a read start/end range, or a tighter pattern]";
 
 /// Python's clip_output: bound one tool output.
 ///
@@ -133,7 +133,7 @@ fn ranges_attr(ranges: &[(usize, usize)], total: usize) -> String {
 /// One <output> block, clipped by the policy of the result's action.
 fn render_block(entry_action: &str, output_text: &str, result_no: Option<usize>) -> String {
     let (max_lines, tail_lines) = match entry_action {
-        "view" => (None, 0),
+        "read" => (None, 0),
         "shell" => (Some(CLIP_MAX_LINES), SHELL_TAIL_LINES),
         _ => (Some(CLIP_MAX_LINES), 0),
     };
@@ -141,7 +141,7 @@ fn render_block(entry_action: &str, output_text: &str, result_no: Option<usize>)
     let mut body = clip.text;
     if clip.truncated {
         let footer = match entry_action {
-            "view" => VIEW_FOOTER,
+            "read" => READ_FOOTER,
             "shell" => SHELL_FOOTER,
             _ => DEFAULT_FOOTER,
         };
@@ -246,10 +246,10 @@ fn py_repr_value(v: &Value) -> String {
 // The tools
 // ---------------------------------------------------------------------------
 
-/// Whole-file view cap, in lines.
-const VIEW_DEFAULT_LINE_CAP: usize = 2000;
-/// view refuses files larger than this.
-const VIEW_FILE_SIZE_LIMIT: u64 = 5 * 1024 * 1024;
+/// Whole-file read cap, in lines.
+const READ_DEFAULT_LINE_CAP: usize = 2000;
+/// read refuses files larger than this.
+const READ_FILE_SIZE_LIMIT: u64 = 5 * 1024 * 1024;
 /// grep skips files larger than this.
 const GREP_FILE_SIZE_LIMIT: u64 = 8 * 1024 * 1024;
 /// Each grep line is cut at this many characters.
@@ -502,21 +502,21 @@ impl CLIService {
     /// The file with [N] line numbers: the whole file (`start` = `end` = 0,
     /// at most 2000 lines) or the range start..=end. A missing or empty file
     /// gives "[1] ", the line to write at.
-    pub fn view(&self, path: &str, start: i64, end: i64) -> Value {
-        let command_str = format!("view path=\"{path}\", start={start}, end={end}");
-        match self.view_file(path, start, end) {
+    pub fn read(&self, path: &str, start: i64, end: i64) -> Value {
+        let command_str = format!("read path=\"{path}\", start={start}, end={end}");
+        match self.read_file(path, start, end) {
             Ok((output, last_line)) => json!({
                 "status": "success",
-                "action": "view",
+                "action": "read",
                 "command": command_str,
                 "output": output,
                 "last_line": last_line,
             }),
-            Err(out) => failed("view", &command_str, out),
+            Err(out) => failed("read", &command_str, out),
         }
     }
 
-    fn view_file(&self, path: &str, start: i64, end: i64) -> Result<(String, i64), String> {
+    fn read_file(&self, path: &str, start: i64, end: i64) -> Result<(String, i64), String> {
         let full_path = if path.is_empty() {
             PathBuf::from(&self.sandbox.working_dir)
         } else {
@@ -535,11 +535,11 @@ impl CLIService {
             Ok(md) => md.len(),
             Err(e) => return Err(format!("could not stat file: {}", py_os_error(&e, &full_path))),
         };
-        if size_bytes > VIEW_FILE_SIZE_LIMIT {
+        if size_bytes > READ_FILE_SIZE_LIMIT {
             let size_mb = size_bytes as f64 / (1024.0 * 1024.0);
             return Err(format!(
                 "file too large ({size_mb:.1} MB, limit {} MB) — use grep with head_limit, or specify a narrow start/end range",
-                VIEW_FILE_SIZE_LIMIT / (1024 * 1024)
+                READ_FILE_SIZE_LIMIT / (1024 * 1024)
             ));
         }
 
@@ -585,9 +585,9 @@ impl CLIService {
                 footer = format!("\n... showing lines {start}-{clamped_end} of {file_total}.");
             }
             lines
-        } else if file_lines.len() > VIEW_DEFAULT_LINE_CAP {
-            let cap = VIEW_DEFAULT_LINE_CAP;
-            footer = format!("\n... file has {file_total} lines (showing 1-{cap}). Use start/end to view more.");
+        } else if file_lines.len() > READ_DEFAULT_LINE_CAP {
+            let cap = READ_DEFAULT_LINE_CAP;
+            footer = format!("\n... file has {file_total} lines (showing 1-{cap}). Use start/end to read more.");
             file_lines.iter().take(cap).enumerate().map(|(i, l)| format!("[{}] {l}", i + 1)).collect()
         } else {
             let mut lines: Vec<String> =
@@ -599,7 +599,7 @@ impl CLIService {
         Ok((indexed_lines.join("\n") + &footer, last_line))
     }
 
-    /// The search base of view, grep and glob: the working folder for "",
+    /// The search base of read, grep and glob: the working folder for "",
     /// else the path with `~` expanded, relative to the working folder,
     /// resolved. No fence: any absolute path is allowed.
     fn resolve_search_base(&self, path: &str) -> Result<PathBuf, String> {

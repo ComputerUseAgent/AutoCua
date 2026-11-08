@@ -11,7 +11,7 @@
 //! turn with only notes calls just goes on. Its prompt is system_prompt.md
 //! beside this file with the mode's block (workflow/workflow.md or
 //! critic/critic.md) in place of `{mode}` and the OS filled in, read at run
-//! time; its tools are the coder's two notes tools plus shell, view, grep,
+//! time; its tools are the coder's two notes tools plus shell, read, grep,
 //! glob, scratchpad and exit; its notes file is
 //! cli_subagent/<session>/milestone.md.
 //!

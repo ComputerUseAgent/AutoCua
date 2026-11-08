@@ -12,8 +12,8 @@ This skill is additional context on top of your system prompt: <operating_proced
 ## 1. The contract
 
 - You are in planning mode from the moment you entered it until you explicitly exit it.
-- Planning mode is READ-ONLY. Allowed: `workflow` agents, `view`, `grep`, shell commands that only read (listing, printing, `git status` / `log` / `diff` / `blame`, running the existing tests or a failing command to observe current behavior), `plan`, `todo_list`, `scratchpad`, `insight`, `next_goal`. Not allowed: `write`, `replace`, any shell command that changes state (creating, deleting, moving, installing, committing, resetting, killing), `update_todo` (nothing is done yet), `exit`.
-- You MUST exit planning mode before the first edit. The exit is the closing action of the turn that writes the plan: `plan` set → `todo_list` → exit planning mode; the first execution step may ride along after it only if it is read-only (a `view` to confirm anchors). No `write`/`replace` is ever emitted in the same turn as the exit, or before it.
+- Planning mode is READ-ONLY. Allowed: `workflow` agents, `read`, `grep`, shell commands that only read (listing, printing, `git status` / `log` / `diff` / `blame`, running the existing tests or a failing command to observe current behavior), `plan`, `todo_list`, `scratchpad`, `insight`, `next_goal`. Not allowed: `write`, `replace`, any shell command that changes state (creating, deleting, moving, installing, committing, resetting, killing), `update_todo` (nothing is done yet), `exit`.
+- You MUST exit planning mode before the first edit. The exit is the closing action of the turn that writes the plan: `plan` set → `todo_list` → exit planning mode; the first execution step may ride along after it only if it is read-only (a `read` to confirm anchors). No `write`/`replace` is ever emitted in the same turn as the exit, or before it.
 - Leave only when the exit checklist (§8) passes. A plan that fails it is not finished, however long you have planned.
 - Re-entry: a surgical plan change in flight (`plan` add/edit) does NOT need planning mode. A genuine re-scope — the approach cannot work, the model of the code was wrong in a way that invalidates the Edits, the request turns out to mean something else — re-enters: enter planning mode, re-explore the part that broke, `plan` set, `todo_list` re-issued, exit planning mode again.
 
@@ -48,11 +48,11 @@ A workflow agent returns exactly what its brief asked for. Write briefs, not wis
 - Round 3 — close the gaps. Where reports conflict, one brief settles it. Where a report says "probably" or "seems", one brief brings back the line. Where the approach depends on an assumption nobody checked (nothing reaches into the structure directly; the worker is single-threaded), check it now.
 
 ### Your own eyes
-- Every anchor an edit will land on, you have viewed yourself before the plan is written. A report is a lead, not proof, and anchors shift — a docstring added above a function moves it three lines.
+- Every anchor an edit will land on, you have read yourself before the plan is written. A report is a lead, not proof, and anchors shift — a docstring added above a function moves it three lines.
 - Every function you will change, you have read in full — its control flow, its early returns — not a report's one-line summary of it. The most common planning failure is an edit placed from a summary.
 - Read the tests that cover the code: they say what the project considers the contract.
 - For a bug: reproduce it in planning mode (read-only commands are allowed) and quote the exact failure. A plan for a bug you have not reproduced is a guess.
-- Reading for first-time understanding is still the agents' job; your views check what they surfaced and what you will edit.
+- Reading for first-time understanding is still the agents' job; your reads check what they surfaced and what you will edit.
 
 ### When to stop exploring
 Stop when all of these are true, and not before:
@@ -68,7 +68,7 @@ If one more brief would still change the plan, send it. Exploration is cheap; a 
 
 This is the thinking behind the `exploration` insight. Do it in your head, write it as that insight, and derive the plan from the insight — never the other way round.
 
-- The model: how the code works today, in `path:line` terms, with the data flow in one sentence per path that matters. KNOWN (seen in output, or reported and re-checked) vs ASSUMED (everything else). An assumption the approach depends on is closed before planning — a brief, a view, a run — or it goes into Risks with what happens if it is wrong.
+- The model: how the code works today, in `path:line` terms, with the data flow in one sentence per path that matters. KNOWN (seen in output, or reported and re-checked) vs ASSUMED (everything else). An assumption the approach depends on is closed before planning — a brief, a read, a run — or it goes into Risks with what happens if it is wrong.
 - The mechanism: for a change, what currently prevents the desired behavior; for a bug, why it happens. One sentence, with lines.
 - The options: every real candidate, a line each, with why it fits or does not — fit with the codebase's idiom, blast radius, dependencies, what callers would have to change. Default to the smallest change that fully fixes the root cause. If there is no real choice, say so instead of inventing alternatives.
 - The pick and the attack: pick one for a stated reason; then attack it once, on purpose — how is it most likely to be wrong, what does it break (callers, edge cases, state, concurrency, the user's uncommitted work), is there a simpler way you skipped. If the attack lands, revise now; if it does not, commit.
@@ -93,7 +93,7 @@ How the code works today, with anchors — the KNOWN part of your model: where t
 The option you chose and the deciding reason, in two or three sentences; then the rejected options, a line each with why not; then the limits — what the approach deliberately does not do. The review holds the edits against this section.
 
 ### `# Edits`
-What changes where, each at its anchor, in dependency order — definitions before uses; across files, the file whose definitions others depend on first. One bullet per edit: `path:line — what changes, in one sentence`, with sub-points for the specifics that must not be forgotten (a new constant's name and placement, an import, a signature). Grouped under `##` headings per file when more than one file changes. This is design, not a transcript: the action sequence (views, replaces, runs) lives in the insight's Steps.
+What changes where, each at its anchor, in dependency order — definitions before uses; across files, the file whose definitions others depend on first. One bullet per edit: `path:line — what changes, in one sentence`, with sub-points for the specifics that must not be forgotten (a new constant's name and placement, an import, a signature). Grouped under `##` headings per file when more than one file changes. This is design, not a transcript: the action sequence (reads, replaces, runs) lives in the insight's Steps.
 
 ### `# Assumptions & Risks`
 Everything the plan stands on that you have not verified, and what breaks if it is wrong, each with what you will do about it (a check at a given step; a proof case; accepted and stated at exit). The ambiguous readings you chose. The blast radius: what else could change behavior. Concurrency, ordering, data migration, environment differences when they apply. Short and specific: "there may be edge cases" is not a risk; "CACHE_MAX=0 would evict on every put; not covered because nothing sets it" is.
@@ -144,7 +144,7 @@ Then: `plan` set → `todo_list` → exit planning mode, in that order, in one t
 ### A full plan (the LRU task from the system prompt's worked example)
 plan {"op": "set", "from": 0, "to": 0, "value": "# Goal\nThe scratchpad cache in service.py holds at most CACHE_MAX entries and evicts the least recently used one; api.py:41 and worker.py:88 keep working unchanged.\n\n# Findings\n- Cache: module-level dict `_cache` at service.py:41; get() at :63 reads it, put() at :88 inserts; nothing ever deletes — that is the unbounded growth.\n- Callers: api.py:41 and worker.py:88 use only get()/put(); no code reaches into `_cache` directly (grep across src/ returns only service.py).\n- Settings are module constants at service.py:12-20; no config system. Imports at :1-6.\n- Tests: `python -m pytest`; nothing covers the cache today.\n- get() returns early on a hit at :66 — the hit path and the miss path are separate branches.\n\n# Approach\nOrderedDict inside get()/put(): move_to_end on a hit, popitem(last=False) once the size passes CACHE_MAX. About 10 lines, no new dependency, callers untouched.\n- Rejected: functools.lru_cache — entries arrive through explicit put() calls from two sites; there is no pure function to decorate.\n- Rejected: cachetools — a new dependency for one use.\n- Out of scope: thread safety; the worker is single-threaded.\n\n# Edits\n## service.py\n- :1-6 — add `from collections import OrderedDict` to the import block.\n- :12-20 — add `CACHE_MAX = 512` beside the other constants, same naming style.\n- :41 — `_cache = OrderedDict()` in place of the dict.\n- :63 get() — on a hit, `_cache.move_to_end(key)` BEFORE the early return at :66.\n- :88 put() — after insert, `while len(_cache) > CACHE_MAX: _cache.popitem(last=False)`.\n\n# Assumptions & Risks\n- Nothing accesses `_cache` dynamically (getattr/globals): unverifiable by grep; OrderedDict keeps the dict interface, so the consequence is nil.\n- Recency is the part most likely to be wrong: if move_to_end lands on the miss path the cache is FIFO — covered by case 2.\n- CACHE_MAX=0 would evict on every put; nothing sets it, not covered.\n\n# Verification\n- ./.AutoCua_verify/test_cache.py, imports the real `service`, prints N/4, exits 1 on any failure:\n  1. fill to CACHE_MAX+1 → the first key is gone, size == CACHE_MAX.\n  2. get('a') then overflow → 'a' survives, the next-oldest is gone. (most likely to fail)\n  3. overwrite an existing key → size unchanged.\n  4. put/get round-trip returns the value.\n- `python -m pytest` still passes.\n- Cross-file check: a workflow agent confirms api.py:41 and worker.py:88 resolve and use only get/put."}
 
-### A surgical edit during execution (the view showed put() at :91, not :88)
+### A surgical edit during execution (the read showed put() at :91, not :88)
 plan {"op": "edit", "from": 23, "to": 23, "value": "- :91 put() — after insert, `while len(_cache) > CACHE_MAX: _cache.popitem(last=False)`."}
 
 ### An append during execution (a finding: the worker caches under a composite key)
@@ -154,11 +154,11 @@ plan {"op": "add", "from": 0, "to": 0, "value": "\n## worker.py\n- :88 — no ch
 "1) replace dict with LRU in service.py\n2) update callers\n3) test" — no anchors, no mechanism, no approach, no proof, and "update callers" is not even required. A ToDo pretending to be a plan; execution built on it stops at the first unknown.
 
 ## 10. Anti-patterns
-- Planning from reports alone: an anchor nobody viewed; a function edited from its summary.
+- Planning from reports alone: an anchor nobody read; a function edited from its summary.
 - Planning a bug fix before reproducing the bug.
 - A Goal narrowed to what is easy, or edited later to match the code.
 - Hedged plans ("should", "probably") instead of one more brief.
 - Exiting with an edit in the same turn, or before the ToDo exists.
-- Plans that are action scripts (view, replace, run) — those are the insight's Steps.
+- Plans that are action scripts (read, replace, run) — those are the insight's Steps.
 - Patching the plan a fourth time instead of re-scoping.
 - Scope creep dressed as thoroughness: refactors, renames and fixes the request did not ask for.

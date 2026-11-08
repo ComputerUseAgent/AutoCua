@@ -16,6 +16,8 @@
 # REASONING tokens as well as the visible answer and the tool-call JSON. Since
 # the loop runs tool_choice="required", a turn that spends its whole budget
 # thinking loses the tool call it was supposed to emit.
+from .. import entry_value
+
 MODEL_MAPPINGS = {
     "gpt-6-astra": {
         "api_name": "gpt-6-astra",
@@ -31,7 +33,9 @@ MODEL_MAPPINGS = {
         # reasoning_effort are not supported ... use /v1/responses or set
         # reasoning_effort to 'none'", verified 2026-09-21), so with tools
         # the provider drives it on /v1/responses (`async_tools` above).
-        "reasoning_effort": "medium"
+        "reasoning_effort": "medium",
+        "coder_reasoning_effort": "high",
+        "coder_max_tokens": 16000
     }
 }
 
@@ -48,7 +52,7 @@ def get_model_info(short_name: str) -> dict:
     }
 
 
-def get_reasoning_effort(api_name: str, info: dict = None) -> dict:
+def get_reasoning_effort(api_name: str, info: dict = None, cli_agent: bool = False) -> dict:
     """`reasoning_effort` kwarg for the model send_request is about to call.
 
     The resolved table entry (`info`) wins when it carries a level: two
@@ -63,8 +67,8 @@ def get_reasoning_effort(api_name: str, info: dict = None) -> dict:
     # The resolved entry wins: two entries may share one api_name (one
     # model at two levels), which a scan by api_name cannot tell apart.
     if info and info.get("reasoning_effort"):
-        return {"reasoning_effort": info["reasoning_effort"]}
+        return {"reasoning_effort": entry_value(info, "reasoning_effort", cli_agent)}
     for entry in MODEL_MAPPINGS.values():
         if entry["api_name"] == api_name and entry.get("reasoning_effort"):
-            return {"reasoning_effort": entry["reasoning_effort"]}
+            return {"reasoning_effort": entry_value(entry, "reasoning_effort", cli_agent)}
     return {}

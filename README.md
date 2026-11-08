@@ -8,12 +8,12 @@
 
 [![PyPI](https://img.shields.io/pypi/v/AutoCua?color=4c6ef5&label=pypi)](https://pypi.org/project/AutoCua/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-4c6ef5)](https://pypi.org/project/AutoCua/)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20iOS%20%7C%20Android%20%7C%20Chrome-6c757d)](https://github.com/AutoCua/AutoCua/blob/main/README.md#requirements-and-setup)
-[![License](https://img.shields.io/badge/license-MIT-31a24c)](https://github.com/AutoCua/AutoCua/blob/main/LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20iOS%20%7C%20Android%20%7C%20Chrome-6c757d)](https://github.com/ComputerUseAgent/AutoCua/blob/main/README.md#requirements-and-setup)
+[![License](https://img.shields.io/badge/license-MIT-31a24c)](https://github.com/ComputerUseAgent/AutoCua/blob/main/LICENSE)
 
-[![Desktop input](https://img.shields.io/badge/desktop%20input-real%20hardware%20events-e8590c)](https://github.com/AutoCua/AutoCua/blob/main/README.md#how-it-acts-on-a-screen)
-[![Browser agent](https://img.shields.io/badge/browser%20agent-Rust%20%2B%20a%20Chrome%20extension-b7410e)](https://github.com/AutoCua/AutoCua/blob/main/README.md#the-browser-agent)
-[![Models](https://img.shields.io/badge/models-60%20across%2010%20providers-7048e8)](https://github.com/AutoCua/AutoCua/blob/main/README.md#providers-and-models)
+[![Desktop input](https://img.shields.io/badge/desktop%20input-real%20hardware%20events-e8590c)](https://github.com/ComputerUseAgent/AutoCua/blob/main/README.md#how-it-acts-on-a-screen)
+[![Browser agent](https://img.shields.io/badge/browser%20agent-Rust%20%2B%20a%20Chrome%20extension-b7410e)](https://github.com/ComputerUseAgent/AutoCua/blob/main/README.md#the-browser-agent)
+[![Models](https://img.shields.io/badge/models-60%20across%2010%20providers-7048e8)](https://github.com/ComputerUseAgent/AutoCua/blob/main/README.md#providers-and-models)
 
 <table><tr><td>
 
@@ -25,7 +25,7 @@ pip install AutoCua
 
 https://github.com/user-attachments/assets/f02ac3e9-fe6c-42f8-a685-88001d8d178e
 
-**See everything AutoCua can do → [agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**
+**See everything AutoCua can do → [agent_capabilities.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/agent_capabilities.md)**
 
 | | Windows | Linux | macOS |
 |:--|:--:|:--:|:--:|
@@ -194,7 +194,7 @@ opened as Administrator:
    [github.com/oblitum/Interception/releases](https://github.com/oblitum/Interception/releases)
    (AutoCua is tested with `v1.0.1`). Check it before running anything:
    `certutil -hashfile Interception.zip SHA256` must print the SHA-256 listed in
-   [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
+   [THIRD_PARTY_NOTICES.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
    Then unzip it.
 2. From inside the unzipped folder, install it:
    `"command line installer\install-interception.exe" /install`
@@ -214,7 +214,7 @@ opened as Administrator:
 > It is never bundled because it is dual-licensed **LGPL-3.0 non-commercial / paid commercial**.
 > Shipping it inside the wheel would make this project its distributor to every person who runs
 > `pip install`, which that licence does not allow for free. You receive it from its author.
-> See [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
+> See [THIRD_PARTY_NOTICES.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
 
 ### Linux, from pip
 
@@ -268,7 +268,7 @@ The first scan also downloads the PP-OCRv6 models that read text the desktop doe
   for no and don't ask again, or Enter for not now); without it the same app opens in
   pywebview ([The desktop app](#the-desktop-app)).
 - Put your provider key in a `.env` file, or paste it into Settings in the app.
-- Model names come from **[model_list.txt](https://github.com/AutoCua/AutoCua/blob/main/model_list.txt)** and are case sensitive. A name
+- Model names come from **[model_list.txt](https://github.com/ComputerUseAgent/AutoCua/blob/main/model_list.txt)** and are case sensitive. A name
   that is not on the list is forwarded verbatim and comes back as a 404.
 - Everything the agent keeps, chats, keys, your own skills and browser profiles, lands in an
   `AutoCua_data/` folder created where you run Python from.
@@ -276,7 +276,7 @@ The first scan also downloads the PP-OCRv6 models that read text the desktop doe
 ### From a checkout
 
 ```bash
-git clone https://github.com/AutoCua/AutoCua.git
+git clone https://github.com/ComputerUseAgent/AutoCua.git
 cd AutoCua
 
 bash setup_mac.sh            # macOS
@@ -301,7 +301,7 @@ Every optional flag goes straight into that call (`ui=True`, `speed="fast"`, …
 `ui`, `save_conversation`, `speed`, `external_terminal`, `headless`, `browser_port`,
 `browser_profile`, `extra_tasks`, `device`, `ios_version`, `android_version`, `sim_device`,
 `app_build`, `api_key` and `os`, are documented in
-**[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**.
+**[agent_capabilities.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/agent_capabilities.md)**.
 
 ---
 
@@ -429,12 +429,13 @@ Behind one task sits a hierarchy of agents, each in its own process.
 **The parent agent** owns the screen and decides what a task needs. When it needs real code
 work it delegates and can carry on, or block until the result comes back.
 
-**The coder agent** has 14 tools: `shell`, `view`, `grep`, `glob`, `write`, `replace`, `web`,
-`plan`, `todo_list`, `update_todo`, `wait`, `scratchpad`, `minion` and `exit`. Its operating
-procedure is EXPLORE, PLAN, EXECUTE, VERIFY, and it is written into the prompt with teeth:
+**The coder agent** has 17 tools: two notes tools, `insight` and `next_goal`, then `shell`,
+`read`, `grep`, `glob`, `write`, `replace`, `web`, `planning_mode`, `plan`, `todo_list`,
+`update_todo`, `wait`, `scratchpad`, `subagent` and `exit`. Its operating procedure is EXPLORE,
+PLAN, EXECUTE, VERIFY, and it is written into the prompt with teeth:
 
-- Exploration is delegated by rule. "Never read the codebase first-hand to build first-time
-  understanding, send a minion."
+- Exploration is delegated by rule. Workflow subagents explore, and the coder is told to "build
+  first-time understanding from the reports, not from reading the codebase yourself."
 - The plan is a structured Markdown document with real `path:line` anchors, not a restatement
   of the request.
 - Every change with logic in it needs a throwaway test under `./.AutoCua_verify/` that is
@@ -442,16 +443,20 @@ procedure is EXPLORE, PLAN, EXECUTE, VERIFY, and it is written into the prompt w
 - `replace` verifies the old block before writing and re-verifies after, so a stale line number
   fails with "mismatch at line X" instead of corrupting your file.
 
-**Minions** are read-only scouts with six tools and no recursion. The restriction on tool
-*names* is structural: the minion's six-name set is the allow-list at the call router, so a
-hallucinated `write` comes back as an error result and never runs. Several minions fire from
-one coder step, run in parallel, and the loop blocks until all of them report back with
-findings anchored to exact `path:line`. Even a crashed minion returns its partial scratchpad,
-so the parent never hangs. To be precise about the boundary: the tool *names* are enforced, and
-the "read-only commands only" rule on its `shell` tool is held by the prompt.
+**Subagents** are read-only helpers with eight tools (`insight`, `next_goal`, `shell`, `read`,
+`grep`, `glob`, `scratchpad`, `exit`) and no recursion. Each runs in one of two modes: `workflow`
+maps the code (which file holds what at which lines, the callers, the dependencies) and `critic`
+judges an edit and tries to prove it wrong. The restriction on tool *names* is structural: the
+eight names are the allow-list a subagent's calls are checked against, so a hallucinated `write`
+comes back as an error result and never runs. Several subagents fire from one coder step, run in
+parallel, and the loop blocks until all of them report back with findings anchored to exact
+`path:line`. A subagent that fails still returns its partial scratchpad, and one that crashes
+comes back as an error with its last stderr lines, so the parent never hangs. To be precise
+about the boundary: the tool *names* are enforced, and the "read-only commands only" rule on its
+`shell` tool is held by the prompt.
 
-Minions exist to keep the coder's context small. Every tool result is budgeted too: 200 lines
-or 15,000 characters, with `shell` keeping a 50-line tail, `view` capped at 2,000 lines and
+Subagents exist to keep the coder's context small. Every tool result is budgeted too: 200 lines
+or 15,000 characters, with `shell` keeping a 50-line tail, `read` capped at 2,000 lines and
 `grep` at 8 MB, so one wide search or noisy build log can never blow up the conversation.
 
 Run either directly. They start in their own workspace, so point them at an absolute path when
@@ -606,7 +611,7 @@ build (`.ipa` or `.app`) in `AutoCua_data/app_build/` and pass its file name. It
 the moment the simulator has booted, at the same time as WebDriverAgent starts, and the agent
 only begins once both are done. No app, no run: a missing file, a failed install or
 `device="hardware"` stops the run with a clear error before the agent starts. Details in
-**[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**.
+**[agent_capabilities.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/agent_capabilities.md)**.
 
 **Three details worth knowing.**
 
@@ -690,7 +695,7 @@ time, with a check of what the computer has. An Android Studio SDK that already 
 and the image is used as it is. The images are Google APIs ones: Google's apps, no Play Store.
 Android 10 is not offered yet (not tried with the helper's screenshots). The emulator draws no
 window of its own: the run shows its screen in AutoCua's own window, the one iOS Simulator runs
-use, one device in the middle or several side by side. Details in **[agent_capabilities.md](https://github.com/AutoCua/AutoCua/blob/main/agent_capabilities.md)**, Part 10.
+use, one device in the middle or several side by side. Details in **[agent_capabilities.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/agent_capabilities.md)**, Part 10.
 
 **A real phone** goes over USB or, from the app, over Wi-Fi:
 
@@ -778,7 +783,7 @@ that User Interface Privilege Isolation blocked, and typing into Windows Securit
 
 > **Licensing.** Interception is dual licensed. LGPL v3.0 for non-commercial use, and
 > **commercial use requires a separate paid licence from its author**. AutoCua's MIT licence
-> does not and cannot grant it. See [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
+> does not and cannot grant it. See [THIRD_PARTY_NOTICES.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
 
 **macOS has no UAC** and AutoCua does not elevate on it. The analogue is TCC, handled entirely
 in user space by the permission wizard and the consent-dialog watcher. There is no `sudo`
@@ -997,7 +1002,7 @@ In Shell use the terminal card has a single `>` prompt that either the agent or 
 |---|---|---|
 | Header | `AutoCua Code` | `AutoCua Terminal` |
 | Prompt | Bare `>`, read only | Shows the real working directory |
-| Who runs it | The coder agent, spawning minions and writing files | **You.** No agent, no model |
+| Who runs it | The coder agent, spawning subagents and writing files | **You.** No agent, no model |
 | Interrupt | The stop control | **Ctrl+C**, wired to a real signal on the process group |
 
 Click the card and you take the keyboard. Type `ls`, `git status`, `npm test` and it runs live,
@@ -1110,12 +1115,12 @@ Ten providers, all supported on every surface.
 | Requesty | yes | yes | yes | yes | yes |
 | Together AI | yes | yes | yes | yes | yes |
 
-60 model names are listed in **[model_list.txt](https://github.com/AutoCua/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
+60 model names are listed in **[model_list.txt](https://github.com/ComputerUseAgent/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
 that is not on the list gets no validation. It is forwarded verbatim and comes back as a 404.
 
 Keys resolve from the runtime setting first, then the environment or `.env`, so you can
 override per machine without editing files. Every call gets three attempts, and the coder and
-minion agents additionally fall back to a second model.
+its subagents additionally fall back to a second model.
 
 The `web` tool uses each provider's own search: Claude web search, the OpenAI Responses web
 search tool, Gemini grounding, Groq's compound model, OpenRouter's Exa plugin running on your
@@ -1162,7 +1167,7 @@ xcode-select --install
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-**Grant Full Disk Access** so the coder and minion agents can read and write Desktop,
+**Grant Full Disk Access** so the coder and its subagents can read and write Desktop,
 Documents and Downloads without permission popups. System Settings, Privacy and Security, Full
 Disk Access, then add your **Terminal, VS Code or python** binary. The app opens this pane for
 you on first launch. A terminal run does not, so grant it yourself.
@@ -1317,8 +1322,9 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
 
 - A Windows UAC prompt is handed to the model as an explicit allow-or-decline step, so
   **elevation never happens on its own**.
-- The minion tool set has **no write tool in it**. Six names are the allow-list at the call
-  router, so a hallucinated `write` comes back as an error result rather than an edit.
+- Both subagent types, workflow and critic, have **no write tool**. Their eight tool names are
+  the allow-list their calls are checked against, so a hallucinated `write` comes back as an
+  error result rather than an edit.
 - An id the model was never shown **is refused before anything moves**, and so is a fully
   hidden element, which returns "scroll to make it visible first" instead of a blind click.
 - Vault credentials are typed by the runtime, so **the value is never shown to the model**.
@@ -1345,7 +1351,7 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
   log anything that tries to give instructions from inside a page or an image.
 - **Stop is checked** before every action, between characters while typing, and inside waits.
   The run id is retired the moment you click, and the coder's whole process tree is killed so
-  its minions cannot survive as orphans burning API credit. A shell command already running is
+  its subagents cannot survive as orphans burning API credit. A shell command already running is
   the exception. It finishes, or hits its cap.
 - Shell commands are **bounded**: a 10 minute ceiling, a fixed working directory, and idle
   detection that turns "this program is waiting for input" into a structured result after 15
@@ -1358,7 +1364,7 @@ from for a pip install. `AutoCua_DATA_DIR` overrides both.
   on macOS, and `c:\windows` on Windows. Everything else in your home folder is reachable, and
   there is **no human-in-the-loop approval prompt** before a command runs. Run tasks you would
   be comfortable running yourself.
-- Minions are read-only by tool set, but their `shell` tool is held to read-only commands by
+- Subagents are read-only by tool set, but their `shell` tool is held to read-only commands by
   its description and prompt rather than by enforcement.
 - The browser agent's overlay, the edge glow and its cursor, is injected into the page, so a
   site that looks for it can detect it. The debugging-port **scanner** injects nothing; the
@@ -1416,7 +1422,7 @@ AutoCua/
 
 The macOS, Windows and iOS packages stay structurally identical and **never import each
 other**, because release binaries are platform specific. See
-[AutoCua/Structure.md](https://github.com/AutoCua/AutoCua/blob/main/AutoCua/Structure.md).
+[AutoCua/Structure.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/AutoCua/Structure.md).
 
 ---
 
@@ -1460,9 +1466,9 @@ WebDriverAgent on a paired iPhone on the same Wi-Fi; see [iPhone and iPad](#ipho
 ## Licence, credits and citation
 
 Built and maintained by **Ashish Yadav**. Issues and merge requests are welcome at
-[github.com/AutoCua/AutoCua](https://github.com/AutoCua/AutoCua/issues).
+[github.com/ComputerUseAgent/AutoCua](https://github.com/ComputerUseAgent/AutoCua/issues).
 
-Licensed under the **MIT License**, see [LICENSE](https://github.com/AutoCua/AutoCua/blob/main/LICENSE). You may use, copy, modify, merge,
+Licensed under the **MIT License**, see [LICENSE](https://github.com/ComputerUseAgent/AutoCua/blob/main/LICENSE). You may use, copy, modify, merge,
 publish, distribute, sublicense and sell this software, including commercially. The only
 condition is to retain the copyright and permission notice. Not required but appreciated:
 credit the author and link back to the project.
@@ -1473,7 +1479,7 @@ Some components are **not covered by the MIT licence above**. A few are redistri
 repository or in the wheels: React, the Rust crates compiled into the prebuilt browser and Android
 agents and the coder, and ported UI code and icons; their licence texts ship with every wheel. The rest are fetched,
 installed or built on your machine, from their authors, at setup time or on first use. Full
-details in [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
+details in [THIRD_PARTY_NOTICES.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/THIRD_PARTY_NOTICES.md).
 
 | Component | How it reaches you | Licence |
 |---|---|---|
@@ -1497,13 +1503,13 @@ details in [THIRD_PARTY_NOTICES.md](https://github.com/AutoCua/AutoCua/blob/main
 ### How to cite
 
 > Ashish Yadav. *AutoCua, a multi-agent framework for computer, web, mobile and shell
-> automation.* 2026. https://github.com/AutoCua/AutoCua
+> automation.* 2026. https://github.com/ComputerUseAgent/AutoCua
 
 ```bibtex
 @software{AutoCua2026,
   author = {Ashish Yadav},
   title  = {AutoCua: a multi-agent framework for computer, web, mobile and shell automation},
   year   = {2026},
-  url    = {https://github.com/AutoCua/AutoCua}
+  url    = {https://github.com/ComputerUseAgent/AutoCua}
 }
 ```

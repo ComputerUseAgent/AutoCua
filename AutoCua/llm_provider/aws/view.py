@@ -10,7 +10,14 @@
 #   effort            Claude: output_config.effort. Adaptive thinking is NOT
 #                     sent: with it, Opus 4.7 answered a tool_choice "auto"
 #                     request with an empty turn 3 times in 3; without it,
-#                     every call worked.
+#                     every call worked. The coder (cli_agent) does get
+#                     it, through each Claude entry's coder_thinking,
+#                     coder_effort and coder_tool_choice auto (a forced
+#                     call skips thinking): 14 live coder runs on
+#                     2026-11-07 (Opus 4.7, Opus 4.6, Sonnet 4.6, multi-
+#                     step file and bug-fix tasks) thought and finished
+#                     with no empty turn, and Converse took 32768 output
+#                     tokens with thinking, non-streamed.
 #   reasoning_config  Kimi K3 and Grok 4.7: their reasoning level. Kimi's
 #                     default is `max` and Grok's is `high`, so leaving it out
 #                     is the expensive choice.
@@ -23,9 +30,12 @@
 #                     the AWS model cards on 2026-10-06; Kimi K3 and Grok 4.7
 #                     state no lower limit). Kimi K3 and Grok 4.7 always
 #                     reason, and their reasoning tokens count against it,
-#                     as on openrouter/.
+#                     as on openrouter/. The coder gets out_cap's 32768
+#                     instead.
 # No sampling knob is sent to any of them: Kimi K3 and Grok 4.7 reject
 # temperature, and Opus 4.7 rejects top_k.
+
+from .. import entry_value
 
 DEFAULT_REGION = "eu-west-2"
 
@@ -38,6 +48,7 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "Kimi K3",
         "reasoning_config": "low",
+        "coder_reasoning_config": "medium",
         "max_tokens": 10000
     },
     "grok-4.7": {
@@ -45,6 +56,7 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "Grok 4.7",
         "reasoning_config": "low",
+        "coder_reasoning_config": "medium",
         "max_tokens": 10000
     },
     "claude-opus-4.7": {
@@ -52,6 +64,9 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "Claude Opus 4.7",
         "effort": "low",
+        "coder_effort": "medium",
+        "coder_thinking": {"type": "adaptive"},
+        "coder_tool_choice": "auto",
         "cache": True,
         "max_tokens": 10000
     },
@@ -60,6 +75,9 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "Claude Opus 4.6",
         "effort": "low",
+        "coder_effort": "medium",
+        "coder_thinking": {"type": "adaptive"},
+        "coder_tool_choice": "auto",
         "cache": True,
         "max_tokens": 10000
     },
@@ -68,6 +86,9 @@ MODEL_MAPPINGS = {
         "vision": True,
         "display_name": "Claude Sonnet 4.6",
         "effort": "low",
+        "coder_effort": "medium",
+        "coder_thinking": {"type": "adaptive"},
+        "coder_tool_choice": "auto",
         "cache": True,
         "max_tokens": 10000
     }
@@ -93,12 +114,17 @@ def find_entry(api_name: str) -> dict:
     return {}
 
 
-def get_request_fields(info: dict) -> dict:
+def get_request_fields(info: dict, cli_agent: bool = False) -> dict:
     """additionalModelRequestFields for the entry being called: Claude's
     effort or Kimi/Grok's reasoning level. {} for a hand-typed ID, which then
-    keeps the model's own default rather than a field it may reject."""
+    keeps the model's own default rather than a field it may reject. The
+    coder reads the entry's coder_ fields (coder_thinking on Claude)."""
     if info.get("effort"):
-        return {"output_config": {"effort": info["effort"]}}
+        fields = {"output_config": {"effort": entry_value(info, "effort", cli_agent)}}
+        thinking = entry_value(info, "thinking", cli_agent)
+        if thinking:
+            fields["thinking"] = thinking
+        return fields
     if info.get("reasoning_config"):
-        return {"reasoning_config": info["reasoning_config"]}
+        return {"reasoning_config": entry_value(info, "reasoning_config", cli_agent)}
     return {}

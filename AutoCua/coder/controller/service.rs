@@ -2,7 +2,7 @@
 //!
 //! The port of the coder's path through mac/controller/view.py (the
 //! ControllerView class): route_action's flat path for the coder's tools
-//! (shell, view, grep, glob, write, replace, web, plan, todo_list,
+//! (shell, read, grep, glob, write, replace, web, plan, todo_list,
 //! update_todo, wait, scratchpad, subagent, exit), the subagent spawn (the
 //! mac minion) and the end-of-batch wait that turns each subagent's report
 //! into its call's result. The result dicts, their key order and texts, the
@@ -519,12 +519,12 @@ impl ControllerView {
 
                 // The file tools run without the GIL: a big grep or glob
                 // never holds up Python's own threads (the compression).
-                "view" => {
+                "read" => {
                     let path = arg_str(item, "path", "");
                     let start = arg_int(item, "start", 0);
                     let end = arg_int(item, "end", 0);
                     let cli = &self.cli_service;
-                    results.push(Slot::Done(py.detach(|| cli.view(&path, start, end))));
+                    results.push(Slot::Done(py.detach(|| cli.read(&path, start, end))));
                 }
 
                 "grep" => {

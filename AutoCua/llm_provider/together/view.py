@@ -17,7 +17,11 @@ MODEL_MAPPINGS = {
     "muse-glimmer-30b": {
         "api_name": "meta-models/Muse-Glimmer-30B",
         "vision": True,
-        "display_name": "Muse Glimmer 30B"
+        "display_name": "Muse Glimmer 30B",
+        # 131,072-token context, and Together rejects input + max_tokens
+        # over it. The coder compresses its memory at 110,000, so its cap
+        # stays at 10,000 here (32,768 would fail every step past 98,304).
+        "coder_max_tokens": 10000
     },
     "minimax-m3": {
         "api_name": "MiniMaxAI/MiniMax-M3",

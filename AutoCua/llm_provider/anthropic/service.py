@@ -4,7 +4,7 @@ import copy
 from typing import Dict, Any, Optional
 
 from .view import get_model_info, get_sampling_params, get_thinking_params, get_tool_choice
-from .. import LLM_HTTP_TIMEOUT, RefusalError, screenshots
+from .. import RefusalError, entry_value, http_timeout, out_cap, screenshots
 
 
 def _as_text(content) -> str:
@@ -193,7 +193,7 @@ class AnthropicProvider:
             "messages": api_messages,
             # Output cap. The handoff manager passes 10k (LLMManager.max_tokens);
             # everything else keeps this default.
-            "max_tokens": self.max_tokens or 4000
+            "max_tokens": self.max_tokens or out_cap(self.cli_agent, 4000)
         }
 
         # top_p / top_k per model — never temperature. Opus 5 and Sonnet 5
@@ -206,7 +206,7 @@ class AnthropicProvider:
         # above: the 5-series takes these and not the sampling knobs, Haiku
         # takes the knobs and not these. Left off entirely for Haiku, which
         # 400s on both fields.
-        data.update(get_thinking_params(model))
+        data.update(get_thinking_params(model, self.cli_agent))
 
 
         if system_param:
@@ -224,12 +224,14 @@ class AnthropicProvider:
             # rejects "any"; see view.py).
             # The manager may override per line (the scrape optimizer runs on
             # "auto": its only tool is `more` and its answer is the text reply);
-            # otherwise the table decides.
-            choice = self.model_info.get("tool_choice")
+            # otherwise the table decides, the coder through its entry's
+            # coder_tool_choice ("auto" where a forced call would skip the
+            # thinking).
+            choice = entry_value(self.model_info, "tool_choice", self.cli_agent)
             data["tool_choice"] = {"type": choice} if choice else get_tool_choice(model)
         
         try:
-            response = self.session.post(self.api_url, json=data, headers=headers, timeout=LLM_HTTP_TIMEOUT)
+            response = self.session.post(self.api_url, json=data, headers=headers, timeout=http_timeout(self.cli_agent))
             response.raise_for_status()
             result = response.json()
 

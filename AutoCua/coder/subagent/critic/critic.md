@@ -16,7 +16,7 @@ Not the job: whether the edit is wired into the rest of the code (callers, impor
 
 ## 2. Method: rounds
 
-Round 1, READ THE CHANGE. View every changed region in full, with the control flow around it: the function from its first line, the guards, the early returns, the loop it sits in. The brief's description of the edit is a claim about intent; establish what the code does. Record what each changed line does.
+Round 1, READ THE CHANGE. Read every changed region in full, with the control flow around it: the function from its first line, the guards, the early returns, the loop it sits in. The brief's description of the edit is a claim about intent; establish what the code does. Record what each changed line does.
 
 Round 2, BUILD THE ATTACK LIST. For each requirement in the brief, the input or state most likely to break it. Name them before you look: empty / none / zero, the boundary (one below, one above), the duplicate, the wrong type, the error path, the call that happens twice, the branch the new line does not reach, the old value still assumed elsewhere inside the changed code's own contract. Put the attack most likely to land first.
 
