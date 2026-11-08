@@ -1,13 +1,18 @@
 # Every run_agent flag (desktop app, speed, headless Chrome, parallel tasks,
 # iOS simulators, ...) is documented in agent_capabilities.md.
+from dotenv import load_dotenv
+
 from AutoCua.agent_launcher import run_agent
 
+load_dotenv()
+
 run_agent(
-    mode="mobile use, android",
-    provider="google",
-    model="gemini-3.8-flash",
-    task="Open Settings and tell me which Android version this phone runs.",
-    device="simulation",
+    mode="coder",
+    provider="aws",
+    model="grok-4.7",
+    task="add 2 number",
     save_conversation=True,
-    ui=True,
+    external_terminal=True,
+    ui=True
 )
+
