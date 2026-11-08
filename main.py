@@ -10,7 +10,7 @@ run_agent(
     mode="coder",
     provider="aws",
     model="grok-4.7",
-    task="dhow many model there in autocua",
+    task="add 2 number",
     save_conversation=True,
     external_terminal=True,
     ui=True
