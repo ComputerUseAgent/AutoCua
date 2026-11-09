@@ -679,6 +679,9 @@ pub mod coder {
     /// Fills AutoCua.agent_native.coder, this agent's part of the module.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_class::<main::service::AgentService>()?;
+        // The sandbox the shell tools of computer use and the iPhone agent
+        // run their commands in (from AutoCua.coder import Sandbox).
+        m.add_class::<sandbox::service::PySandbox>()?;
         // CompressionController builds a second, text-only manager from this
         // class, and calls the two transcript functions below.
         m.add_class::<tool_registry::service::LLMManager>()?;
