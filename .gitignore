@@ -85,6 +85,9 @@ coverage.xml
 *.log
 
 .env
+# A .env write the app was killed in the middle of leaves its temp copy beside it
+# (replace_file_text), keys and all.
+.env.*.part
 # Local notes stay private, except note/fixes: write-ups of fixed and open issues,
 # and the test the bridge-scan write-up keeps beside it (its run output is not kept).
 /note/*

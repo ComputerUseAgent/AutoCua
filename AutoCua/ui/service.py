@@ -58,8 +58,7 @@ if platform.system() == "Linux":
 import webview
 
 # Where the user's data lives (AutoCua_data/, outside the install folder).
-from AutoCua import api_key_file, skills_dir, skills_platform, data_root, default_skills
-from AutoCua import api_key_lock, replace_file_text
+from AutoCua import read_env, set_env, skills_dir, skills_platform, data_root, default_skills
 from AutoCua import APP_PORT, ENV_APP_PORT
 from AutoCua import data_extraction
 
@@ -942,51 +941,20 @@ PROVIDER_KEY_MAP = {
     'aws': 'AWS_API_KEY',
 }
 
-# Extra keys stored in the same api_key.txt
+# Extra keys stored in the same .env
 EXTRA_KEYS = ['VERTEX_PROJECT_ID', 'VERTEX_LOCATION']
 
 
-def get_api_key_file():
-    """Path to api_key.txt — AutoCua_data/api_key/, OUTSIDE the install folder so
-    an uninstall/reinstall no longer wipes every API key. Shared across
-    platforms; resolved in AutoCua/__init__.py so the Settings panel, the
-    Telegram bot and the llm_provider can't disagree about it."""
-    return api_key_file()
-
-
 def read_api_keys():
-    """Read api_key.txt and return dict of provider -> key value"""
-    key_file = get_api_key_file()
-    all_key_names = list(PROVIDER_KEY_MAP.values()) + EXTRA_KEYS
-    keys = {k: '' for k in all_key_names}
-    if key_file.exists():
-        try:
-            with open(key_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if '=' in line:
-                        name, _, value = line.partition('=')
-                        # Keep every key (e.g. TELEGRAM_BOT_TOKEN) so unmanaged
-                        # entries survive a read-modify-write cycle.
-                        keys[name] = value
-        except Exception:
-            debug_exception("read_api_keys")
-    return keys
-
-
-def write_api_keys(keys):
-    """Write dict of key names -> values to api_key.txt, in one rewrite
-    through replace_file_text: a reader meets the old file or the new one,
-    not an empty one (the Windows fallback in replace_file_text aside)."""
-    key_file = get_api_key_file()
+    """Every key name the Settings panel shows ('' when unset), plus whatever
+    else the .env sets, from the one .env (AutoCua.env_file): the file you
+    edit by hand is the file the Settings panel writes."""
+    keys = {k: '' for k in list(PROVIDER_KEY_MAP.values()) + EXTRA_KEYS}
     try:
-        all_key_names = list(PROVIDER_KEY_MAP.values()) + EXTRA_KEYS
-        # Preserve any unmanaged keys (e.g. TELEGRAM_*) written elsewhere.
-        extra = [k for k in keys if k not in all_key_names]
-        replace_file_text(key_file, "".join(
-            f"{name}={keys.get(name, '')}\n" for name in all_key_names + extra))
+        keys.update(read_env())
     except Exception:
-        debug_exception("write_api_keys")
+        debug_exception("read_api_keys")
+    return keys
 
 
 # Persisted last-used selection (provider + model). Lives alongside the chat
@@ -1762,23 +1730,22 @@ def get_keys_status():
 
 @app.route('/api/keys/save', methods=['POST'])
 def save_api_key():
-    """Save a single provider's API key to file"""
+    """Save a single provider's API key into the .env (one line)"""
     from flask import request
     try:
         data = request.get_json()
         provider = data.get('provider')
-        key_value = data.get('key', '')
+        # Stripped, as the old key file's readers did: a key pasted with a
+        # space or line break around it must not be saved with it.
+        key_value = (data.get('key') or '').strip()
 
         env_name = PROVIDER_KEY_MAP.get(provider)
         if not env_name:
             return jsonify({'error': 'Unknown provider'}), 400
 
-        # One save at a time (one Save click sends a request per key): a
-        # parallel save must not write back a copy without this key.
-        with api_key_lock:
-            keys = read_api_keys()
-            keys[env_name] = key_value
-            write_api_keys(keys)
+        # set_env changes this one line in one locked write: one Save click
+        # sends a request per key, and none drops another's change.
+        set_env({env_name: key_value})
         return jsonify({'status': 'saved'})
     except Exception:
         debug_exception("save_api_key")
@@ -1787,7 +1754,7 @@ def save_api_key():
 
 @app.route('/api/keys/delete', methods=['POST'])
 def delete_api_key():
-    """Delete a single provider's API key from file"""
+    """Delete a single provider's API key from the .env (its line stays, empty)"""
     from flask import request
     try:
         data = request.get_json()
@@ -1797,10 +1764,7 @@ def delete_api_key():
         if not env_name:
             return jsonify({'error': 'Unknown provider'}), 400
 
-        with api_key_lock:
-            keys = read_api_keys()
-            keys[env_name] = ''
-            write_api_keys(keys)
+        set_env({env_name: ''})
         return jsonify({'status': 'deleted'})
     except Exception:
         debug_exception("delete_api_key")
@@ -1861,18 +1825,14 @@ def get_vertex_status():
 
 @app.route('/api/vertex/save', methods=['POST'])
 def save_vertex_config():
-    """Save Vertex AI project ID and location to api_key.txt"""
+    """Save Vertex AI project ID and location into the .env, in one write"""
     from flask import request
     try:
         data = request.get_json()
-        project_id = data.get('project_id', '')
-        location = data.get('location', 'global')
+        project_id = (data.get('project_id') or '').strip()
+        location = (data.get('location', 'global') or '').strip()
 
-        with api_key_lock:
-            keys = read_api_keys()
-            keys['VERTEX_PROJECT_ID'] = project_id
-            keys['VERTEX_LOCATION'] = location
-            write_api_keys(keys)
+        set_env({'VERTEX_PROJECT_ID': project_id, 'VERTEX_LOCATION': location})
         return jsonify({'status': 'saved'})
     except Exception:
         debug_exception("save_vertex_config")

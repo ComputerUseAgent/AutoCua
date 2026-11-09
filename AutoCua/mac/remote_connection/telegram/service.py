@@ -2,19 +2,17 @@
 
 Runs as a standalone process (not mounted into Flask). On the first message
 the bot asks you to pick a provider (limited to providers with a non-empty
-key in api_key.txt / .env), then a model (from the same MODEL_MAPPINGS the
+key in the .env), then a model (from the same MODEL_MAPPINGS the
 AutoCua frontend uses). Subsequent messages are dispatched as tasks to the
 agent with that provider/model. Picked provider/model persist for the whole
 chat session until you `/reset`.
 
-Token lookup order (first non-empty wins):
-  1. TELEGRAM_BOT_TOKEN env var
-  2. .env at the project root
-  3. AutoCua/api_key/api_key.txt
+The token is TELEGRAM_BOT_TOKEN in the .env (AutoCua.env_file), and only
+there: env vars are not read.
 
 Setup:
   1. @BotFather → /newbot → copy token.
-  2. Paste it into .env OR api_key.txt as TELEGRAM_BOT_TOKEN=…
+  2. Paste it into the .env as TELEGRAM_BOT_TOKEN=…
   3. Make sure at least one provider key (e.g. OPENROUTER_API_KEY=…) is set.
   4. python -m AutoCua.mac.remote_connection.telegram.service
   5. Send your bot the pairing code main() prints (the app shows it in
@@ -44,20 +42,14 @@ from telegram.ext import (
 
 logger = logging.getLogger(__name__)
 
-# The Telegram surface treats api_key.txt as its single source of truth — we
-# deliberately do NOT consult .env or env vars here. .env is app.py's general
-# env-loading concern; keeping the bot self-contained against api_key.txt
-# avoids two-files-of-record confusion.
-#
-# api_key.txt now lives in AutoCua_data/api_key/, OUTSIDE the install folder, so
-# trashing AutoCua.app no longer wipes the bot token along with every API key.
-# AutoCua/__init__.py owns that resolution for the whole app — the Settings
-# panel, the agent's llm_provider and this bot all call the same function, so
-# they cannot drift onto different files (the old __file__-walk here had to
-# special-case the compiled build for exactly that reason).
-from AutoCua import api_key_file, api_key_lock, replace_file_text
+# The Telegram surface reads ONE file, the .env (AutoCua.env_file), and never
+# env vars: the token and the providers it offers are what that file holds.
+# It is the file the Settings panel writes and the agent's llm_provider
+# reads; AutoCua/__init__.py resolves it for the whole app, so they cannot
+# drift onto different files.
+from AutoCua import env_file, api_key_lock, read_env, set_env
 
-_API_KEY_FILE = api_key_file()
+_ENV_FILE = env_file()
 
 # Agent writes per-step "milestone" lines here. We tail this file during a
 # task and forward each new line back to the user's Telegram chat so they
@@ -87,35 +79,23 @@ PROVIDER_KEY_MAP = {
 # ── file helpers ─────────────────────────────────────────────────────────────
 
 def _read_all_keys(path: Path) -> dict:
-    """Parse a simple KEY=VALUE file (one per line) into a dict. Skips empty
-    values and lines starting with '#'."""
-    out = {}
-    if not path.exists():
-        return out
+    """The .env's names that have a value (AutoCua.read_env: quotes, export
+    and comments read as load_dotenv reads them)."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, _, v = line.partition("=")
-                k, v = k.strip(), v.strip()
-                if v:
-                    out[k] = v
+        return {k: v for k, v in read_env(path).items() if v}
     except Exception:
-        pass
-    return out
+        return {}
 
 
 def _resolve_token() -> str | None:
-    """Read TELEGRAM_BOT_TOKEN from api_key.txt only. .env and env vars are
-    intentionally ignored — see header comment."""
-    return _read_all_keys(_API_KEY_FILE).get("TELEGRAM_BOT_TOKEN")
+    """TELEGRAM_BOT_TOKEN from the .env only. Env vars are intentionally
+    ignored, see the header comment."""
+    return _read_all_keys(_ENV_FILE).get("TELEGRAM_BOT_TOKEN")
 
 
 def _get_available_providers() -> list:
-    """Providers with a non-empty key in api_key.txt only."""
-    keys = _read_all_keys(_API_KEY_FILE)
+    """Providers with a non-empty key in the .env only."""
+    keys = _read_all_keys(_ENV_FILE)
     return [
         {"id": pid, "key": keys[kname]}
         for pid, kname in PROVIDER_KEY_MAP.items()
@@ -130,43 +110,24 @@ _key_lock = api_key_lock
 
 
 def _set_keys_in_file(path: Path, updates: dict) -> None:
-    """Set KEY=value for every item of `updates` in ONE rewrite, keeping every
-    other line as it is (incl. empty-value placeholders such as GROQ_API_KEY=
-    that the AutoCua UI relies on for its provider list rendering).
-
-    The new file is written next to the old one and renamed over it
-    (replace_file_text), so a reader, a crash or a full disk meets the old
-    file or the new one, not an empty or half-written one (the Windows
-    fallback in replace_file_text aside)."""
+    """Set KEY=value for every item of `updates` in ONE rewrite of the .env,
+    keeping every other line as it is (AutoCua.set_env). The new file is
+    written next to the old one and renamed over it, so a reader, a crash or
+    a full disk meets the old file or the new one. A failure is logged; the
+    callers read the file back to see what was saved."""
     with _key_lock:
-        lines = []
-        found = set()
-        if path.exists():
-            try:
-                with path.open("r", encoding="utf-8") as f:
-                    for raw in f:
-                        key = raw.partition("=")[0].strip()
-                        if "=" in raw and key in updates:
-                            lines.append(f"{key}={updates[key]}\n")
-                            found.add(key)
-                        else:
-                            lines.append(raw if raw.endswith("\n") else raw + "\n")
-            except Exception:
-                logger.warning("failed to read %s while updating it", path)
-                return
-        lines += [f"{k}={v}\n" for k, v in updates.items() if k not in found]
         try:
-            replace_file_text(path, "".join(lines))
+            set_env(updates, path)
         except Exception:
             logger.warning("failed to write %s", path)
 
 
 def _resolve_owner_chat_id() -> int | None:
     """Owner chat_id = the private chat that paired the bot with its code
-    (_pairing_step). Stored in api_key.txt as TELEGRAM_OWNER_CHAT_ID=…, so it
+    (_pairing_step). Stored in the .env as TELEGRAM_OWNER_CHAT_ID=…, so it
     survives restarts. Missing, unreadable or not a private chat (a group or
     channel id is negative) means no owner, and with no owner nobody is obeyed."""
-    val = _read_all_keys(_API_KEY_FILE).get("TELEGRAM_OWNER_CHAT_ID")
+    val = _read_all_keys(_ENV_FILE).get("TELEGRAM_OWNER_CHAT_ID")
     try:
         owner = int(val)
     except (TypeError, ValueError):
@@ -227,11 +188,11 @@ def _pair_code() -> str | None:
     with _key_lock:
         if not _resolve_token() or _resolve_owner_chat_id() is not None:
             return None
-        code = _read_all_keys(_API_KEY_FILE).get("TELEGRAM_PAIR_CODE")
+        code = _read_all_keys(_ENV_FILE).get("TELEGRAM_PAIR_CODE")
         if not _valid_pair_code(code):
             code = _new_pair_code()
-            _set_keys_in_file(_API_KEY_FILE, {"TELEGRAM_PAIR_CODE": code})
-            if _read_all_keys(_API_KEY_FILE).get("TELEGRAM_PAIR_CODE") != code:
+            _set_keys_in_file(_ENV_FILE, {"TELEGRAM_PAIR_CODE": code})
+            if _read_all_keys(_ENV_FILE).get("TELEGRAM_PAIR_CODE") != code:
                 return None
         return code
 
@@ -241,10 +202,10 @@ def _start_pairing(token: str) -> str | None:
     in one write. Returns the code to show, or None if it could not be saved."""
     code = _new_pair_code()
     with _key_lock:
-        _set_keys_in_file(_API_KEY_FILE, {"TELEGRAM_BOT_TOKEN": token,
+        _set_keys_in_file(_ENV_FILE, {"TELEGRAM_BOT_TOKEN": token,
                                           "TELEGRAM_OWNER_CHAT_ID": "",
                                           "TELEGRAM_PAIR_CODE": code})
-        keys = _read_all_keys(_API_KEY_FILE)
+        keys = _read_all_keys(_ENV_FILE)
     if keys.get("TELEGRAM_BOT_TOKEN") == token and keys.get("TELEGRAM_PAIR_CODE") == code:
         return code
     return None
@@ -255,10 +216,10 @@ def _pair_if_code(chat_id: int, text) -> bool | None:
     saved and the code deleted in one write. True paired, False not the code
     (or no code), None the file could not be written."""
     with _key_lock:
-        code = _read_all_keys(_API_KEY_FILE).get("TELEGRAM_PAIR_CODE")
+        code = _read_all_keys(_ENV_FILE).get("TELEGRAM_PAIR_CODE")
         if not code or not _codes_match(text, code):
             return False
-        _set_keys_in_file(_API_KEY_FILE, {"TELEGRAM_OWNER_CHAT_ID": str(chat_id),
+        _set_keys_in_file(_ENV_FILE, {"TELEGRAM_OWNER_CHAT_ID": str(chat_id),
                                           "TELEGRAM_PAIR_CODE": ""})
         if _resolve_owner_chat_id() != chat_id:
             return None
@@ -367,7 +328,7 @@ async def _show_provider_picker(message):
     if not providers:
         await message.reply_text(
             "⚠️ No provider API keys found. Add at least one (e.g. "
-            "OPENROUTER_API_KEY=…) to api_key.txt or .env and try again."
+            "OPENROUTER_API_KEY=…) to the .env and try again."
         )
         return False
     buttons = [
@@ -445,7 +406,7 @@ async def _post_init(application) -> None:
         try:
             await bot.send_message(
                 chat_id=owner_id,
-                text="⚠️ No provider API keys found. Add at least one to api_key.txt and /reset.",
+                text="⚠️ No provider API keys found. Add at least one to the .env and /reset.",
             )
         except Exception:
             pass
@@ -1063,8 +1024,8 @@ def start_bot() -> None:
     token = _resolve_token()
     if not token:
         _stderr(
-            "BOT NOT STARTED — TELEGRAM_BOT_TOKEN not found in env, .env, or "
-            "api_key.txt. Paste your @BotFather token into one of those files."
+            f"BOT NOT STARTED: TELEGRAM_BOT_TOKEN not found in {_ENV_FILE}. "
+            "Connect the bot in Settings, or paste your @BotFather token there."
         )
         return
     _stderr(f"starting bot (token ends in …{token[-6:]})")
@@ -1113,7 +1074,7 @@ def main():
     token = _resolve_token()
     if not token:
         raise SystemExit(
-            f"TELEGRAM_BOT_TOKEN not found in {_API_KEY_FILE}\n"
+            f"TELEGRAM_BOT_TOKEN not found in {_ENV_FILE}\n"
             "(create the bot via @BotFather first, then add the token to that file)."
         )
     tg_app = _build_telegram_app(token)

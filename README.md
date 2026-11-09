@@ -267,11 +267,13 @@ The first scan also downloads the PP-OCRv6 models that read text the desktop doe
   time, it asks in the terminal whether to download Electron for its Chromium window (`y`, `n`
   for no and don't ask again, or Enter for not now); without it the same app opens in
   pywebview ([The desktop app](#the-desktop-app)).
-- Put your provider key in a `.env` file, or paste it into Settings in the app.
+- Put your provider key in a `.env` file next to your `main.py`, or paste it into Settings in the
+  app, which saves it into that same `.env`.
 - Model names come from **[model_list.txt](https://github.com/ComputerUseAgent/AutoCua/blob/main/model_list.txt)** and are case sensitive. A name
   that is not on the list is forwarded verbatim and comes back as a 404.
-- Everything the agent keeps, chats, keys, your own skills and browser profiles, lands in an
-  `AutoCua_data/` folder created where you run Python from.
+- Everything the agent keeps, chats, your own skills and browser profiles, lands in an
+  `AutoCua_data/` folder created where you run Python from. Your keys stay in the `.env`
+  next to it.
 
 ### From a checkout
 
@@ -1068,8 +1070,8 @@ carried them.
 ## Remote control from Telegram
 
 Connect a bot in Settings, pick a provider and model from an inline keyboard, and send tasks
-from your phone. Only providers whose key you saved in Settings are offered, a key that lives
-only in `.env` will not appear there. Tasks sent
+from your phone. Only providers with a key in your `.env` are offered (Settings saves keys
+there too); a key set only in your shell's environment will not appear there. Tasks sent
 mid-run are queued, the bot asks whether to continue the previous session or start fresh, and
 milestones stream back to your phone every two seconds. A task sent while the app is already
 running one from its own chat box is not queued: the phone gets "AutoCua is busy with another
@@ -1309,10 +1311,18 @@ prompt for Python; either answer works.
 
 ### Where your data lives
 
-Everything the agent keeps is in one `AutoCua_data/` folder that no installer owns: chats, your
-API keys, the persistent Chrome profiles that keep the browser agent logged in, the credential
-vault and your own skills. It sits next to your checkout, or in the directory you ran Python
-from for a pip install. `AutoCua_DATA_DIR` overrides both.
+Everything the agent keeps is in one `AutoCua_data/` folder that no installer owns: chats, the
+persistent Chrome profiles that keep the browser agent logged in, the credential vault and your
+own skills. It sits next to your checkout, or in the directory you ran Python from for a pip
+install. `AutoCua_DATA_DIR` overrides both.
+
+Your API keys, the Telegram bot token and the Vertex settings are in one `.env` next to that
+folder: the file you edit by hand is the file Settings writes. When you set `AutoCua_DATA_DIR`,
+or the folder sits right in your home folder, the `.env` is inside `AutoCua_data/` instead, so
+it is never a `.env` other projects in your home folder would load. `AutoCua_ENV_FILE` picks
+another file. Keys an older version saved in `AutoCua_data/api_key/api_key.txt` move into it
+on the first start. When your `.env` had a different value for one of them, the saved one wins,
+as it is the one the app used, and the `.env`'s old value is added at its end as a comment.
 
 ---
 
