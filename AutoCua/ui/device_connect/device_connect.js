@@ -23,6 +23,9 @@
     var teams = [];             // usable teams from /detect
     var devices = [];           // connected devices from /detect
     var chosen = { team: null, udid: null };
+    var bundleSaved = null;     // the bundle ID prefix the .env holds (the Bundle ID box)
+    var bundleSaving = null;    // a save on its way, so Pair waits for it
+    var BUNDLE_RE = /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$/;   // session.valid_bundle_prefix
 
     function $(id) { return document.getElementById(id); }
 
@@ -110,11 +113,63 @@
         renderDeviceMenu();
     }
 
+    // ---- Bundle ID (IOS_BUNDLE_ID_PREFIX in the .env; the default when not set) ----
+    function loadBundle() {
+        fetch('/api/ios/bundle-prefix').then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.prefix) return;
+            bundleSaved = d.prefix;
+            els.bundleInput.placeholder = d.default || '';
+            if (document.activeElement !== els.bundleInput) els.bundleInput.value = d.prefix;
+        }).catch(function () {});
+    }
+    function markBundle(bad) { els.bundle.classList.toggle('is-invalid', !!bad); }
+    // Saves what the box holds when it changed (empty = back to the default).
+    // Resolves true once the .env has it, false when it was not saved.
+    function saveBundle() {
+        if (bundleSaving) return bundleSaving.then(function () { return saveBundle(); });
+        var v = els.bundleInput.value.trim();
+        if (v === bundleSaved) { markBundle(false); return Promise.resolve(true); }
+        if (v && !BUNDLE_RE.test(v)) {
+            markBundle(true);
+            status('error', 'Bundle ID: use letters, digits, - and . only, like com.yourname');
+            steps('');
+            return Promise.resolve(false);
+        }
+        bundleSaving = fetch('/api/ios/bundle-prefix', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prefix: v })
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.ok) {
+                markBundle(true);
+                status('error', d.error || 'Could not save the bundle ID');
+                steps('');
+                return false;
+            }
+            var changed = d.prefix !== bundleSaved;
+            bundleSaved = d.prefix;
+            els.bundleInput.value = d.prefix;
+            markBundle(false);
+            // The phone holds the app signed with the old one: pair again.
+            if (changed && chosen.udid && chosen.team) {
+                status('idle', 'Ready to pair');
+                steps('The bundle ID is now <b>' + esc(d.prefix) + '</b>. Pair your iPhone to use it.');
+                action('Pair device', pair);
+            }
+            return true;
+        }).catch(function () {
+            status('error', 'Could not save the bundle ID');
+            return false;
+        }).then(function (ok) { bundleSaving = null; return ok; });
+        return bundleSaving;
+    }
+
     // ---- flow ----
     function begin() {
         status('loading', 'Starting…');
         steps(''); noAction();
         loadPaired();                       // show the paired list immediately
+        loadBundle();
         fetch('/api/ios/setup-server', { method: 'POST' })
             .then(function (r) { return r.json(); })
             .then(function (d) {
@@ -188,12 +243,19 @@
 
     function pair() {
         if (!chosen.udid || !chosen.team) return refresh();
+        // A Bundle ID still being typed is saved first: pairing signs with the
+        // one the .env holds (setup.py reads it, no prefix is sent).
+        noAction();
+        saveBundle().then(function (ok) { if (ok) startPair(); else action('Pair device', pair); });
+    }
+
+    function startPair() {
         status('pairing', 'Signing…');
         steps(''); noAction();
         closeStream();
+        els.bundleInput.disabled = true;    // no edits while it signs (closeStream frees it)
         var qs = new URLSearchParams({
-            team: chosen.team, udid: chosen.udid,
-            prefix: 'com.AutoCua', mode: 'test', mount: '1'
+            team: chosen.team, udid: chosen.udid, mode: 'test', mount: '1'
         }).toString();
         es = new EventSource(base + '/run?' + qs);
 
@@ -365,7 +427,10 @@
         action('Try again', refresh, true);
     }
 
-    function closeStream() { if (es) { es.close(); es = null; } }
+    function closeStream() {
+        if (es) { es.close(); es = null; }
+        if (els.bundleInput) els.bundleInput.disabled = false;
+    }
     function cleanup() {
         closeStream();
         if (acctTimer) { clearInterval(acctTimer); acctTimer = null; }
@@ -397,7 +462,25 @@
         els.action = $('dcAction');
         els.paired = $('dcPaired');
         els.pairedList = $('dcPairedList');
+        els.bundle = $('dcBundle');
+        els.bundleInput = $('dcBundleInput');
         if (!els.optioniOS) return;
+
+        // Bundle ID: click anywhere on the box to edit; Enter (or leaving the
+        // box) saves, Esc puts the saved one back.
+        els.bundle.addEventListener('click', function () { els.bundleInput.focus(); });
+        els.bundleInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); els.bundleInput.blur(); }
+            else if (e.key === 'Escape') {
+                // Undo only: script.js's Esc on the document would close Settings.
+                e.preventDefault();
+                e.stopPropagation();
+                els.bundleInput.value = bundleSaved || '';
+                markBundle(false);
+                els.bundleInput.blur();
+            }
+        });
+        els.bundleInput.addEventListener('blur', function () { saveBundle(); });
 
         els.optioniOS.addEventListener('click', toggleiOS);
         els.optioniOS.addEventListener('keydown', function (e) {

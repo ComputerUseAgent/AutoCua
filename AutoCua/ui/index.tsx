@@ -61,6 +61,12 @@ function ChevronDown({ className }: { className: string }) {
     );
 }
 
+function PencilIcon({ className }: { className: string }) {
+    return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+    );
+}
+
 function TrashIcon() {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -185,6 +191,20 @@ function SettingsOverlay() {
                                             <span className="dc-select-value placeholder" id="dcDeviceValue">Looking…</span>
                                             <ChevronDown className="dc-select-chevron" />
                                             <div className="dc-select-menu" id="dcDeviceMenu"></div>
+                                        </div>
+                                    </div>
+                                    {/* Bundle ID: the prefix pairing signs the AutoCua app with
+                                        (<prefix>.WebDriverAgentRunner). A bundle ID belongs to one
+                                        Apple account, so yours may need its own. Saved as
+                                        IOS_BUNDLE_ID_PREFIX in the .env; empty = the default.
+                                        Click to edit, Enter saves, Esc undoes. Wired by
+                                        device_connect.js. */}
+                                    <div className="dc-field">
+                                        <label className="dc-label" htmlFor="dcBundleInput">Bundle ID</label>
+                                        <div className="dc-select dc-bundle" id="dcBundle">
+                                            <input className="dc-bundle-input" id="dcBundleInput" type="text"
+                                                spellCheck={false} autoComplete="off" autoCapitalize="off" />
+                                            <PencilIcon className="dc-bundle-icon" />
                                         </div>
                                     </div>
 

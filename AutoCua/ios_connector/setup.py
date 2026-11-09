@@ -45,7 +45,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT           = 8765
 XCODEPROJ_NAME = "WebDriverAgent.xcodeproj"
 SCHEME         = "WebDriverAgentRunner"
-BUNDLE_PREFIX  = "com.AutoCua"              # default; also editable in the UI
+# The bundle ID prefix is IOS_BUNDLE_ID_PREFIX in the .env, com.AutoCua when not
+# set (session.bundle_prefix); Settings > Connect Device > iPhone > Bundle ID edits it.
 TARGET_NAMES   = ["WebDriverAgentLib", "WebDriverAgentRunner", "IntegrationApp"]
 DERIVED_NAME   = "build"                    # derived data name under the shared build root
 DEFAULT_MODE   = "test"                     # "test" or "build-for-testing"
@@ -92,6 +93,17 @@ def _ddi():
         sys.path.insert(0, str(SCRIPT_DIR.parent.parent))
         from AutoCua.ios_connector import ddi
     return ddi
+
+
+def _session():
+    """AutoCua.ios_connector.session (the bundle ID prefix), also when this file
+    runs as a script."""
+    try:
+        from AutoCua.ios_connector import session
+    except ImportError:
+        sys.path.insert(0, str(SCRIPT_DIR.parent.parent))
+        from AutoCua.ios_connector import session
+    return session
 
 
 def _devicectl():
@@ -784,8 +796,7 @@ class Handler(BaseHTTPRequestHandler):
             # Is the AutoCua runner already on the device? (pairing = installed)
             q = parse_qs(parsed.query)
             udid = (q.get("udid", [""])[0] or "").strip() or None
-            bundle = (q.get("bundle", [""])[0] or "").strip() \
-                or (BUNDLE_PREFIX + ".WebDriverAgentRunner.xctrunner")
+            bundle = (q.get("bundle", [""])[0] or "").strip() or _session().wda_bundle_id()
             ids = installed_bundle_ids(udid)
             return self._json({"installed": bundle in ids, "bundle": bundle,
                                "checked": bool(ids)})
@@ -826,7 +837,8 @@ class Handler(BaseHTTPRequestHandler):
             "accounts": xc["accounts"],
             "accounts_ok": xc["ok"],
             "devices": detect_devices(),
-            "default_prefix": BUNDLE_PREFIX,
+            "prefix": _session().bundle_prefix(),
+            "default_prefix": _session().DEFAULT_BUNDLE_PREFIX,
             "targets": TARGET_NAMES,
             "default_mode": DEFAULT_MODE,
         })
@@ -870,13 +882,18 @@ class Handler(BaseHTTPRequestHandler):
 
         team   = (q.get("team",   [""])[0] or "").strip()
         udid   = (q.get("udid",   [""])[0] or "").strip()
-        prefix = (q.get("prefix", [BUNDLE_PREFIX])[0] or BUNDLE_PREFIX).strip()
+        # The .env's bundle ID prefix, read now (Settings may have just changed it).
+        prefix = (q.get("prefix", [""])[0] or "").strip() or _session().bundle_prefix()
         mode   = (q.get("mode",   [DEFAULT_MODE])[0] or DEFAULT_MODE).strip()
         mount  = (q.get("mount",  ["1"])[0] == "1")
         force  = (q.get("force",  ["0"])[0] == "1")
         fast   = (q.get("fast",   ["0"])[0] == "1")
 
         self._sse("log", "starting")
+        if not _session().valid_bundle_prefix(prefix):
+            return self._sse("fatal", f"The bundle ID '{prefix}' is not valid. Use letters, digits, - and . "
+                                      "only, like com.yourname: Settings → Connect Device → iPhone → "
+                                      "Bundle ID, or IOS_BUNDLE_ID_PREFIX in the .env.")
 
         # An app start (session.py asks fast=1) of a runner built before: the
         # test from that build's .xctestrun, with no project edit and no build,
@@ -991,6 +1008,7 @@ class Handler(BaseHTTPRequestHandler):
         dest_err  = {"hit": False, "avail": []}
         trust_err = {"hit": False}
         stale_id  = {"hit": False}
+        taken     = {"hit": False}      # the bundle ID belongs to another Apple account
         trust_re = re.compile(
             r"explicitly trusted|VPN & Device Management|Developer App certificate|"
             r"untrusted developer|has not been trusted|trust the developer",
@@ -1009,6 +1027,10 @@ class Handler(BaseHTTPRequestHandler):
                 trust_err["hit"] = True
             if "0xe8008018" in line:        # "The identity used to sign the executable is no longer valid."
                 stale_id["hit"] = True
+            # Xcode: 'The app identifier "<id>" cannot be registered to your development
+            # team because it is not available.' Another account registered it first.
+            if "cannot be registered to your development team" in line:
+                taken["hit"] = True
 
         # Hand the post-action an UNAMBIGUOUS identity. WebDriverAgent's icon
         # script falls back to signing by name when Xcode does not export one,
@@ -1062,6 +1084,13 @@ class Handler(BaseHTTPRequestHandler):
                 f"Xcode can currently build to: {names}. "
                 f"Plug the phone in with a cable, unlock it, enable Developer Mode "
                 f"(Settings > Privacy & Security > Developer Mode), then pick it and hit Connect again."
+            )
+
+        if taken["hit"]:
+            return self._sse(
+                "fatal",
+                f"The bundle ID {prefix} belongs to another Apple account. Set your own, like "
+                f"com.yourname, in Settings → Connect Device → iPhone → Bundle ID, then pair again."
             )
 
         if trust_err["hit"]:

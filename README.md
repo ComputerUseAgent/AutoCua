@@ -1256,6 +1256,11 @@ sudo xcodebuild -runFirstLaunch       # run this yourself if Xcode still targets
 and pairing pass from Settings, Connect Device in the app. The app rewrites the Xcode targets
 to automatic signing for you, opens Xcode on the Accounts pane, and streams the build live.
 
+The app is signed with the bundle ID prefix in the **Bundle ID** box under the Device menu,
+`com.AutoCua` by default. A bundle ID belongs to one Apple account, so when pairing says yours
+is taken, type your own there (like `com.yourname`), press Enter and pair again. It is saved as
+`IOS_BUNDLE_ID_PREFIX` in your `.env`, where you can set it too.
+
 > A free Apple ID works, but its provisioning profiles expire after 7 days, so you re-sign
 > weekly. A paid developer account lasts a year.
 

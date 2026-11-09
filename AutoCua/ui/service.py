@@ -1501,6 +1501,37 @@ def api_ios_paired():
         return jsonify({"devices": []})
 
 
+@app.route('/api/ios/bundle-prefix', methods=['GET'])
+def api_ios_bundle_prefix():
+    """The bundle ID prefix pairing signs the AutoCua app with (Settings > Connect
+    Device > iPhone > Bundle ID): IOS_BUNDLE_ID_PREFIX in the .env, else the default."""
+    try:
+        from AutoCua.ios_connector.session import bundle_prefix, DEFAULT_BUNDLE_PREFIX
+        return jsonify({"prefix": bundle_prefix(), "default": DEFAULT_BUNDLE_PREFIX})
+    except Exception:
+        debug_exception("api_ios_bundle_prefix")
+        return jsonify({"error": "Could not read the bundle ID"}), 500
+
+
+@app.route('/api/ios/bundle-prefix', methods=['POST'])
+def api_ios_bundle_prefix_save():
+    """Save the bundle ID prefix as IOS_BUNDLE_ID_PREFIX in the .env. Empty goes
+    back to the default; the next pairing signs with it."""
+    from flask import request
+    try:
+        data = request.get_json(silent=True) or {}
+        prefix = str(data.get('prefix') or '').strip()
+        from AutoCua.ios_connector.session import (bundle_prefix, valid_bundle_prefix,
+                                                   BUNDLE_PREFIX_VAR)
+        if prefix and not valid_bundle_prefix(prefix):
+            return jsonify({"error": "Use letters, digits, - and . only, like com.yourname"}), 400
+        set_env({BUNDLE_PREFIX_VAR: prefix})
+        return jsonify({"ok": True, "prefix": bundle_prefix()})
+    except Exception:
+        debug_exception("api_ios_bundle_prefix_save")
+        return jsonify({"error": "Could not save the bundle ID"}), 500
+
+
 @app.route('/api/ios/paired/add', methods=['POST'])
 def api_ios_paired_add():
     """Record a device as paired (called by Settings when pairing completes)."""
