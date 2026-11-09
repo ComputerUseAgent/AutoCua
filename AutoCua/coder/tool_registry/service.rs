@@ -204,7 +204,6 @@ pub fn coder_tools() -> &'static Vec<Value> {
         ],
             &on_this_os(r#"Any native zsh/bash command.
 - Always include `input` parameter. Use `""` when no input needed. Use actual values when program requires user input (input(), read, prompts, etc.)
-- If a result returns `error: permission_dialog`, a macOS permission popup is blocking the command and couldn't be auto-clicked. Do NOT blindly retry — report it to the user and ask them to grant AutoCua **Accessibility + Full Disk Access** (System Settings > Privacy & Security), then retry once they confirm.
 - Format: shell {"command": "your_command", "input": ""}
 - Example:
   1. shell {"command": "find . -type f", "input": ""}
@@ -422,7 +421,6 @@ pub fn subagent_tools() -> &'static Vec<Value> {
             ("input", json!({"type": "string"})),
         ],
             &on_this_os(r#"Native zsh/bash - **READ-ONLY commands only** (e.g. `ls`, `find`, `file`, `stat`, `wc -l`, `head`, `tail` without redirection, `which`). Never run anything that writes, deletes, moves, or otherwise mutates state. Always include `input: ""`.
-- If a result returns `error: permission_dialog`, a macOS permission popup blocked the command and couldn't be auto-clicked. Don't retry blindly - note it in your final report (the parent agent needs Accessibility + Full Disk Access granted) and continue with what you can.
 - Format: shell {"command": "your_command", "input": ""}
 - Allowed examples:
   1. shell {"command": "find . -type d -maxdepth 3 -not -path '*/.*'", "input": ""}
