@@ -23,6 +23,7 @@ _PROVIDER_CLASSES = {
     "cerebras": "CerebrasProvider",
     "requesty": "RequestyProvider",
     "aws": "AWSProvider",
+    "ollama": "OllamaProvider",
 }
 
 
@@ -284,6 +285,9 @@ _CLI_FALLBACK_CANDIDATES = {
     # model, while a Claude model handed the default `reasoning` tool has
     # refused it (seen on the web Claude path).
     "aws":        ("kimi-k3", "grok-4.7"),
+    # None: the models are the ones the person has pulled, and no other is
+    # sure to be there.
+    "ollama":     (),
 }
 
 
@@ -482,6 +486,13 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
         return _provider_class("aws")(api_key, cli_agent, model_info,
                            tools=tools,
                            max_tokens=max_tokens)
+    elif provider == "ollama":
+        # A model on this machine (or the Ollama at OLLAMA_HOST) needs no
+        # key. OLLAMA_API_KEY is for an Ollama behind one, and goes out
+        # only when set.
+        return _provider_class("ollama")(_key(api_key, 'OLLAMA_API_KEY'), cli_agent, model_info,
+                              tools=tools,
+                              max_tokens=max_tokens)
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 

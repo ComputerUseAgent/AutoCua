@@ -2,8 +2,9 @@
 
 Runs as a standalone process (not mounted into Flask). On the first message
 the bot asks you to pick a provider (limited to providers with a non-empty
-key in the .env), then a model (from the same MODEL_MAPPINGS the
-AutoCua frontend uses). Subsequent messages are dispatched as tasks to the
+key in the .env, and Ollama while it runs, which needs none), then a model
+(from the same MODEL_MAPPINGS the AutoCua frontend uses; Ollama's also lists
+the models pulled there). Subsequent messages are dispatched as tasks to the
 agent with that provider/model. Picked provider/model persist for the whole
 chat session until you `/reset`.
 
@@ -75,6 +76,10 @@ PROVIDER_KEY_MAP = {
     "aws":        "AWS_API_KEY",
 }
 
+# Providers that run without a key (a model on this machine), offered with
+# none saved. Kept out of PROVIDER_KEY_MAP, whose values are key names.
+KEYLESS_PROVIDERS = ("ollama",)
+
 
 # ── file helpers ─────────────────────────────────────────────────────────────
 
@@ -94,13 +99,25 @@ def _resolve_token() -> str | None:
 
 
 def _get_available_providers() -> list:
-    """Providers with a non-empty key in the .env only."""
+    """Providers with a non-empty key in the .env, then the keyless ones that
+    answer right now (Ollama while it runs), so a person with neither still
+    gets the add-a-key guidance."""
     keys = _read_all_keys(_ENV_FILE)
     return [
         {"id": pid, "key": keys[kname]}
         for pid, kname in PROVIDER_KEY_MAP.items()
         if keys.get(kname)
-    ]
+    ] + [{"id": pid, "key": None} for pid in KEYLESS_PROVIDERS if _keyless_answers(pid)]
+
+
+def _keyless_answers(provider_id: str) -> bool:
+    """True when the keyless provider's server answers (its service's
+    reachable(): a quick local call)."""
+    try:
+        return bool(importlib.import_module(
+            f"AutoCua.llm_provider.{provider_id}.service").reachable())
+    except Exception:
+        return False
 
 
 # One key-file write at a time: pairing, Connect, Disconnect and a new code
@@ -227,17 +244,22 @@ def _pair_if_code(chat_id: int, text) -> bool | None:
 
 
 def _get_models_for_provider(provider_id: str) -> list:
-    """Read MODEL_MAPPINGS from AutoCua/llm_provider/<id>/view.py
-    and return non-hidden entries as [{id, display_name}, …]."""
+    """Read MODEL_MAPPINGS from AutoCua/llm_provider/<id>/view.py (or what
+    its listed_models() returns, where it has one: Ollama's pulled models)
+    and return non-hidden entries as [{id, display_name}, …]. An id too long
+    for a button's 64-byte callback_data ("model:<id>") is left out, as
+    Telegram would refuse the whole keyboard."""
     try:
         mod = importlib.import_module(
             f"AutoCua.llm_provider.{provider_id}.view"
         )
-        mappings = getattr(mod, "MODEL_MAPPINGS", {})
+        listed = getattr(mod, "listed_models", None)
+        mappings = listed() if callable(listed) else getattr(mod, "MODEL_MAPPINGS", {})
         return [
             {"id": mid, "display_name": info.get("display_name", mid)}
             for mid, info in mappings.items()
             if not info.get("hidden", False)
+            and len(f"model:{mid}".encode("utf-8")) <= 64
         ]
     except Exception:
         return []

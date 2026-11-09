@@ -899,6 +899,14 @@ def get_llm_providers():
             aws_models = importlib.import_module(f"{base}.aws.view").MODEL_MAPPINGS
         except ModuleNotFoundError:
             aws_models = None
+        # Ollama lists the models pulled on this machine (listed_models asks
+        # it), so any failure there, not only a missing module, must drop
+        # just this provider.
+        try:
+            ollama_models = importlib.import_module(f"{base}.ollama.view").listed_models()
+        except Exception:
+            debug_exception("get_llm_providers: ollama")
+            ollama_models = None
 
         def format_models(mappings):
             return [{
@@ -922,6 +930,8 @@ def get_llm_providers():
             providers.append({'id': 'requesty', 'name': 'requesty', 'models': format_models(requesty_models)})
         if aws_models:
             providers.append({'id': 'aws', 'name': 'aws', 'models': format_models(aws_models)})
+        if ollama_models:
+            providers.append({'id': 'ollama', 'name': 'ollama', 'models': format_models(ollama_models)})
         return providers
     except Exception:
         debug_exception("get_llm_providers")
@@ -940,6 +950,11 @@ PROVIDER_KEY_MAP = {
     'requesty': 'REQUESTY_API_KEY',
     'aws': 'AWS_API_KEY',
 }
+
+# Providers that run without a key (a model on this machine), so the app
+# offers them with none saved. Not in PROVIDER_KEY_MAP, whose values are the
+# key names written to the .env and shown as key rows in Settings.
+KEYLESS_PROVIDERS = ('ollama',)
 
 # Extra keys stored in the same .env
 EXTRA_KEYS = ['VERTEX_PROJECT_ID', 'VERTEX_LOCATION']
@@ -1753,10 +1768,32 @@ def get_keys_status():
         status = {}
         for provider_id, env_name in PROVIDER_KEY_MAP.items():
             status[provider_id] = bool(keys.get(env_name, ''))
+        # Nothing to set up, so always usable; a stopped Ollama is reported
+        # by the run itself, with what to do.
+        for provider_id in KEYLESS_PROVIDERS:
+            status[provider_id] = True
         return jsonify(status)
     except Exception:
         debug_exception("get_keys_status")
         return jsonify({})
+
+
+@app.route('/api/ollama/status', methods=['GET'])
+def get_ollama_status():
+    """Ollama's row in Settings: whether an Ollama answers (at OLLAMA_HOST,
+    else this machine) and the pulled models that can call tools, by the
+    names the model pickers show."""
+    try:
+        from AutoCua.llm_provider.ollama import service as ollama, view as ollama_view
+        host = ollama.base_url()
+        if not ollama.reachable():
+            return jsonify({'running': False, 'host': host, 'models': []})
+        models = [ollama_view.get_model_info(name).get('display_name', name)
+                  for name, _caps in ollama.pulled_models()]
+        return jsonify({'running': True, 'host': host, 'models': models})
+    except Exception:
+        debug_exception("get_ollama_status")
+        return jsonify({'running': False, 'host': '', 'models': []})
 
 
 @app.route('/api/keys/save', methods=['POST'])

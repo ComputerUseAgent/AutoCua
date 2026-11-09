@@ -1103,7 +1103,7 @@ run_agent(..., provider="google",     model="gemini-4-argon")
 run_agent(..., provider="openai",     model="gpt-6-astra")
 ```
 
-Ten providers, all supported on every surface.
+Eleven providers, all supported on every surface.
 
 | Provider | Desktop, macOS | Desktop, Windows | Browser | iOS | Android |
 |---|:--:|:--:|:--:|:--:|:--:|
@@ -1112,14 +1112,24 @@ Ten providers, all supported on every surface.
 | Cerebras | yes | yes | yes | yes | yes |
 | Google, including Vertex | yes | yes | yes | yes | yes |
 | Groq | yes | yes | yes | yes | yes |
+| Ollama, on your own machine | yes | yes | yes | yes | yes |
 | OpenAI | yes | yes | yes | yes | yes |
 | OpenRouter | yes | yes | yes | yes | yes |
 | Perplexity | yes | yes | yes | yes | yes |
 | Requesty | yes | yes | yes | yes | yes |
 | Together AI | yes | yes | yes | yes | yes |
 
-60 model names are listed in **[model_list.txt](https://github.com/ComputerUseAgent/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
+63 model names are listed in **[model_list.txt](https://github.com/ComputerUseAgent/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
 that is not on the list gets no validation. It is forwarded verbatim and comes back as a 404.
+
+Ollama runs the model on your own machine, with no key and nothing billed per call: start the
+Ollama app, `ollama pull` a model, and pass `provider="ollama"` with the name `ollama list`
+shows. Three are tested: `ornith-1.5:35b` and `qwen3.6:35b-a3b-nvfp4`, the fast ones (mixtures of
+experts: about 5 seconds a computer-use step on an M5 Pro; Ornith acts from the first step,
+Qwen3.6 is the quickest coder), and `qwen3.8:27b` (about 25 seconds a step). Any pulled model that lists `tools` in `ollama show <model>` works, and it needs
+`vision` too for computer, web and mobile use. The app's model list shows what you had pulled when
+it opened. A local model is slower than a hosted one, and it answers one call at a time, so run one
+agent on it at once.
 
 Keys resolve from the runtime setting first, then the environment or `.env`, so you can
 override per machine without editing files. Every call gets three attempts, and the coder and
@@ -1129,7 +1139,7 @@ The `web` tool uses each provider's own search: Claude web search, the OpenAI Re
 search tool, Gemini grounding, Groq's compound model, OpenRouter's Exa plugin running on your
 chosen model, and Perplexity Sonar.
 
-> Together AI, Cerebras, Requesty and AWS Bedrock have no native web search. Under any of them the `web` tool hands the query to the
+> Together AI, Cerebras, Requesty, AWS Bedrock and Ollama have no native web search. Under any of them the `web` tool hands the query to the
 > browser agent running headless on its own dedicated port and profile, capped at 15 minutes,
 > and returns its report. Expect that step to take minutes rather than seconds.
 

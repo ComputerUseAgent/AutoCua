@@ -133,6 +133,17 @@ function SettingsOverlay() {
                                     {id === 'google' && <button className="gcp-vertex-btn" id="gcpVertexBtn" title="Configure GCP Vertex AI">GCP Vertex</button>}
                                 </div>
                             ))}
+                            {/* Ollama runs the model on this machine, so it has no key: its row
+                                says whether the Ollama app answers and how many models it offers
+                                (script.js loadOllamaStatus). Not a settings-provider-row, which
+                                Save and Delete treat as a key field. */}
+                            <div className="settings-local-row" id="ollamaRow">
+                                <a className="settings-provider-name" href="https://ollama.com/download" target="_blank">Ollama</a>
+                                <div className="settings-local-status" id="ollamaStatus">
+                                    <span className="settings-local-dot" aria-hidden="true"></span>
+                                    <span className="settings-local-text">On this computer · no API key needed</span>
+                                </div>
+                            </div>
                         </div>
                         <button className="settings-save-btn" id="settingsSaveBtn">Save</button>
                     </div>
