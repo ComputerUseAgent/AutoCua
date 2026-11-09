@@ -931,7 +931,8 @@ releases, the same zip `npm install electron` fetches, checked against a pinned 
 `%LOCALAPPDATA%\AutoCua\electron`, `~/.cache/AutoCua/electron`); no Node.js is needed. `n` is
 remembered and the question is not asked again; Enter, Ctrl+C, or no answer within two minutes
 means not now. With no terminal (an IDE's run button) or a hidden one, nothing is asked. `python -m AutoCua.utils.electron` fetches it any time (`--force`
-fetches it again). Deleting the cache folder removes it. `ELECTRON_MIRROR` and
+fetches it again). When GitHub's release link fails (it can answer 504 for minutes at a time),
+the same zip comes through GitHub's API instead. Deleting the cache folder removes it. `ELECTRON_MIRROR` and
 `ELECTRON_CUSTOM_DIR` fetch from a mirror, as they do for npm, and the question names it. A
 checkout that ran `npm install` in `AutoCua/desktop` (Node.js 22.12 or newer) uses that copy and
 is never asked.
