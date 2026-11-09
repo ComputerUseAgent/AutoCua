@@ -305,7 +305,6 @@ class Sandbox:
                     while not stdout_queue.empty():
                         char = stdout_queue.get_nowait()
                         stdout_buffer += char
-                        log_line_buffer += char
                     
                     while not stderr_queue.empty():
                         char = stderr_queue.get_nowait()
