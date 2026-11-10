@@ -18,7 +18,7 @@ from .. import entry_value, http_timeout, out_cap, screenshots
 READ_TIMEOUT = 900
 
 # A run's prompt grows until memory compression starts (memory_compression/
-# controller.py COMPRESS_THRESHOLD: 110k tokens unless
+# controller.rs COMPRESS_THRESHOLD: 110k tokens unless
 # AutoCua_COMPRESS_THRESHOLD says otherwise), so the model's context window
 # has to hold that much plus COMPRESSION_HEADROOM: the handoff's output and
 # the steps taken while it runs. _check_context reads the window off Ollama.

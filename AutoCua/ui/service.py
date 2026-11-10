@@ -62,9 +62,23 @@ from AutoCua import read_env, set_env, skills_dir, skills_platform, data_root, d
 from AutoCua import APP_PORT, ENV_APP_PORT
 from AutoCua import data_extraction
 
-# Resumable chat memory + per-chat token tracker. Platform-agnostic, pure-stdlib.
-from AutoCua.agent_conversation.service import conversation
-from AutoCua.memory_compression.memory_tracker import MemoryTracker
+
+class _LazyConversation:
+    """The resumable chat memory (AutoCua/agent_conversation), loaded on first
+    use. It is Rust, part of agent_native, and importing it loads the
+    extension: the process the person started only builds that, never loads
+    it (_prepare_native says why), and it imports this module. Every
+    conversation.<name> call works as it did on the module's own object."""
+
+    def __getattr__(self, name):
+        from AutoCua.agent_conversation.service import conversation as real
+        return getattr(real, name)
+
+
+conversation = _LazyConversation()
+# MemoryTracker (memory_compression, Rust too) is imported where a run makes
+# one, for the same reason.
+
 
 # Markdown -> HTML for everything the agent writes to the user (scratchpad
 # notes, done/exit summaries). The single place that formatting happens.
@@ -2322,6 +2336,7 @@ def _start_agent_run(data, via=None, hooks=None):
         if prior_history is not None and saved_pkg and saved_pkg != run_pkg:
             prior_history = None
 
+        from AutoCua.memory_compression.memory_tracker import MemoryTracker
         token_tracker = MemoryTracker(initial_context=_sess.get("context_tokens", 0))
 
         # Memory-bar push — shared factory (Shell use builds the identical
@@ -3101,6 +3116,7 @@ def start_shell():
 
         # ── Memory bar: same tracker + push pipe as Computer use, seeded from
         # the chat's last saved context size so a resumed chat restores its bar.
+        from AutoCua.memory_compression.memory_tracker import MemoryTracker
         token_tracker = MemoryTracker(initial_context=_sess.get("context_tokens", 0))
         send_token_to_frontend = _make_token_sender(token_tracker)
 

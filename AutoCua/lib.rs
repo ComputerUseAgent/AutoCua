@@ -1,6 +1,8 @@
 //! Crate root: AutoCua.agent_native, the one Rust extension module behind
 //! the three Rust agents: the web agent (web/), the Android agent (android/)
-//! and the coder (coder/).
+//! and the coder (coder/). Memory compression (memory_compression/), which
+//! every agent shares, Python's included, and the desktop app's chat memory
+//! (agent_conversation/) are parts of it too.
 //!
 //! ONE crate for all three: this file, Cargo.toml, Cargo.lock and build.rs
 //! sit here in AutoCua/, and each agent's sources sit in its own folder,
@@ -693,17 +695,140 @@ pub mod coder {
     }
 }
 
-/// The module: one part per agent, each also put in sys.modules under its full
-/// name, so `from AutoCua.agent_native.web import AgentService` works the way an
-/// import from a package does.
+/// Memory compression (AutoCua/memory_compression), shared by every agent:
+/// the memory bar's gauge (memory_tracker.rs) and the rolling handoff
+/// compression that keeps an agent's context down (controller.rs, with the
+/// compressor itself in agent/service.rs). Python and the Rust agents import
+/// it under its old dotted names, AutoCua.memory_compression.controller,
+/// .memory_tracker and .agent.service, which memory_compression/__init__.py
+/// points at the modules here. AutoCua.agent_native.memory_compression for
+/// Python.
+pub mod memory_compression {
+    use pyo3::exceptions::{PyAttributeError, PyException, PyNameError};
+    use pyo3::ffi;
+    use pyo3::prelude::*;
+    use pyo3::types::{PyList, PyString};
+
+    /// The runtime side: when a compression starts, its worker thread, the
+    /// indicator and the splice.
+    pub mod controller;
+    /// The main agent's memory bar.
+    pub mod memory_tracker;
+    pub mod agent {
+        /// The compressor: the dump it reads, the LLM call and the entry that
+        /// replaces the compressed steps.
+        pub mod service;
+    }
+
+    /// Python's lookup of a global name in one of these modules: the module's
+    /// own attribute first, then the builtins. So a name the Python module
+    /// imported (json, threading, MemoryCompressionAgent) is read where it
+    /// was, and a builtin patched for a test or by a packaged app (print,
+    /// open) is the one called.
+    pub fn global<'py>(module: &Bound<'py, PyModule>, name: &str) -> PyResult<Bound<'py, PyAny>> {
+        let py = module.py();
+        if let Some(value) = module.dict().get_item(name)? {
+            return Ok(value);
+        }
+        match py.import("builtins")?.getattr(name) {
+            Ok(value) => Ok(value),
+            Err(e) if e.is_instance_of::<PyAttributeError>(py) => {
+                Err(PyNameError::new_err(format!("name '{name}' is not defined")))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// `print(line)` with Python's print, so the line goes to sys.stdout
+    /// wherever it points, as it did.
+    pub fn print_line(module: &Bound<'_, PyModule>, line: &Bound<'_, PyString>) -> PyResult<()> {
+        global(module, "print")?.call1((line,))?;
+        Ok(())
+    }
+
+    /// `format(value, spec)`, which is what an f-string's {value} or
+    /// {value:spec} turns into.
+    pub fn format_value<'py>(value: &Bound<'py, PyAny>, spec: &str) -> PyResult<Bound<'py, PyString>> {
+        let py = value.py();
+        let spec = PyString::new(py, spec);
+        // SAFETY: two valid objects; a new reference or NULL with the error set.
+        let text = unsafe { Bound::from_owned_ptr_or_err(py, ffi::PyObject_Format(value.as_ptr(), spec.as_ptr())) }?;
+        Ok(text.cast_into::<PyString>()?)
+    }
+
+    /// `"".join(parts)`: how an f-string puts its pieces together.
+    pub fn join_str<'py>(py: Python<'py>, parts: &[&Bound<'py, PyAny>]) -> PyResult<Bound<'py, PyString>> {
+        let text = PyString::new(py, "").call_method1("join", (PyList::new(py, parts.iter().copied())?,))?;
+        Ok(text.cast_into::<PyString>()?)
+    }
+
+    /// Python's `except Exception`: true for an Exception, false for a
+    /// KeyboardInterrupt, SystemExit or other BaseException, which pass on.
+    pub fn is_exception(py: Python<'_>, e: &PyErr) -> bool {
+        e.is_instance_of::<PyException>(py)
+    }
+
+    /// Fills AutoCua.agent_native.memory_compression with its three modules,
+    /// each also put in sys.modules under its full name.
+    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        let py = m.py();
+        let modules = py.import("sys")?.getattr("modules")?;
+        let base = "AutoCua.agent_native.memory_compression";
+        // The service first: the controller imports two of its names.
+        let service = PyModule::new(py, &format!("{base}.agent.service"))?;
+        agent::service::register(&service)?;
+        let agent = PyModule::new(py, &format!("{base}.agent"))?;
+        agent.add("service", &service)?;
+        let memory_tracker = PyModule::new(py, &format!("{base}.memory_tracker"))?;
+        memory_tracker::register(&memory_tracker)?;
+        let controller = PyModule::new(py, &format!("{base}.controller"))?;
+        controller::register(&controller, &service)?;
+        m.add("agent", &agent)?;
+        m.add("controller", &controller)?;
+        m.add("memory_tracker", &memory_tracker)?;
+        for (name, module) in [
+            ("agent", &agent),
+            ("agent.service", &service),
+            ("controller", &controller),
+            ("memory_tracker", &memory_tracker),
+        ] {
+            modules.set_item(format!("{base}.{name}"), module)?;
+        }
+        Ok(())
+    }
+}
+
+/// The chat memory (AutoCua/agent_conversation): the desktop app's chats,
+/// index.json and one folder per chat, saved, resumed and rendered, and the
+/// one-time move of old chats out of the install folder.
+/// AutoCua.agent_native.agent_conversation for Python, which
+/// agent_conversation/__init__.py also puts in sys.modules as
+/// AutoCua.agent_conversation.service, the module's old name.
+pub mod agent_conversation {
+    use pyo3::prelude::*;
+
+    pub mod service;
+
+    /// Fills AutoCua.agent_native.agent_conversation.
+    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        service::register(m)
+    }
+}
+
+/// The module: one part per agent, one for memory compression and one for the
+/// chat memory, each also put in sys.modules under its full name, so `from
+/// AutoCua.agent_native.web import AgentService` works the way an import from
+/// a package does.
 #[pymodule]
 fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     let modules = py.import("sys")?.getattr("modules")?;
-    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 3] = [
+    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 5] = [
         ("web", web::register),
         ("android", android::register),
         ("coder", coder::register),
+        ("memory_compression", memory_compression::register),
+        ("agent_conversation", agent_conversation::register),
     ];
     for (name, register) in parts {
         let part = PyModule::new(py, name)?;
