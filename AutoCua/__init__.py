@@ -9,7 +9,9 @@ one folder no installer owns:
 
     <base>/AutoCua_data/
         agent_conversation/     chats: index.json, settings.json, chat_*/
-        api_key/api_key.txt     provider keys + Telegram token + Vertex config
+    <base>/.env                 provider keys + Telegram token + Vertex config:
+                                the .env you edit by hand, which the Settings
+                                panel writes too (env_file below)
 
     base = Path.home()   packaged build   -> C:/Users/<u>/AutoCua_data
                                           -> /Users/<u>/AutoCua_data on macOS
@@ -24,8 +26,9 @@ definitions of "where is AutoCua_data" that drift apart would silently put user
 data back inside the install folder — the exact bug this exists to fix.
 
 RULES for the code below:
-  * stdlib ONLY, and no filesystem side effects at import time. Every
-    `import AutoCua.anything` executes this module first.
+  * stdlib ONLY at import time, and no filesystem side effects then. Every
+    `import AutoCua.anything` executes this module first. (python-dotenv, a
+    dependency, is imported inside the .env functions, which run later.)
   * NEVER print(). AutoCua re-execs itself as --banner-mode, which speaks a
     JSON-per-line protocol on stdout, and sys.stdout can be None at import time
     in the Windows GUI-subsystem binary. Log to `logger` (stderr) instead.
@@ -36,7 +39,9 @@ RULES for the code below:
     os.replace here.
 """
 
+import io
 import os
+import re
 import sys
 import logging
 import tempfile
@@ -52,6 +57,10 @@ DATA_DIR_NAME = "AutoCua_data"
 # and the agents' child processes are spawned with os.environ.copy(), so they
 # inherit it and parent + children can never disagree on the data root.
 ENV_DATA_DIR = "AutoCua_DATA_DIR"
+
+# The .env that holds the keys (env_file), pinned the same way by data_root(),
+# so a child process always uses its parent's file. Also yours to set.
+ENV_ENV_FILE = "AutoCua_ENV_FILE"
 
 # Compiled (Nuitka) binary vs dev run — mirrors the detection in app.py.
 IS_COMPILED = bool(getattr(sys, "frozen", False)) or ("__compiled__" in globals())
@@ -104,7 +113,28 @@ def data_root() -> Path:
         # with os.environ.copy()), so a child started with another cwd can
         # never end up with its own AutoCua_data.
         os.environ[ENV_DATA_DIR] = str(root.resolve())
+    # The .env is pinned with it, decided here once from the folder as it was
+    # chosen (a child sees AutoCua_DATA_DIR set and could not tell any more).
+    pinned = (os.environ.get(ENV_ENV_FILE) or "").strip()
+    os.environ[ENV_ENV_FILE] = (os.path.abspath(os.path.expanduser(pinned)) if pinned
+                                else str(_default_env_file(root, chosen=bool(override))))
     return _ensure(root)
+
+
+def _default_env_file(root: Path, chosen: bool) -> Path:
+    """The .env when nothing pinned one yet: beside the data folder, the .env
+    you edit by hand (<repo>/.env in a checkout, the folder you run main.py
+    from after pip install), taken from the path as it is, so a symlinked
+    AutoCua_data does not move it. Inside the data folder for a folder you
+    chose with AutoCua_DATA_DIR (the folder above it may not be yours to
+    write), a compiled build, or a data folder in your home folder: a
+    <home>/.env would be read by every other project's dotenv search up the
+    folder tree."""
+    root = Path(os.path.abspath(root))
+    base = root.parent
+    if chosen or IS_COMPILED or os.path.realpath(base) == os.path.realpath(_home_dir()):
+        return root / ".env"
+    return base / ".env"
 
 
 BROWSER_PROFILES_DIR = "browser_profiles"
@@ -270,73 +300,235 @@ def vault_file() -> Path:
 
 
 # =============================================================================
-# api_key.txt — provider keys, the Telegram bot token, and Vertex config
+# .env: provider keys, the Telegram bot token, and Vertex config
 # =============================================================================
-# Every consumer must agree on this ONE path, or the Settings panel writes a key
-# the agent can't read. Before this moved there were three different answers in
-# the tree: ui/service.py and windows/llm_provider walked up to
-# AutoCua/api_key/ (right), while mac and ios llm_provider stopped one
-# level short at <pkg>/api_key/ (a folder that never existed, so Vertex config
-# silently read back empty on those platforms). One function, one answer.
-_api_key_migrated = False
-_api_key_lock = threading.Lock()
+# ONE file holds every key: the .env you edit by hand is the file the Settings
+# panel and the Telegram bot write, and every reader (llm_provider, Settings,
+# Telegram) reads that same file. data_root() decides where it is once, and
+# pins it in AutoCua_ENV_FILE for every child (_default_env_file): beside
+# AutoCua_data (<repo>/.env in a checkout, the folder you run main.py from after
+# pip install), or inside it.
+#
+# python-dotenv parses it, the parser load_dotenv uses, so quotes, `export` and
+# comments read the same everywhere. The keys of the old key file
+# (AutoCua_data/api_key/api_key.txt) move into it once (_move_api_key_txt).
+_env_moved = False
+
+# Left in AutoCua_data by a move: an old key file not newer than it was moved
+# already, and is never moved again (_move_api_key_txt).
+_MOVED_MARK = ".api_key_moved"
+
+# One read-change-write of the .env at a time in this process: the Settings key
+# routes (ui/service.py) and the Telegram bot, Connect and Disconnect
+# (remote_connection/telegram) all hold it, so no save drops another's change.
+api_key_lock = threading.RLock()
 
 
-def api_key_file() -> Path:
-    """AutoCua_data/api_key/api_key.txt, migrating a pre-AutoCua_data copy on
-    the first call in each process. Idempotent and never raises."""
-    path = _ensure(data_root() / "api_key") / "api_key.txt"
-    _migrate_legacy_api_key(path)
-    try:
-        # Owner-only, also for a file an older build wrote in place as 0644.
-        # New writes are 0600 already (replace_file_text: mkstemp + rename).
-        os.chmod(str(path), 0o600)
-    except OSError:          # not there yet, or a read-only location
-        pass
+def env_file() -> Path:
+    """The one .env (see above), after moving the old api_key.txt into it on
+    the first call in each process. Never raises."""
+    data_root()                                   # pins AutoCua_ENV_FILE
+    path = Path(os.environ[ENV_ENV_FILE])
+    _move_api_key_txt(path)
     return path
 
 
-def _migrate_legacy_api_key(dest: Path) -> None:
-    """Move AutoCua/api_key/api_key.txt out of the install folder, once.
+def read_env(path: Path = None) -> dict:
+    """NAME -> value for every line of the .env (env_file() unless `path`), as
+    load_dotenv reads them; '' for a NAME with no value. {} when the file is
+    missing or cannot be read."""
+    path = env_file() if path is None else path
+    try:
+        text = _env_text(path, errors="replace")
+    except OSError:
+        return {}
+    return _env_values(text)
 
-    Crash-safe by construction: the copy is staged as '<dest>.part' and renamed
-    into place (atomic within the folder), and the legacy file is unlinked only
-    after the rename succeeds. Skip-if-destination-exists makes a re-run a no-op
-    and means the newer file always wins, so a downgrade/upgrade round trip can
-    never overwrite live keys with stale ones."""
-    global _api_key_migrated
-    if _api_key_migrated or dest.exists():
+
+def _env_text(path: Path, errors: str = "strict") -> str:
+    """The file's text as it is on disk. Path.read_bytes, not the builtin
+    open() (RULES above), and no newline translation, so a Windows file keeps
+    its \\r\\n when it is written back. utf-8-sig: a BOM that a Windows editor
+    saved must not stick to the first name."""
+    return path.read_bytes().decode("utf-8-sig", errors)
+
+
+def _env_values(text: str) -> dict:
+    from dotenv import dotenv_values
+    return {k: v or "" for k, v in dotenv_values(stream=io.StringIO(text)).items()}
+
+
+def set_env(updates: dict, path: Path = None) -> None:
+    """Set NAME=value for every item of `updates` in ONE rewrite of the .env
+    (env_file() unless `path`), keeping every other line as it is. '' clears a
+    value; a name the file does not have yet is added at the end. Written with
+    replace_file_text: owner-only, and a reader meets the old file or the new
+    one. This process's environment follows (_env_follow), so the change counts
+    at once. Raises OSError when the file cannot be written."""
+    path = env_file() if path is None else path
+    updates = {name: "" if value is None else str(value) for name, value in updates.items()}
+    with api_key_lock:
+        try:
+            text = _env_text(path)
+        except FileNotFoundError:
+            text = ""
+        new, before = _env_rewrite(text, updates)
+        if new != text:
+            replace_file_text(path, new)
+        _env_follow(updates, before)
+
+
+def _env_value(value: str) -> str:
+    """`value` as python-dotenv reads it back: plain when it can be, else in
+    double quotes with \\, " and line breaks escaped."""
+    if re.fullmatch(r"[^\s'\"\\#]*", value):
+        return value
+    return '"' + (value.replace("\\", "\\\\").replace('"', '\\"')
+                  .replace("\n", "\\n").replace("\r", "\\r")) + '"'
+
+
+def _env_rewrite(text: str, updates: dict, header: str = "") -> tuple:
+    """(new text, {name: value before}) for set_env: every line that sets a name
+    of `updates` gets its new value (the blank lines python-dotenv counts in
+    front of it, an `export ` and the line break stay); every other line stays
+    as it is. A name with no line yet is added at the end, after `header` when
+    given, unless its new value is ''."""
+    from dotenv.parser import parse_stream
+    nl = "\r\n" if "\r\n" in text else "\n"
+    out, before = [], {}
+    for binding in parse_stream(io.StringIO(text)):
+        line = binding.original.string
+        if binding.key is None or binding.key not in updates:
+            out.append(line)
+            continue
+        before[binding.key] = binding.value or ""
+        body = line.lstrip()
+        lead = line[:len(line) - len(body)]
+        export = "export " if re.match(r"export[^\S\r\n]", body) else ""
+        end = line[len(line.rstrip("\r\n")):]      # \r\n, \n, a bare \r, or none
+        out.append(f"{lead}{export}{binding.key}={_env_value(updates[binding.key])}{end}")
+    new = "".join(out)
+    add = [name for name, value in updates.items() if name not in before and value]
+    if add:
+        if new and not new.endswith(("\n", "\r")):
+            new += nl
+        new += header + "".join(f"{name}={_env_value(updates[name])}{nl}" for name in add)
+    return new, before
+
+
+def _env_follow(updates: dict, before: dict) -> None:
+    """This process's environment after a write: a name whose value came from
+    the file, or that has none, takes the new value, or goes when it is
+    cleared; a value the shell set to something else stays, as load_dotenv
+    never overrides one."""
+    for name, value in updates.items():
+        if os.environ.get(name) in (None, "", before.get(name)):
+            if value:
+                os.environ[name] = value
+            else:
+                os.environ.pop(name, None)
+
+
+def _move_api_key_txt(dest: Path) -> None:
+    """Move the keys of the old key file into the .env, once per process, from
+    ONE file: AutoCua_data/api_key/api_key.txt, or the older copy in the
+    install folder only when that one is not there (the old rule: a stale copy
+    never overrides newer keys). A file not newer than the mark a move leaves
+    (_MOVED_MARK) was moved before and is left alone, so one that could not be
+    deleted never brings back a key cleared since. Never raises: a failure is
+    logged, and the next start tries again."""
+    global _env_moved
+    if _env_moved:
         return
-    with _api_key_lock:
-        if _api_key_migrated or dest.exists():
+    with api_key_lock:
+        if _env_moved:
+            return
+        _env_moved = True        # first: never again in this process, also after a failure
+        mark = data_root() / _MOVED_MARK
+        try:
+            moved_at = mark.stat().st_mtime
+        except OSError:
+            moved_at = None
+        for src in (data_root() / "api_key" / "api_key.txt",
+                    install_dir() / "AutoCua" / "api_key" / "api_key.txt"):
+            try:
+                if not src.is_file():
+                    continue
+                if moved_at is None or src.stat().st_mtime > moved_at:
+                    _move_key_file(src, dest, mark)
+            except Exception:
+                logger.exception("move %s into %s", src, dest)
+            return                               # the first file there, only
+
+
+def _one_line(value: str) -> str:
+    """A noted value on one line, so the note stays one comment line."""
+    return value.replace("\r", "\\r").replace("\n", "\\n")
+
+
+def _move_key_file(src: Path, dest: Path, mark: Path) -> None:
+    """One old key file (NAME=value lines) into the .env, in one rewrite.
+
+    The old file's value wins over another value the .env has: it is the one
+    the app used (Settings and Telegram read only the old file, and Vertex took
+    it first). The .env's value it replaces goes at the end as a comment, as
+    does an old line python-dotenv would read under another name or with
+    another value (an `export ` in the name, ${...} in the value), so nothing
+    is lost and you can pick. The mark is set and the old file deleted only
+    once the .env reads back every key moved."""
+    old = {}
+    for line in _env_text(src, errors="replace").splitlines():
+        name, eq, value = line.strip().partition("=")
+        name, value = name.strip(), value.strip()
+        if eq and name and value and not name.startswith("#"):
+            old[name] = value
+    try:
+        text = _env_text(dest)
+    except FileNotFoundError:
+        text = ""
+    have = _env_values(text)
+    move, replaced, unmoved = {}, {}, {}
+    for name, value in old.items():
+        if have.get(name) == value:
+            continue                                     # the .env has it already
+        if (_env_values(f"{name}=x\n") == {name: "x"}
+                and _env_values(f"X={_env_value(value)}\n").get("X") == value):
+            move[name] = value
+            if have.get(name):
+                replaced[name] = have[name]
+        else:
+            unmoved[name] = value
+    nl = "\r\n" if "\r\n" in text else "\n"
+    new, before = _env_rewrite(text, move, header=f"# Moved here from {src}{nl}")
+    for title, notes in ((f"# Values these keys had here before the move from {src} (not used):", replaced),
+                         (f"# From {src}, not moved, as they would not read back the same here:", unmoved)):
+        if notes:
+            if new and not new.endswith(("\n", "\r")):
+                new += nl
+            new += title + nl + "".join(f"# {name}={_one_line(value)}{nl}" for name, value in notes.items())
+    if replaced:
+        logger.warning("%s: the values from %s replaced its own for %s; those are comments at its end",
+                       dest, src, ", ".join(sorted(replaced)))
+    if unmoved:
+        logger.warning("%s: not moved from %s: %s; they are comments at its end",
+                       dest, src, ", ".join(sorted(unmoved)))
+    if new != text:
+        replace_file_text(dest, new)
+        _env_follow(move, before)
+    now = _env_values(_env_text(dest)) if move else {}
+    if all(now.get(name) == value for name, value in move.items()):
+        mark.touch()
+        try:
+            src.unlink()
+        except OSError as e:                    # a read-only install folder, a file in use
+            logger.warning("moved the keys of %s into %s, but could not delete it (%s); "
+                           "the mark keeps it from being moved again", src, dest, e.strerror or e)
             return
         try:
-            legacy = install_dir() / "AutoCua" / "api_key" / "api_key.txt"
-            if not legacy.is_file() or legacy.resolve() == dest.resolve():
-                return
-            # Path.read_bytes/write_bytes go through io.open, which the compiled
-            # build's builtins.open patch does NOT replace.
-            part = dest.with_name(dest.name + ".part")
-            part.write_bytes(legacy.read_bytes())
-            os.replace(str(part), str(dest))
-            try:
-                legacy.unlink()
-                legacy.parent.rmdir()      # only succeeds if now empty
-            except OSError:
-                pass
-            logger.info("migrated api_key.txt: %s -> %s", legacy, dest)
-        except Exception:
-            logger.exception("migrate legacy api_key.txt")
-        finally:
-            # Set even on failure so we don't re-scan on every call; the next
-            # app start retries from scratch.
-            _api_key_migrated = True
-
-
-# One read-change-write of api_key.txt at a time in this process: the Settings
-# key routes (ui/service.py) and the Telegram bot, Connect and Disconnect
-# (remote_connection/telegram) all hold it, so no save drops another's change.
-api_key_lock = threading.RLock()
+            src.parent.rmdir()                  # only when nothing else is left in it
+        except OSError:
+            pass
+        logger.info("moved the keys of %s into %s", src, dest)
 
 
 def replace_file_text(path: Path, text: str) -> None:

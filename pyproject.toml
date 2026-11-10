@@ -110,6 +110,8 @@ exclude = [
     { path = "AutoCua/web/**/*.rs", format = "wheel" },
     { path = "AutoCua/android/**/*.rs", format = "wheel" },
     { path = "AutoCua/coder/**/*.rs", format = "wheel" },
+    { path = "AutoCua/memory_compression/**/*.rs", format = "wheel" },
+    { path = "AutoCua/agent_conversation/**/*.rs", format = "wheel" },
     { path = "AutoCua/Cargo.toml", format = "wheel" },
     { path = "AutoCua/Cargo.lock", format = "wheel" },
     # never shipped
