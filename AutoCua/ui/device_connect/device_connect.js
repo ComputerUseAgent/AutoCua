@@ -1,7 +1,8 @@
 // Connect Device — Settings section for phone automation.
 //   • iPhone (iOS): clean pairing flow in the app's own theme, driving the
 //     existing setup.py backend. Two dropdowns (Apple Account — always with a
-//     "＋ Add Apple Account…" entry — and Device), one status line, one action.
+//     "＋ Add Apple Account…" entry — and Device), the optional Bundle ID box,
+//     one status line, one action (Stop while it pairs).
 //     PAIRED = the AutoCua app is installed on the phone:
 //       - already installed            -> "Device paired successfully" (no build)
 //       - not installed  -> Pair       -> sign/build/install via setup.py /run
@@ -248,6 +249,14 @@
         action('Pair device', pair);
     }
 
+    // The Stop button while it pairs: the run ends, its xcodebuild with it, and
+    // the panel is back at Pair.
+    function stopPair() {
+        closeStream();
+        fetch(base + '/stop').catch(function () {});
+        readyToPair();
+    }
+
     function pair() {
         if (!chosen.udid || !chosen.team) return refresh();
         // A Bundle ID still being typed is saved first: pairing signs with the
@@ -258,8 +267,9 @@
 
     function startPair() {
         status('pairing', 'Signing…');
-        steps(''); noAction();
+        steps('');
         closeStream();
+        action('Stop', stopPair, true);
         els.bundleInput.disabled = true;    // no edits while it signs (closeStream frees it)
         var qs = new URLSearchParams({
             team: chosen.team, udid: chosen.udid, mode: 'test', mount: '1'

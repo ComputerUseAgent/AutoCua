@@ -140,6 +140,11 @@ SERVER_RE = re.compile(r"ServerURLHere->(\S+?)<-ServerURLHere")
 # the running child (xcodebuild / ruby / mounter), so /stop can kill it
 CURRENT_PROC = None
 PROC_LOCK = threading.Lock()
+# One run at a time (route_run): the run in progress is ended, and lets go,
+# before the next starts. RUN_GEN counts the runs, so an ended run's handler
+# starts no further command.
+RUN_LOCK = threading.Lock()
+RUN_GEN = 0
 
 # Ruby is the reliable per-target editor. It reads its config from the environment
 # so there's nothing to escape. Passed vars: PROJECT_PATH, TEAM_ID, WDA_TARGETS_JSON.
@@ -626,9 +631,8 @@ def built_xctestrun(team, prefix):
     return runs[-1] if runs else None
 
 
-def kill_current():
-    with PROC_LOCK:
-        p = CURRENT_PROC
+def _kill(p):
+    """End the command `p` and everything it started (its own process group)."""
     if p and p.poll() is None:
         try:
             os.killpg(os.getpgid(p.pid), signal.SIGTERM)
@@ -640,6 +644,39 @@ def kill_current():
                 os.killpg(os.getpgid(p.pid), signal.SIGKILL)
             except Exception:
                 pass
+
+
+def kill_current():
+    with PROC_LOCK:
+        p = CURRENT_PROC
+    _kill(p)
+
+
+def kill_leftovers():
+    """End every xcodebuild this server started that is not the current command.
+    Before runs were serialised, a run whose page went away while a newer run
+    had taken CURRENT_PROC over lost its xcodebuild: it lived on with the phone's
+    test session, and the newer run waited on it for good (measured: two
+    test-without-building at once, both stuck)."""
+    with PROC_LOCK:
+        cur = CURRENT_PROC
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="],
+                             capture_output=True, text=True).stdout
+    except OSError:
+        return
+    me = str(os.getpid())
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid, ppid, cmd = parts
+        if ppid != me or "xcodebuild" not in cmd or (cur is not None and str(cur.pid) == pid):
+            continue
+        try:
+            os.killpg(os.getpgid(int(pid)), signal.SIGTERM)
+        except Exception:
+            pass
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -686,6 +723,10 @@ class Handler(BaseHTTPRequestHandler):
     # ---- stream a subprocess through a pty so output arrives line-by-line ----
     def _stream_cmd(self, cmd, cwd=None, env=None, detect_serverup=False, line_hook=None):
         global CURRENT_PROC
+        # A run a newer run has ended (route_run) starts nothing more.
+        if getattr(self, "_gen", None) is not None and self._gen != RUN_GEN:
+            self._sse("log", "stopped: another pairing took over")
+            return -1
         master, slave = pty.openpty()
         try:
             proc = subprocess.Popen(
@@ -769,7 +810,7 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 pass
             if not alive:
-                kill_current()
+                _kill(proc)             # this run's command, whatever CURRENT_PROC is by now
             rc = proc.poll()
             if rc is None:
                 try:
@@ -880,8 +921,25 @@ class Handler(BaseHTTPRequestHandler):
                            "detail": ("opened Xcode Settings > Accounts" if automated else err)})
 
     def route_run(self, q):
+        global RUN_GEN
         self._sse_open()
+        # One run at a time. A Pair pressed again, or the app's Wi-Fi start,
+        # ends the run in progress first: its xcodebuild would otherwise live
+        # on with the phone's test session, and the new run wait on it for
+        # good (measured: two test-without-building at once, both stuck).
+        with PROC_LOCK:
+            RUN_GEN += 1
+            self._gen = RUN_GEN
+        kill_current()
+        kill_leftovers()
+        if not RUN_LOCK.acquire(timeout=30):
+            return self._sse("fatal", "The pairing before this one is still stopping. Try again in a moment.")
+        try:
+            return self._route_run(q)
+        finally:
+            RUN_LOCK.release()
 
+    def _route_run(self, q):
         team   = (q.get("team",   [""])[0] or "").strip()
         udid   = (q.get("udid",   [""])[0] or "").strip()
         # The .env's bundle ID prefix, read now (Settings may have just changed
