@@ -160,6 +160,30 @@ html:not([data-host="mac"]) #devicePaneliOS { display: none; }
     transition: transform 0.2s ease;
 }
 .dc-select.is-open .dc-select-chevron { transform: rotate(180deg); }
+
+/* Bundle ID: the dropdowns' box, typed into (click to edit, Enter saves) */
+.dc-bundle { cursor: text; }
+.dc-bundle:focus-within { border-color: rgba(0, 0, 0, 0.28); }
+.dc-bundle.is-invalid { border-color: #c25454; }
+.dc-bundle-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    font: inherit;
+    font-size: clamp(12.5px, 1.2vw, 14px);
+    color: rgba(70, 70, 70, 0.95);
+}
+.dc-bundle-input:disabled { color: rgba(140, 140, 140, 0.85); }
+.dc-bundle-icon {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    color: rgba(120, 120, 120, 0.7);
+}
+.dc-bundle:focus-within .dc-bundle-icon { color: rgba(70, 70, 70, 0.9); }
 .dc-select-menu {
     position: absolute;
     top: calc(100% + 6px);

@@ -1,11 +1,12 @@
-"""Build the Rust extension (the web agent, the Android agent and the coder) if it isn't built yet.
+"""Build the Rust extension (the web agent, the Android agent, the coder, memory compression and the chat memory) if it isn't built yet.
 
-The three agents are ONE crate rooted at the package folder, AutoCua/:
+They are ONE crate rooted at the package folder, AutoCua/:
 Cargo.toml, Cargo.lock, build.rs, lib.rs, target/ and the built
 agent_native.so all live there, and each agent's .rs sources sit in its own
-folder (web/, android/, coder/) mirroring the old Python layout. It compiles
+folder (web/, android/, coder/, memory_compression/, agent_conversation/)
+mirroring the old Python layout. It compiles
 with plain `cargo build --release` (no maturin, no pyproject.toml), one cargo
-build for all three.
+build for all of them.
 
 WHEN THIS ACTUALLY RUNS
     Checkout  — Cargo.toml sits in the package, so this compiles when
@@ -32,8 +33,11 @@ import sys
 from pathlib import Path
 
 _PACKAGE = Path(__file__).resolve().parent.parent
-# The folders lib.rs declares, one per agent.
-_AGENT_DIRS = (_PACKAGE / "web", _PACKAGE / "android", _PACKAGE / "coder")
+# The folders lib.rs declares, one per agent, then memory_compression, which
+# every agent shares (Python's included), and agent_conversation, the desktop
+# app's saved chats.
+_AGENT_DIRS = (_PACKAGE / "web", _PACKAGE / "android", _PACKAGE / "coder",
+               _PACKAGE / "memory_compression", _PACKAGE / "agent_conversation")
 
 # Two different naming schemes have to line up here, and neither is portable:
 # Python only imports an extension named .pyd on Windows and .so elsewhere,
@@ -89,8 +93,8 @@ def _rust_sources():
 def _ensure_built(crate_dir, what, others):
     """Compile the crate's extension once — a minute on first use, then never again.
 
-    what: the agents it holds, in messages; others: the modes that run
-    without it, for the error text.
+    what: the parts it holds, in messages; others: the modes that run
+    without it, for the error text (None: every mode needs it).
 
     A no-op from a pip wheel: no Cargo.toml means the extension is already
     built and shipped, and a module with no target/ beside it was shipped
@@ -125,8 +129,8 @@ def _ensure_built(crate_dir, what, others):
     if not Path(cargo).exists():
         raise RuntimeError(
             f"cargo not found — the {what} are one Rust extension that builds "
-            f"once from source. To fix it, {_SETUP_HINT}\n"
-            f"{others} run without it."
+            f"once from source. To fix it, {_SETUP_HINT}"
+            + (f"\n{others} run without it." if others else "")
         )
 
     # cargo links through the system C compiler, and the crate compiles C
@@ -140,8 +144,8 @@ def _ensure_built(crate_dir, what, others):
         apt = " (or just:  sudo apt install build-essential)" if sys.platform.startswith("linux") else ""
         raise RuntimeError(
             f"no C compiler found — cargo needs one to link the {what}. "
-            f"To fix it, {_SETUP_HINT}{apt}\n"
-            f"{others} run without it."
+            f"To fix it, {_SETUP_HINT}{apt}"
+            + (f"\n{others} run without it." if others else "")
         )
 
     print(f"Building the {what} (first run, ~1 min)...")
@@ -195,5 +199,7 @@ def _ensure_built(crate_dir, what, others):
 def ensure_built() -> None:
     """The one Rust extension (AutoCua/agent_native): the web agent, the
     Android agent and the coder, built once."""
-    _ensure_built(_PACKAGE, "web, Android and coder agents",
-                  "Every other mode (computer use, iOS)")
+    # Every mode needs it now: computer use and iOS compress memory with it,
+    # and the desktop app keeps its chats with it.
+    _ensure_built(_PACKAGE, "Rust parts (the web, Android and coder agents, memory "
+                  "compression and the chat memory)", None)

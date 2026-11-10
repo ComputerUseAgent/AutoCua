@@ -1,13 +1,17 @@
-//! Runs the coder's shell commands: zsh, PowerShell or bash.
+//! Runs shell commands: zsh, PowerShell or bash. The one sandbox in
+//! AutoCua: the coder's shell, and through PySandbox (end of this file) the
+//! `shell` tool of computer use on mac, windows and linux and of the iPhone
+//! agent.
 //!
-//! The port of mac/sandbox/service.py, the Sandbox class: one folder on the
-//! Desktop (~/Desktop/sandbox_workspace/<session id>) and a fresh shell for
-//! every command, started in that folder and watched until it ends, goes
-//! silent or runs out of time, with the mac result dicts (same keys, order
+//! First written as the port of the Python sandbox (mac/sandbox/service.py,
+//! since removed with its linux, windows and ios copies): one folder on the
+//! Desktop (~/Desktop/sandbox_workspace[/<session id>]) and a fresh shell
+//! for every command, started in that folder and watched until it ends,
+//! goes silent or runs out of time, with the same result dicts (keys, order
 //! and texts). The shell, the folder blocklist, the prompt patterns and the
-//! timeout text follow the OS, as the mac, linux and windows Python copies
-//! do. Left out: the macOS permission-popup watcher, so there is no
-//! "permission_dialog" result (the linux and windows copies have none).
+//! timeout text follow the OS. No permission-popup watcher: commands stay
+//! in the sandbox folder, and AppleScript that drives other apps goes
+//! through computer use's `applescript` tool, which has its own.
 //!
 //! Changes from Python, on purpose: a command runs in its own process group
 //! and every kill (timeout, idle, Ctrl+C) takes the whole group, where Python
@@ -863,4 +867,69 @@ fn resolve_windows(path: &Path) -> Result<PathBuf, String> {
         }
     }
     Ok(norm)
+}
+
+/// The sandbox for Python: the `shell` tool of computer use (mac, windows,
+/// linux) and of the iPhone agent runs its commands here, in the same
+/// folder and with the same rules as the coder's shell.
+/// `AutoCua.agent_native.coder.Sandbox` (or `from AutoCua.coder import
+/// Sandbox`): the calls, attributes and result dicts of the Python sandbox
+/// it replaces.
+#[pyclass(name = "Sandbox")]
+pub struct PySandbox {
+    inner: Sandbox,
+}
+
+#[pymethods]
+impl PySandbox {
+    #[new]
+    #[pyo3(signature = (workspace_name = "sandbox_workspace", session_id = None))]
+    fn py_new(workspace_name: &str, session_id: Option<&str>) -> PyResult<Self> {
+        Ok(PySandbox { inner: Sandbox::new(workspace_name, session_id)? })
+    }
+
+    /// One command in the working folder: the result dict of Sandbox::run.
+    #[pyo3(signature = (command, input_text = None, trusted = false))]
+    fn run<'py>(
+        &mut self,
+        py: Python<'py>,
+        command: &str,
+        input_text: Option<&str>,
+        trusted: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let result = self.inner.run(py, command, input_text, trusted)?;
+        Ok(pythonize::pythonize(py, &result)?)
+    }
+
+    /// Change the working folder: `{success, cwd}` or `{success, error}`.
+    fn cd<'py>(&mut self, py: Python<'py>, path: &str) -> PyResult<Bound<'py, PyAny>> {
+        Ok(pythonize::pythonize(py, &self.inner.cd(path))?)
+    }
+
+    fn get_cwd(&self) -> String {
+        self.inner.get_cwd()
+    }
+
+    /// Where every command starts. The windows shell tool sets it to the
+    /// Desktop itself.
+    #[getter]
+    fn working_dir(&self) -> String {
+        self.inner.working_dir.clone()
+    }
+
+    #[setter]
+    fn set_working_dir(&mut self, value: String) {
+        self.inner.working_dir = value;
+    }
+
+    /// `~/Desktop/<workspace_name>[/<session id>]`.
+    #[getter]
+    fn sandbox_root(&self) -> String {
+        self.inner.sandbox_root.to_string_lossy().into_owned()
+    }
+
+    #[getter]
+    fn desktop_path(&self) -> String {
+        self.inner.desktop_path.to_string_lossy().into_owned()
+    }
 }

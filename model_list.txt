@@ -150,5 +150,17 @@ claude-sonnet-4.6         low       medium    yes
 
 
 --------------------------------------------------------------
-60 models across 10 providers.
+provider="ollama"   (on this machine: no API key; OLLAMA_HOST to point
+                     elsewhere. Any model `ollama list` shows works if it
+                     has tools and vision in `ollama show <model>`)
+--------------------------------------------------------------
+model name                thinking  coder     vision
+--------------------------------------------------------------
+qwen3.8:27b               none      medium    yes
+qwen3.6:35b-a3b-nvfp4     none      medium    yes
+ornith-1.5:35b            none      medium    yes
+
+
+--------------------------------------------------------------
+63 models across 11 providers.
 --------------------------------------------------------------

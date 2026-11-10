@@ -7,9 +7,8 @@ just imports `telegram_bp` and calls `app.register_blueprint(...)`. Routes:
   POST /api/telegram/connect      → kicks off the Phase 4 guided walkthrough
   POST /api/telegram/disconnect   → clears the token, owner chat and pairing code
 
-All token lookups read ONLY from api_key.txt. We deliberately do NOT consult
-.env — that file is app.py's general env-loading concern; the Telegram bot
-treats api_key.txt as its single source of truth.
+All token lookups read ONLY the .env (AutoCua.env_file), never env vars: the
+bot treats that file as its single source of truth.
 """
 import json
 import logging
@@ -23,11 +22,9 @@ logger = logging.getLogger(__name__)
 
 telegram_bp = Blueprint("telegram_macos", __name__)
 
-# Single source of truth for the key-file path — service.py resolves it in a
-# compiled-build-aware way (next to the executable when frozen). Importing it
-# here keeps the picker/status/disconnect routes pointed at the same file the
-# bot and the regular agent read.
-from .service import (_API_KEY_FILE, _set_keys_in_file, _resolve_token,
+# The .env path comes from service.py (AutoCua.env_file), so the status and
+# disconnect routes use the same file the bot and the agent read.
+from .service import (_ENV_FILE, _set_keys_in_file, _resolve_token,
                       _pair_code)
 
 _bot_username_cache: str | None = None
@@ -53,7 +50,7 @@ def _fetch_bot_username(token: str) -> str | None:
 @telegram_bp.route("/api/telegram/status", methods=["GET"])
 def telegram_status():
     """Frontend uses this to decide which Remote Connection panel state to
-    show. If a token is present in api_key.txt → 'connected', and the panel
+    show. If a token is present in the .env → 'connected', and the panel
     flips to the @bot_username + Disconnect view (Connect button is hidden).
     While the bot is not paired it also gets the pairing code to show (made
     on the first ask). Cached so we don't hit Telegram's API on every load."""
@@ -95,7 +92,7 @@ def telegram_disconnect():
     (soft disconnect), obeying nobody. A clean shutdown of the bot loop is a
     future enhancement."""
     global _bot_username_cache
-    _set_keys_in_file(_API_KEY_FILE, {"TELEGRAM_BOT_TOKEN": "",
+    _set_keys_in_file(_ENV_FILE, {"TELEGRAM_BOT_TOKEN": "",
                                       "TELEGRAM_OWNER_CHAT_ID": "",
                                       "TELEGRAM_PAIR_CODE": ""})
     _bot_username_cache = None

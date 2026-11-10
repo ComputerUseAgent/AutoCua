@@ -225,7 +225,8 @@ _RUNNER_SUFFIX = ".xctrunner"
 def _expected_runner_bundle_id():
     """Bundle id of the WebDriverAgentRunner-Runner.app THIS project builds:
     the WebDriverAgentRunner target's PRODUCT_BUNDLE_IDENTIFIER (the pairing
-    setup rewrites it from com.facebook.* to com.AutoCua.*) + ".xctrunner"."""
+    setup rewrites it from com.facebook.* to the bundle ID prefix, com.AutoCua.*
+    unless IOS_BUNDLE_ID_PREFIX sets another) + ".xctrunner"."""
     base = "com.facebook.WebDriverAgentRunner"
     try:
         text = wda_project().joinpath("project.pbxproj").read_text(encoding="utf-8", errors="replace")

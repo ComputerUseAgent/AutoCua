@@ -57,7 +57,7 @@
                     if (!team) return done('no Apple Account in Xcode. Add one in Settings → Connect Device');
                     if (!dev) return done('iPhone not found. Plug it in with the cable and unlock it');
                     var es = repairStream = new EventSource(srv.url + '/run?' + new URLSearchParams({
-                        team: team.team_id, udid: udid, prefix: 'com.AutoCua', mode: 'test', mount: '1'
+                        team: team.team_id, udid: udid, mode: 'test', mount: '1'   // the .env's bundle ID
                     }).toString());
                     function end(why) { es.close(); if (repairStream === es) repairStream = null; done(why); }
                     es.addEventListener('serverup', function () {

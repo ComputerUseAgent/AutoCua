@@ -24,3 +24,12 @@ def wda_build_root():
     if override:
         return Path(override).expanduser()
     return Path.home() / "Library" / "Application Support" / "AutoCua" / "wda-build"
+
+
+def built_stamp(derived=None):
+    """setup.py's note of the last pairing's build on this Mac, {"team", "prefix"}
+    (the Apple team and the bundle ID prefix it signed with): autocua_built.json
+    in the build products of `derived` (setup.py DERIVED), the build root's
+    "build" when not given (session.py, which reads it)."""
+    derived = derived or wda_build_root() / "build"
+    return derived / "Build" / "Products" / "autocua_built.json"

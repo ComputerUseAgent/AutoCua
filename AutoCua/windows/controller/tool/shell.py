@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from ...sandbox import Sandbox
+from AutoCua.coder import Sandbox
 
 logger = logging.getLogger(__name__)
 
