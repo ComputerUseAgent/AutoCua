@@ -897,6 +897,10 @@ def get_llm_providers():
         except ModuleNotFoundError:
             requesty_models = None
         try:
+            litellm_models = importlib.import_module(f"{base}.litellm.view").MODEL_MAPPINGS
+        except ModuleNotFoundError:
+            litellm_models = None
+        try:
             aws_models = importlib.import_module(f"{base}.aws.view").MODEL_MAPPINGS
         except ModuleNotFoundError:
             aws_models = None
@@ -921,6 +925,8 @@ def get_llm_providers():
             providers.append({'id': 'cerebras', 'name': 'cerebras', 'models': format_models(cerebras_models)})
         if requesty_models:
             providers.append({'id': 'requesty', 'name': 'requesty', 'models': format_models(requesty_models)})
+        if litellm_models:
+            providers.append({'id': 'litellm', 'name': 'litellm', 'models': format_models(litellm_models)})
         if aws_models:
             providers.append({'id': 'aws', 'name': 'aws', 'models': format_models(aws_models)})
         return providers
@@ -939,6 +945,7 @@ PROVIDER_KEY_MAP = {
     'together': 'TOGETHER_API_KEY',
     'cerebras': 'CEREBRAS_API_KEY',
     'requesty': 'REQUESTY_API_KEY',
+    'litellm': 'LITELLM_API_KEY',
     'aws': 'AWS_API_KEY',
 }
 

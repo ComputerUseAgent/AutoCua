@@ -22,6 +22,7 @@ _PROVIDER_CLASSES = {
     "together": "TogetherProvider",
     "cerebras": "CerebrasProvider",
     "requesty": "RequestyProvider",
+    "litellm": "LiteLLMProvider",
     "aws": "AWSProvider",
 }
 
@@ -485,6 +486,24 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
         return _provider_class("requesty")(api_key, cli_agent, model_info,
                                 tools=tools,
                                 max_tokens=max_tokens)
+    elif provider == "litellm":
+        # Priority: Runtime key > .env fallback. Both are optional: they are a
+        # LiteLLM proxy's key and URL. Without them a direct route
+        # (anthropic/..., gemini/...) takes the key AutoCua already holds for
+        # that upstream, and otherwise LiteLLM reads its own environment
+        # variables (Bedrock, Vertex AI, Azure, ...).
+        api_key = _key(api_key, 'LITELLM_API_KEY')
+        api_base = _key(None, 'LITELLM_API_BASE')
+        if not api_key and not api_base:
+            upstream = str(model_info.get("api_name") or "").partition("/")[0]
+            upstream_key = importlib.import_module(
+                ".litellm.view", __package__).UPSTREAM_KEYS.get(upstream)
+            if upstream_key:
+                api_key = _key(None, upstream_key)
+        return _provider_class("litellm")(api_key, cli_agent, model_info,
+                               tools=tools,
+                               max_tokens=max_tokens,
+                               api_base=api_base)
     elif provider == "aws":
         # Priority: Runtime key > .env fallback
         api_key = _key(api_key, 'AWS_API_KEY')

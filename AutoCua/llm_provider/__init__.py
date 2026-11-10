@@ -119,6 +119,11 @@ def _tls_probe_url(provider: str, model: str):
         from .aws.view import DEFAULT_REGION
         region = (os.getenv("AWS_BEDROCK_REGION") or "").strip().lower() or DEFAULT_REGION
         return f"https://bedrock-runtime.{region}.amazonaws.com/"
+    if provider == "litellm":
+        # A LiteLLM proxy is the one host this provider calls itself; a direct
+        # route goes to the upstream's own API and is not probed.
+        base = (os.getenv("LITELLM_API_BASE") or "").strip()
+        return base.rstrip("/") + "/" if base.startswith("https://") else None
     return _TLS_PROBE_URLS.get(provider)
 
 

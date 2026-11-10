@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
         together: null,
         cerebras: null,
         requesty: null,
+        litellm: null,
         aws: null
     };
 

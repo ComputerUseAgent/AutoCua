@@ -90,6 +90,9 @@ dependencies = [
 [project.optional-dependencies]
 # Paired iPhone/iPad (the simulator path needs only Xcode).
 ios = ["pymobiledevice3>=10; sys_platform == 'darwin'"]
+# provider="litellm": 100+ providers (Bedrock, Vertex AI, Azure, ...) or a
+# LiteLLM proxy through the LiteLLM SDK, imported only when it is picked.
+litellm = ["litellm>=1.97.0,<1.106.0"]
 
 [project.urls]
 Homepage = "https://github.com/ComputerUseAgent/AutoCua"
