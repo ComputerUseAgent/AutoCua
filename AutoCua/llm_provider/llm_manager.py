@@ -24,6 +24,7 @@ _PROVIDER_CLASSES = {
     "requesty": "RequestyProvider",
     "litellm": "LiteLLMProvider",
     "aws": "AWSProvider",
+    "ollama": "OllamaProvider",
 }
 
 
@@ -285,6 +286,9 @@ _CLI_FALLBACK_CANDIDATES = {
     # model, while a Claude model handed the default `reasoning` tool has
     # refused it (seen on the web Claude path).
     "aws":        ("kimi-k3", "grok-4.7"),
+    # None: the models are the ones the person has pulled, and no other is
+    # sure to be there.
+    "ollama":     (),
 }
 
 
@@ -354,23 +358,19 @@ def dialect_tools(provider: str, registry: list) -> list:
 def _key(api_key, name):
     """The API key for a provider, in order: the one the caller passed (the
     app's Settings for a run from the app, api_key= for a script), the
-    environment and .env, then the key saved in the app's Settings
-    (AutoCua_data/api_key/api_key.txt, NAME=value lines), so a terminal run
-    uses the key the app already has. None when none of them has it."""
+    environment and .env, then the .env the app's Settings writes
+    (AutoCua.env_file), read again now, so a key saved after this process
+    loaded its environment counts too. None when none of them has it."""
     if api_key:
         return api_key
     value = os.getenv(name)
     if value:
         return value
     try:
-        from AutoCua import api_key_file
-        for line in api_key_file().read_text(encoding="utf-8").splitlines():
-            found, _, saved = line.strip().partition("=")
-            if found == name and saved.strip():
-                return saved.strip()
-    except OSError:
-        pass
-    return None
+        from AutoCua import read_env
+        return read_env().get(name) or None
+    except Exception:
+        return None
 
 
 def build_provider(provider: str, model_short_name: str, model_info: dict, tools: list = None,
@@ -422,22 +422,15 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
         is_vertex = model_meta.get("vertex", False)
         
         if is_vertex:
-            # Read Vertex config from api_key.txt
+            # Vertex config from the .env the Settings panel writes
+            # (AutoCua.env_file), read again now like _key does.
             vertex_project_id = None
             vertex_location = None
             try:
-                # AutoCua_data/api_key/api_key.txt — outside the install
-                # folder, and the SAME file the Settings panel writes.
-                from AutoCua import api_key_file
-                key_file = api_key_file()
-                if key_file.exists():
-                    with open(key_file, 'r', encoding='utf-8') as f:
-                        for line in f:
-                            line = line.strip()
-                            if line.startswith('VERTEX_PROJECT_ID='):
-                                vertex_project_id = line.partition('=')[2]
-                            elif line.startswith('VERTEX_LOCATION='):
-                                vertex_location = line.partition('=')[2]
+                from AutoCua import read_env
+                saved = read_env()
+                vertex_project_id = saved.get('VERTEX_PROJECT_ID') or None
+                vertex_location = saved.get('VERTEX_LOCATION') or None
             except Exception:
                 pass
             return _provider_class("google")(
@@ -512,6 +505,13 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
         return _provider_class("aws")(api_key, cli_agent, model_info,
                            tools=tools,
                            max_tokens=max_tokens)
+    elif provider == "ollama":
+        # A model on this machine (or the Ollama at OLLAMA_HOST) needs no
+        # key. OLLAMA_API_KEY is for an Ollama behind one, and goes out
+        # only when set.
+        return _provider_class("ollama")(_key(api_key, 'OLLAMA_API_KEY'), cli_agent, model_info,
+                              tools=tools,
+                              max_tokens=max_tokens)
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 

@@ -19,8 +19,9 @@ from ..utils.tls import TLSError, is_cert_error, message as tls_message, os_cont
 # total cap would kill a slow reasoning response seconds before it landed; a
 # generous per-read bound only fires once the socket has genuinely gone quiet.
 #
-# Every provider call but the coder's (CODER_HTTP_TIMEOUT below) uses it, on
-# every platform and in the web agent: the
+# Every provider call but the coder's (CODER_HTTP_TIMEOUT below) and Ollama's
+# (ollama/service.py READ_TIMEOUT: a model on this machine reads a long
+# prompt slowly) uses it, on every platform and in the web agent: the
 # requests ones as is, OpenAI as Timeout(180, connect=15) and Gemini as one
 # 180 s figure (its SDK has no separate connect bound, see google/service.py).
 # Each provider object posts through its own requests.Session, so the

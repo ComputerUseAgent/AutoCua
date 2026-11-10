@@ -35,12 +35,13 @@ const SHORT_REPORT_CHARS: usize = 200;
 /// The runtime (frontend) key reaches the browser agent through its env: the
 /// web agent's __main__ has no --api_key flag, and its .env loader never
 /// overrides a var that is already set.
-const PROVIDER_ENV_KEY: [(&str, &str); 5] = [
+const PROVIDER_ENV_KEY: [(&str, &str); 6] = [
     ("together", "TOGETHER_API_KEY"),
     ("cerebras", "CEREBRAS_API_KEY"),
     ("requesty", "REQUESTY_API_KEY"),
     ("litellm", "LITELLM_API_KEY"),
     ("aws", "AWS_API_KEY"),
+    ("ollama", "OLLAMA_API_KEY"),
 ];
 
 /// The browser agent's task, `{query}` filled in.

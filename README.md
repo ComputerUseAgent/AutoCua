@@ -267,11 +267,13 @@ The first scan also downloads the PP-OCRv6 models that read text the desktop doe
   time, it asks in the terminal whether to download Electron for its Chromium window (`y`, `n`
   for no and don't ask again, or Enter for not now); without it the same app opens in
   pywebview ([The desktop app](#the-desktop-app)).
-- Put your provider key in a `.env` file, or paste it into Settings in the app.
+- Put your provider key in a `.env` file next to your `main.py`, or paste it into Settings in the
+  app, which saves it into that same `.env`.
 - Model names come from **[model_list.txt](https://github.com/ComputerUseAgent/AutoCua/blob/main/model_list.txt)** and are case sensitive. A name
   that is not on the list is forwarded verbatim and comes back as a 404.
-- Everything the agent keeps, chats, keys, your own skills and browser profiles, lands in an
-  `AutoCua_data/` folder created where you run Python from.
+- Everything the agent keeps, chats, your own skills and browser profiles, lands in an
+  `AutoCua_data/` folder created where you run Python from. Your keys stay in the `.env`
+  next to it.
 
 ### From a checkout
 
@@ -929,7 +931,8 @@ releases, the same zip `npm install electron` fetches, checked against a pinned 
 `%LOCALAPPDATA%\AutoCua\electron`, `~/.cache/AutoCua/electron`); no Node.js is needed. `n` is
 remembered and the question is not asked again; Enter, Ctrl+C, or no answer within two minutes
 means not now. With no terminal (an IDE's run button) or a hidden one, nothing is asked. `python -m AutoCua.utils.electron` fetches it any time (`--force`
-fetches it again). Deleting the cache folder removes it. `ELECTRON_MIRROR` and
+fetches it again). When GitHub's release link fails (it can answer 504 for minutes at a time),
+the same zip comes through GitHub's API instead. Deleting the cache folder removes it. `ELECTRON_MIRROR` and
 `ELECTRON_CUSTOM_DIR` fetch from a mirror, as they do for npm, and the question names it. A
 checkout that ran `npm install` in `AutoCua/desktop` (Node.js 22.12 or newer) uses that copy and
 is never asked.
@@ -1068,8 +1071,8 @@ carried them.
 ## Remote control from Telegram
 
 Connect a bot in Settings, pick a provider and model from an inline keyboard, and send tasks
-from your phone. Only providers whose key you saved in Settings are offered, a key that lives
-only in `.env` will not appear there. Tasks sent
+from your phone. Only providers with a key in your `.env` are offered (Settings saves keys
+there too); a key set only in your shell's environment will not appear there. Tasks sent
 mid-run are queued, the bot asks whether to continue the previous session or start fresh, and
 milestones stream back to your phone every two seconds. A task sent while the app is already
 running one from its own chat box is not queued: the phone gets "AutoCua is busy with another
@@ -1100,7 +1103,7 @@ run_agent(..., provider="google",     model="gemini-4-argon")
 run_agent(..., provider="openai",     model="gpt-6-astra")
 ```
 
-Ten providers, all supported on every surface.
+Eleven providers, all supported on every surface.
 
 | Provider | Desktop, macOS | Desktop, Windows | Browser | iOS | Android |
 |---|:--:|:--:|:--:|:--:|:--:|
@@ -1109,14 +1112,24 @@ Ten providers, all supported on every surface.
 | Cerebras | yes | yes | yes | yes | yes |
 | Google, including Vertex | yes | yes | yes | yes | yes |
 | Groq | yes | yes | yes | yes | yes |
+| Ollama, on your own machine | yes | yes | yes | yes | yes |
 | OpenAI | yes | yes | yes | yes | yes |
 | OpenRouter | yes | yes | yes | yes | yes |
 | Perplexity | yes | yes | yes | yes | yes |
 | Requesty | yes | yes | yes | yes | yes |
 | Together AI | yes | yes | yes | yes | yes |
 
-60 model names are listed in **[model_list.txt](https://github.com/ComputerUseAgent/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
+63 model names are listed in **[model_list.txt](https://github.com/ComputerUseAgent/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
 that is not on the list gets no validation. It is forwarded verbatim and comes back as a 404.
+
+Ollama runs the model on your own machine, with no key and nothing billed per call: start the
+Ollama app, `ollama pull` a model, and pass `provider="ollama"` with the name `ollama list`
+shows. Three are tested: `ornith-1.5:35b` and `qwen3.6:35b-a3b-nvfp4`, the fast ones (mixtures of
+experts: about 5 seconds a computer-use step on an M5 Pro; Ornith acts from the first step,
+Qwen3.6 is the quickest coder), and `qwen3.8:27b` (about 25 seconds a step). Any pulled model that lists `tools` in `ollama show <model>` works, and it needs
+`vision` too for computer, web and mobile use. The app's model list shows what you had pulled when
+it opened. A local model is slower than a hosted one, and it answers one call at a time, so run one
+agent on it at once.
 
 Keys resolve from the runtime setting first, then the environment or `.env`, so you can
 override per machine without editing files. Every call gets three attempts, and the coder and
@@ -1126,7 +1139,7 @@ The `web` tool uses each provider's own search: Claude web search, the OpenAI Re
 search tool, Gemini grounding, Groq's compound model, OpenRouter's Exa plugin running on your
 chosen model, and Perplexity Sonar.
 
-> Together AI, Cerebras, Requesty and AWS Bedrock have no native web search. Under any of them the `web` tool hands the query to the
+> Together AI, Cerebras, Requesty, AWS Bedrock and Ollama have no native web search. Under any of them the `web` tool hands the query to the
 > browser agent running headless on its own dedicated port and profile, capped at 15 minutes,
 > and returns its report. Expect that step to take minutes rather than seconds.
 
@@ -1254,6 +1267,12 @@ sudo xcodebuild -runFirstLaunch       # run this yourself if Xcode still targets
 and pairing pass from Settings, Connect Device in the app. The app rewrites the Xcode targets
 to automatic signing for you, opens Xcode on the Accounts pane, and streams the build live.
 
+The app is signed with a bundle ID prefix of its own, `com.AutoCua.<your team ID>`, which no
+other Apple account can hold, so nothing needs setting. To use your own prefix instead, type it
+in the **Bundle ID** box under the Device menu (like `com.yourname`), press Enter and pair again;
+it is saved as `IOS_BUNDLE_ID_PREFIX` in your `.env`, where you can set it too, and clearing the
+box goes back to the default.
+
 > A free Apple ID works, but its provisioning profiles expire after 7 days, so you re-sign
 > weekly. A paid developer account lasts a year.
 
@@ -1309,10 +1328,18 @@ prompt for Python; either answer works.
 
 ### Where your data lives
 
-Everything the agent keeps is in one `AutoCua_data/` folder that no installer owns: chats, your
-API keys, the persistent Chrome profiles that keep the browser agent logged in, the credential
-vault and your own skills. It sits next to your checkout, or in the directory you ran Python
-from for a pip install. `AutoCua_DATA_DIR` overrides both.
+Everything the agent keeps is in one `AutoCua_data/` folder that no installer owns: chats, the
+persistent Chrome profiles that keep the browser agent logged in, the credential vault and your
+own skills. It sits next to your checkout, or in the directory you ran Python from for a pip
+install. `AutoCua_DATA_DIR` overrides both.
+
+Your API keys, the Telegram bot token and the Vertex settings are in one `.env` next to that
+folder: the file you edit by hand is the file Settings writes. When you set `AutoCua_DATA_DIR`,
+or the folder sits right in your home folder, the `.env` is inside `AutoCua_data/` instead, so
+it is never a `.env` other projects in your home folder would load. `AutoCua_ENV_FILE` picks
+another file. Keys an older version saved in `AutoCua_data/api_key/api_key.txt` move into it
+on the first start. When your `.env` had a different value for one of them, the saved one wins,
+as it is the one the app used, and the `.env`'s old value is added at its end as a comment.
 
 ---
 

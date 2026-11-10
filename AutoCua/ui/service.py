@@ -58,14 +58,27 @@ if platform.system() == "Linux":
 import webview
 
 # Where the user's data lives (AutoCua_data/, outside the install folder).
-from AutoCua import api_key_file, skills_dir, skills_platform, data_root, default_skills
-from AutoCua import api_key_lock, replace_file_text
+from AutoCua import read_env, set_env, skills_dir, skills_platform, data_root, default_skills
 from AutoCua import APP_PORT, ENV_APP_PORT
 from AutoCua import data_extraction
 
-# Resumable chat memory + per-chat token tracker. Platform-agnostic, pure-stdlib.
-from AutoCua.agent_conversation.service import conversation
-from AutoCua.memory_compression.memory_tracker import MemoryTracker
+
+class _LazyConversation:
+    """The resumable chat memory (AutoCua/agent_conversation), loaded on first
+    use. It is Rust, part of agent_native, and importing it loads the
+    extension: the process the person started only builds that, never loads
+    it (_prepare_native says why), and it imports this module. Every
+    conversation.<name> call works as it did on the module's own object."""
+
+    def __getattr__(self, name):
+        from AutoCua.agent_conversation.service import conversation as real
+        return getattr(real, name)
+
+
+conversation = _LazyConversation()
+# MemoryTracker (memory_compression, Rust too) is imported where a run makes
+# one, for the same reason.
+
 
 # Markdown -> HTML for everything the agent writes to the user (scratchpad
 # notes, done/exit summaries). The single place that formatting happens.
@@ -904,6 +917,14 @@ def get_llm_providers():
             aws_models = importlib.import_module(f"{base}.aws.view").MODEL_MAPPINGS
         except ModuleNotFoundError:
             aws_models = None
+        # Ollama lists the models pulled on this machine (listed_models asks
+        # it), so any failure there, not only a missing module, must drop
+        # just this provider.
+        try:
+            ollama_models = importlib.import_module(f"{base}.ollama.view").listed_models()
+        except Exception:
+            debug_exception("get_llm_providers: ollama")
+            ollama_models = None
 
         def format_models(mappings):
             return [{
@@ -929,6 +950,8 @@ def get_llm_providers():
             providers.append({'id': 'litellm', 'name': 'litellm', 'models': format_models(litellm_models)})
         if aws_models:
             providers.append({'id': 'aws', 'name': 'aws', 'models': format_models(aws_models)})
+        if ollama_models:
+            providers.append({'id': 'ollama', 'name': 'ollama', 'models': format_models(ollama_models)})
         return providers
     except Exception:
         debug_exception("get_llm_providers")
@@ -949,51 +972,25 @@ PROVIDER_KEY_MAP = {
     'aws': 'AWS_API_KEY',
 }
 
-# Extra keys stored in the same api_key.txt
+# Providers that run without a key (a model on this machine), so the app
+# offers them with none saved. Not in PROVIDER_KEY_MAP, whose values are the
+# key names written to the .env and shown as key rows in Settings.
+KEYLESS_PROVIDERS = ('ollama',)
+
+# Extra keys stored in the same .env
 EXTRA_KEYS = ['VERTEX_PROJECT_ID', 'VERTEX_LOCATION']
 
 
-def get_api_key_file():
-    """Path to api_key.txt — AutoCua_data/api_key/, OUTSIDE the install folder so
-    an uninstall/reinstall no longer wipes every API key. Shared across
-    platforms; resolved in AutoCua/__init__.py so the Settings panel, the
-    Telegram bot and the llm_provider can't disagree about it."""
-    return api_key_file()
-
-
 def read_api_keys():
-    """Read api_key.txt and return dict of provider -> key value"""
-    key_file = get_api_key_file()
-    all_key_names = list(PROVIDER_KEY_MAP.values()) + EXTRA_KEYS
-    keys = {k: '' for k in all_key_names}
-    if key_file.exists():
-        try:
-            with open(key_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if '=' in line:
-                        name, _, value = line.partition('=')
-                        # Keep every key (e.g. TELEGRAM_BOT_TOKEN) so unmanaged
-                        # entries survive a read-modify-write cycle.
-                        keys[name] = value
-        except Exception:
-            debug_exception("read_api_keys")
-    return keys
-
-
-def write_api_keys(keys):
-    """Write dict of key names -> values to api_key.txt, in one rewrite
-    through replace_file_text: a reader meets the old file or the new one,
-    not an empty one (the Windows fallback in replace_file_text aside)."""
-    key_file = get_api_key_file()
+    """Every key name the Settings panel shows ('' when unset), plus whatever
+    else the .env sets, from the one .env (AutoCua.env_file): the file you
+    edit by hand is the file the Settings panel writes."""
+    keys = {k: '' for k in list(PROVIDER_KEY_MAP.values()) + EXTRA_KEYS}
     try:
-        all_key_names = list(PROVIDER_KEY_MAP.values()) + EXTRA_KEYS
-        # Preserve any unmanaged keys (e.g. TELEGRAM_*) written elsewhere.
-        extra = [k for k in keys if k not in all_key_names]
-        replace_file_text(key_file, "".join(
-            f"{name}={keys.get(name, '')}\n" for name in all_key_names + extra))
+        keys.update(read_env())
     except Exception:
-        debug_exception("write_api_keys")
+        debug_exception("read_api_keys")
+    return keys
 
 
 # Persisted last-used selection (provider + model). Lives alongside the chat
@@ -1540,6 +1537,43 @@ def api_ios_paired():
         return jsonify({"devices": []})
 
 
+@app.route('/api/ios/bundle-prefix', methods=['GET'])
+def api_ios_bundle_prefix():
+    """The bundle ID prefix for Settings > Connect Device > iPhone > Bundle ID:
+    `prefix`, the one the person set (IOS_BUNDLE_ID_PREFIX in the .env, "" when
+    none), and `default`, the one pairing uses without it, for the Apple team
+    `team` (com.AutoCua.<team ID>; session.bundle_prefix says why)."""
+    from flask import request
+    try:
+        from AutoCua.ios_connector.session import user_bundle_prefix, default_bundle_prefix
+        team = (request.args.get('team') or '').strip() or None
+        return jsonify({"prefix": user_bundle_prefix(), "default": default_bundle_prefix(team)})
+    except Exception:
+        debug_exception("api_ios_bundle_prefix")
+        return jsonify({"error": "Could not read the bundle ID"}), 500
+
+
+@app.route('/api/ios/bundle-prefix', methods=['POST'])
+def api_ios_bundle_prefix_save():
+    """Save the bundle ID prefix as IOS_BUNDLE_ID_PREFIX in the .env. Empty goes
+    back to the default; the next pairing signs with it. Answers as the GET
+    does, for the Apple team `team`."""
+    from flask import request
+    try:
+        data = request.get_json(silent=True) or {}
+        prefix = str(data.get('prefix') or '').strip()
+        team = str(data.get('team') or '').strip() or None
+        from AutoCua.ios_connector.session import (user_bundle_prefix, default_bundle_prefix,
+                                                   valid_bundle_prefix, BUNDLE_PREFIX_VAR)
+        if prefix and not valid_bundle_prefix(prefix):
+            return jsonify({"error": "Use letters, digits, - and . only, like com.yourname"}), 400
+        set_env({BUNDLE_PREFIX_VAR: prefix})
+        return jsonify({"ok": True, "prefix": user_bundle_prefix(), "default": default_bundle_prefix(team)})
+    except Exception:
+        debug_exception("api_ios_bundle_prefix_save")
+        return jsonify({"error": "Could not save the bundle ID"}), 500
+
+
 @app.route('/api/ios/paired/add', methods=['POST'])
 def api_ios_paired_add():
     """Record a device as paired (called by Settings when pairing completes)."""
@@ -1761,31 +1795,52 @@ def get_keys_status():
         status = {}
         for provider_id, env_name in PROVIDER_KEY_MAP.items():
             status[provider_id] = bool(keys.get(env_name, ''))
+        # Nothing to set up, so always usable; a stopped Ollama is reported
+        # by the run itself, with what to do.
+        for provider_id in KEYLESS_PROVIDERS:
+            status[provider_id] = True
         return jsonify(status)
     except Exception:
         debug_exception("get_keys_status")
         return jsonify({})
 
 
+@app.route('/api/ollama/status', methods=['GET'])
+def get_ollama_status():
+    """Ollama's row in Settings: whether an Ollama answers (at OLLAMA_HOST,
+    else this machine) and the pulled models that can call tools, by the
+    names the model pickers show."""
+    try:
+        from AutoCua.llm_provider.ollama import service as ollama, view as ollama_view
+        host = ollama.base_url()
+        if not ollama.reachable():
+            return jsonify({'running': False, 'host': host, 'models': []})
+        models = [ollama_view.get_model_info(name).get('display_name', name)
+                  for name, _caps in ollama.pulled_models()]
+        return jsonify({'running': True, 'host': host, 'models': models})
+    except Exception:
+        debug_exception("get_ollama_status")
+        return jsonify({'running': False, 'host': '', 'models': []})
+
+
 @app.route('/api/keys/save', methods=['POST'])
 def save_api_key():
-    """Save a single provider's API key to file"""
+    """Save a single provider's API key into the .env (one line)"""
     from flask import request
     try:
         data = request.get_json()
         provider = data.get('provider')
-        key_value = data.get('key', '')
+        # Stripped, as the old key file's readers did: a key pasted with a
+        # space or line break around it must not be saved with it.
+        key_value = (data.get('key') or '').strip()
 
         env_name = PROVIDER_KEY_MAP.get(provider)
         if not env_name:
             return jsonify({'error': 'Unknown provider'}), 400
 
-        # One save at a time (one Save click sends a request per key): a
-        # parallel save must not write back a copy without this key.
-        with api_key_lock:
-            keys = read_api_keys()
-            keys[env_name] = key_value
-            write_api_keys(keys)
+        # set_env changes this one line in one locked write: one Save click
+        # sends a request per key, and none drops another's change.
+        set_env({env_name: key_value})
         return jsonify({'status': 'saved'})
     except Exception:
         debug_exception("save_api_key")
@@ -1794,7 +1849,7 @@ def save_api_key():
 
 @app.route('/api/keys/delete', methods=['POST'])
 def delete_api_key():
-    """Delete a single provider's API key from file"""
+    """Delete a single provider's API key from the .env (its line stays, empty)"""
     from flask import request
     try:
         data = request.get_json()
@@ -1804,10 +1859,7 @@ def delete_api_key():
         if not env_name:
             return jsonify({'error': 'Unknown provider'}), 400
 
-        with api_key_lock:
-            keys = read_api_keys()
-            keys[env_name] = ''
-            write_api_keys(keys)
+        set_env({env_name: ''})
         return jsonify({'status': 'deleted'})
     except Exception:
         debug_exception("delete_api_key")
@@ -1868,18 +1920,14 @@ def get_vertex_status():
 
 @app.route('/api/vertex/save', methods=['POST'])
 def save_vertex_config():
-    """Save Vertex AI project ID and location to api_key.txt"""
+    """Save Vertex AI project ID and location into the .env, in one write"""
     from flask import request
     try:
         data = request.get_json()
-        project_id = data.get('project_id', '')
-        location = data.get('location', 'global')
+        project_id = (data.get('project_id') or '').strip()
+        location = (data.get('location', 'global') or '').strip()
 
-        with api_key_lock:
-            keys = read_api_keys()
-            keys['VERTEX_PROJECT_ID'] = project_id
-            keys['VERTEX_LOCATION'] = location
-            write_api_keys(keys)
+        set_env({'VERTEX_PROJECT_ID': project_id, 'VERTEX_LOCATION': location})
         return jsonify({'status': 'saved'})
     except Exception:
         debug_exception("save_vertex_config")
@@ -2301,6 +2349,7 @@ def _start_agent_run(data, via=None, hooks=None):
         if prior_history is not None and saved_pkg and saved_pkg != run_pkg:
             prior_history = None
 
+        from AutoCua.memory_compression.memory_tracker import MemoryTracker
         token_tracker = MemoryTracker(initial_context=_sess.get("context_tokens", 0))
 
         # Memory-bar push — shared factory (Shell use builds the identical
@@ -3080,6 +3129,7 @@ def start_shell():
 
         # ── Memory bar: same tracker + push pipe as Computer use, seeded from
         # the chat's last saved context size so a resumed chat restores its bar.
+        from AutoCua.memory_compression.memory_tracker import MemoryTracker
         token_tracker = MemoryTracker(initial_context=_sess.get("context_tokens", 0))
         send_token_to_frontend = _make_token_sender(token_tracker)
 

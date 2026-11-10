@@ -151,9 +151,19 @@ pub fn token() -> io::Result<String> {
 /// (tools.js). `user_data_dir` None is the person's own Chrome; `restore` brings back
 /// the tabs of a Chrome just quit; `extra` adds switches (a test passes a debugging
 /// port). The browser is the one the debugging-port mode drives (browser.rs
-/// find_chrome: Chrome, else Chromium or Edge), started in a process group of its own
-/// so that it outlives this process and a terminal closing on it, as `open -a` left it
-/// to macOS before.
+/// find_chrome: Chrome, else Chromium or Edge).
+///
+/// On macOS the browser is started through the system's own launcher (`open`), not
+/// as a child of this process. macOS 27 keeps every other program out of the data
+/// folders of the browsers Apple lists (Chrome, Edge, Brave, Firefox: its XProtect
+/// app-protection rules), denying without a prompt, and a process started from here
+/// counts as this program, whatever binary it runs: a Chrome spawned as a child was
+/// refused its own profile folder (`Failed to create .../Google/Chrome/SingletonLock:
+/// Operation not permitted`) and quit before the extension could dial, so every run
+/// on the person's own Chrome failed on macOS 27 (measured). Launched by `open`,
+/// Chrome is Chrome to macOS and opens its profile as always; it is also independent
+/// of this process and its terminal, as the process group of its own gives it
+/// elsewhere.
 pub fn launch_chrome(
     staged: &Path,
     user_data_dir: Option<&Path>,
@@ -161,28 +171,63 @@ pub fn launch_chrome(
     extra: &[String],
 ) -> SResult<()> {
     let chrome = crate::web::browser::find_chrome()?;
-    let mut cmd = Command::new(chrome);
+    let mut args: Vec<String> = Vec::new();
     if let Some(dir) = user_data_dir {
         fs::create_dir_all(dir)
             .map_err(|e| ScanErr::s(format!("could not create {}: {e}", dir.display())))?;
-        cmd.arg(format!("--user-data-dir={}", dir.display()));
-        cmd.args(["--no-first-run", "--no-default-browser-check"]);
+        args.push(format!("--user-data-dir={}", dir.display()));
+        args.extend(["--no-first-run".to_string(), "--no-default-browser-check".to_string()]);
     }
     if restore {
-        cmd.arg("--restore-last-session");
+        args.push("--restore-last-session".to_string());
     }
-    cmd.arg(format!("--disable-extensions-except={}", staged.display()));
+    args.push(format!("--disable-extensions-except={}", staged.display()));
     // Only the last --disable-features switch counts, so Windows keeps the rasterizer
     // the debugging-port mode asks for (browser.rs) in the same list.
-    if cfg!(windows) {
-        cmd.arg("--disable-features=SkiaGraphite,DisableDisableExtensionsExceptCommandLineSwitch");
+    args.push(if cfg!(windows) {
+        "--disable-features=SkiaGraphite,DisableDisableExtensionsExceptCommandLineSwitch".to_string()
     } else {
-        cmd.arg("--disable-features=DisableDisableExtensionsExceptCommandLineSwitch");
+        "--disable-features=DisableDisableExtensionsExceptCommandLineSwitch".to_string()
+    });
+    args.extend(extra.iter().cloned());
+    if cfg!(target_os = "macos") {
+        if let Some(bundle) = app_bundle(&chrome) {
+            // -n: a new instance even while another Chrome runs (on another profile;
+            // take_chrome quits one on this profile first).
+            let status = Command::new("/usr/bin/open")
+                .arg("-n")
+                .arg("-a")
+                .arg(&bundle)
+                .arg("--args")
+                .args(&args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map_err(|e| ScanErr::s(format!("could not launch Chrome: {e}")))?;
+            if !status.success() {
+                return Err(ScanErr::s(format!(
+                    "could not launch Chrome: open {} exited with {status}",
+                    bundle.display()
+                )));
+            }
+            return Ok(());
+        }
     }
-    cmd.args(extra).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    let mut cmd = Command::new(chrome);
+    cmd.args(&args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     detach(&mut cmd);
     cmd.spawn().map_err(|e| ScanErr::s(format!("could not launch Chrome: {e}")))?;
     Ok(())
+}
+
+/// The .app bundle the browser binary `binary` lives in (its `Contents/MacOS/...`
+/// executable), or None for a bare binary.
+fn app_bundle(binary: &Path) -> Option<PathBuf> {
+    binary
+        .ancestors()
+        .find(|p| p.extension().is_some_and(|e| e == "app"))
+        .map(PathBuf::from)
 }
 
 /// Open the extension's wake-up page (wake.html) in the Chrome already running: a
@@ -195,10 +240,7 @@ fn wake_extension(extension_id: &str) -> bool {
     let url = format!("chrome-extension://{extension_id}/wake.html");
     let Ok(chrome) = crate::web::browser::find_chrome() else { return false };
     let mut cmd = if cfg!(target_os = "macos") {
-        let bundle = chrome
-            .ancestors()
-            .find(|p| p.extension().is_some_and(|e| e == "app"))
-            .map(PathBuf::from);
+        let bundle = app_bundle(&chrome);
         let mut c = Command::new("open");
         c.arg("-g");
         if let Some(bundle) = bundle {
@@ -231,22 +273,28 @@ fn detach(cmd: &mut Command) {
 }
 
 /// Quit the Chrome running on `dir`, if any, and wait for it to be gone. Its
-/// SingletonLock is a symlink to `host-pid`, and SIGTERM is Chrome's graceful exit,
+/// SingletonLock is a symlink to `host-pid` (on macOS 27 the person's own Chrome's
+/// folder cannot be read from here, and the process list names the pid instead:
+/// browser.rs chrome_main_pid_on), and SIGTERM is Chrome's graceful exit,
 /// which saves the session; a Chrome left running would keep its old worker and take
 /// a new launch over, flags ignored. The wait is on the process, not the symlink:
 /// Chrome is gone 0.1 s after the signal and leaves the symlink behind (measured), and
 /// a launch takes a stale lock over by itself. Says whether one was quit.
 #[cfg(unix)]
 pub fn quit_chrome_on(dir: &Path) -> bool {
-    let Ok(target) = fs::read_link(dir.join("SingletonLock")) else { return false };
-    let Some(pid) = target
-        .to_string_lossy()
-        .rsplit('-')
-        .next()
-        .and_then(|p| p.parse::<u32>().ok())
-    else {
-        return false;
+    let pid = match fs::read_link(dir.join("SingletonLock")) {
+        Ok(target) => target
+            .to_string_lossy()
+            .rsplit('-')
+            .next()
+            .and_then(|p| p.parse::<u32>().ok())
+            // A lock a crashed Chrome left behind names a pid another program may
+            // have by now: only a browser is quit.
+            .filter(|&pid| crate::web::browser::live_browser_pid(pid)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(_) => crate::web::browser::chrome_main_pid_on(dir),
     };
+    let Some(pid) = pid else { return false };
     let _ = Command::new("kill").arg(pid.to_string()).status();
     let dir = dir.to_path_buf();
     for _ in 0..80 {

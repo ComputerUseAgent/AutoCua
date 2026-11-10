@@ -45,7 +45,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT           = 8765
 XCODEPROJ_NAME = "WebDriverAgent.xcodeproj"
 SCHEME         = "WebDriverAgentRunner"
-BUNDLE_PREFIX  = "com.AutoCua"              # default; also editable in the UI
+# The bundle ID prefix is IOS_BUNDLE_ID_PREFIX in the .env when set (Settings >
+# Connect Device > iPhone > Bundle ID edits it), else com.AutoCua.<team ID>, one per
+# Apple team (session.bundle_prefix says why).
 TARGET_NAMES   = ["WebDriverAgentLib", "WebDriverAgentRunner", "IntegrationApp"]
 DERIVED_NAME   = "build"                    # derived data name under the shared build root
 DEFAULT_MODE   = "test"                     # "test" or "build-for-testing"
@@ -94,6 +96,17 @@ def _ddi():
     return ddi
 
 
+def _session():
+    """AutoCua.ios_connector.session (the bundle ID prefix), also when this file
+    runs as a script."""
+    try:
+        from AutoCua.ios_connector import session
+    except ImportError:
+        sys.path.insert(0, str(SCRIPT_DIR.parent.parent))
+        from AutoCua.ios_connector import session
+    return session
+
+
 def _devicectl():
     """session.devicectl(): the real devicectl, never Xcode's wrapper script
     (session.py says why), also when this file runs as a script."""
@@ -104,9 +117,9 @@ def _devicectl():
         from AutoCua.ios_connector.session import devicectl
     return devicectl()
 try:                                            # package import (app.py embeds this UI)
-    from AutoCua.ios_connector.build_paths import wda_build_root
+    from AutoCua.ios_connector.build_paths import wda_build_root, built_stamp
 except ImportError:                             # standalone: python .../setup.py
-    from build_paths import wda_build_root
+    from build_paths import wda_build_root, built_stamp
 # Not SCRIPT_DIR: build products in a TCC-guarded folder (~/Desktop and friends)
 # make macOS prompt mid-build. See build_paths.
 DERIVED    = wda_build_root() / DERIVED_NAME
@@ -127,6 +140,11 @@ SERVER_RE = re.compile(r"ServerURLHere->(\S+?)<-ServerURLHere")
 # the running child (xcodebuild / ruby / mounter), so /stop can kill it
 CURRENT_PROC = None
 PROC_LOCK = threading.Lock()
+# One run at a time (route_run): the run in progress is ended, and lets go,
+# before the next starts. RUN_GEN counts the runs, so an ended run's handler
+# starts no further command.
+RUN_LOCK = threading.Lock()
+RUN_GEN = 0
 
 # Ruby is the reliable per-target editor. It reads its config from the environment
 # so there's nothing to escape. Passed vars: PROJECT_PATH, TEAM_ID, WDA_TARGETS_JSON.
@@ -597,7 +615,7 @@ def installed_bundle_ids(udid=None):
 
 # The last full run's build is kept (build-for-testing writes its .xctestrun),
 # with what it was signed for, so an app start can run it as it is.
-BUILT_STAMP = DERIVED / "Build" / "Products" / "autocua_built.json"
+BUILT_STAMP = built_stamp(DERIVED)
 
 
 def built_xctestrun(team, prefix):
@@ -613,9 +631,8 @@ def built_xctestrun(team, prefix):
     return runs[-1] if runs else None
 
 
-def kill_current():
-    with PROC_LOCK:
-        p = CURRENT_PROC
+def _kill(p):
+    """End the command `p` and everything it started (its own process group)."""
     if p and p.poll() is None:
         try:
             os.killpg(os.getpgid(p.pid), signal.SIGTERM)
@@ -627,6 +644,39 @@ def kill_current():
                 os.killpg(os.getpgid(p.pid), signal.SIGKILL)
             except Exception:
                 pass
+
+
+def kill_current():
+    with PROC_LOCK:
+        p = CURRENT_PROC
+    _kill(p)
+
+
+def kill_leftovers():
+    """End every xcodebuild this server started that is not the current command.
+    Before runs were serialised, a run whose page went away while a newer run
+    had taken CURRENT_PROC over lost its xcodebuild: it lived on with the phone's
+    test session, and the newer run waited on it for good (measured: two
+    test-without-building at once, both stuck)."""
+    with PROC_LOCK:
+        cur = CURRENT_PROC
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="],
+                             capture_output=True, text=True).stdout
+    except OSError:
+        return
+    me = str(os.getpid())
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid, ppid, cmd = parts
+        if ppid != me or "xcodebuild" not in cmd or (cur is not None and str(cur.pid) == pid):
+            continue
+        try:
+            os.killpg(os.getpgid(int(pid)), signal.SIGTERM)
+        except Exception:
+            pass
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -673,6 +723,10 @@ class Handler(BaseHTTPRequestHandler):
     # ---- stream a subprocess through a pty so output arrives line-by-line ----
     def _stream_cmd(self, cmd, cwd=None, env=None, detect_serverup=False, line_hook=None):
         global CURRENT_PROC
+        # A run a newer run has ended (route_run) starts nothing more.
+        if getattr(self, "_gen", None) is not None and self._gen != RUN_GEN:
+            self._sse("log", "stopped: another pairing took over")
+            return -1
         master, slave = pty.openpty()
         try:
             proc = subprocess.Popen(
@@ -756,7 +810,7 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 pass
             if not alive:
-                kill_current()
+                _kill(proc)             # this run's command, whatever CURRENT_PROC is by now
             rc = proc.poll()
             if rc is None:
                 try:
@@ -784,8 +838,8 @@ class Handler(BaseHTTPRequestHandler):
             # Is the AutoCua runner already on the device? (pairing = installed)
             q = parse_qs(parsed.query)
             udid = (q.get("udid", [""])[0] or "").strip() or None
-            bundle = (q.get("bundle", [""])[0] or "").strip() \
-                or (BUNDLE_PREFIX + ".WebDriverAgentRunner.xctrunner")
+            team = (q.get("team", [""])[0] or "").strip() or None
+            bundle = (q.get("bundle", [""])[0] or "").strip() or _session().wda_bundle_id(team)
             ids = installed_bundle_ids(udid)
             return self._json({"installed": bundle in ids, "bundle": bundle,
                                "checked": bool(ids)})
@@ -826,7 +880,8 @@ class Handler(BaseHTTPRequestHandler):
             "accounts": xc["accounts"],
             "accounts_ok": xc["ok"],
             "devices": detect_devices(),
-            "default_prefix": BUNDLE_PREFIX,
+            "prefix": _session().bundle_prefix(),
+            "default_prefix": _session().DEFAULT_BUNDLE_PREFIX,
             "targets": TARGET_NAMES,
             "default_mode": DEFAULT_MODE,
         })
@@ -866,17 +921,40 @@ class Handler(BaseHTTPRequestHandler):
                            "detail": ("opened Xcode Settings > Accounts" if automated else err)})
 
     def route_run(self, q):
+        global RUN_GEN
         self._sse_open()
+        # One run at a time. A Pair pressed again, or the app's Wi-Fi start,
+        # ends the run in progress first: its xcodebuild would otherwise live
+        # on with the phone's test session, and the new run wait on it for
+        # good (measured: two test-without-building at once, both stuck).
+        with PROC_LOCK:
+            RUN_GEN += 1
+            self._gen = RUN_GEN
+        kill_current()
+        kill_leftovers()
+        if not RUN_LOCK.acquire(timeout=30):
+            return self._sse("fatal", "The pairing before this one is still stopping. Try again in a moment.")
+        try:
+            return self._route_run(q)
+        finally:
+            RUN_LOCK.release()
 
+    def _route_run(self, q):
         team   = (q.get("team",   [""])[0] or "").strip()
         udid   = (q.get("udid",   [""])[0] or "").strip()
-        prefix = (q.get("prefix", [BUNDLE_PREFIX])[0] or BUNDLE_PREFIX).strip()
+        # The .env's bundle ID prefix, read now (Settings may have just changed
+        # it), else the team's own default.
+        prefix = (q.get("prefix", [""])[0] or "").strip() or _session().bundle_prefix(team or None)
         mode   = (q.get("mode",   [DEFAULT_MODE])[0] or DEFAULT_MODE).strip()
         mount  = (q.get("mount",  ["1"])[0] == "1")
         force  = (q.get("force",  ["0"])[0] == "1")
         fast   = (q.get("fast",   ["0"])[0] == "1")
 
         self._sse("log", "starting")
+        if not _session().valid_bundle_prefix(prefix):
+            return self._sse("fatal", f"The bundle ID '{prefix}' is not valid. Use letters, digits, - and . "
+                                      "only, like com.yourname: Settings → Connect Device → iPhone → "
+                                      "Bundle ID, or IOS_BUNDLE_ID_PREFIX in the .env.")
 
         # An app start (session.py asks fast=1) of a runner built before: the
         # test from that build's .xctestrun, with no project edit and no build,
@@ -991,6 +1069,7 @@ class Handler(BaseHTTPRequestHandler):
         dest_err  = {"hit": False, "avail": []}
         trust_err = {"hit": False}
         stale_id  = {"hit": False}
+        taken     = {"hit": False}      # the bundle ID belongs to another Apple account
         trust_re = re.compile(
             r"explicitly trusted|VPN & Device Management|Developer App certificate|"
             r"untrusted developer|has not been trusted|trust the developer",
@@ -1009,6 +1088,10 @@ class Handler(BaseHTTPRequestHandler):
                 trust_err["hit"] = True
             if "0xe8008018" in line:        # "The identity used to sign the executable is no longer valid."
                 stale_id["hit"] = True
+            # Xcode: 'The app identifier "<id>" cannot be registered to your development
+            # team because it is not available.' Another account registered it first.
+            if "cannot be registered to your development team" in line:
+                taken["hit"] = True
 
         # Hand the post-action an UNAMBIGUOUS identity. WebDriverAgent's icon
         # script falls back to signing by name when Xcode does not export one,
@@ -1063,6 +1146,18 @@ class Handler(BaseHTTPRequestHandler):
                 f"Plug the phone in with a cable, unlock it, enable Developer Mode "
                 f"(Settings > Privacy & Security > Developer Mode), then pick it and hit Connect again."
             )
+
+        if taken["hit"]:
+            # The default, com.AutoCua.<team ID>, is this team's alone, so this is
+            # a prefix the person set: another, or none, is the way out.
+            if _session().user_bundle_prefix():
+                fix = (f"Set another in Settings → Connect Device → iPhone → Bundle ID, or clear "
+                       f"the box to use the default ({_session().default_bundle_prefix(team)}), "
+                       f"then pair again.")
+            else:
+                fix = ("Set your own, like com.yourname, in Settings → Connect Device → iPhone → "
+                       "Bundle ID, then pair again.")
+            return self._sse("fatal", f"The bundle ID {prefix} belongs to another Apple account. {fix}")
 
         if trust_err["hit"]:
             # The app is now installed on the phone, so the "Trust" option is available in

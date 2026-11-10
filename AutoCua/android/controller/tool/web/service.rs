@@ -36,7 +36,7 @@ use crate::android::agent::android_use::service::read_text;
 /// Providers with no native web-search API: the query goes to the browser
 /// agent on the same provider+model instead (see web_agent.rs). Explicit
 /// membership, not a catch-all: a typo'd provider must still fail fast below.
-const BROWSER_FALLBACK_PROVIDERS: [&str; 5] = ["together", "cerebras", "requesty", "litellm", "aws"];
+const BROWSER_FALLBACK_PROVIDERS: [&str; 6] = ["together", "cerebras", "requesty", "litellm", "aws", "ollama"];
 
 /// AutoCua/android/controller/tool/web: this tool's folder.
 fn web_dir(py: Python<'_>) -> PyResult<PathBuf> {
