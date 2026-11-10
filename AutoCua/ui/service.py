@@ -1532,11 +1532,15 @@ def api_ios_paired():
 
 @app.route('/api/ios/bundle-prefix', methods=['GET'])
 def api_ios_bundle_prefix():
-    """The bundle ID prefix pairing signs the AutoCua app with (Settings > Connect
-    Device > iPhone > Bundle ID): IOS_BUNDLE_ID_PREFIX in the .env, else the default."""
+    """The bundle ID prefix for Settings > Connect Device > iPhone > Bundle ID:
+    `prefix`, the one the person set (IOS_BUNDLE_ID_PREFIX in the .env, "" when
+    none), and `default`, the one pairing uses without it, for the Apple team
+    `team` (com.AutoCua.<team ID>; session.bundle_prefix says why)."""
+    from flask import request
     try:
-        from AutoCua.ios_connector.session import bundle_prefix, DEFAULT_BUNDLE_PREFIX
-        return jsonify({"prefix": bundle_prefix(), "default": DEFAULT_BUNDLE_PREFIX})
+        from AutoCua.ios_connector.session import user_bundle_prefix, default_bundle_prefix
+        team = (request.args.get('team') or '').strip() or None
+        return jsonify({"prefix": user_bundle_prefix(), "default": default_bundle_prefix(team)})
     except Exception:
         debug_exception("api_ios_bundle_prefix")
         return jsonify({"error": "Could not read the bundle ID"}), 500
@@ -1545,17 +1549,19 @@ def api_ios_bundle_prefix():
 @app.route('/api/ios/bundle-prefix', methods=['POST'])
 def api_ios_bundle_prefix_save():
     """Save the bundle ID prefix as IOS_BUNDLE_ID_PREFIX in the .env. Empty goes
-    back to the default; the next pairing signs with it."""
+    back to the default; the next pairing signs with it. Answers as the GET
+    does, for the Apple team `team`."""
     from flask import request
     try:
         data = request.get_json(silent=True) or {}
         prefix = str(data.get('prefix') or '').strip()
-        from AutoCua.ios_connector.session import (bundle_prefix, valid_bundle_prefix,
-                                                   BUNDLE_PREFIX_VAR)
+        team = str(data.get('team') or '').strip() or None
+        from AutoCua.ios_connector.session import (user_bundle_prefix, default_bundle_prefix,
+                                                   valid_bundle_prefix, BUNDLE_PREFIX_VAR)
         if prefix and not valid_bundle_prefix(prefix):
             return jsonify({"error": "Use letters, digits, - and . only, like com.yourname"}), 400
         set_env({BUNDLE_PREFIX_VAR: prefix})
-        return jsonify({"ok": True, "prefix": bundle_prefix()})
+        return jsonify({"ok": True, "prefix": user_bundle_prefix(), "default": default_bundle_prefix(team)})
     except Exception:
         debug_exception("api_ios_bundle_prefix_save")
         return jsonify({"error": "Could not save the bundle ID"}), 500

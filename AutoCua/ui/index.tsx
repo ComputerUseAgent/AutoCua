@@ -204,14 +204,14 @@ function SettingsOverlay() {
                                             <div className="dc-select-menu" id="dcDeviceMenu"></div>
                                         </div>
                                     </div>
-                                    {/* Bundle ID: the prefix pairing signs the AutoCua app with
-                                        (<prefix>.WebDriverAgentRunner). A bundle ID belongs to one
-                                        Apple account, so yours may need its own. Saved as
-                                        IOS_BUNDLE_ID_PREFIX in the .env; empty = the default.
-                                        Click to edit, Enter saves, Esc undoes. Wired by
-                                        device_connect.js. */}
+                                    {/* Bundle ID, optional: the prefix pairing signs the AutoCua app
+                                        with (<prefix>.WebDriverAgentRunner). Empty, pairing uses
+                                        com.AutoCua.<team ID>, the picked Apple team's own (shown as
+                                        the placeholder); a prefix typed here is saved as
+                                        IOS_BUNDLE_ID_PREFIX in the .env. Click to edit, Enter
+                                        saves, Esc undoes. Wired by device_connect.js. */}
                                     <div className="dc-field">
-                                        <label className="dc-label" htmlFor="dcBundleInput">Bundle ID</label>
+                                        <label className="dc-label" htmlFor="dcBundleInput">Bundle ID · optional</label>
                                         <div className="dc-select dc-bundle" id="dcBundle">
                                             <input className="dc-bundle-input" id="dcBundleInput" type="text"
                                                 spellCheck={false} autoComplete="off" autoCapitalize="off" />

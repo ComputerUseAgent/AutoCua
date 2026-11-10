@@ -45,8 +45,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT           = 8765
 XCODEPROJ_NAME = "WebDriverAgent.xcodeproj"
 SCHEME         = "WebDriverAgentRunner"
-# The bundle ID prefix is IOS_BUNDLE_ID_PREFIX in the .env, com.AutoCua when not
-# set (session.bundle_prefix); Settings > Connect Device > iPhone > Bundle ID edits it.
+# The bundle ID prefix is IOS_BUNDLE_ID_PREFIX in the .env when set (Settings >
+# Connect Device > iPhone > Bundle ID edits it), else com.AutoCua.<team ID>, one per
+# Apple team (session.bundle_prefix says why).
 TARGET_NAMES   = ["WebDriverAgentLib", "WebDriverAgentRunner", "IntegrationApp"]
 DERIVED_NAME   = "build"                    # derived data name under the shared build root
 DEFAULT_MODE   = "test"                     # "test" or "build-for-testing"
@@ -116,9 +117,9 @@ def _devicectl():
         from AutoCua.ios_connector.session import devicectl
     return devicectl()
 try:                                            # package import (app.py embeds this UI)
-    from AutoCua.ios_connector.build_paths import wda_build_root
+    from AutoCua.ios_connector.build_paths import wda_build_root, built_stamp
 except ImportError:                             # standalone: python .../setup.py
-    from build_paths import wda_build_root
+    from build_paths import wda_build_root, built_stamp
 # Not SCRIPT_DIR: build products in a TCC-guarded folder (~/Desktop and friends)
 # make macOS prompt mid-build. See build_paths.
 DERIVED    = wda_build_root() / DERIVED_NAME
@@ -609,7 +610,7 @@ def installed_bundle_ids(udid=None):
 
 # The last full run's build is kept (build-for-testing writes its .xctestrun),
 # with what it was signed for, so an app start can run it as it is.
-BUILT_STAMP = DERIVED / "Build" / "Products" / "autocua_built.json"
+BUILT_STAMP = built_stamp(DERIVED)
 
 
 def built_xctestrun(team, prefix):
@@ -796,7 +797,8 @@ class Handler(BaseHTTPRequestHandler):
             # Is the AutoCua runner already on the device? (pairing = installed)
             q = parse_qs(parsed.query)
             udid = (q.get("udid", [""])[0] or "").strip() or None
-            bundle = (q.get("bundle", [""])[0] or "").strip() or _session().wda_bundle_id()
+            team = (q.get("team", [""])[0] or "").strip() or None
+            bundle = (q.get("bundle", [""])[0] or "").strip() or _session().wda_bundle_id(team)
             ids = installed_bundle_ids(udid)
             return self._json({"installed": bundle in ids, "bundle": bundle,
                                "checked": bool(ids)})
@@ -882,8 +884,9 @@ class Handler(BaseHTTPRequestHandler):
 
         team   = (q.get("team",   [""])[0] or "").strip()
         udid   = (q.get("udid",   [""])[0] or "").strip()
-        # The .env's bundle ID prefix, read now (Settings may have just changed it).
-        prefix = (q.get("prefix", [""])[0] or "").strip() or _session().bundle_prefix()
+        # The .env's bundle ID prefix, read now (Settings may have just changed
+        # it), else the team's own default.
+        prefix = (q.get("prefix", [""])[0] or "").strip() or _session().bundle_prefix(team or None)
         mode   = (q.get("mode",   [DEFAULT_MODE])[0] or DEFAULT_MODE).strip()
         mount  = (q.get("mount",  ["1"])[0] == "1")
         force  = (q.get("force",  ["0"])[0] == "1")
@@ -1087,11 +1090,16 @@ class Handler(BaseHTTPRequestHandler):
             )
 
         if taken["hit"]:
-            return self._sse(
-                "fatal",
-                f"The bundle ID {prefix} belongs to another Apple account. Set your own, like "
-                f"com.yourname, in Settings → Connect Device → iPhone → Bundle ID, then pair again."
-            )
+            # The default, com.AutoCua.<team ID>, is this team's alone, so this is
+            # a prefix the person set: another, or none, is the way out.
+            if _session().user_bundle_prefix():
+                fix = (f"Set another in Settings → Connect Device → iPhone → Bundle ID, or clear "
+                       f"the box to use the default ({_session().default_bundle_prefix(team)}), "
+                       f"then pair again.")
+            else:
+                fix = ("Set your own, like com.yourname, in Settings → Connect Device → iPhone → "
+                       "Bundle ID, then pair again.")
+            return self._sse("fatal", f"The bundle ID {prefix} belongs to another Apple account. {fix}")
 
         if trust_err["hit"]:
             # The app is now installed on the phone, so the "Trust" option is available in

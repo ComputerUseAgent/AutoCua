@@ -23,7 +23,8 @@
     var teams = [];             // usable teams from /detect
     var devices = [];           // connected devices from /detect
     var chosen = { team: null, udid: null };
-    var bundleSaved = null;     // the bundle ID prefix the .env holds (the Bundle ID box)
+    var bundleSaved = '';       // the bundle ID prefix the .env holds (the Bundle ID box); '' = none
+    var bundleDefault = '';     // the one pairing uses without it: com.AutoCua.<team ID>
     var bundleSaving = null;    // a save on its way, so Pair waits for it
     var BUNDLE_RE = /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$/;   // session.valid_bundle_prefix
 
@@ -113,13 +114,18 @@
         renderDeviceMenu();
     }
 
-    // ---- Bundle ID (IOS_BUNDLE_ID_PREFIX in the .env; the default when not set) ----
+    // ---- Bundle ID (optional: IOS_BUNDLE_ID_PREFIX in the .env; without it pairing
+    // signs with com.AutoCua.<team ID>, the picked team's own, shown as the placeholder) ----
+    function showBundle(d) {
+        bundleSaved = d.prefix || '';
+        bundleDefault = d.default || '';
+        els.bundleInput.placeholder = bundleDefault ? 'Default: ' + bundleDefault : '';
+        if (document.activeElement !== els.bundleInput) els.bundleInput.value = bundleSaved;
+    }
     function loadBundle() {
-        fetch('/api/ios/bundle-prefix').then(function (r) { return r.json(); }).then(function (d) {
-            if (!d.prefix) return;
-            bundleSaved = d.prefix;
-            els.bundleInput.placeholder = d.default || '';
-            if (document.activeElement !== els.bundleInput) els.bundleInput.value = d.prefix;
+        var q = chosen.team ? '?team=' + encodeURIComponent(chosen.team) : '';
+        fetch('/api/ios/bundle-prefix' + q).then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.error) showBundle(d);
         }).catch(function () {});
     }
     function markBundle(bad) { els.bundle.classList.toggle('is-invalid', !!bad); }
@@ -138,7 +144,7 @@
         bundleSaving = fetch('/api/ios/bundle-prefix', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prefix: v })
+            body: JSON.stringify({ prefix: v, team: chosen.team || '' })
         }).then(function (r) { return r.json(); }).then(function (d) {
             if (!d.ok) {
                 markBundle(true);
@@ -146,14 +152,14 @@
                 steps('');
                 return false;
             }
-            var changed = d.prefix !== bundleSaved;
-            bundleSaved = d.prefix;
-            els.bundleInput.value = d.prefix;
+            var changed = (d.prefix || '') !== bundleSaved;
+            showBundle(d);
             markBundle(false);
             // The phone holds the app signed with the old one: pair again.
             if (changed && chosen.udid && chosen.team) {
                 status('idle', 'Ready to pair');
-                steps('The bundle ID is now <b>' + esc(d.prefix) + '</b>. Pair your iPhone to use it.');
+                steps('The bundle ID is now <b>' + esc(bundleSaved || bundleDefault) + '</b>'
+                      + (bundleSaved ? '' : ' (the default)') + '. Pair your iPhone to use it.');
                 action('Pair device', pair);
             }
             return true;
@@ -212,6 +218,7 @@
     // in the list shows paired until it's deleted; a device not in the list is
     // pairable, full stop.
     function afterSelectionChange() {
+        loadBundle();                       // the default follows the picked team
         if (!devices.length) {
             status('idle', 'No iPhone found');
             steps('Plug your iPhone into this Mac with a USB cable, unlock it, and tap <b>Trust</b> if asked.');
@@ -308,7 +315,8 @@
     function checkInstalledThenMaybeFail(failMsg) {
         status('loading', 'Checking the device…');
         noAction();
-        fetch(base + '/installed?udid=' + encodeURIComponent(chosen.udid))
+        fetch(base + '/installed?udid=' + encodeURIComponent(chosen.udid)
+              + '&team=' + encodeURIComponent(chosen.team || ''))
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (d.installed) paired(true);

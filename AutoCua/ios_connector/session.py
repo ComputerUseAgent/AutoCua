@@ -42,9 +42,14 @@ from pathlib import Path
 
 # The bundle ID prefix pairing signs WebDriverAgent with: <prefix>.WebDriverAgentRunner
 # (on the phone, the app <prefix>.WebDriverAgentRunner.xctrunner), <prefix>.WebDriverAgentLib
-# and <prefix>.IntegrationApp. A bundle ID belongs to ONE Apple account, so another
-# account needs its own: IOS_BUNDLE_ID_PREFIX in the .env, which Settings > Connect
-# Device > iPhone > Bundle ID writes; com.AutoCua when it is not set.
+# and <prefix>.IntegrationApp. Apple registers a bundle ID to ONE developer team, so the
+# bare com.AutoCua, the earlier default, only ever signed for the team that took it
+# first; every other Apple account was refused it ("cannot be registered to your
+# development team"). The default is therefore one per team, com.AutoCua.<team ID>,
+# which no other account can hold, and pairing needs nothing set. A person who wants
+# their own sets IOS_BUNDLE_ID_PREFIX in the .env (Settings > Connect Device > iPhone >
+# Bundle ID writes it); a .env that says the bare com.AutoCua, as .env.example once had
+# it, counts as not set.
 BUNDLE_PREFIX_VAR = "IOS_BUNDLE_ID_PREFIX"
 DEFAULT_BUNDLE_PREFIX = "com.AutoCua"
 RUNNER_SUFFIX = ".WebDriverAgentRunner.xctrunner"
@@ -58,22 +63,50 @@ def valid_bundle_prefix(value) -> bool:
     return bool(_BUNDLE_PREFIX_RE.fullmatch(value or ""))
 
 
-def bundle_prefix() -> str:
-    """IOS_BUNDLE_ID_PREFIX from the .env, read now (Settings may have just
-    changed it), else from the environment, else com.AutoCua."""
+def user_bundle_prefix() -> str:
+    """The prefix the person set: IOS_BUNDLE_ID_PREFIX from the .env, read now
+    (Settings may have just changed it), else from the environment. "" when
+    none is set, or it is the bare default."""
     try:
         from AutoCua import read_env
         value = (read_env().get(BUNDLE_PREFIX_VAR) or "").strip()
     except Exception:
         value = ""
-    return value or (os.environ.get(BUNDLE_PREFIX_VAR) or "").strip() or DEFAULT_BUNDLE_PREFIX
+    value = value or (os.environ.get(BUNDLE_PREFIX_VAR) or "").strip()
+    return "" if value == DEFAULT_BUNDLE_PREFIX else value
 
 
-def wda_bundle_id() -> str:
+def built_bundle_prefix() -> str:
+    """The prefix the last pairing on this Mac built with (setup.py's note of
+    its build, build_paths.built_stamp), "" when there was none."""
+    try:
+        from AutoCua.ios_connector.build_paths import built_stamp
+        return str(json.loads(built_stamp().read_text(encoding="utf-8")).get("prefix") or "").strip()
+    except Exception:
+        return ""
+
+
+def default_bundle_prefix(team=None) -> str:
+    """The prefix used when none is set: com.AutoCua.<team ID> for `team`. With
+    no team at hand (the cable session, which only starts the app pairing put
+    on the phone), the last pairing's (built_bundle_prefix), else the bare
+    com.AutoCua."""
+    if team:
+        return f"{DEFAULT_BUNDLE_PREFIX}.{team}"
+    return built_bundle_prefix() or DEFAULT_BUNDLE_PREFIX
+
+
+def bundle_prefix(team=None) -> str:
+    """The prefix in use: the person's own (user_bundle_prefix), else the
+    default for `team` (default_bundle_prefix)."""
+    return user_bundle_prefix() or default_bundle_prefix(team)
+
+
+def wda_bundle_id(team=None) -> str:
     """The AutoCua app on the phone (WebDriverAgent's runner) for the bundle ID
     prefix pairing uses now. A phone paired under another prefix lacks it, and
     its start then asks for pairing again (_classify: "repair")."""
-    return bundle_prefix() + RUNNER_SUFFIX
+    return bundle_prefix(team) + RUNNER_SUFFIX
 # The desktop app's Wireless / Wired toggle, for computer use's ios_agent
 # (mac/controller/tool/ios_agent.py): ui/service.py sets it on every flip.
 # True is the Wi-Fi only (a paired iPhone, through Xcode), False the cable
