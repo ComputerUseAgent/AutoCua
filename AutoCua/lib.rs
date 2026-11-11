@@ -1,18 +1,19 @@
 //! Crate root: AutoCua.agent_native, the one Rust extension module behind
 //! the Rust agents: the web agent (web/), the Android agent (android/), the
-//! coder (coder/) and the computer-use agent (mac/agent/). Memory
-//! compression (memory_compression/), which every agent shares, Python's
-//! included, and the desktop app's chat memory (agent_conversation/) are
-//! parts of it too.
+//! coder (coder/), the computer-use agent (mac/agent/) and the iPhone agent
+//! (ios/agent/). Memory compression (memory_compression/), which every agent
+//! shares, Python's included, and the desktop app's chat memory
+//! (agent_conversation/) are parts of it too.
 //!
 //! ONE crate for all of them: this file, Cargo.toml, Cargo.lock and build.rs
 //! sit here in AutoCua/, and each agent's sources sit in its own folder,
 //! declared below, no src/. AutoCua/utils/rust.py builds the
 //! crate lazily (plain `cargo build --release`, no maturin) and copies the
 //! dylib beside this file as agent_native.so. Each agent is its own part of
-//! the module, AutoCua.agent_native.web, .android, .coder and .mac, which its
-//! loader re-exports (web/agent/__init__.py, android/agent/__init__.py,
-//! coder/__init__.py, and the __init__.py of each folder under mac/agent/).
+//! the module, AutoCua.agent_native.web, .android, .coder, .mac and .ios,
+//! which its loader re-exports (web/agent/__init__.py,
+//! android/agent/__init__.py, coder/__init__.py, and the __init__.py of each
+//! folder under mac/agent/ and under ios/agent/).
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -954,6 +955,88 @@ pub mod mac {
     }
 }
 
+/// The iPhone agent (AutoCua/ios/agent): the agent's own files, each the
+/// Rust copy of the .py it replaced, in the same folder under the same
+/// name, made the way the computer-use agent's are (mod mac, whose helpers
+/// they use). The tool registry, the controller and the phone reader beside
+/// it stay Python and are called from here, and so is the vault.
+/// AutoCua.agent_native.ios for Python.
+pub mod ios {
+    use pyo3::prelude::*;
+
+    pub mod agent {
+        /// The driver: the agent loop (service.rs), and its transcript
+        /// codec, compression dump and terminal display of a step (view.rs),
+        /// beside the three prompts.
+        pub mod iphone_use {
+            pub mod service;
+            pub mod view;
+        }
+        /// <skills>: the .md matched to the app in front.
+        pub mod skills {
+            pub mod service;
+        }
+    }
+
+    /// This part's name in sys.modules; its modules sit below it, named as
+    /// the folders are (AutoCua.agent_native.ios.agent.iphone_use.view).
+    pub const NATIVE: &str = "AutoCua.agent_native.ios";
+
+    /// A module that takes a .py's place, as the mac part makes its own:
+    /// `path` is where it sits below the part ("agent.skills.service"), and
+    /// `fill` gives it its names. It is made under the name Python has
+    /// always known it by, AutoCua.ios.<path>, and it has no __all__, as
+    /// the .py had none.
+    fn python_module<'py>(
+        py: Python<'py>,
+        path: &str,
+        fill: fn(&Bound<'py, PyModule>) -> PyResult<()>,
+    ) -> PyResult<Bound<'py, PyModule>> {
+        let name = format!("AutoCua.ios.{path}");
+        let module = PyModule::new(py, &name)?;
+        if let Some((package, _)) = name.rsplit_once('.') {
+            module.setattr("__package__", package)?;
+        }
+        fill(&module)?;
+        if module.hasattr("__all__")? {
+            module.delattr("__all__")?;
+        }
+        Ok(module)
+    }
+
+    /// Fills AutoCua.agent_native.ios with its modules, laid out as the
+    /// folders are, each also put in sys.modules under its full name. The
+    /// loaders (the __init__.py of iphone_use and of skills) then point the
+    /// old dotted names at them.
+    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        let py = m.py();
+        let modules = py.import("sys")?.getattr("modules")?;
+        let driver = python_module(py, "agent.iphone_use.service", agent::iphone_use::service::register)?;
+        let view = python_module(py, "agent.iphone_use.view", agent::iphone_use::view::register)?;
+        let iphone_use = PyModule::new(py, &format!("{NATIVE}.agent.iphone_use"))?;
+        iphone_use.add("service", &driver)?;
+        iphone_use.add("view", &view)?;
+        let service = python_module(py, "agent.skills.service", agent::skills::service::register)?;
+        let skills = PyModule::new(py, &format!("{NATIVE}.agent.skills"))?;
+        skills.add("service", &service)?;
+        let agent = PyModule::new(py, &format!("{NATIVE}.agent"))?;
+        agent.add("iphone_use", &iphone_use)?;
+        agent.add("skills", &skills)?;
+        m.add("agent", &agent)?;
+        for (name, module) in [
+            ("agent", &agent),
+            ("agent.iphone_use", &iphone_use),
+            ("agent.iphone_use.service", &driver),
+            ("agent.iphone_use.view", &view),
+            ("agent.skills", &skills),
+            ("agent.skills.service", &service),
+        ] {
+            modules.set_item(format!("{NATIVE}.{name}"), module)?;
+        }
+        Ok(())
+    }
+}
+
 /// Memory compression (AutoCua/memory_compression), shared by every agent:
 /// the memory bar's gauge (memory_tracker.rs) and the rolling handoff
 /// compression that keeps an agent's context down (controller.rs, with the
@@ -1082,11 +1165,12 @@ pub mod agent_conversation {
 fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     let modules = py.import("sys")?.getattr("modules")?;
-    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 6] = [
+    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 7] = [
         ("web", web::register),
         ("android", android::register),
         ("coder", coder::register),
         ("mac", mac::register),
+        ("ios", ios::register),
         ("memory_compression", memory_compression::register),
         ("agent_conversation", agent_conversation::register),
     ];
