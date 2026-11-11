@@ -2482,14 +2482,13 @@ def _start_agent_run(data, via=None, hooks=None):
                 # The browser and Android agents are Rust extensions
                 # (AutoCua/web/agent and AutoCua/android/agent hold .rs, not .py):
                 # their AgentService is re-exported from the package facade. iOS
-                # is agent/iphone_use; mac, windows and linux are agent/computer_use
-                # (the iOS and mac ones are Rust too, loaded under these same
-                # old names).
+                # is agent/iphone_use (Rust too, under its old name). Computer use
+                # is AutoCua/computer, one agent for macOS, Windows and Linux.
                 AgentService = importlib.import_module(
                     "AutoCua.web.agent" if run_pkg == 'web'
                     else "AutoCua.android.agent" if run_pkg == 'android'
                     else "AutoCua.ios.agent.iphone_use.service" if run_pkg == 'ios'
-                    else f"AutoCua.{run_pkg}.agent.computer_use.service"
+                    else "AutoCua.computer.service"
                 ).AgentService
 
                 # Web use: Google Chrome is never downloaded (utils/chrome.py),
@@ -2864,7 +2863,7 @@ _ADB_NOT_NOW = "adb-not-now"
 
 def _prepare_native() -> None:
     """What the terminal sees before any window: a checkout's build of the
-    Rust agents, web, Android, coder, computer use (macOS) and iOS in one
+    Rust agents, web, Android, coder, computer use and iOS in one
     extension (the first start, a
     minute or two, cargo's lines as it goes), then adb for an Android phone,
     offered once (_offer_adb). Run by
@@ -4108,13 +4107,14 @@ def delete_chat(chat_id):
 def _read_main_system_prompt(agent_mode=None):
     """Best-effort read of the system prompt of the agent that owns a chat, so
     a downloaded conversation log shows the same SYSTEM PROMPT block as a
-    main.py run: the coder's for a Shell use chat, else the active platform's
-    computer_use one. Only for chats saved without their exact log."""
+    main.py run: the coder's for a Shell use chat, else the computer-use
+    agent's for this system (AutoCua/computer/<platform>). Only for chats
+    saved without their exact log."""
     try:
         if agent_mode == "shell":
             p = Path(__file__).resolve().parent.parent / "coder" / "main" / "system_prompt.md"
         else:
-            p = get_platform_path() / "agent" / "computer_use" / "system_prompt.md"
+            p = Path(__file__).resolve().parent.parent / "computer" / PLATFORM_PKG / "system_prompt.md"
         with open(p, "r", encoding="utf-8") as f:
             return f.read()
     except Exception:

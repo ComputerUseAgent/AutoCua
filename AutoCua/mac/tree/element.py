@@ -6,7 +6,7 @@ Uses macOS Accessibility API via PyObjC.
 Requires: System Settings > Privacy & Security > Accessibility
 
 Exposes the same UIElementScanner class interface that
-AutoCua/mac/agent/computer_use/service.rs and AutoCua/mac/controller/ expect:
+AutoCua/computer/service.rs and AutoCua/mac/controller/ expect:
     - UIElementScanner(config, frontend_callback=None)
     - scanner.scan_elements()
     - scanner.get_scan_data()      → (element_tree_text, annotated_image_base64, uac_detected)
@@ -1771,7 +1771,7 @@ class UIElementScanner:
     """macOS drop-in replacement for the Windows UIElementScanner.
     
     Exposes the same public interface so
-    AutoCua/mac/agent/computer_use/service.rs,
+    AutoCua/computer/service.rs,
     AutoCua/mac/controller/service.py, and AutoCua/mac/controller/view.py
     work without modifications.
     """

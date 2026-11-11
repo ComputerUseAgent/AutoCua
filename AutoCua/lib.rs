@@ -1,6 +1,6 @@
 //! Crate root: AutoCua.agent_native, the one Rust extension module behind
 //! the Rust agents: the web agent (web/), the Android agent (android/), the
-//! coder (coder/), the computer-use agent (mac/agent/) and the iPhone agent
+//! coder (coder/), the computer-use agent (computer/) and the iPhone agent
 //! (ios/agent/). Memory compression (memory_compression/), which every agent
 //! shares, Python's included, and the desktop app's chat memory
 //! (agent_conversation/) are parts of it too.
@@ -10,10 +10,11 @@
 //! declared below, no src/. AutoCua/utils/rust.py builds the
 //! crate lazily (plain `cargo build --release`, no maturin) and copies the
 //! dylib beside this file as agent_native.so. Each agent is its own part of
-//! the module, AutoCua.agent_native.web, .android, .coder, .mac and .ios,
-//! which its loader re-exports (web/agent/__init__.py,
-//! android/agent/__init__.py, coder/__init__.py, and the __init__.py of each
-//! folder under mac/agent/ and under ios/agent/).
+//! the module, AutoCua.agent_native.web, .android, .coder, .computer and
+//! .ios, which its loader re-exports (web/agent/__init__.py,
+//! android/agent/__init__.py, coder/__init__.py, computer/__init__.py and
+//! computer/skills/__init__.py, and the __init__.py of each folder under
+//! ios/agent/).
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -697,46 +698,45 @@ pub mod coder {
     }
 }
 
-/// The computer-use agent (AutoCua/mac/agent): the agent's own files, each
-/// the Rust copy of the .py it replaced, in the same folder under the same
-/// name. The tool registry, the controller, the screen reader and the
-/// Telegram bridge beside it stay Python and are called from here.
-/// AutoCua.agent_native.mac for Python.
+/// The computer-use agent (AutoCua/computer): the loop (service.rs), its
+/// transcript codec and display (view.rs), each system's prompts (mac/,
+/// windows/, linux/) and the
+/// skills (skills/service.rs), each the Rust copy of the Mac agent's .py
+/// it replaced. Each system's own parts, the tool registry, the
+/// controller, the screen reader and the Telegram bridge, stay Python in
+/// its own folder (AutoCua/mac, AutoCua/windows, AutoCua/linux) and are
+/// called from here.
+/// AutoCua.agent_native.computer for Python.
 ///
-/// ONE agent for every desktop: Windows and Linux are to run this same Rust
-/// later. So nothing here names an operating system. What differs from one
+/// ONE agent for every desktop: macOS, Windows and Linux run this same
+/// Rust. So nothing here names an operating system. What differs from one
 /// to the next is a row of the platform table below, and platform() is the
 /// one place that picks the row.
-pub mod mac {
+pub mod computer {
     use pyo3::exceptions::{PyTypeError, PyValueError};
     use pyo3::ffi;
     use pyo3::prelude::*;
     use pyo3::types::{PyDict, PyList, PyString, PyTuple, PyType};
 
-    pub mod agent {
-        /// The driver: the agent loop (service.rs), and its transcript
-        /// codec, compression dump and terminal display of a step (view.rs),
-        /// beside the three prompts.
-        pub mod computer_use {
-            pub mod service;
-            pub mod view;
-        }
-        /// <skills>: the .md matched to the app in front, or to the site a
-        /// browser shows.
-        pub mod skills {
-            pub mod service;
-        }
+    /// The agent loop.
+    pub mod service;
+    /// Its transcript codec, compression dump and terminal display of a step.
+    pub mod view;
+    /// <skills>: the .md matched to the app in front, or to the site a
+    /// browser shows.
+    pub mod skills {
+        pub mod service;
     }
 
     /// What differs between the operating systems the agent runs on: one row
     /// per system, read by the agent's files in place of a name written out.
     pub struct Platform {
         /// The system's package under AutoCua/, "mac" in AutoCua/mac. The
-        /// folder (it holds the prompts and the scratchpad), the dotted
-        /// module names (AutoCua.<package>.agent..., AutoCua.<package>.
-        /// controller.tool), the logger names, the skills name (skills_dir,
-        /// default_skills) and the platform a run's training data is
-        /// recorded under all come from it.
+        /// folder of its own parts (its controller keeps the scratchpad
+        /// there), the module path of its tools (AutoCua.<package>.
+        /// controller.tool), the skills name (skills_dir, default_skills)
+        /// and the platform a run's training data is recorded under all
+        /// come from it.
         pub package: &'static str,
         /// The words that mark an app's name as a web browser's.
         pub browser_keywords: &'static [&'static str],
@@ -753,6 +753,9 @@ pub mod mac {
         /// (~/Desktop/sandbox_workspace) when it starts, and keeps its path
         /// as sandbox_root.
         pub desktop_sandbox: bool,
+        /// How the message of a step that a UAC prompt blocks names it. Only
+        /// Windows has one; the Mac's scanner never reports it.
+        pub uac_prompt: &'static str,
     }
 
     /// macOS.
@@ -762,17 +765,53 @@ pub mod mac {
         ios_agent: true,
         training_data: true,
         desktop_sandbox: true,
+        uac_prompt: "A UAC prompt",
     };
 
-    /// The row of the system this agent runs on. The one place that chooses:
-    /// macOS for now, the only system that runs this Rust.
+    /// Windows: android_agent is its only phone (its controller has no
+    /// iPhone calls), no training data (its scanner has no get_screen) and
+    /// no Desktop sandbox.
+    pub const WINDOWS: Platform = Platform {
+        package: "windows",
+        browser_keywords: &["chrome", "firefox", "edge", "opera", "brave", "safari", "vivaldi", "browser"],
+        ios_agent: false,
+        training_data: false,
+        desktop_sandbox: false,
+        uac_prompt: "A Windows UAC prompt",
+    };
+
+    /// Linux: android_agent is its only phone (its controller has no
+    /// iPhone calls) and no training data, as on Windows; the Desktop
+    /// sandbox and the UAC sentence are the Mac's, and Chromium counts as
+    /// a browser.
+    pub const LINUX: Platform = Platform {
+        package: "linux",
+        browser_keywords: &["chrome", "chromium", "firefox", "edge", "opera", "brave", "safari", "vivaldi", "browser"],
+        ios_agent: false,
+        training_data: false,
+        desktop_sandbox: true,
+        uac_prompt: "A UAC prompt",
+    };
+
+    /// The row of the system this agent runs on, chosen once: the host's
+    /// (Windows, Linux, or macOS on every other host), or the one
+    /// AutoCua_COMPUTER_PLATFORM names ("mac", "windows" or "linux"), so a
+    /// test can run a system's row on another host.
     pub fn platform() -> &'static Platform {
-        &MAC
+        static ROW: std::sync::OnceLock<&'static Platform> = std::sync::OnceLock::new();
+        ROW.get_or_init(|| match std::env::var("AutoCua_COMPUTER_PLATFORM").as_deref() {
+            Ok("windows") => &WINDOWS,
+            Ok("linux") => &LINUX,
+            Ok("mac") => &MAC,
+            _ if cfg!(target_os = "windows") => &WINDOWS,
+            _ if cfg!(target_os = "linux") => &LINUX,
+            _ => &MAC,
+        })
     }
 
     /// This part's name in sys.modules; its modules sit below it, named as
-    /// the folders are (AutoCua.agent_native.mac.agent.computer_use.view).
-    pub const NATIVE: &str = "AutoCua.agent_native.mac";
+    /// the files are (AutoCua.agent_native.computer.view).
+    pub const NATIVE: &str = "AutoCua.agent_native.computer";
 
     /// The type name CPython puts in its own error texts ("cannot unpack
     /// non-iterable X object"): a class's own name, or for a built-in type
@@ -898,11 +937,10 @@ pub mod mac {
     }
 
     /// A module that takes a .py's place: `path` is where it sits below the
-    /// part ("agent.skills.service"), and `fill` gives it its names. It is
-    /// made under the name Python has always known it by,
-    /// AutoCua.<package>.<path>, so its __name__ and __package__, its
-    /// functions' __module__ and a logger named after it all read as they
-    /// did. It has no __all__, as the .py had none: the extension's add
+    /// part ("skills.service"), and `fill` gives it its names. It is made
+    /// under its Python name, AutoCua.computer.<path>, so its __name__ and
+    /// __package__, its functions' __module__ and a logger named after it
+    /// all read as the folder says. It has no __all__, as the .py had none: the extension's add
     /// calls keep one, and with it a star import would give other names
     /// than before. So it is taken out once the module is filled.
     fn python_module<'py>(
@@ -910,7 +948,7 @@ pub mod mac {
         path: &str,
         fill: fn(&Bound<'py, PyModule>) -> PyResult<()>,
     ) -> PyResult<Bound<'py, PyModule>> {
-        let name = format!("AutoCua.{}.{path}", platform().package);
+        let name = format!("AutoCua.computer.{path}");
         let module = PyModule::new(py, &name)?;
         if let Some((package, _)) = name.rsplit_once('.') {
             module.setattr("__package__", package)?;
@@ -922,32 +960,28 @@ pub mod mac {
         Ok(module)
     }
 
-    /// Fills AutoCua.agent_native.mac with its modules, laid out as the
-    /// folders are, each also put in sys.modules under its full name. The
-    /// loaders (the __init__.py of computer_use and of skills) then point
-    /// the old dotted names at them.
+    /// Fills AutoCua.agent_native.computer with its modules, laid out as the
+    /// folder is, each also put in sys.modules under its full name. The
+    /// loaders (computer/__init__.py and computer/skills/__init__.py) then
+    /// put them in sys.modules under their Python names.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         let py = m.py();
         let modules = py.import("sys")?.getattr("modules")?;
-        let driver = python_module(py, "agent.computer_use.service", agent::computer_use::service::register)?;
-        let view = python_module(py, "agent.computer_use.view", agent::computer_use::view::register)?;
-        let computer_use = PyModule::new(py, &format!("{NATIVE}.agent.computer_use"))?;
-        computer_use.add("service", &driver)?;
-        computer_use.add("view", &view)?;
-        let service = python_module(py, "agent.skills.service", agent::skills::service::register)?;
-        let skills = PyModule::new(py, &format!("{NATIVE}.agent.skills"))?;
-        skills.add("service", &service)?;
-        let agent = PyModule::new(py, &format!("{NATIVE}.agent"))?;
-        agent.add("computer_use", &computer_use)?;
-        agent.add("skills", &skills)?;
-        m.add("agent", &agent)?;
+        let driver = python_module(py, "service", service::register)?;
+        let codec = python_module(py, "view", view::register)?;
+        let knowledge = python_module(py, "skills.service", skills::service::register)?;
+        let skills = PyModule::new(py, &format!("{NATIVE}.skills"))?;
+        skills.add("service", &knowledge)?;
+        m.add("service", &driver)?;
+        m.add("view", &codec)?;
+        m.add("skills", &skills)?;
+        // The system whose row runs: the loader binds that system's own parts.
+        m.add("PLATFORM", platform().package)?;
         for (name, module) in [
-            ("agent", &agent),
-            ("agent.computer_use", &computer_use),
-            ("agent.computer_use.service", &driver),
-            ("agent.computer_use.view", &view),
-            ("agent.skills", &skills),
-            ("agent.skills.service", &service),
+            ("service", &driver),
+            ("view", &codec),
+            ("skills", &skills),
+            ("skills.service", &knowledge),
         ] {
             modules.set_item(format!("{NATIVE}.{name}"), module)?;
         }
@@ -957,7 +991,7 @@ pub mod mac {
 
 /// The iPhone agent (AutoCua/ios/agent): the agent's own files, each the
 /// Rust copy of the .py it replaced, in the same folder under the same
-/// name, made the way the computer-use agent's are (mod mac, whose helpers
+/// name, made the way the computer-use agent's are (mod computer, whose helpers
 /// they use). The tool registry, the controller and the phone reader beside
 /// it stay Python and are called from here, and so is the vault.
 /// AutoCua.agent_native.ios for Python.
@@ -982,7 +1016,7 @@ pub mod ios {
     /// the folders are (AutoCua.agent_native.ios.agent.iphone_use.view).
     pub const NATIVE: &str = "AutoCua.agent_native.ios";
 
-    /// A module that takes a .py's place, as the mac part makes its own:
+    /// A module that takes a .py's place, as the computer part makes its own:
     /// `path` is where it sits below the part ("agent.skills.service"), and
     /// `fill` gives it its names. It is made under the name Python has
     /// always known it by, AutoCua.ios.<path>, and it has no __all__, as
@@ -1169,7 +1203,7 @@ fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ("web", web::register),
         ("android", android::register),
         ("coder", coder::register),
-        ("mac", mac::register),
+        ("computer", computer::register),
         ("ios", ios::register),
         ("memory_compression", memory_compression::register),
         ("agent_conversation", agent_conversation::register),

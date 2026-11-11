@@ -22,7 +22,7 @@
 //! step through snapshot_turn, so the compressor's prompt needs no change.
 //!
 //! The Rust copy of view.py, and the computer-use agent's view
-//! (mac/agent/computer_use/view.rs) but for two things: snapshot_turn leaves
+//! (computer/view.rs) but for two things: snapshot_turn leaves
 //! out a note field the step's mode never carried, and extract_tools keeps
 //! video_player's sub-command. Python imports it under its old dotted name,
 //! AutoCua.ios.agent.iphone_use.view (iphone_use/__init__.py points that
@@ -45,7 +45,7 @@ use pyo3::types::{PyDict, PyList, PySlice, PyString, PyTuple, PyType};
 use pyo3::PyTypeInfo;
 
 use crate::ios::NATIVE;
-use crate::mac::{as_python_class, unpack2, Handling};
+use crate::computer::{as_python_class, unpack2, Handling};
 use crate::memory_compression::{format_value, global, is_exception, join_str};
 
 /// Slot strings that must replay BARE, not wrapped again: the request

@@ -1,6 +1,5 @@
 # One Rust for every machine that builds the extension (AutoCua/Cargo.toml:
-# the web agent, the Android agent, the coder, the computer-use agent of
-# macOS and the iPhone agent): rustup reads this file from any folder below
+# the web agent, the Android agent, the coder, the computer-use agent and the iPhone agent): rustup reads this file from any folder below
 # it and uses this toolchain in place of the machine's default.
 # THIRD_PARTY_LICENSES.txt carries the standard library's notices for exactly
 # this version, so a Mac or Linux machine on another stable would ship a wheel

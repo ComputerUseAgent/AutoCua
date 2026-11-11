@@ -855,7 +855,7 @@ def _run_agent(task, provider, model, chat_id, bot, loop, prior_history=None,
         # Pipe each step's formatted response (thinking + next_goal +
         # memory, with action stripped) into the compact banner.
         # The agent already calls text_callback with exactly this content
-        # (computer_use/service.rs). It is the same path the frontend's
+        # (AutoCua/computer/service.rs). It is the same path the frontend's
         # streamAgentText uses in ui/service.py. update() serialises onto
         # the banner's UI thread, so the agent loop never blocks on it.
         def _banner_update(text: str) -> None:

@@ -7,9 +7,9 @@
 //! in each maps an app's name ("os") or a site's address ("browser") to a
 //! markdown file. A default wins over a user entry of the same key or name.
 //!
-//! The Rust copy of skills/service.py. Python imports it under its old
-//! dotted name, AutoCua.<package>.agent.skills.service (skills/__init__.py
-//! points that name here), and gets the same class, methods, attributes and
+//! The Rust copy of the Mac agent's skills/service.py. Python imports it as
+//! AutoCua.computer.skills.service (skills/__init__.py points that name
+//! here), and gets the same class, methods, attributes and
 //! log records. Python's own rules decide every result, so they are called,
 //! not imitated: str methods, re, json.loads, os.path, truthiness and a
 //! text-mode open(). The values stay Python objects from end to end.
@@ -28,7 +28,7 @@ use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyDict, PyList, PySlice, PyString, PyTuple};
 
-use crate::mac::{as_python_class, platform, type_name, unpack2, Handling, NATIVE};
+use crate::computer::{as_python_class, platform, type_name, unpack2, Handling, NATIVE};
 use crate::memory_compression::{format_value, global, is_exception, join_str};
 
 /// A row of the element tree that has a value: the element's name and the
@@ -51,7 +51,7 @@ static MODULE: PyOnceLock<Py<PyModule>> = PyOnceLock::new();
 fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     MODULE
         .get_or_try_init(py, || {
-            py.import(format!("{NATIVE}.agent.skills.service")).map(Bound::unbind)
+            py.import(format!("{NATIVE}.skills.service")).map(Bound::unbind)
         })
         .map(|m| m.bind(py).clone())
 }
@@ -166,7 +166,7 @@ fn own_folder(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
     let abspath = os_path(py, "abspath")?;
     let file = py.import("os")?.getattr("path")?.call_method1(
         "join",
-        (crate::native_dir(py)?, platform().package, "agent", "skills", "service.py"),
+        (crate::native_dir(py)?, "computer", "skills", "service.py"),
     )?;
     dirname.call1((abspath.call1((file,))?,))
 }

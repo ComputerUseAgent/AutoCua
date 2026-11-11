@@ -21,9 +21,9 @@
 //! a legacy step renders as the old default builder rendered it, a native
 //! step through snapshot_turn, so the compressor's prompt needs no change.
 //!
-//! The Rust copy of view.py. Python imports it under its old dotted name,
-//! AutoCua.<package>.agent.computer_use.view (computer_use/__init__.py
-//! points that name here), and gets the same names, arguments and results.
+//! The Rust copy of the Mac agent's view.py. Python imports it as
+//! AutoCua.computer.view (computer/__init__.py points that name here), and
+//! gets the same names, arguments and results.
 //! Python's own rules decide every result, so they are called, not
 //! imitated: json.loads and json.dumps, str(), format(), truthiness,
 //! slicing, comparison and the compiled pattern. The values stay Python
@@ -41,7 +41,7 @@ use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyDict, PyList, PySlice, PyString, PyTuple, PyType};
 use pyo3::PyTypeInfo;
 
-use crate::mac::{as_python_class, unpack2, Handling, NATIVE};
+use crate::computer::{as_python_class, unpack2, Handling, NATIVE};
 use crate::memory_compression::{format_value, global, is_exception, join_str};
 
 /// Slot strings that must replay BARE, not wrapped again: the request
@@ -94,7 +94,7 @@ static MODULE: PyOnceLock<Py<PyModule>> = PyOnceLock::new();
 fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     MODULE
         .get_or_try_init(py, || {
-            py.import(format!("{NATIVE}.agent.computer_use.view")).map(Bound::unbind)
+            py.import(format!("{NATIVE}.view")).map(Bound::unbind)
         })
         .map(|m| m.bind(py).clone())
 }

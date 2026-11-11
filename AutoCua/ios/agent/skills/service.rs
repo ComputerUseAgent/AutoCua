@@ -28,7 +28,7 @@ use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyDict, PyString, PyTuple};
 
 use crate::ios::NATIVE;
-use crate::mac::{as_python_class, unpack2, Handling};
+use crate::computer::{as_python_class, unpack2, Handling};
 use crate::memory_compression::{format_value, global, is_exception, join_str};
 
 /// The module's docstring, as service.py had one.

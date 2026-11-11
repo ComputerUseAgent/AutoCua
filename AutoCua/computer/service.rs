@@ -1,5 +1,5 @@
-//! AgentService: the computer-use agent, the Rust copy of
-//! computer_use/service.py.
+//! AgentService: the computer-use agent, one loop for every desktop. It is
+//! the Rust copy of the Mac agent's computer_use/service.py.
 //!
 //! One request is one run of the loop: scan the screen, build the messages,
 //! ask the model, run the tools it called, record the step, and again, until
@@ -15,7 +15,7 @@
 //!   through PyO3 in the same order. So an odd value fails where and how it
 //!   did, and a lone surrogate passes through unchanged.
 //! - The names service.py imported are attributes of this module. The loader
-//!   (computer_use/__init__.py) binds them when the package is imported, and
+//!   (computer/__init__.py) binds them when the package is imported, and
 //!   they are read here when they are used, the way Python read its globals.
 //!   print and open are Python's builtins, found the same way. So are json,
 //!   re, time and datetime: a wait is Python's time.sleep, and the GIL is
@@ -30,16 +30,15 @@
 //!   far as defining them" (Python's NameError guard).
 //! - An `except` block, a `finally` that an error passes through and the
 //!   __exit__ of a `with` block whose body failed run with that error as
-//!   the one being handled (crate::mac::Handling). So sys.exc_info() shows
+//!   the one being handled (crate::computer::Handling). So sys.exc_info() shows
 //!   it to what they call, and an error raised there gets it as __context__.
 //! - What a generator expression ran per item goes through in_generator: a
 //!   StopIteration that leaves it is Python's RuntimeError (PEP 479).
 //! - What differs between the hosts (the package name behind module paths
 //!   and folders, the iPhone sub-agent, the training data, the Desktop
-//!   sandbox) comes from crate::mac::platform(). No host is named here.
+//!   sandbox) comes from crate::computer::platform(). No host is named here.
 //!
-//! Python imports this module under its old dotted name,
-//! AutoCua.<package>.agent.computer_use.service.
+//! Python imports this module as AutoCua.computer.service.
 
 use std::ffi::CString;
 
@@ -52,7 +51,7 @@ use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PySlice, PyString, PyTuple};
 
-use crate::mac::{as_python_class, platform, Handling};
+use crate::computer::{as_python_class, platform, Handling};
 use crate::memory_compression::{format_value, global, is_exception};
 
 // Run-boundary request markers: on resume, the bridge entry that ended the
@@ -133,20 +132,16 @@ fn g<'py>(py: Python<'py>, name: &str) -> PyResult<Obj<'py>> {
     })
 }
 
-/// Python's name for this module on this host. Its functions and its class
-/// report it as their __module__.
+/// Python's name for this module. Its functions and its class report it as
+/// their __module__.
 fn py_module_name() -> String {
-    format!("AutoCua.{}.agent.computer_use.service", platform().package)
+    "AutoCua.computer.service".to_string()
 }
 
-/// service.py's __file__, as it was: in this file's folder, under the folder
-/// that holds the extension.
+/// The module's own file, as service.py's __file__ was: in this folder,
+/// AutoCua/computer, beside the prompts.
 fn module_file(py: Python<'_>) -> PyResult<String> {
-    let file = crate::native_dir(py)?
-        .join(platform().package)
-        .join("agent")
-        .join("computer_use")
-        .join("service.py");
+    let file = crate::native_dir(py)?.join("computer").join("service.py");
     Ok(file.to_string_lossy().into_owned())
 }
 
@@ -506,12 +501,11 @@ fn cut<'py>(text: &Obj<'py>, limit: &Obj<'py>) -> PyResult<Obj<'py>> {
 /// Clear all contents inside AutoCua/<package>/scratchpad/ for a fresh
 /// start, and the CLI subprocess output folders in the current directory.
 fn cleanup_scratchpad(py: Python<'_>) -> PyResult<()> {
-    // scratchpad_dir = Path(__file__).parent.parent.parent / "scratchpad"
+    // scratchpad_dir = Path(AutoCua/<package>) / "scratchpad": the system's
+    // own folder, where its controller keeps the todo and the milestones.
+    let host_dir = crate::native_dir(py)?.join(platform().package);
     let scratchpad_dir = g(py, "Path")?
-        .call1((module_file(py)?,))?
-        .getattr("parent")?
-        .getattr("parent")?
-        .getattr("parent")?
+        .call1((host_dir.to_string_lossy().into_owned(),))?
         .div("scratchpad")?;
     if scratchpad_dir.call_method0("exists")?.is_truthy()? {
         for item in scratchpad_dir.call_method0("iterdir")?.try_iter()? {
@@ -802,11 +796,15 @@ fn load_system_prompt<'py>(me: &Obj<'py>) -> PyResult<Obj<'py>> {
         "system_prompt.md"
     };
     let read = (|| -> PyResult<Option<Obj<'py>>> {
-        // current_dir = os.path.dirname(os.path.abspath(__file__))
+        // current_dir = os.path.dirname(os.path.abspath(__file__)); the
+        // prompts are in its folder of this system, computer/<package>/.
         let dirname = g(py, "os")?.getattr("path")?.getattr("dirname")?;
         let abspath = g(py, "os")?.getattr("path")?.getattr("abspath")?;
         let current_dir = dirname.call1((abspath.call1((module_file(py)?,))?,))?;
-        let prompt_path = g(py, "os")?.getattr("path")?.getattr("join")?.call1((current_dir, prompt_name))?;
+        let prompt_path = g(py, "os")?
+            .getattr("path")?
+            .getattr("join")?
+            .call1((current_dir, platform().package, prompt_name))?;
         let manager = open_text(py, || Ok(prompt_path), "r")?;
         with(&manager, |file| file.call_method0("read"))
     })();
@@ -1124,8 +1122,10 @@ fn sub_agent_slots<'py>(me: &Obj<'py>) -> PyResult<Obj<'py>> {
             } else if let Some(row) = row {
                 let cut = g(py, "_cut")?;
                 txt(py, "running: ").add(cut.call1((row.get_item("task")?,))?)?
-            } else if g(py, "PHONE_AGENTS")?.contains(&agent)? {
+            } else if platform().ios_agent && g(py, "PHONE_AGENTS")?.contains(&agent)? {
                 phone_slot(me, &agent)?
+            } else if !platform().ios_agent && agent.eq("android_agent")? {
+                android_slot(me)?
             } else if agent.eq("browser_agent")? && !chrome {
                 txt(py, "offline: Chrome is missing from the system")
             } else {
@@ -1173,6 +1173,35 @@ fn phone_slot<'py>(me: &Obj<'py>, agent: &Obj<'py>) -> PyResult<Obj<'py>> {
     } else {
         txt(py, "no Android phone is connected")
     };
+    let cut = g(py, "_cut")?;
+    txt(py, "offline: ").add(cut.call1((reason,))?)
+}
+
+/// The Android phone's slot when no run holds it, on a system whose only
+/// phone it is (no iPhone sub-agent): empty when the phone is ready,
+/// connecting while it is being checked, offline with the reason otherwise.
+/// That controller's own words: android_state() is "online", "checking" or
+/// "offline", and it has no phone_connecting.
+fn android_slot<'py>(me: &Obj<'py>) -> PyResult<Obj<'py>> {
+    let py = me.py();
+    if !me.getattr("daisy_chain")?.is_truthy()? {
+        return Ok(txt(py, "offline: This PC mode, phones are only reachable in Daisy chain mode"));
+    }
+    let state = me.getattr("controller")?.call_method0("android_state")?;
+    if state.eq("online")? {
+        return Ok(txt(py, "empty"));
+    }
+    if state.eq("checking")? {
+        return Ok(txt(py, "connecting"));
+    }
+    // reason = getattr(self.controller.android, "reason", "") or "no Android phone is connected"
+    let link = me.getattr("controller")?.getattr("android")?;
+    let reason = match link.getattr("reason") {
+        Ok(reason) => reason,
+        Err(e) if e.is_instance_of::<PyAttributeError>(py) => txt(py, ""),
+        Err(e) => return Err(e),
+    };
+    let reason = if reason.is_truthy()? { reason } else { txt(py, "no Android phone is connected") };
     let cut = g(py, "_cut")?;
     txt(py, "offline: ").add(cut.call1((reason,))?)
 }
@@ -1396,16 +1425,22 @@ fn wait_for_phones<'py>(me: &Obj<'py>, limit: &Obj<'py>) -> PyResult<()> {
     let py = me.py();
     let deadline = g(py, "time")?.call_method0("monotonic")?.add(limit)?;
     while g(py, "time")?.call_method0("monotonic")?.lt(&deadline)? && !stop_requested(me)? {
-        // if not any(self.controller.phone_connecting(a) for a in PHONE_AGENTS): return
-        let mut connecting = false;
-        for agent in g(py, "PHONE_AGENTS")?.try_iter()? {
-            let agent = agent?;
-            let answer = in_generator(py, || me.getattr("controller")?.call_method1("phone_connecting", (&agent,)))?;
-            if answer.is_truthy()? {
-                connecting = true;
-                break;
+        let connecting = if platform().ios_agent {
+            // if not any(self.controller.phone_connecting(a) for a in PHONE_AGENTS): return
+            let mut connecting = false;
+            for agent in g(py, "PHONE_AGENTS")?.try_iter()? {
+                let agent = agent?;
+                let answer = in_generator(py, || me.getattr("controller")?.call_method1("phone_connecting", (&agent,)))?;
+                if answer.is_truthy()? {
+                    connecting = true;
+                    break;
+                }
             }
-        }
+            connecting
+        } else {
+            // if self.controller.android_state() != "checking": return
+            !me.getattr("controller")?.call_method0("android_state")?.ne("checking")?
+        };
         if !connecting {
             return Ok(());
         }
@@ -1996,6 +2031,7 @@ fn step<'py>(me: &Obj<'py>, task: &Obj<'py>, run: &mut Run<'py>) -> PyResult<Flo
         say_text(py, "UAC detected - asking agent to accept or decline")?;
         image_sent = false;
         formatted_element_tree = txt(py, "");
+        let uac = platform().uac_prompt;
         let notes_hint = if me.getattr("_notes_tool")?.eq("memory")? {
             "`memory` with `next_goal`"
         } else if me.getattr("_claude")?.is_truthy()? {
@@ -2006,7 +2042,7 @@ fn step<'py>(me: &Obj<'py>, task: &Obj<'py>, run: &mut Run<'py>) -> PyResult<Flo
         user_message = txt(
             py,
             &format!(
-                "<UAC_Trigger>\nA UAC prompt is blocking the screen. Based on your previous actions, do you want to allow this?\nCall the `hotkey` tool with value \"alt+y\" to accept, or \"alt+n\" to decline. No screenshot or element tree is provided this step - {notes_hint}, then that one hotkey call, nothing else.\n</UAC_Trigger>"
+                "<UAC_Trigger>\n{uac} is blocking the screen. Based on your previous actions, do you want to allow this?\nCall the `hotkey` tool with value \"alt+y\" to accept, or \"alt+n\" to decline. No screenshot or element tree is provided this step - {notes_hint}, then that one hotkey call, nothing else.\n</UAC_Trigger>"
             ),
         );
     }
@@ -3055,9 +3091,43 @@ impl AgentService {
 
     /// A phone slot no run holds: empty when the phone is ready, connecting
     /// while it is being connected, offline with the reason otherwise.
-    #[pyo3(name = "_phone_slot")]
-    fn phone_slot_py<'py>(slf: &Bound<'py, Self>, agent: Obj<'py>) -> PyResult<Obj<'py>> {
-        phone_slot(slf.as_any(), &agent)
+    /// It takes the agent (any value, None included) on a system with the
+    /// iPhone sub-agent, and nothing on one without (Android is the only
+    /// phone), as each system's agent had it.
+    #[pyo3(name = "_phone_slot", signature = (*args, **kwargs))]
+    fn phone_slot_py<'py>(
+        slf: &Bound<'py, Self>,
+        args: &Bound<'py, PyTuple>,
+        kwargs: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<Obj<'py>> {
+        let mut given: Vec<Obj<'py>> = args.iter().collect();
+        if let Some(kwargs) = kwargs {
+            for (key, value) in kwargs.iter() {
+                if platform().ios_agent && key.eq("agent")? {
+                    given.push(value);
+                } else {
+                    let message = format!("AgentService._phone_slot() got an unexpected keyword argument {}", key.repr()?);
+                    return Err(PyTypeError::new_err(message));
+                }
+            }
+        }
+        if platform().ios_agent {
+            match given.as_slice() {
+                [agent] => phone_slot(slf.as_any(), agent),
+                [] => Err(PyTypeError::new_err("AgentService._phone_slot() missing 1 required positional argument: 'agent'")),
+                _ => Err(PyTypeError::new_err(format!(
+                    "AgentService._phone_slot() takes 2 positional arguments but {} were given",
+                    given.len() + 1
+                ))),
+            }
+        } else if given.is_empty() {
+            android_slot(slf.as_any())
+        } else {
+            Err(PyTypeError::new_err(format!(
+                "AgentService._phone_slot() takes 1 positional argument but {} were given",
+                given.len() + 1
+            )))
+        }
     }
 
     /// Highest sub-agent id handed out so far; saved with the chat so ids

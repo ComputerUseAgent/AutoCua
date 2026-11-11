@@ -7,7 +7,7 @@
 //! tool registry and its LLMManager, the controller, the phone reader, the
 //! skills, the vault, the transcript codec (view) and memory compression.
 //!
-//! It is the computer-use agent's loop (mac/agent/computer_use/service.rs)
+//! It is the computer-use agent's loop (computer/service.rs)
 //! with the iPhone agent's own differences. It has no sub-agents, no scan
 //! switch, no UAC and no training data. It has the vault (a secret the vault
 //! typed reads as [vault], and the <vault> block lists the saved logins), a
@@ -35,7 +35,7 @@
 //!   over the same variables, kept in Run, with one flag for "a step got as
 //!   far as defining them" (Python's NameError guard).
 //! - An `except` block and the __exit__ of a `with` block whose body failed
-//!   run with that error as the one being handled (crate::mac::Handling). So
+//!   run with that error as the one being handled (crate::computer::Handling). So
 //!   sys.exc_info() shows it to what they call, and an error raised there
 //!   gets it as __context__.
 //! - What a generator expression ran per item goes through in_generator: a
@@ -53,7 +53,7 @@ use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PySlice, PyString, PyTuple};
 
-use crate::mac::{as_python_class, type_name, Handling};
+use crate::computer::{as_python_class, type_name, Handling};
 use crate::memory_compression::{format_value, global, is_exception};
 
 // Run-boundary request markers: on resume, the bridge entry that ended the
