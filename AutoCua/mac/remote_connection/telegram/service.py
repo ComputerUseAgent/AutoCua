@@ -854,11 +854,10 @@ def _run_agent(task, provider, model, chat_id, bot, loop, prior_history=None,
     try:
         # Pipe each step's formatted response (thinking + next_goal +
         # memory, with action stripped) into the compact banner.
-        # The agent already calls text_callback at
-        # computer_use/service.py:704-705 with exactly this content — same
-        # path the frontend's streamAgentText uses in app.py. update()
-        # serialises onto the banner's UI thread, so the agent loop never
-        # blocks on it.
+        # The agent already calls text_callback with exactly this content
+        # (computer_use/service.rs). It is the same path the frontend's
+        # streamAgentText uses in ui/service.py. update() serialises onto
+        # the banner's UI thread, so the agent loop never blocks on it.
         def _banner_update(text: str) -> None:
             try:
                 task_banner.update(text)

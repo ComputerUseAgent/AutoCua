@@ -1026,8 +1026,8 @@ conversation, and undelivered commands are re-queued if a run dies before it see
 background thread asks a second model to write a handoff document, and the controller splices
 it into the transcript **in place**, on the main thread, guarded by a generation counter so a
 stale result can never land and a re-arm delay so it cannot thrash. Every agent uses it: the
-macOS and Windows desktop agents, iOS, the coder, and the two Rust agents, the browser agent and
-the Android agent, which call the same Python controller across the language boundary. It is
+Windows desktop agent, iOS, the coder, and the Rust agents, the macOS desktop agent, the browser
+agent and the Android agent, which call the same Python controller across the language boundary. It is
 why the memory ring's count in the
 app *falls* mid-run instead of only climbing.
 
@@ -1151,7 +1151,7 @@ chosen model, and Perplexity Sonar.
 - **Python 3.10 or newer**, installed by you. From a checkout the setup scripts need 3.10 to 3.13
   on macOS, 3.11 to 3.13 on Windows and the distro's 3.10 to 3.14 on Linux, and never download one
 - An **API key** from any supported provider
-- *For the browser and Android agents and the coder from source* (a checkout; the wheels ship them prebuilt): **Rust** and a C toolchain — the setup scripts install these for you
+- *For the browser and Android agents, the coder and the computer-use agent (macOS) from source* (a checkout; the wheels ship them prebuilt): **Rust** and a C toolchain, which the setup scripts install for you
 - *For the browser agent:* **Google Chrome**, installed by you ([google.com/chrome](https://www.google.com/chrome/)); AutoCua never downloads it
 - *For iOS:* macOS with **full Xcode**, not just the Command Line Tools
 - *For Android:* for the emulator, the computer's hypervisor (built into macOS; Windows Hypervisor Platform on Windows; KVM on Linux), and the emulator fetches itself; for a phone, **USB debugging** on. adb is fetched for you; the Android agent comes prebuilt in the wheel, and a checkout builds it on its first run with **Rust** and a C compiler, which the setup scripts install
@@ -1430,7 +1430,7 @@ AutoCua/
   desktop/                 the app's Chromium window (Electron, fetched on a yes at the first launch)
   default_skills/          the shipped skills, read-only; yours go in AutoCua_data/skills/
   llm_provider/            every LLM endpoint and the model tables, one copy for all platforms
-  Cargo.toml  lib.rs       the one Rust crate for the web agent, the Android agent and the coder
+  Cargo.toml  lib.rs       the one Rust crate for the web agent, the Android agent, the coder and the computer-use agent (macOS)
   coder/                   the coding agent, Rust, one copy for every OS; subagent/ holds its read-only scouts
   mac/  windows/           computer use: agent, controller, tree, sandbox, tool_registry
     agent/computer_use/      the desktop loop
@@ -1447,7 +1447,8 @@ AutoCua/
   vault/                   credential fill that never reaches the model
 ```
 
-The macOS, Windows and iOS packages stay structurally identical and **never import each
+The macOS, Windows and iOS packages stay structurally identical (the macOS agent's own files
+are Rust, in the same folders under the same names) and **never import each
 other**, because release binaries are platform specific. See
 [AutoCua/Structure.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/AutoCua/Structure.md).
 

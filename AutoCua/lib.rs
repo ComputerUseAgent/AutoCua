@@ -1,17 +1,18 @@
 //! Crate root: AutoCua.agent_native, the one Rust extension module behind
-//! the three Rust agents: the web agent (web/), the Android agent (android/)
-//! and the coder (coder/). Memory compression (memory_compression/), which
-//! every agent shares, Python's included, and the desktop app's chat memory
-//! (agent_conversation/) are parts of it too.
+//! the Rust agents: the web agent (web/), the Android agent (android/), the
+//! coder (coder/) and the computer-use agent (mac/agent/). Memory
+//! compression (memory_compression/), which every agent shares, Python's
+//! included, and the desktop app's chat memory (agent_conversation/) are
+//! parts of it too.
 //!
-//! ONE crate for all three: this file, Cargo.toml, Cargo.lock and build.rs
+//! ONE crate for all of them: this file, Cargo.toml, Cargo.lock and build.rs
 //! sit here in AutoCua/, and each agent's sources sit in its own folder,
 //! declared below, no src/. AutoCua/utils/rust.py builds the
 //! crate lazily (plain `cargo build --release`, no maturin) and copies the
 //! dylib beside this file as agent_native.so. Each agent is its own part of
-//! the module, AutoCua.agent_native.web, .android and .coder, which its
+//! the module, AutoCua.agent_native.web, .android, .coder and .mac, which its
 //! loader re-exports (web/agent/__init__.py, android/agent/__init__.py,
-//! coder/__init__.py).
+//! coder/__init__.py, and the __init__.py of each folder under mac/agent/).
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -695,6 +696,264 @@ pub mod coder {
     }
 }
 
+/// The computer-use agent (AutoCua/mac/agent): the agent's own files, each
+/// the Rust copy of the .py it replaced, in the same folder under the same
+/// name. The tool registry, the controller, the screen reader and the
+/// Telegram bridge beside it stay Python and are called from here.
+/// AutoCua.agent_native.mac for Python.
+///
+/// ONE agent for every desktop: Windows and Linux are to run this same Rust
+/// later. So nothing here names an operating system. What differs from one
+/// to the next is a row of the platform table below, and platform() is the
+/// one place that picks the row.
+pub mod mac {
+    use pyo3::exceptions::{PyTypeError, PyValueError};
+    use pyo3::ffi;
+    use pyo3::prelude::*;
+    use pyo3::types::{PyDict, PyList, PyString, PyTuple, PyType};
+
+    pub mod agent {
+        /// The driver: the agent loop (service.rs), and its transcript
+        /// codec, compression dump and terminal display of a step (view.rs),
+        /// beside the three prompts.
+        pub mod computer_use {
+            pub mod service;
+            pub mod view;
+        }
+        /// <skills>: the .md matched to the app in front, or to the site a
+        /// browser shows.
+        pub mod skills {
+            pub mod service;
+        }
+    }
+
+    /// What differs between the operating systems the agent runs on: one row
+    /// per system, read by the agent's files in place of a name written out.
+    pub struct Platform {
+        /// The system's package under AutoCua/, "mac" in AutoCua/mac. The
+        /// folder (it holds the prompts and the scratchpad), the dotted
+        /// module names (AutoCua.<package>.agent..., AutoCua.<package>.
+        /// controller.tool), the logger names, the skills name (skills_dir,
+        /// default_skills) and the platform a run's training data is
+        /// recorded under all come from it.
+        pub package: &'static str,
+        /// The words that mark an app's name as a web browser's.
+        pub browser_keywords: &'static [&'static str],
+        /// The iPhone sub-agent (ios_agent) runs beside the Android one: in
+        /// Daisy chain mode a request looks for the paired iPhone too, shows
+        /// it in a window of its own (phone_window) and lets it go at the
+        /// end. False: android_agent is the only phone.
+        pub ios_agent: bool,
+        /// Runs are recorded as training data (AutoCua/data_extraction.py):
+        /// the episode is opened with the system's screen (the scanner
+        /// module's get_screen), every step is added and the run is closed.
+        pub training_data: bool,
+        /// The agent makes the sandbox workspace on the Desktop
+        /// (~/Desktop/sandbox_workspace) when it starts, and keeps its path
+        /// as sandbox_root.
+        pub desktop_sandbox: bool,
+    }
+
+    /// macOS.
+    pub const MAC: Platform = Platform {
+        package: "mac",
+        browser_keywords: &["chrome", "firefox", "edge", "opera", "brave", "safari", "vivaldi", "browser"],
+        ios_agent: true,
+        training_data: true,
+        desktop_sandbox: true,
+    };
+
+    /// The row of the system this agent runs on. The one place that chooses:
+    /// macOS for now, the only system that runs this Rust.
+    pub fn platform() -> &'static Platform {
+        &MAC
+    }
+
+    /// This part's name in sys.modules; its modules sit below it, named as
+    /// the folders are (AutoCua.agent_native.mac.agent.computer_use.view).
+    pub const NATIVE: &str = "AutoCua.agent_native.mac";
+
+    /// The type name CPython puts in its own error texts ("cannot unpack
+    /// non-iterable X object"): a class's own name, or for a built-in type
+    /// its dotted C name ("int", "datetime.date").
+    pub fn type_name(value: &Bound<'_, PyAny>) -> PyResult<String> {
+        let kind = value.get_type();
+        let name: String = kind.getattr("__name__")?.extract()?;
+        // SAFETY: a valid type object.
+        let flags = unsafe { ffi::PyType_GetFlags(kind.as_type_ptr()) };
+        if flags & ffi::Py_TPFLAGS_HEAPTYPE != 0 {
+            return Ok(name);
+        }
+        let module: String = kind.getattr("__module__")?.extract()?;
+        Ok(if module == "builtins" { name } else { format!("{module}.{name}") })
+    }
+
+    /// `a, b = value`: Python's unpacking of exactly two items, with the
+    /// errors the running Python gives (3.14 added "got N" for a list, tuple
+    /// or dict with too many).
+    pub fn unpack2<'py>(value: &Bound<'py, PyAny>) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+        let py = value.py();
+        let not_enough = |got: usize| PyValueError::new_err(format!("not enough values to unpack (expected 2, got {got})"));
+        let mut items = match value.try_iter() {
+            Ok(items) => items,
+            Err(e) => {
+                let kind = value.get_type();
+                // SAFETY: a valid type object and a valid object.
+                let has_iter = unsafe { !ffi::PyType_GetSlot(kind.as_type_ptr(), ffi::Py_tp_iter).is_null() };
+                let is_sequence = unsafe { ffi::PySequence_Check(value.as_ptr()) } == 1;
+                if e.is_instance_of::<PyTypeError>(py) && !has_iter && !is_sequence {
+                    return Err(PyTypeError::new_err(format!(
+                        "cannot unpack non-iterable {} object",
+                        type_name(value)?
+                    )));
+                }
+                return Err(e);
+            }
+        };
+        let first = items.next().ok_or_else(|| not_enough(0))??;
+        let second = items.next().ok_or_else(|| not_enough(1))??;
+        match items.next() {
+            None => Ok((first, second)),
+            Some(Err(e)) => Err(e),
+            Some(Ok(_)) => {
+                let exact = value.is_exact_instance_of::<PyList>()
+                    || value.is_exact_instance_of::<PyTuple>()
+                    || value.is_exact_instance_of::<PyDict>();
+                let message = if exact && py.version_info() >= (3, 14) {
+                    format!("too many values to unpack (expected 2, got {})", value.len()?)
+                } else {
+                    "too many values to unpack (expected 2)".to_string()
+                };
+                Err(PyValueError::new_err(message))
+            }
+        }
+    }
+
+    /// Python's `except` block. While this guard lives, `error` is the
+    /// exception being handled: sys.exc_info() shows it, and an exception
+    /// the handler's own code raises gets it as its __context__, as in
+    /// Python. Dropping the guard puts back what was being handled before.
+    /// It holds raw pointers, so it cannot leave the thread, and so the
+    /// call, that made it.
+    pub struct Handling {
+        /// What the running frame's own entry held before: three owned
+        /// references, or nulls when it held nothing.
+        before: [*mut ffi::PyObject; 3],
+    }
+
+    impl Handling {
+        pub fn new(py: Python<'_>, error: &PyErr) -> Self {
+            let nothing = std::ptr::null_mut::<ffi::PyObject>();
+            let mut shown = [nothing; 3];
+            let mut outer = [nothing; 3];
+            let kind = error.get_type(py).into_ptr();
+            let value = error.value(py).clone().into_ptr();
+            let traceback = error.traceback(py).map_or(nothing, |t| t.into_ptr());
+            // SAFETY: the GIL is held. GetExcInfo fills in new references
+            // (or NULL), and SetExcInfo takes over the three it is given,
+            // NULL included.
+            unsafe {
+                // A generator or coroutine has an entry of its own, and when
+                // that is empty GetExcInfo answers with its caller's. So
+                // the running entry is emptied and the question asked again:
+                // the same answer means the entry was empty, and empty is
+                // what the guard must leave behind.
+                ffi::PyErr_GetExcInfo(&mut shown[0], &mut shown[1], &mut shown[2]);
+                ffi::PyErr_SetExcInfo(nothing, nothing, nothing);
+                ffi::PyErr_GetExcInfo(&mut outer[0], &mut outer[1], &mut outer[2]);
+                let own = shown[1] != outer[1];
+                for object in outer {
+                    ffi::Py_XDECREF(object);
+                }
+                if !own {
+                    for object in shown {
+                        ffi::Py_XDECREF(object);
+                    }
+                    shown = [nothing; 3];
+                }
+                ffi::PyErr_SetExcInfo(kind, value, traceback);
+            }
+            Handling { before: shown }
+        }
+    }
+
+    impl Drop for Handling {
+        fn drop(&mut self) {
+            // SAFETY: dropped where it was made, with the GIL held.
+            // SetExcInfo takes over the three references kept in new().
+            unsafe { ffi::PyErr_SetExcInfo(self.before[0], self.before[1], self.before[2]) };
+        }
+    }
+
+    /// Makes a class of this part look like the Python class it replaced:
+    /// its __module__ is the old module's name, and its C name is the bare
+    /// class name. The extension gives a class a dotted C name, which
+    /// CPython prints in its own errors ("'builtins.X' object has no
+    /// attribute ..."); naming the class again drops the dots, so those
+    /// errors read as they did.
+    pub fn as_python_class(class: &Bound<'_, PyType>, module: &Bound<'_, PyString>) -> PyResult<()> {
+        class.setattr("__module__", module)?;
+        class.setattr("__name__", class.getattr("__name__")?)
+    }
+
+    /// A module that takes a .py's place: `path` is where it sits below the
+    /// part ("agent.skills.service"), and `fill` gives it its names. It is
+    /// made under the name Python has always known it by,
+    /// AutoCua.<package>.<path>, so its __name__ and __package__, its
+    /// functions' __module__ and a logger named after it all read as they
+    /// did. It has no __all__, as the .py had none: the extension's add
+    /// calls keep one, and with it a star import would give other names
+    /// than before. So it is taken out once the module is filled.
+    fn python_module<'py>(
+        py: Python<'py>,
+        path: &str,
+        fill: fn(&Bound<'py, PyModule>) -> PyResult<()>,
+    ) -> PyResult<Bound<'py, PyModule>> {
+        let name = format!("AutoCua.{}.{path}", platform().package);
+        let module = PyModule::new(py, &name)?;
+        if let Some((package, _)) = name.rsplit_once('.') {
+            module.setattr("__package__", package)?;
+        }
+        fill(&module)?;
+        if module.hasattr("__all__")? {
+            module.delattr("__all__")?;
+        }
+        Ok(module)
+    }
+
+    /// Fills AutoCua.agent_native.mac with its modules, laid out as the
+    /// folders are, each also put in sys.modules under its full name. The
+    /// loaders (the __init__.py of computer_use and of skills) then point
+    /// the old dotted names at them.
+    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        let py = m.py();
+        let modules = py.import("sys")?.getattr("modules")?;
+        let driver = python_module(py, "agent.computer_use.service", agent::computer_use::service::register)?;
+        let view = python_module(py, "agent.computer_use.view", agent::computer_use::view::register)?;
+        let computer_use = PyModule::new(py, &format!("{NATIVE}.agent.computer_use"))?;
+        computer_use.add("service", &driver)?;
+        computer_use.add("view", &view)?;
+        let service = python_module(py, "agent.skills.service", agent::skills::service::register)?;
+        let skills = PyModule::new(py, &format!("{NATIVE}.agent.skills"))?;
+        skills.add("service", &service)?;
+        let agent = PyModule::new(py, &format!("{NATIVE}.agent"))?;
+        agent.add("computer_use", &computer_use)?;
+        agent.add("skills", &skills)?;
+        m.add("agent", &agent)?;
+        for (name, module) in [
+            ("agent", &agent),
+            ("agent.computer_use", &computer_use),
+            ("agent.computer_use.service", &driver),
+            ("agent.computer_use.view", &view),
+            ("agent.skills", &skills),
+            ("agent.skills.service", &service),
+        ] {
+            modules.set_item(format!("{NATIVE}.{name}"), module)?;
+        }
+        Ok(())
+    }
+}
+
 /// Memory compression (AutoCua/memory_compression), shared by every agent:
 /// the memory bar's gauge (memory_tracker.rs) and the rolling handoff
 /// compression that keeps an agent's context down (controller.rs, with the
@@ -823,10 +1082,11 @@ pub mod agent_conversation {
 fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     let modules = py.import("sys")?.getattr("modules")?;
-    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 5] = [
+    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 6] = [
         ("web", web::register),
         ("android", android::register),
         ("coder", coder::register),
+        ("mac", mac::register),
         ("memory_compression", memory_compression::register),
         ("agent_conversation", agent_conversation::register),
     ];

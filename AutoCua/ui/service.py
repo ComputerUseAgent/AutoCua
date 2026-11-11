@@ -2482,7 +2482,8 @@ def _start_agent_run(data, via=None, hooks=None):
                 # The browser and Android agents are Rust extensions
                 # (AutoCua/web/agent and AutoCua/android/agent hold .rs, not .py):
                 # their AgentService is re-exported from the package facade. iOS
-                # is agent/iphone_use; mac, windows and linux are agent/computer_use.
+                # is agent/iphone_use; mac, windows and linux are agent/computer_use
+                # (the mac one is Rust too, loaded under this same old name).
                 AgentService = importlib.import_module(
                     "AutoCua.web.agent" if run_pkg == 'web'
                     else "AutoCua.android.agent" if run_pkg == 'android'
@@ -2862,7 +2863,8 @@ _ADB_NOT_NOW = "adb-not-now"
 
 def _prepare_native() -> None:
     """What the terminal sees before any window: a checkout's build of the
-    Rust agents, web, Android and coder in one extension (the first start, a
+    Rust agents, web, Android, coder and computer use (macOS) in one
+    extension (the first start, a
     minute or two, cargo's lines as it goes), then adb for an Android phone,
     offered once (_offer_adb). Run by
     the process the person started, before the desktop shell or the window,

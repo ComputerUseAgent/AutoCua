@@ -1,10 +1,10 @@
-"""Build the Rust extension (the web agent, the Android agent, the coder, memory compression and the chat memory) if it isn't built yet.
+"""Build the Rust extension (the web agent, the Android agent, the coder, the computer-use agent, memory compression and the chat memory) if it isn't built yet.
 
 They are ONE crate rooted at the package folder, AutoCua/:
 Cargo.toml, Cargo.lock, build.rs, lib.rs, target/ and the built
 agent_native.so all live there, and each agent's .rs sources sit in its own
-folder (web/, android/, coder/, memory_compression/, agent_conversation/)
-mirroring the old Python layout. It compiles
+folder (web/, android/, coder/, mac/, memory_compression/,
+agent_conversation/) mirroring the old Python layout. It compiles
 with plain `cargo build --release` (no maturin, no pyproject.toml), one cargo
 build for all of them.
 
@@ -12,8 +12,8 @@ WHEN THIS ACTUALLY RUNS
     Checkout  — Cargo.toml sits in the package, so this compiles when
                 the desktop app starts (ui/service.py _prepare_native),
                 on a terminal run's first "web use" / "mobile use, android"
-                / coder run, and on any later run where a .rs source is
-                newer than the built module.
+                / coder / "computer use" run, and on any later run where a
+                .rs source is newer than the built module.
     pip wheel — the extension ships prebuilt: maturin builds it
                 (agent_native.abi3.so / .pyd) and the crate's sources are
                 excluded, so there is no Cargo.toml to find and cargo is
@@ -33,10 +33,11 @@ import sys
 from pathlib import Path
 
 _PACKAGE = Path(__file__).resolve().parent.parent
-# The folders lib.rs declares, one per agent, then memory_compression, which
-# every agent shares (Python's included), and agent_conversation, the desktop
-# app's saved chats.
+# The folders lib.rs declares, one per agent (mac holds the computer-use
+# agent), then memory_compression, which every agent shares (Python's
+# included), and agent_conversation, the desktop app's saved chats.
 _AGENT_DIRS = (_PACKAGE / "web", _PACKAGE / "android", _PACKAGE / "coder",
+               _PACKAGE / "mac",
                _PACKAGE / "memory_compression", _PACKAGE / "agent_conversation")
 
 # Two different naming schemes have to line up here, and neither is portable:
@@ -198,8 +199,8 @@ def _ensure_built(crate_dir, what, others):
 
 def ensure_built() -> None:
     """The one Rust extension (AutoCua/agent_native): the web agent, the
-    Android agent and the coder, built once."""
+    Android agent, the coder and the computer-use agent, built once."""
     # Every mode needs it now: computer use and iOS compress memory with it,
     # and the desktop app keeps its chats with it.
-    _ensure_built(_PACKAGE, "Rust parts (the web, Android and coder agents, memory "
-                  "compression and the chat memory)", None)
+    _ensure_built(_PACKAGE, "Rust parts (the web, Android, coder and computer-use "
+                  "agents, memory compression and the chat memory)", None)

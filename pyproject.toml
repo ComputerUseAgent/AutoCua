@@ -1,7 +1,7 @@
 # `pip install AutoCua` — one wheel per OS/arch holding the AutoCua package
 # and the Rust extension prebuilt, so no Rust is needed on the user's machine:
-# the one crate in AutoCua/ (the web agent, the Android agent and the coder),
-# which maturin builds. Built with maturin:
+# the one crate in AutoCua/ (the web agent, the Android agent, the coder and
+# the computer-use agent of macOS), which maturin builds. Built with maturin:
 #
 #   pip install maturin
 #   maturin build --release -o dist            # -> dist/autocua-*.whl
@@ -97,8 +97,9 @@ Source = "https://github.com/ComputerUseAgent/AutoCua"
 
 [tool.maturin]
 # The one crate lives inside the package (AutoCua/Cargo.toml: the web agent,
-# the Android agent and the coder) and is imported as AutoCua.agent_native;
-# python-source = "." makes ./AutoCua the package.
+# the Android agent, the coder and the computer-use agent of macOS) and is
+# imported as AutoCua.agent_native; python-source = "." makes ./AutoCua the
+# package.
 manifest-path = "AutoCua/Cargo.toml"
 module-name = "AutoCua.agent_native"
 python-source = "."
@@ -110,6 +111,7 @@ exclude = [
     { path = "AutoCua/web/**/*.rs", format = "wheel" },
     { path = "AutoCua/android/**/*.rs", format = "wheel" },
     { path = "AutoCua/coder/**/*.rs", format = "wheel" },
+    { path = "AutoCua/mac/**/*.rs", format = "wheel" },
     { path = "AutoCua/memory_compression/**/*.rs", format = "wheel" },
     { path = "AutoCua/agent_conversation/**/*.rs", format = "wheel" },
     { path = "AutoCua/Cargo.toml", format = "wheel" },
