@@ -988,6 +988,204 @@ pub mod ios {
         }
     }
 
+    /// The controller's services, moving from Python one file at a time,
+    /// and the lines their service.py files each had inline. Every helper
+    /// takes the service's own module, so a global it reads (os, open, str,
+    /// logger) is that module's, read at the moment of use, as in Python.
+    pub mod controller {
+        use pyo3::exceptions::PyTypeError;
+        use pyo3::prelude::*;
+        use pyo3::types::{PyDict, PyString, PyTuple};
+
+        use crate::computer::Handling;
+        use crate::memory_compression::{format_value, global, is_exception, join_str};
+
+        /// The scratchpad, the agent's numbered notes (milestone.md).
+        pub mod scratchpad {
+            pub mod service;
+        }
+        /// The todo list, the agent's numbered tasks (todo.md).
+        pub mod task_tracker {
+            pub mod service;
+        }
+
+        /// The controller's tools: open_app, shell and videoplayer.
+        pub mod tool {
+            /// The app launcher: installed apps, launching one, the home
+            /// screen (open_app.rs, in place of open_app.py).
+            pub mod open_app;
+            /// The shell on the host Mac, in the coder's sandbox (shell.rs,
+            /// in place of shell.py).
+            pub mod shell;
+            /// Full-screen video playback: play, pause, close, streaming
+            /// (videoplayer.rs, in place of videoplayer.py).
+            pub mod videoplayer;
+        }
+
+        /// A str, as a Python object.
+        pub(crate) fn text<'py>(py: Python<'py>, s: &str) -> Bound<'py, PyAny> {
+            PyString::new(py, s).into_any()
+        }
+
+        /// An f-string: its parts in order, each through format(part, ""),
+        /// joined. A literal part is a str, which format gives back as it is.
+        pub(crate) fn fstring<'py>(py: Python<'py>, parts: &[&Bound<'py, PyAny>]) -> PyResult<Bound<'py, PyAny>> {
+            let mut pieces = Vec::with_capacity(parts.len());
+            for part in parts {
+                pieces.push(format_value(part, "")?.into_any());
+            }
+            Ok(join_str(py, &pieces.iter().collect::<Vec<_>>())?.into_any())
+        }
+
+        /// `os.path.<function>`, looked up now, as Python looks it up at
+        /// each call.
+        pub(crate) fn os_path<'py>(module: &Bound<'py, PyModule>, function: &str) -> PyResult<Bound<'py, PyAny>> {
+            global(module, "os")?.getattr("path")?.getattr(function)
+        }
+
+        /// The folder an __init__ made first, with Python's lookups in
+        /// Python's order. ios_dir is two levels above the service's own
+        /// folder (`folder`, as in "task_tracker"), found from where its
+        /// service.py was, os.path.abspath(__file__). Then
+        /// os.path.join(ios_dir, "scratchpad", session, leaf) for a parallel
+        /// simulator task (AutoCua_IOS_SESSION), or without the session.
+        pub(crate) fn session_dir<'py>(module: &Bound<'py, PyModule>, folder: &str, leaf: &str) -> PyResult<Bound<'py, PyAny>> {
+            let py = module.py();
+            // current_dir = os.path.dirname(os.path.abspath(__file__))
+            let dirname = os_path(module, "dirname")?;
+            let abspath = os_path(module, "abspath")?;
+            let file = py.import("os")?.getattr("path")?.call_method1(
+                "join",
+                (crate::native_dir(py)?, "ios", "controller", folder, "service.py"),
+            )?;
+            let current_dir = dirname.call1((abspath.call1((file,))?,))?;
+            // ios_dir = os.path.dirname(os.path.dirname(current_dir))
+            let dirname = os_path(module, "dirname")?;
+            let inner = os_path(module, "dirname")?.call1((current_dir,))?;
+            let ios_dir = dirname.call1((inner,))?;
+            // session = os.environ.get("AutoCua_IOS_SESSION") or ""
+            let get = global(module, "os")?.getattr("environ")?.getattr("get")?;
+            let mut session = get.call1(("AutoCua_IOS_SESSION",))?;
+            if !session.is_truthy()? {
+                session = PyString::new(py, "").into_any();
+            }
+            if session.is_truthy()? {
+                os_path(module, "join")?.call1((&ios_dir, "scratchpad", &session, leaf))
+            } else {
+                os_path(module, "join")?.call1((&ios_dir, "scratchpad", leaf))
+            }
+        }
+
+        /// `logger.<level>(message)`: the method is looked up before the
+        /// message is made, as Python does.
+        pub(crate) fn log<'py>(
+            module: &Bound<'py, PyModule>,
+            level: &str,
+            message: impl FnOnce() -> PyResult<Bound<'py, PyAny>>,
+        ) -> PyResult<()> {
+            let method = global(module, "logger")?.getattr(level)?;
+            method.call1((message()?,))?;
+            Ok(())
+        }
+
+        /// An `except Exception as e:` block: `logger.error(f"{what}{e}")`
+        /// (the exception through format, as an f-string's {e} does) while
+        /// `e` is the exception being handled. What is not an Exception
+        /// (KeyboardInterrupt, SystemExit) passes on untouched, as Err.
+        pub(crate) fn log_failure(module: &Bound<'_, PyModule>, what: &str, e: PyErr) -> PyResult<()> {
+            let py = module.py();
+            if !is_exception(py, &e) {
+                return Err(e);
+            }
+            let _handling = Handling::new(py, &e);
+            log(module, "error", || fstring(py, &[&text(py, what), e.value(py)]))
+        }
+
+        /// A dict built in the order given, as a dict display builds it.
+        pub(crate) fn dict<'py>(py: Python<'py>, items: &[(&str, &Bound<'py, PyAny>)]) -> PyResult<Bound<'py, PyDict>> {
+            let built = PyDict::new(py);
+            for (key, value) in items {
+                built.set_item(key, value)?;
+            }
+            Ok(built)
+        }
+
+        /// An `except Exception as e:` block: `logger.error(f"{what}{str(e)}")`
+        /// while `e` is the exception being handled. What is not an
+        /// Exception (KeyboardInterrupt, SystemExit) passes on untouched.
+        /// Ok(Err(e)) hands the handled exception back.
+        pub(crate) fn logged<T>(module: &Bound<'_, PyModule>, what: &str, result: PyResult<T>) -> PyResult<Result<T, PyErr>> {
+            let py = module.py();
+            match result {
+                Ok(value) => Ok(Ok(value)),
+                Err(e) if is_exception(py, &e) => {
+                    let _handling = Handling::new(py, &e);
+                    log(module, "error", || {
+                        let text = global(module, "str")?.call1((e.value(py),))?;
+                        let what = PyString::new(py, what);
+                        Ok(join_str(py, &[what.as_any(), format_value(&text, "")?.as_any()])?.into_any())
+                    })?;
+                    Ok(Err(e))
+                }
+                Err(e) => Err(e),
+            }
+        }
+
+        /// `os.makedirs(self.<attr>, exist_ok=True)`, logged as `what` and
+        /// raised again when it fails: the _ensure_..._directory methods.
+        pub(crate) fn make_dir(module: &Bound<'_, PyModule>, slf: &Bound<'_, PyAny>, attr: &str, what: &str) -> PyResult<()> {
+            let made = (|| -> PyResult<()> {
+                let makedirs = global(module, "os")?.getattr("makedirs")?;
+                let kwargs = PyDict::new(module.py());
+                kwargs.set_item("exist_ok", true)?;
+                makedirs.call((slf.getattr(attr)?,), Some(&kwargs))?;
+                Ok(())
+            })();
+            logged(module, what, made)?
+        }
+
+        /// `open(self.<attr>, mode, encoding="utf-8")`, in Python's order:
+        /// the global open first, then the attribute.
+        pub(crate) fn open_utf8<'py>(
+            module: &Bound<'py, PyModule>,
+            slf: &Bound<'py, PyAny>,
+            attr: &str,
+            mode: &str,
+        ) -> PyResult<Bound<'py, PyAny>> {
+            let open = global(module, "open")?;
+            let file = slf.getattr(attr)?;
+            let kwargs = PyDict::new(module.py());
+            kwargs.set_item("encoding", "utf-8")?;
+            open.call((file, mode), Some(&kwargs))
+        }
+
+        /// An __init__ that takes self alone (`init` names it as Python
+        /// does, "TaskTrackerService.__init__()"). A call that gives more is
+        /// turned down in the words Python has for a def of that shape, so
+        /// the first keyword is named before the count of positional
+        /// arguments.
+        pub(crate) fn only_self(init: &str, args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> {
+            let py = args.py();
+            if let Some((keyword, _)) = kwargs.and_then(|kwargs| kwargs.iter().next()) {
+                let message = if keyword.eq("self")? {
+                    PyString::new(py, &format!("{init} got multiple values for argument 'self'")).into_any()
+                } else {
+                    let open = PyString::new(py, &format!("{init} got an unexpected keyword argument '"));
+                    let close = PyString::new(py, "'");
+                    join_str(py, &[open.as_any(), keyword.str()?.as_any(), close.as_any()])?.into_any()
+                };
+                return Err(PyTypeError::new_err((message.unbind(),)));
+            }
+            if !args.is_empty() {
+                return Err(PyTypeError::new_err(format!(
+                    "{init} takes 1 positional argument but {} were given",
+                    args.len() + 1
+                )));
+            }
+            Ok(())
+        }
+    }
+
     /// This part's name in sys.modules; its modules sit below it, named as
     /// the folders are (AutoCua.agent_native.ios.agent.iphone_use.view).
     pub const NATIVE: &str = "AutoCua.agent_native.ios";
@@ -1016,8 +1214,8 @@ pub mod ios {
 
     /// Fills AutoCua.agent_native.ios with its modules, laid out as the
     /// folders are, each also put in sys.modules under its full name. The
-    /// loaders (the __init__.py of iphone_use and of skills) then point the
-    /// old dotted names at them.
+    /// loaders (the __init__.py of iphone_use, skills, scratchpad,
+    /// task_tracker and tool) then point the old dotted names at them.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         let py = m.py();
         let modules = py.import("sys")?.getattr("modules")?;
@@ -1033,6 +1231,24 @@ pub mod ios {
         agent.add("iphone_use", &iphone_use)?;
         agent.add("skills", &skills)?;
         m.add("agent", &agent)?;
+        let notes = python_module(py, "controller.scratchpad.service", controller::scratchpad::service::register)?;
+        let scratchpad = PyModule::new(py, &format!("{NATIVE}.controller.scratchpad"))?;
+        scratchpad.add("service", &notes)?;
+        let todo = python_module(py, "controller.task_tracker.service", controller::task_tracker::service::register)?;
+        let task_tracker = PyModule::new(py, &format!("{NATIVE}.controller.task_tracker"))?;
+        task_tracker.add("service", &todo)?;
+        let launcher = python_module(py, "controller.tool.open_app", controller::tool::open_app::register)?;
+        let shell = python_module(py, "controller.tool.shell", controller::tool::shell::register)?;
+        let player = python_module(py, "controller.tool.videoplayer", controller::tool::videoplayer::register)?;
+        let tool = PyModule::new(py, &format!("{NATIVE}.controller.tool"))?;
+        tool.add("open_app", &launcher)?;
+        tool.add("shell", &shell)?;
+        tool.add("videoplayer", &player)?;
+        let controller = PyModule::new(py, &format!("{NATIVE}.controller"))?;
+        controller.add("scratchpad", &scratchpad)?;
+        controller.add("task_tracker", &task_tracker)?;
+        controller.add("tool", &tool)?;
+        m.add("controller", &controller)?;
         for (name, module) in [
             ("agent", &agent),
             ("agent.iphone_use", &iphone_use),
@@ -1040,6 +1256,15 @@ pub mod ios {
             ("agent.iphone_use.view", &view),
             ("agent.skills", &skills),
             ("agent.skills.service", &service),
+            ("controller", &controller),
+            ("controller.scratchpad", &scratchpad),
+            ("controller.scratchpad.service", &notes),
+            ("controller.task_tracker", &task_tracker),
+            ("controller.task_tracker.service", &todo),
+            ("controller.tool", &tool),
+            ("controller.tool.open_app", &launcher),
+            ("controller.tool.shell", &shell),
+            ("controller.tool.videoplayer", &player),
         ] {
             modules.set_item(format!("{NATIVE}.{name}"), module)?;
         }
