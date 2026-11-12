@@ -1,10 +1,10 @@
 """The browser agent as a sub-agent of the main agent.
 
 `sub_agent {"agent_type": "browser_agent"}` lands here. It starts the browser
-agent (AutoCua/web, the Rust Chrome driver) on a task and returns at once;
+agent (AutoCua/browser, the Rust Chrome driver) on a task and returns at once;
 the controller then polls `outcome` until the run is over.
 
-Not the `web` tool's fallback (tool/web/web_agent.py), which is a blocking,
+Not the `web` tool's fallback (AutoCua/web/web_agent.rs), which is a blocking,
 headless, read-only research call. This one ACTS: it navigates, clicks and
 fills forms, in the person's own Chrome, through the AutoCua extension.
 

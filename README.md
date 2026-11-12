@@ -1137,7 +1137,8 @@ its subagents additionally fall back to a second model.
 
 The `web` tool uses each provider's own search: Claude web search, the OpenAI Responses web
 search tool, Gemini grounding, Groq's compound model, OpenRouter's Exa plugin running on your
-chosen model, and Perplexity Sonar.
+chosen model, and Perplexity Sonar. It is one shared Rust tool, in `AutoCua/web`, used by every
+agent: computer use on macOS, Windows and Linux, the iPhone and Android agents, and the coder.
 
 > Together AI, Cerebras, Requesty, AWS Bedrock and Ollama have no native web search. Under any of them the `web` tool hands the query to the
 > browser agent running headless on its own dedicated port and profile, capped at 15 minutes,
@@ -1430,13 +1431,14 @@ AutoCua/
   desktop/                 the app's Chromium window (Electron, fetched on a yes at the first launch)
   default_skills/          the shipped skills, read-only; yours go in AutoCua_data/skills/
   llm_provider/            every LLM endpoint and the model tables, one copy for all platforms
-  Cargo.toml  lib.rs       the one Rust crate for the browser agent, the Android agent, the coder, the computer-use agent and the iOS agent
+  Cargo.toml  lib.rs       the one Rust crate for the browser agent, the Android agent, the coder, the computer-use agent, the iOS agent and the web tool
   coder/                   the coding agent, Rust, one copy for every OS; subagent/ holds its read-only scouts
   computer/                computer use, Rust: the one desktop loop for macOS, Windows and Linux, and its skills; mac/, windows/, linux/ hold each system's prompts
   mac/  windows/  linux/   computer use, each system's own parts: controller, tree, sandbox, tool_registry
     controller/tool/         shell, open_app, screenshot, applescript, kernel_input
     tree/                    accessibility scanner and OCR
   browser/                 the Rust browser agent; connector/AutoCuaBridge/ is the AutoCua Chrome extension
+  web/                     the web search tool, Rust, one copy shared by every agent
   ios/                     the iPhone and iPad agent
   ios_connector/           WebDriverAgent transport: cable, Wi-Fi (through Xcode) and simulator sessions
   android/                 the Rust Android agent: loop, controller, tool registry, screen reader

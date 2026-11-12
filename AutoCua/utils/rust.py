@@ -1,9 +1,9 @@
-"""Build the Rust extension (the browser agent, the Android agent, the coder, the computer-use agent, the iPhone agent, memory compression and the chat memory) if it isn't built yet.
+"""Build the Rust extension (the browser agent, the Android agent, the coder, the computer-use agent, the iPhone agent, the web tool, memory compression and the chat memory) if it isn't built yet.
 
 They are ONE crate rooted at the package folder, AutoCua/:
 Cargo.toml, Cargo.lock, build.rs, lib.rs, target/ and the built
 agent_native.so all live there, and each agent's .rs sources sit in its own
-folder (browser/, android/, coder/, computer/, ios/, memory_compression/,
+folder (browser/, android/, coder/, computer/, ios/, web/, memory_compression/,
 agent_conversation/) mirroring the old Python layout. It compiles
 with plain `cargo build --release` (no maturin, no pyproject.toml), one cargo
 build for all of them.
@@ -35,11 +35,11 @@ from pathlib import Path
 
 _PACKAGE = Path(__file__).resolve().parent.parent
 # The folders lib.rs declares, one per agent (computer holds the
-# computer-use agent, ios the iPhone agent), then memory_compression, which every agent
-# shares (Python's included), and agent_conversation, the desktop app's
-# saved chats.
+# computer-use agent, ios the iPhone agent), then web, the web tool, and
+# memory_compression, which every agent shares (Python's included), and
+# agent_conversation, the desktop app's saved chats.
 _AGENT_DIRS = (_PACKAGE / "browser", _PACKAGE / "android", _PACKAGE / "coder",
-               _PACKAGE / "computer", _PACKAGE / "ios",
+               _PACKAGE / "computer", _PACKAGE / "ios", _PACKAGE / "web",
                _PACKAGE / "memory_compression", _PACKAGE / "agent_conversation")
 
 # Two different naming schemes have to line up here, and neither is portable:
@@ -201,9 +201,9 @@ def _ensure_built(crate_dir, what, others):
 
 def ensure_built() -> None:
     """The one Rust extension (AutoCua/agent_native): the browser agent, the
-    Android agent, the coder, the computer-use agent and the iPhone agent,
-    built once."""
+    Android agent, the coder, the computer-use agent, the iPhone agent and
+    the web tool, built once."""
     # Every mode needs it now: computer use and iOS compress memory with it,
     # and the desktop app keeps its chats with it.
     _ensure_built(_PACKAGE, "Rust parts (the browser, Android, coder, computer-use and "
-                  "iPhone agents, memory compression and the chat memory)", None)
+                  "iPhone agents, the web tool, memory compression and the chat memory)", None)

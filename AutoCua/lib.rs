@@ -1,9 +1,9 @@
 //! Crate root: AutoCua.agent_native, the one Rust extension module behind
 //! the Rust agents: the browser agent (browser/), the Android agent
 //! (android/), the coder (coder/), the computer-use agent (computer/) and the
-//! iPhone agent (ios/agent/). Memory compression (memory_compression/), which
-//! every agent shares, Python's included, and the desktop app's chat memory
-//! (agent_conversation/) are parts of it too.
+//! iPhone agent (ios/agent/). The web tool (web/) and memory compression
+//! (memory_compression/), which every agent shares, Python's included, and
+//! the desktop app's chat memory (agent_conversation/) are parts of it too.
 //!
 //! ONE crate for all of them: this file, Cargo.toml, Cargo.lock and build.rs
 //! sit here in AutoCua/, and each agent's sources sit in its own folder,
@@ -14,7 +14,7 @@
 //! .ios, which its loader re-exports (browser/agent/__init__.py,
 //! android/agent/__init__.py, coder/__init__.py, computer/__init__.py and
 //! computer/skills/__init__.py, and the __init__.py of each folder under
-//! ios/agent/).
+//! ios/agent/); the web tool is .web (web/__init__.py).
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -294,18 +294,6 @@ pub mod android {
             pub mod videoplayer {
                 pub mod service;
             }
-            /// The web search: service.rs routes it, one file per provider's
-            /// search and the browser-agent fallback beside it, as on iOS.
-            pub mod web {
-                pub mod service;
-                pub mod anthropic;
-                pub mod chatgpt;
-                pub mod google_search;
-                pub mod groq_search;
-                pub mod openrouter;
-                pub mod perplexity_search;
-                pub mod web_agent;
-            }
         }
     }
     /// The tool registry and its LLM manager, the copy of ios/tool_registry.
@@ -420,18 +408,6 @@ pub mod coder {
             /// The `plan` tool: the plan document.
             pub mod plan {
                 pub mod service;
-            }
-            /// The web search: service.rs routes it, one file per provider's
-            /// search and the browser-agent fallback beside it.
-            pub mod web {
-                pub mod service;
-                pub mod anthropic;
-                pub mod chatgpt;
-                pub mod google_search;
-                pub mod groq_search;
-                pub mod openrouter;
-                pub mod perplexity_search;
-                pub mod web_agent;
             }
         }
     }
@@ -1071,6 +1047,32 @@ pub mod ios {
     }
 }
 
+/// The web tool (AutoCua/web), one web search shared by every agent:
+/// service.rs routes a query to the agent's own provider, one file per
+/// provider's search and the browser-agent fallback (web_agent.rs) beside
+/// it. Computer use (macOS, Windows, Linux) and the iPhone agent use it
+/// from their Python controllers through AutoCua.agent_native.web (from
+/// AutoCua.web import WebService); the Android agent and the coder call
+/// crate::web::service::WebService from their Rust controllers.
+pub mod web {
+    use pyo3::prelude::*;
+
+    pub mod service;
+    pub mod web_agent;
+    pub mod anthropic;
+    pub mod chatgpt;
+    pub mod google_search;
+    pub mod groq_search;
+    pub mod openrouter;
+    pub mod perplexity_search;
+
+    /// Fills AutoCua.agent_native.web: the WebService class.
+    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        m.add_class::<service::WebService>()?;
+        Ok(())
+    }
+}
+
 /// Memory compression (AutoCua/memory_compression), shared by every agent:
 /// the memory bar's gauge (memory_tracker.rs) and the rolling handoff
 /// compression that keeps an agent's context down (controller.rs, with the
@@ -1191,20 +1193,21 @@ pub mod agent_conversation {
     }
 }
 
-/// The module: one part per agent, one for memory compression and one for the
-/// chat memory, each also put in sys.modules under its full name, so `from
-/// AutoCua.agent_native.browser import AgentService` works the way an import
-/// from a package does.
+/// The module: one part per agent, one for the web tool, one for memory
+/// compression and one for the chat memory, each also put in sys.modules
+/// under its full name, so `from AutoCua.agent_native.browser import
+/// AgentService` works the way an import from a package does.
 #[pymodule]
 fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     let modules = py.import("sys")?.getattr("modules")?;
-    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 7] = [
+    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 8] = [
         ("browser", browser::register),
         ("android", android::register),
         ("coder", coder::register),
         ("computer", computer::register),
         ("ios", ios::register),
+        ("web", web::register),
         ("memory_compression", memory_compression::register),
         ("agent_conversation", agent_conversation::register),
     ];

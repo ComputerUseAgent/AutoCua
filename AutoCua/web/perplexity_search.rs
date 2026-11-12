@@ -5,29 +5,35 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use serde_json::json;
 
-use super::service::{key_or_env, kwargs, search_error, system_prompt, text_of};
+use super::service::{fill, import_from, key_or_env, kwargs, search_error, str_of, system_prompt};
 
 /// Perform web search using Perplexity Sonar via the Agent API. `api_key`:
 /// the runtime key from the frontend (priority over .env).
-pub fn web_search(py: Python<'_>, query: &str, api_key: Option<&str>) -> PyResult<String> {
+pub fn web_search<'py>(py: Python<'py>, query: &Bound<'py, PyAny>, api_key: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
     search_error(py, (|| {
+        let requests = py.import("requests")?;
+        let timeout = import_from(py, "AutoCua.llm_provider", "LLM_HTTP_TIMEOUT")?;
+
         let key = key_or_env(py, api_key, "PERPLEXITY_API_KEY")?;
 
         let request = kwargs(py, json!({
             "headers": {
-                "Authorization": format!("Bearer {}", key.as_deref().unwrap_or("None")),
+                "Authorization": null,
                 "Content-Type": "application/json"
             },
             "json": {
                 "model": "perplexity/sonar",
                 "instructions": system_prompt(py)?,
-                "input": query,
+                "input": null,
                 "tools": [{"type": "web_search"}],
                 "max_output_tokens": 4096,
             },
         }))?;
-        request.set_item("timeout", py.import("AutoCua.llm_provider")?.getattr("LLM_HTTP_TIMEOUT")?)?;
-        let response = py.import("requests")?.call_method("post", ("https://api.perplexity.ai/v1/agent",), Some(&request))?;
+        let request_any = request.as_any();
+        request_any.get_item("headers")?.set_item("Authorization", fill(py, "Bearer {}", (key,))?)?;
+        request_any.get_item("json")?.set_item("input", query)?;
+        request.set_item("timeout", timeout)?;
+        let response = requests.call_method("post", ("https://api.perplexity.ai/v1/agent",), Some(&request))?;
         response.call_method0("raise_for_status")?;
         let result = response.call_method0("json")?;
 
@@ -38,12 +44,12 @@ pub fn web_search(py: Python<'_>, query: &str, api_key: Option<&str>) -> PyResul
                 for block in output_item.call_method1("get", ("content", PyList::empty(py)))?.try_iter()? {
                     let block = block?;
                     if block.call_method1("get", ("type",))?.eq("output_text")? {
-                        return text_of(&block.call_method1("get", ("text", ""))?);
+                        return block.call_method1("get", ("text", ""));
                     }
                 }
             }
         }
 
-        text_of(&result)
+        str_of(&result)
     })())
 }

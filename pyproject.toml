@@ -110,8 +110,9 @@ exclude = [
     # loader never tries cargo.
     { path = "AutoCua/*.rs", format = "wheel" },
     { path = "AutoCua/browser/**/*.rs", format = "wheel" },
-    # AutoCua/web: the browser agent's old folder. A checkout from before the
-    # rename keeps leftover files there, so its lines stay.
+    # AutoCua/web: the web tool (its web.md and __init__.py ship). It was the
+    # browser agent's folder before the rename, and a checkout from before it
+    # keeps leftover files there, hence the scratchpad and HANDOFF lines below.
     { path = "AutoCua/web/**/*.rs", format = "wheel" },
     { path = "AutoCua/android/**/*.rs", format = "wheel" },
     { path = "AutoCua/coder/**/*.rs", format = "wheel" },

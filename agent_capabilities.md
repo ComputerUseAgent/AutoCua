@@ -506,7 +506,7 @@ Settings → API Keys is used too, after `.env`.
 
 ## How the `web` tool works on Together
 
-Together has no native web search. When the desktop or iOS agent calls its `web` tool
+Together has no native web search. When an agent calls the `web` tool
 with `provider="together"`, the query is handed to the **browser agent**
 (`AutoCua/browser`) running **headless on the same model**, and its final
 `done` report comes back as the web result. Expect that step to take a few
@@ -521,7 +521,9 @@ minutes rather than seconds.
 - Each run's `result.json` + `agent.log` are kept under
   `AutoCua_data/web_fallback/<run-id>/` for inspection.
 
-Implementation: `AutoCua/{mac,windows,linux,ios}/controller/tool/web/web_agent.py` (identical on all four).
+Implementation: `AutoCua/web/web_agent.rs`. The `web` tool is one shared Rust tool, in
+`AutoCua/web`, used by every agent: computer use on macOS, Windows and Linux, the iPhone
+and Android agents, and the coder.
 
 ## Cerebras (`provider="cerebras"`)
 

@@ -3,8 +3,8 @@
 Subprocess entry for one browser agent started by the main agent
 (tool/browser_agent.py spawns it; it is run BY PATH, never imported).
 
-It runs the web agent the way parallel `web use` does
-(AutoCua/web/agent/__main__.py): the agent starts Chrome itself (or attaches
+It runs the browser agent the way parallel `browser` runs do
+(AutoCua/browser/agent/__main__.py): the agent starts Chrome itself (or attaches
 to the one already up) and is pinned to one background tab of its own
 (single_tab=True), so up to four browser agents run at once and never work in
 each other's tabs. The first one opens Chrome: browser_agent.start holds the

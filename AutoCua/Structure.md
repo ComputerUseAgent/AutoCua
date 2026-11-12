@@ -10,7 +10,8 @@
 - The Python manager in `AutoCua/llm_provider/llm_manager.py` is shared by windows, mac, linux and ios. The browser agent's manager is Rust (`browser/tool_registry/service.rs`), so a change to retries, fallback or usage goes in both.
 
 - If the model or provider does not support a native web tool, make sure the query goes to the browser agent in headless mode.
-- A provider with no native web-search API is acceptable only when the platform's `web` tool routes the query to the browser agent (`AutoCua/browser`) on the same provider+model and returns its report — see `<platform>/controller/tool/web/web_agent.py` (identical on mac/windows/ios; Together AI is the first such provider).
+- A provider with no native web-search API is acceptable only when the `web` tool routes the query to the browser agent (`AutoCua/browser`) on the same provider+model and returns its report. See `AutoCua/web/web_agent.rs` (Together AI is the first such provider).
+- The `web` tool is one shared Rust tool, in `AutoCua/web`, used by every agent: computer use on macOS, Windows and Linux, the iPhone and Android agents, and the coder. Change it there, never per platform.
 - The browser and Android agents are written in Rust, and the other agents in Python. They might be converted to Rust in the future.
 - View files are mostly routing, and service files hold the core logic.
 - Do not add any automatic download command: ask for consent in the terminal first. See the utils folder, `AutoCua/utils`.
