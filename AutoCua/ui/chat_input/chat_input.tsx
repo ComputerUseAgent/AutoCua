@@ -92,7 +92,7 @@ export function ChatInput() {
                         </span>
                     </button>
 
-                    {/* The memory ring, right after the Fast/Quality toggle, so Shell use
+                    {/* The memory ring, right after the Fast/Quality toggle, so Coder
                         (where the toggle fades out) leaves no gap before the model picker. */}
                     <MemoryBar />
 

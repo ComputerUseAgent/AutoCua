@@ -21,7 +21,7 @@ from ..utils.tls import TLSError, is_cert_error, message as tls_message, os_cont
 #
 # Every provider call but the coder's (CODER_HTTP_TIMEOUT below) and Ollama's
 # (ollama/service.py READ_TIMEOUT: a model on this machine reads a long
-# prompt slowly) uses it, on every platform and in the web agent: the
+# prompt slowly) uses it, on every platform and in the browser agent: the
 # requests ones as is, OpenAI as Timeout(180, connect=15) and Gemini as one
 # 180 s figure (its SDK has no separate connect bound, see google/service.py).
 # Each provider object posts through its own requests.Session, so the
@@ -72,7 +72,7 @@ class RefusalError(Exception):
 
 def screenshots(shot) -> list:
     """The images a step's user message carries, in order. The step passes
-    one base64 JPEG (the usual case on every platform) or, from the web agent,
+    one base64 JPEG (the usual case on every platform) or, from the browser agent,
     a list of them: the page's screenshot, then the screens a scrape read
     covered."""
     if not shot:
@@ -157,7 +157,7 @@ def _ensure_tls_works(provider: str, model: str = "") -> None:
     the next build. Idempotent. Windows only: on macOS and Linux it returns
     at once, and they keep their default verification. Called by
     build_provider (llm_manager.py) before every provider is built, so it runs
-    ahead of the first request from every manager, the web agent's included.
+    ahead of the first request from every manager, the browser agent's included.
     A manager built while another is probing waits for it: a provider's
     requests.Session takes the fix only if it is in place when the Session
     is made.

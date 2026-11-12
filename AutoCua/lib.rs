@@ -1,8 +1,8 @@
 //! Crate root: AutoCua.agent_native, the one Rust extension module behind
-//! the Rust agents: the web agent (web/), the Android agent (android/), the
-//! coder (coder/), the computer-use agent (computer/) and the iPhone agent
-//! (ios/agent/). Memory compression (memory_compression/), which every agent
-//! shares, Python's included, and the desktop app's chat memory
+//! the Rust agents: the browser agent (browser/), the Android agent
+//! (android/), the coder (coder/), the computer-use agent (computer/) and the
+//! iPhone agent (ios/agent/). Memory compression (memory_compression/), which
+//! every agent shares, Python's included, and the desktop app's chat memory
 //! (agent_conversation/) are parts of it too.
 //!
 //! ONE crate for all of them: this file, Cargo.toml, Cargo.lock and build.rs
@@ -10,8 +10,8 @@
 //! declared below, no src/. AutoCua/utils/rust.py builds the
 //! crate lazily (plain `cargo build --release`, no maturin) and copies the
 //! dylib beside this file as agent_native.so. Each agent is its own part of
-//! the module, AutoCua.agent_native.web, .android, .coder, .computer and
-//! .ios, which its loader re-exports (web/agent/__init__.py,
+//! the module, AutoCua.agent_native.browser, .android, .coder, .computer and
+//! .ios, which its loader re-exports (browser/agent/__init__.py,
 //! android/agent/__init__.py, coder/__init__.py, computer/__init__.py and
 //! computer/skills/__init__.py, and the __init__.py of each folder under
 //! ios/agent/).
@@ -40,9 +40,9 @@ pub fn native_dir(py: Python<'_>) -> PyResult<&'static PathBuf> {
     Ok(DIR.get_or_init(|| dir))
 }
 
-/// The web agent (AutoCua/web): the agent, the browser session, the page
-/// scanner and the tools. AutoCua.agent_native.web for Python.
-pub mod web {
+/// The browser agent (AutoCua/browser): the agent, the browser session, the
+/// page scanner and the tools. AutoCua.agent_native.browser for Python.
+pub mod browser {
     use std::path::PathBuf;
     use std::sync::OnceLock;
 
@@ -54,25 +54,25 @@ pub mod web {
     pub mod agent {
         pub mod main_driver;
     }
-    // The browser session keeps its own directory: web/browser/browser.rs. The
-    // #[path] lets the file keep its name while the module stays
-    // `crate::web::browser`.
-    #[path = "browser/browser.rs"]
-    pub mod browser;
+    // The browser session keeps its own directory: browser/connector/browser.rs.
+    // The #[path] lets the file keep its name while the module is
+    // `crate::browser::connector`.
+    #[path = "connector/browser.rs"]
+    pub mod connector;
     // Sends the headful browser back when a page's new tab pulls it forward.
-    #[path = "browser/page_tab_guard.rs"]
+    #[path = "connector/page_tab_guard.rs"]
     pub mod page_tab_guard;
-    // Stages browser/AutoCuaBridge for a Chrome launch so Chrome runs its current
+    // Stages connector/AutoCuaBridge for a Chrome launch so Chrome runs its current
     // code (extension mode; not hooked to the launcher yet).
-    #[path = "browser/stage_bridge.rs"]
+    #[path = "connector/stage_bridge.rs"]
     pub mod stage_bridge;
     // The bridge to AutoCuaBridge: the server the extension dials, over which the
     // scanner and every tool reach the browser in extension mode.
-    #[path = "browser/bridge.rs"]
+    #[path = "connector/bridge.rs"]
     pub mod bridge;
     // The hand test for AutoCuaBridge (test.command): stages it, restarts the test
     // Chrome and serves the bridge that writes each Test press under debug/.
-    #[path = "browser/bridge_test.rs"]
+    #[path = "connector/bridge_test.rs"]
     pub mod bridge_test;
     pub mod controller;
     // The page scanner. It used to build as a second binary of this package and
@@ -81,8 +81,8 @@ pub mod web {
     pub mod tree {
         pub mod element;
     }
-    // The web tool registry and its LLM manager. The providers it calls are the
-    // shared Python ones in AutoCua/llm_provider.
+    // The browser agent's tool registry and its LLM manager. The providers it
+    // calls are the shared Python ones in AutoCua/llm_provider.
     pub mod tool_registry {
         pub mod service;
     }
@@ -94,17 +94,17 @@ pub mod web {
         "The page scanner failed, or the browser stopped answering."
     );
 
-    /// AutoCua/web, beside the extension module (AutoCua/agent_native.so),
-    /// found once; AutoCua_WEB_DIR overrides it.
-    pub fn web_dir(py: Python<'_>) -> PyResult<&'static PathBuf> {
+    /// AutoCua/browser, beside the extension module (AutoCua/agent_native.so),
+    /// found once; AutoCua_BROWSER_DIR overrides it.
+    pub fn browser_dir(py: Python<'_>) -> PyResult<&'static PathBuf> {
         static DIR: OnceLock<PathBuf> = OnceLock::new();
         if let Some(dir) = DIR.get() {
             return Ok(dir);
         }
-        let dir = if let Ok(v) = std::env::var("AutoCua_WEB_DIR") {
+        let dir = if let Ok(v) = std::env::var("AutoCua_BROWSER_DIR") {
             PathBuf::from(v)
         } else {
-            crate::native_dir(py)?.join("web")
+            crate::native_dir(py)?.join("browser")
         };
         Ok(DIR.get_or_init(|| dir))
     }
@@ -126,12 +126,12 @@ pub mod web {
 
     /// Before a debugging-port launch of a headful browser: the guard that sends
     /// it back when one of its pages opens a tab and pulls it forward
-    /// (browser/page_tab_guard.rs). A headless browser can never come forward,
+    /// (connector/page_tab_guard.rs). A headless browser can never come forward,
     /// and extension mode has no port for the guard to watch.
     pub fn ensure_browser(py: Python<'_>, port: u16, headless: bool) {
         if !headless {
             // What the guard's own process is started with: this Python, and the
-            // folder holding the AutoCua package (web/ -> AutoCua/ -> it), so it
+            // folder holding the AutoCua package (browser/ -> AutoCua/ -> it), so it
             // imports this extension whatever its working directory. A packaged
             // app has no Python to start it with (sys.executable is the app
             // itself, which would open a second app), so none is given.
@@ -148,9 +148,9 @@ pub mod web {
                     .and_then(|exe| exe.extract())
                     .unwrap_or_default()
             };
-            let package_parent = web_dir(py)
+            let package_parent = browser_dir(py)
                 .ok()
-                .and_then(|web| web.parent()?.parent().map(PathBuf::from))
+                .and_then(|dir| dir.parent()?.parent().map(PathBuf::from))
                 .unwrap_or_default();
             // Without the GIL: the wait for a new guard to start (half a second)
             // must not stop the process's other Python threads, the desktop
@@ -159,7 +159,7 @@ pub mod web {
         }
     }
 
-    /// The guard process (browser/page_tab_guard.rs): `python -c` calls this, on
+    /// The guard process (connector/page_tab_guard.rs): `python -c` calls this, on
     /// that process's main thread, and it returns only when another guard already
     /// watches `port`. Off macOS it returns at once.
     #[pyfunction]
@@ -181,7 +181,7 @@ pub mod web {
         Ok(PathBuf::from(dir.str()?.extract::<String>()?))
     }
 
-    /// AutoCua_data/vault/credentials.json, whose "web" section holds the logins
+    /// AutoCua_data/vault/credentials.json, whose "browser" section holds the logins
     /// the `vault` tool fills (controller/vault), asked of Python like data_root.
     pub fn vault_file(py: Python<'_>) -> PyResult<PathBuf> {
         let module = py.import("AutoCua")?;
@@ -189,33 +189,33 @@ pub mod web {
         Ok(PathBuf::from(path.str()?.extract::<String>()?))
     }
 
-    /// AutoCua/web/agent — kept as a helper because the main_driver prompts the
-    /// agent reads live under it.
+    /// AutoCua/browser/agent, kept as a helper because the main_driver prompts
+    /// the agent reads live under it.
     pub fn agent_dir(py: Python<'_>) -> PyResult<PathBuf> {
-        Ok(web_dir(py)?.join("agent"))
+        Ok(browser_dir(py)?.join("agent"))
     }
 
-    /// AutoCua/web/browser — browser.rs and the glow assets it injects (glow/).
-    pub fn browser_dir(py: Python<'_>) -> PyResult<PathBuf> {
-        Ok(web_dir(py)?.join("browser"))
+    /// AutoCua/browser/connector: browser.rs and the glow assets it injects (glow/).
+    pub fn connector_dir(py: Python<'_>) -> PyResult<PathBuf> {
+        Ok(browser_dir(py)?.join("connector"))
     }
 
-    /// Fills AutoCua.agent_native.web, this agent's part of the module.
+    /// Fills AutoCua.agent_native.browser, this agent's part of the module.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         use agent::main_driver::view;
 
         m.add("ScannerError", m.py().get_type::<ScannerError>())?;
-        m.add("CHROME_PORT", browser::CHROME_PORT)?;
-        m.add_class::<browser::BrowserScanner>()?;
-        m.add_function(pyo3::wrap_pyfunction!(browser::launch_chrome, m)?)?;
+        m.add("CHROME_PORT", connector::CHROME_PORT)?;
+        m.add_class::<connector::BrowserScanner>()?;
+        m.add_function(pyo3::wrap_pyfunction!(connector::launch_chrome, m)?)?;
         m.add_function(pyo3::wrap_pyfunction!(stage_bridge::stage_bridge, m)?)?;
         m.add_class::<bridge::PyBridge>()?;
         m.add_function(pyo3::wrap_pyfunction!(bridge_test::bridge_test, m)?)?;
         m.add_function(pyo3::wrap_pyfunction!(bridge::idle_bridge_start, m)?)?;
         m.add_function(pyo3::wrap_pyfunction!(bridge::idle_bridge_stop, m)?)?;
-        m.add_function(pyo3::wrap_pyfunction!(browser::is_blank_page, m)?)?;
-        m.add_function(pyo3::wrap_pyfunction!(browser::blank_html, m)?)?;
-        m.add_function(pyo3::wrap_pyfunction!(browser::ensure_tab, m)?)?;
+        m.add_function(pyo3::wrap_pyfunction!(connector::is_blank_page, m)?)?;
+        m.add_function(pyo3::wrap_pyfunction!(connector::blank_html, m)?)?;
+        m.add_function(pyo3::wrap_pyfunction!(connector::ensure_tab, m)?)?;
         m.add_function(pyo3::wrap_pyfunction!(page_tab_guard_serve, m)?)?;
 
         m.add_class::<agent::main_driver::service::AgentService>()?;
@@ -265,7 +265,7 @@ pub mod android {
     }
     /// The controller: route_action (view.rs), the phone's hands, with the
     /// element actions (service.rs), the todo and the scratchpad, and one
-    /// service.rs per tool folder as in ../web/controller.
+    /// service.rs per tool folder as in ../browser/controller.
     pub mod controller {
         pub mod service;
         pub mod view;
@@ -1193,14 +1193,14 @@ pub mod agent_conversation {
 
 /// The module: one part per agent, one for memory compression and one for the
 /// chat memory, each also put in sys.modules under its full name, so `from
-/// AutoCua.agent_native.web import AgentService` works the way an import from
-/// a package does.
+/// AutoCua.agent_native.browser import AgentService` works the way an import
+/// from a package does.
 #[pymodule]
 fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     let modules = py.import("sys")?.getattr("modules")?;
     let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 7] = [
-        ("web", web::register),
+        ("browser", browser::register),
         ("android", android::register),
         ("coder", coder::register),
         ("computer", computer::register),

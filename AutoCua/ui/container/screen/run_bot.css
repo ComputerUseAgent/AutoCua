@@ -1,6 +1,6 @@
 /* =====================================================================
    The run's screen stage, in the screen box (run_bot.js): while a Computer
-   use, Web use or iOS run is on, the box shows a moving background
+   use, Browser or iOS run is on, the box shows a moving background
    (logo/simulation_background.mp4) with the screenshots on it, a little
    smaller than the box, centred. After a Computer use run, "Preparing video"
    shows there until the run's video is in. The run's bot is beside the
@@ -23,7 +23,7 @@
 
 /* The screenshot (and the run's video after it), a little smaller than the
    box and centred: 7% of the box on every side. A Computer use box has the
-   picture's own shape, so the picture fills this frame exactly; a Web use
+   picture's own shape, so the picture fills this frame exactly; a Browser
    or iOS box keeps 16:10, so its picture sits in the frame's middle (space
    above and below a wide browser window, on the left and right of a phone).
    Sized to the picture itself, so its corners round on the picture. Hidden

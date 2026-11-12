@@ -27,7 +27,7 @@ run_agent(
 
 | Argument | What it is |
 |---|---|
-| `mode` | Which agent runs: `"computer use"` drives this desktop (Windows, macOS or Linux, detected automatically), `"computer use, daisy chain"` does the same and can also hand work to the phone sub-agents when a phone is connected (Android everywhere, iPhone on macOS; plain `"computer use"` lists them offline), `"shell use"` runs the coding agent straight in your terminal, `"web use"` drives Chrome, `"mobile use, ios"` drives an iPhone/iPad or an iOS Simulator, `"mobile use, android"` an Android emulator or your Android phone. Case, underscores and commas don't matter; hyphens do: `"computer-use"` raises `ValueError`. |
+| `mode` | Which agent runs: `"computer use"` drives this desktop (Windows, macOS or Linux, detected automatically), `"computer use, daisy chain"` does the same and can also hand work to the phone sub-agents when a phone is connected (Android everywhere, iPhone on macOS; plain `"computer use"` lists them offline), `"coder"` runs the coding agent straight in your terminal, `"browser"` drives Chrome, `"mobile use, ios"` drives an iPhone/iPad or an iOS Simulator, `"mobile use, android"` an Android emulator or your Android phone. Case, underscores and commas don't matter; hyphens do: `"computer-use"` raises `ValueError`. |
 | `provider` | `"openrouter"`, `"groq"`, `"openai"`, `"anthropic"`, `"google"`, `"perplexity"`, `"together"`, `"cerebras"`, `"requesty"`, `"aws"` or `"ollama"`. The key comes from `<PROVIDER>_API_KEY` in the environment or `.env` (e.g. `OPENROUTER_API_KEY`, or `AWS_API_KEY` for a Bedrock API key), or from `api_key=` (Part 9). Google's `-vertex` models take no key: they use `VERTEX_PROJECT_ID` / `VERTEX_LOCATION` and your Google Cloud credentials. `"ollama"` takes none either: it runs a model on this machine (Part 5). |
 | `model` | A model name from [model_list.txt](model_list.txt), copied exactly. It isn't checked up front: an unknown name is sent to the provider as-is and fails at the first request. |
 | `task` | What the agent should do. |
@@ -40,12 +40,12 @@ All four are required even with `ui=True`, where the app ignores them (Part 7).
 |---|---|---|---|
 | `ui` | every mode | `False` (run `task` in the terminal) | 7 |
 | `save_conversation` | every mode | `False` | 4 |
-| `speed` | `"computer use"`, `"web use"`, `"mobile use, ios"` | `"quality"` | 3 |
-| `external_terminal` | `"computer use"`, `"shell use"` | `False` | 8 |
-| `headless` | `"web use"` | `False` (visible Chrome) | 1 |
-| `browser_port` | `"web use"` | `9222` | 1 |
-| `browser_profile` | `"web use"`, single task | the `"default"` profile | 1 |
-| `extra_tasks` | `"web use"`; `"mobile use, ios"` and `"mobile use, android"` with `device="simulation"` | none (one task) | 2 |
+| `speed` | `"computer use"`, `"browser"`, `"mobile use, ios"` | `"quality"` | 3 |
+| `external_terminal` | `"computer use"`, `"coder"` | `False` | 8 |
+| `headless` | `"browser"` | `False` (visible Chrome) | 1 |
+| `browser_port` | `"browser"` | `9222` | 1 |
+| `browser_profile` | `"browser"`, single task | the `"default"` profile | 1 |
+| `extra_tasks` | `"browser"`; `"mobile use, ios"` and `"mobile use, android"` with `device="simulation"` | none (one task) | 2 |
 | `device` | `"mobile use, ios"`, `"mobile use, android"` | `"simulation"` | 6, 10 |
 | `ios_version` | `"mobile use, ios"` + simulation | newest installed runtime | 6 |
 | `android_version` | `"mobile use, android"` + simulation | newest one already here (Android Studio's images count), else `"17"` | 10 |
@@ -62,11 +62,11 @@ All four are required even with `ui=True`, where the app ignores them (Part 7).
 
 ---
 
-# Part 1 — Web use: headless, port and profile
+# Part 1 — Browser: headless, port and profile
 
 ## Headless (`headless`)
 
-`"web use"` drives a real Chrome via CDP. **Headless** means Chrome runs
+`"browser"` drives a real Chrome via CDP. **Headless** means Chrome runs
 **without a visible window**: the agent still loads pages, clicks, types and
 takes screenshots exactly the same way, you just don't see a browser on screen.
 
@@ -77,17 +77,17 @@ takes screenshots exactly the same way, you just don't see a browser on screen.
 | Screen clutter / tab flicker | Yes, esp. with parallel tasks | None |
 | Agent behaviour | Same | Same |
 
-**Default: `headless=False`**, a visible window. The web `AgentService` and
+**Default: `headless=False`**, a visible window. The browser `AgentService` and
 `launch_chrome` both default to it, so if you don't pass `headless` you get a
 headful browser.
 
 ```python
 run_agent(
-    mode="web use",
+    mode="browser",
     provider="openrouter",
     model="gemini-3.8-flash",
     task="find the cheapest flight from London to Paris next Friday",
-    headless=True,          # "web use" only: Chrome without a window
+    headless=True,          # "browser" only: Chrome without a window
 )
 ```
 
@@ -124,7 +124,7 @@ listening there. **Default: `9222`.** Pass a whole number:
 
 ```python
 run_agent(
-    mode="web use",
+    mode="browser",
     provider="openrouter",
     model="gemini-3.8-flash",
     task="check the weather in Tokyo",
@@ -145,7 +145,7 @@ profile**, which persists the same way.
 
 ```python
 run_agent(
-    mode="web use",
+    mode="browser",
     provider="openrouter",
     model="gemini-3.8-flash",
     task="check my unread messages on LinkedIn",
@@ -166,9 +166,9 @@ run_agent(
 
 Works in three modes, with the same `extra_tasks` flag:
 
-| | `"web use"` | `"mobile use, ios"` + `device="simulation"` | `"mobile use, android"` + `device="simulation"` |
+| | `"browser"` | `"mobile use, ios"` + `device="simulation"` | `"mobile use, android"` + `device="simulation"` |
 |---|---|---|---|
-| What each task gets | Its own web agent, pinned to **its own tab** | Its own **iOS Simulator** + its own WebDriverAgent | Its own **copy of the emulator** (read-only) + its own phone helper |
+| What each task gets | Its own browser agent, pinned to **its own tab** | Its own **iOS Simulator** + its own WebDriverAgent | Its own **copy of the emulator** (read-only) + its own phone helper |
 | Shared resource | **Your own Chrome**, through the AutoCua extension (headless: one browser of the agent's own) | Nothing shared, since a phone screen can't be split | The saved first boot, which every copy starts from and none changes |
 | Ports | None with a window (each agent has a line of its own to the extension); one DevTools port headless | One WDA port per task (8100, 8101, 8102, …) | One emulator per task (`emulator-5554`, `emulator-5556`, …) |
 | Limit | Practical (tabs + RAM) | Practical (RAM): a simulator is created when every installed one is taken | 16 emulators (adb's ports), and RAM: 2 to 4 GB each |
@@ -212,7 +212,7 @@ open github.com and find the trending Python repositories today
 """
 
 run_agent(
-    mode="web use",
+    mode="browser",
     provider="openrouter",
     model="gemini-3.8-flash",
     task=task,                      # task 1, runs in parallel with the rest
@@ -252,7 +252,7 @@ run_agent(
 )
 ```
 
-Only some flags reach the parallel tasks. Web: `save_conversation`, `speed`,
+Only some flags reach the parallel tasks. Browser: `save_conversation`, `speed`,
 `headless` and `browser_port`. iOS: `save_conversation`, `speed`,
 `ios_version`, `sim_device` and `app_build`. Android: `save_conversation`,
 `speed`, `android_version`, `sim_device` and `app_build`. Everything else
@@ -286,7 +286,7 @@ out anything you want to keep before running again.
 
 ## Tips
 
-- **Headless (web):** with a visible window, N agents share one browser window,
+- **Headless (browser):** with a visible window, N agents share one browser window,
   each in a background tab of its own; the window keeps showing whatever tab
   was in front, so click a tab to watch that agent. Pass `headless=True`
   (Part 1) for unattended runs.
@@ -327,7 +327,7 @@ out anything you want to keep before running again.
 Implemented in [AutoCua/agent_launcher.py](AutoCua/agent_launcher.py):
 `run_agent(..., extra_tasks=[...])` filters out empty entries and, if any
 remain, hands `[task] + extras` to either `run_parallel_web_agents()`, with one
-`python -m AutoCua.web.agent` child per task against the shared Chrome port,
+`python -m AutoCua.browser.agent` child per task against the shared Chrome port,
 or `run_parallel_sim_agents()`, with one simulator + one WebDriverAgent
 (`WDA_PORT` 8100, 8101, …) + one `python -m AutoCua.ios.agent` child per task.
 Each iOS child gets its port via `AutoCua_WDA_PORT` and its own
@@ -356,7 +356,7 @@ also call any of these functions directly from your own script.
 
 Both modes have the same action tools. `fast` swaps the notes the model writes
 each step for `next_goal` alone and uses a shorter prompt, so each step is
-cheaper and quicker. In `"web use"` it goes further: the model gets the
+cheaper and quicker. In the `"browser"` mode it goes further: the model gets the
 element tree without the screenshot, and the on-page cursor no longer glides
 between actions.
 
@@ -365,9 +365,9 @@ between actions.
 | Mode | `speed` supported? |
 |---|---|
 | `"computer use"` (Windows, macOS, Linux) | ✅ `"quality"` / `"fast"` |
-| `"web use"` | ✅ `"quality"` / `"fast"` |
+| `"browser"` | ✅ `"quality"` / `"fast"` |
 | `"mobile use, ios"` | ✅ `"quality"` / `"fast"` |
-| `"shell use"` | ❌ Ignored |
+| `"coder"` | ❌ Ignored |
 
 The coding agents that `"computer use"` hands work to don't take `speed`
 either; it applies to the main agent only.
@@ -402,8 +402,8 @@ Each platform's `AgentService.__init__` (e.g.
 normalises `speed`, loads `fast_system_prompt.md` or `system_prompt.md` from
 the same folder, and passes the mode to `LLMManager`, which sends the
 `MAIN_TOOLS_FAST` registry (notes tool `memory`) or `MAIN_TOOLS` (notes tool
-`reasoning`). The web agent does the same in Rust
-([AutoCua/web/agent/main_driver/service.rs](AutoCua/web/agent/main_driver/service.rs)),
+`reasoning`). The browser agent does the same in Rust
+([AutoCua/browser/agent/main_driver/service.rs](AutoCua/browser/agent/main_driver/service.rs)),
 and falls back to quality only if its `fast_system_prompt.md` is missing.
 
 ---
@@ -422,7 +422,7 @@ Works in **every mode**.
 ## Default
 
 **`save_conversation=False`: no conversation log.** Two things still touch the
-disk either way: every `"computer use"`, `"web use"` and `"mobile use"` run
+disk either way: every `"computer use"`, `"browser"` and `"mobile use"` run
 clears `./debug/` when it starts, so don't keep your own files there; and the
 coding agents that `"computer use"` hands work to always log under
 `./cli_conversation/`. A run leaves `./conversation/` and `./raw_reasoning/`
@@ -450,7 +450,7 @@ agent could see at step N. You'll also see
 conversation** (a run without it leaves them), so copy anything you want to
 keep before the next one.
 
-- **`"shell use"`** writes `./cli_conversation/<session id>/conversation_N.txt`
+- **`"coder"`** writes `./cli_conversation/<session id>/conversation_N.txt`
   with a `raw_reasoning/` folder inside it instead, one folder per run, and
   never clears old ones.
 - **Parallel runs** (Part 2) write each task's copy under
@@ -483,9 +483,9 @@ Each `AgentService.__init__` (e.g.
 [AutoCua/windows/agent/computer_use/service.py](AutoCua/windows/agent/computer_use/service.py))
 resets `conversation/` and `raw_reasoning/` only when the flag is on, then calls
 `_save_conversation_snapshot()` after every LLM step to write
-`conversation_N.txt`. The web agent does the same in Rust
+`conversation_N.txt`. The browser agent does the same in Rust
 (`save_conversation_snapshot` in
-[AutoCua/web/agent/main_driver/service.rs](AutoCua/web/agent/main_driver/service.rs)).
+[AutoCua/browser/agent/main_driver/service.rs](AutoCua/browser/agent/main_driver/service.rs)).
 
 ---
 
@@ -508,13 +508,13 @@ Settings → API Keys is used too, after `.env`.
 
 Together has no native web search. When the desktop or iOS agent calls its `web` tool
 with `provider="together"`, the query is handed to the **browser agent**
-(`AutoCua/web`) running **headless on the same model**, and its final
+(`AutoCua/browser`) running **headless on the same model**, and its final
 `done` report comes back as the web result. Expect that step to take a few
 minutes rather than seconds.
 
 - Runs in its own headless Chrome on port **9333** (`AutoCua_WEB_FALLBACK_PORT`)
   with its own profile **web_fallback** (`AutoCua_WEB_FALLBACK_PROFILE`), never
-  the visible one `"web use"` uses, so it can't disturb the desktop agent's
+  the visible one the `"browser"` mode uses, so it can't disturb the desktop agent's
   screen.
 - Wall-clock cap **15 min** (`AutoCua_WEB_FALLBACK_TIMEOUT`, seconds); the
   Stop button / Ctrl+C interrupts it.
@@ -613,7 +613,7 @@ Any other pulled model can be passed as `model=` and is sent as is, thinking at 
 The app's model list shows every pulled model that can call tools, read when the app opens (reopen
 it after pulling another or starting Ollama); Telegram reads it on every pick, and offers Ollama
 only while it runs. A model needs `tools` in `ollama show <model>` for every agent, and `vision`
-for computer, web and mobile use: without either, the run stops at once and says why. The lists
+for computer use, the browser agent and mobile use: without either, the run stops at once and says why. The lists
 mark a model without vision, which suits the coder only. Thinking levels are the model's own:
 Qwen3.8 has off, `low`, `medium` and `xhigh`, and a level a model does not have is ignored without
 an error.
@@ -896,7 +896,7 @@ can watch it work:
 | macOS | A Terminal.app window |
 | Linux | The first of `gnome-terminal`, `ptyxis`, `konsole`, `xfce4-terminal`, `x-terminal-emulator`, `xterm` that is installed |
 
-In `"shell use"` the coding agent already runs in your terminal, so the flag
+In the `"coder"` mode the coding agent already runs in your terminal, so the flag
 only opens its minions in their own windows.
 
 ## Default
@@ -914,7 +914,7 @@ run_agent(
 )
 ```
 
-- Ignored by `"web use"`, `"mobile use, ios"`, parallel runs and `ui=True`.
+- Ignored by `"browser"`, `"mobile use, ios"`, parallel runs and `ui=True`.
 - A run that never hands work to a coding agent opens no windows.
 - Linux needs one of the terminals listed above installed: with none of them,
   the run waits on a coding agent that never started.
@@ -953,7 +953,7 @@ run_agent(
 Only for `mode="mobile use"` written **without** the device:
 `mode="mobile use", os="ios"` is the same as `mode="mobile use, ios"`. A
 device written in `mode` wins, and `os` never picks the host OS for
-`"computer use"` or `"shell use"`, which is always detected automatically.
+`"computer use"` or `"coder"`, which is always detected automatically.
 **Default: `None`.** Writing `mode="mobile use, ios"` is simpler.
 
 ---
@@ -1056,7 +1056,7 @@ the phone helper, the Rust Android agent (built, on a checkout), then the
 terms question, the downloads with their progress, and the first boot. A
 failed item says what to do. Exit code 0 when the emulator is ready. From a
 checkout, `setup_mac.sh`, `setup_linux.sh` and `setup_windows.bat` build the
-Android agent next to the web agent, and download none of the rest.
+Android agent next to the browser agent, and download none of the rest.
 
 ## The hypervisor
 

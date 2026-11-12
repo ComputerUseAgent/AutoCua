@@ -1,7 +1,7 @@
 /* =====================================================================
    Agent Notes styles (13px to match the todo list). The main container's
    notes stage is gone (parked in container/dead/notes_stage/); these rules
-   stay for Shell use's notes rows under the terminal (cli_container/
+   stay for Coder's notes rows under the terminal (cli_container/
    coder_card.css builds on them) and for the shared .md Markdown styles
    every rendered reply uses (run_reply.js, tracking progress). Same accent
    treatment as the todo tick / tracking dots: #9292d8 drifting through the

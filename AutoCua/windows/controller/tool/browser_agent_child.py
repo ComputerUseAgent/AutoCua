@@ -98,7 +98,7 @@ def main():
     parser.add_argument("--model", type=str, required=True, help="LLM model name")
     parser.add_argument("--speed", type=str, default=None, help='"quality" or "fast"')
     parser.add_argument("--session-id", type=str, default=None,
-                        help="Scopes web/scratchpad/{sid}/ for this run")
+                        help="Scopes browser/scratchpad/{sid}/ for this run")
     parser.add_argument("--result", type=str, default=None,
                         help="Path to write the result JSON when complete")
     parser.add_argument("--browser-port", type=int, default=None,
@@ -110,7 +110,7 @@ def main():
     result = {"status": "error", "message": "child crashed before the agent returned"}
     exit_code = 1
     try:
-        from AutoCua.web.agent import AgentService
+        from AutoCua.browser.agent import AgentService
 
         # No text_callback: the agent does not guard that one
         live = _LiveView(Path(args.result).resolve().parent) if args.result else None

@@ -40,7 +40,7 @@ from pathlib import Path
 from AutoCua import data_root, IS_COMPILED
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_WEB_SCRATCHPAD = _REPO_ROOT / "AutoCua" / "web" / "scratchpad"
+_WEB_SCRATCHPAD = _REPO_ROOT / "AutoCua" / "browser" / "scratchpad"
 _CHILD = Path(__file__).resolve().parent / "browser_agent_child.py"
 
 # The child has its own 100-step cap; this bounds wall-clock.
@@ -103,7 +103,7 @@ def _cover_send(timeout: float = 10.0) -> None:
         if want != _cover["shown"]:
             try:
                 if _cover["bridge"] is None:
-                    from AutoCua.web.agent import Bridge
+                    from AutoCua.browser.agent import Bridge
                     _cover["bridge"] = Bridge()
                 _cover["bridge"].request({"type": "cover", "count": want}, timeout)
                 _cover["shown"] = want

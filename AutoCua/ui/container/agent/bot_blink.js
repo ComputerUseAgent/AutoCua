@@ -1,8 +1,8 @@
 // =====================================================================
 // The small bots' blink: the bot beside the AI's final message
-// (run_reply.css; Shell use's answers, coder_card.css), the run's bot
+// (run_reply.css; Coder's answers, coder_card.css), the run's bot
 // beside the bottom container while it runs (chain_bot.css), the mode's
-// bot on a fresh chat's box (chat_input/mode_bot.css), Shell use's run bot
+// bot on a fresh chat's box (chat_input/mode_bot.css), Coder's run bot
 // beside its terminal box and its minions' bots in it (coder_card.css), and
 // each sub-agent's bot beside its box (container/sub_agents). They blink the
 // way the owner's bot pages do (logo/*.html, autocua-helmet.html): a 0.78 s
@@ -10,7 +10,7 @@
 // beat and opens; the next one 3 to 5.4 s later, and about one time in four
 // a second blink 0.2 s after it. Each bot on its own time. A reply bot's eyes are a layer of its
 // box's ::before: their height goes on the box as --reply-eyes. The run's,
-// the mode's, Shell's run bot's, the minions' and the sub-agents' bots' eyes are an image: they squeeze by transform. Between blinks
+// the mode's, Coder's run bot's, the minions' and the sub-agents' bots' eyes are an image: they squeeze by transform. Between blinks
 // nothing changes. The mode's bot starts none while it flies over to be the
 // run's bot (a blink on then ends before it lands; no second one).
 // =====================================================================

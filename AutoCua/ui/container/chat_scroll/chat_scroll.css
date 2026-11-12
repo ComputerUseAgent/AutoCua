@@ -84,7 +84,7 @@
     grid-template-rows: auto var(--msg-gap) 0 0 auto auto;
     transition: --screen-ar 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
-/* A turn with nothing for its screen (Web use and iOS once done, a video
+/* A turn with nothing for its screen (Browser and iOS once done, a video
    gone): the reply alone (chat_scroll.js setLiveScreen). */
 .chat-turn.no-screen > .screen-container {
     display: none;

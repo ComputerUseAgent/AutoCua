@@ -1,6 +1,6 @@
 // Agent mode — wires the composer's bottom-left mode picker (agent_mode.tsx; transparent
 // trigger showing the selected mode's logo + name, menu floating above with
-// Computer use / Mobile use / Shell use / Web use). Always exactly one mode
+// Computer use / Mobile use / Coder / Browser). Always exactly one mode
 // selected (default Computer use); picking another swaps trigger label + logo.
 // Same wire-on-ready pattern as the other components (mounts on 'chatinput:ready').
 //
@@ -10,7 +10,7 @@
 // (detail {mode, sub?}) sets the selection SILENTLY — used by chat.js for New
 // chat and a reopened chat's lock.
 //
-// Shell use also shows an Auto / Manual pill right of the picker. Each real change
+// Coder also shows an Auto / Manual pill right of the picker. Each real change
 // dispatches 'shellinput:changed' (detail {mode:'auto'|'manual'}); cli_stage.js gives
 // the terminal's prompt to you (Manual) or the agent (Auto). 'shellinput:set'
 // ({mode}) asks for one (the terminal turns Manual on when you click into it). The
@@ -29,10 +29,10 @@
         // Two-level selection: the mode, plus each mode's chosen sub-option
         // (remembered per mode). Only Computer use has a default (This PC);
         // Mobile use starts with NO platform picked.
-        var state = { mode: 'computer', subs: { computer: 'thispc', mobile: null, shell: null, web: null } };
+        var state = { mode: 'computer', subs: { computer: 'thispc', mobile: null, coder: null, browser: null } };
         var MODE_LABEL = {
             computer: 'Computer use', mobile: 'Mobile use',
-            shell: 'Coder', web: 'Web use'
+            coder: 'Coder', browser: 'Browser'
         };
         var SUB_LABEL = { thispc: 'This PC', daisy: 'Daisy chain', ios: 'iOS', android: 'Android' };
         // iOS needs a Mac: its row is hidden elsewhere (agent_mode.css), and a
@@ -43,16 +43,16 @@
         // they must skip the "pick a sub-option first" gate below that Mobile
         // use relies on. Their sub stays null, which means no sub logo on the
         // trigger and no " on X" suffix in the running placeholder.
-        var NO_SUB_MODES = { shell: true, web: true };
+        var NO_SUB_MODES = { coder: true, browser: true };
 
         // Per-chat mode lock: once a chat has run in one mode it stays there —
         // the OTHER rows grey out with an "Open a new chat" hover hint.
-        // Driven by 'agentmode:lock' (detail {mode:'computer'|'mobile'|'shell'|'web'|null});
+        // Driven by 'agentmode:lock' (detail {mode:'computer'|'mobile'|'coder'|'browser'|null});
         // null unlocks (fresh chat that never ran).
         var lockedMode = null;
         var wrapRows = wrap.querySelectorAll('.agent-opt-wrap');
 
-        // Shell use's Auto / Manual (always Auto outside Shell use).
+        // Coder's Auto / Manual (always Auto outside Coder).
         var shellInput = 'auto';
         var SI_LABEL = { auto: 'Auto', manual: 'Manual' };
         var siBtn = wrap.querySelector('#shellInputBtn');
@@ -77,7 +77,7 @@
             wrap.dataset.sub = state.subs[state.mode] || 'none';  // sub logo; This PC/none -> nothing
             // Mirror the mode onto the composer so SIBLING controls can react in
             // pure CSS (the picker sits after them, so ~ / + can't reach back).
-            // Used by chat_input.css to drop the Fast/Quality toggle in Shell use.
+            // Used by chat_input.css to drop the Fast/Quality toggle in Coder.
             if (wrap.parentElement) wrap.parentElement.dataset.agentMode = state.mode;
             curLabel.textContent = MODE_LABEL[state.mode];
             wrap.dataset.shellInput = shellInput;
@@ -93,12 +93,12 @@
             });
         }
 
-        // Auto / Manual's one writer. Manual only in Shell use and never during a run
+        // Auto / Manual's one writer. Manual only in Coder and never during a run
         // (a run is the agent's); announced only when it really changes.
         function setShellInput(v) {
             var ci = document.querySelector('.chat-input');
             var running = !!(ci && ci.classList.contains('agent-active'));
-            var next = (v === 'manual' && state.mode === 'shell' && !running) ? 'manual' : 'auto';
+            var next = (v === 'manual' && state.mode === 'coder' && !running) ? 'manual' : 'auto';
             var changed = next !== shellInput;
             shellInput = next;
             paint();
@@ -109,7 +109,7 @@
             // Leaving Mobile use drops its platform tick: iOS/Android are only
             // ticked while they ARE the selection (pairing closed = no tick).
             if (state.mode !== 'mobile') state.subs.mobile = null;
-            if (state.mode !== 'shell') setShellInput('auto');   // Manual is Shell use's only
+            if (state.mode !== 'coder') setShellInput('auto');   // Manual is Coder's only
             paint();
             // Announced for the future wiring (ios_session etc.); nothing
             // listens yet — connection stays unattached by design.
@@ -215,7 +215,7 @@
                 }
                 // A run just ended while you were already typing in the terminal (it is
                 // yours again a moment before the chat box is): the pill says Manual.
-                if (!now && state.mode === 'shell' && document.body.classList.contains('cli-typing')) setShellInput('manual');
+                if (!now && state.mode === 'coder' && document.body.classList.contains('cli-typing')) setShellInput('manual');
             }).observe(chatInput, { attributes: true, attributeFilter: ['class'] });
         }
 
@@ -223,7 +223,7 @@
         // start). Locking to a mode greys the other row; null unlocks.
         document.addEventListener('agentmode:lock', function (e) {
             var d = e.detail || {};
-            // Any real mode locks (the label map is the source of truth — shell
+            // Any real mode locks (the label map is the source of truth — coder
             // included); anything else (null / garbage) unlocks.
             lockedMode = MODE_LABEL[d.mode] ? d.mode : null;
             paint();

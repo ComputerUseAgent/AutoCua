@@ -1,7 +1,7 @@
 # `pip install AutoCua` — one wheel per OS/arch holding the AutoCua package
 # and the Rust extension prebuilt, so no Rust is needed on the user's machine:
-# the one crate in AutoCua/ (the web agent, the Android agent, the coder, the
-# computer-use agent and the iPhone agent), which maturin builds.
+# the one crate in AutoCua/ (the browser agent, the Android agent, the coder,
+# the computer-use agent and the iPhone agent), which maturin builds.
 # Built with maturin:
 #
 #   pip install maturin
@@ -97,8 +97,8 @@ Homepage = "https://github.com/ComputerUseAgent/AutoCua"
 Source = "https://github.com/ComputerUseAgent/AutoCua"
 
 [tool.maturin]
-# The one crate lives inside the package (AutoCua/Cargo.toml: the web agent,
-# the Android agent, the coder, the computer-use agent and the
+# The one crate lives inside the package (AutoCua/Cargo.toml: the browser
+# agent, the Android agent, the coder, the computer-use agent and the
 # iPhone agent) and is imported as AutoCua.agent_native; python-source = "."
 # makes ./AutoCua the package.
 manifest-path = "AutoCua/Cargo.toml"
@@ -109,6 +109,9 @@ exclude = [
     # wheel ships the compiled extension — no Cargo.toml in it means the
     # loader never tries cargo.
     { path = "AutoCua/*.rs", format = "wheel" },
+    { path = "AutoCua/browser/**/*.rs", format = "wheel" },
+    # AutoCua/web: the browser agent's old folder. A checkout from before the
+    # rename keeps leftover files there, so its lines stay.
     { path = "AutoCua/web/**/*.rs", format = "wheel" },
     { path = "AutoCua/android/**/*.rs", format = "wheel" },
     { path = "AutoCua/coder/**/*.rs", format = "wheel" },
@@ -120,6 +123,7 @@ exclude = [
     { path = "AutoCua/Cargo.lock", format = "wheel" },
     # never shipped
     "AutoCua/target/**",
+    "AutoCua/browser/scratchpad/**",
     "AutoCua/web/scratchpad/**",
     "AutoCua/android/scratchpad/**",
     "AutoCua/coder/scratchpad/**",
@@ -141,6 +145,7 @@ exclude = [
     "AutoCua/api_key/**",
     "AutoCua/agent_conversation/*.json",
     "AutoCua/agent_conversation/chat_*/**",
+    "AutoCua/browser/HANDOFF.md",
     "AutoCua/web/HANDOFF.md",
     "AutoCua/Structure.md",
     "AutoCua/**/test.py",

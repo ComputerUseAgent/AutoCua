@@ -50,13 +50,13 @@ body.cli-stage #cliContainer {
 body.cli-stage #chatScroll { transform: translateY(-100%); opacity: 0; pointer-events: none; }
 
 /* =====================================================================
-   Shell use: a chat with a terminal box (#cliContainer, the Shell card,
+   Coder: a chat with a terminal box (#cliContainer, the Coder card,
    cli_container/coder_card.css) filling the frame. Nothing else in the
    frame (picked in a fresh chat, the CoderUse bot comes in over it first and
    then stands on the chat box: chat_input/mode_bot.js). The chat box's
    Auto / Manual pill only says whose the prompt is.
    ===================================================================== */
-body.cli-shell #cliContainer {
+body.cli-coder #cliContainer {
     grid-column: 1 / -1;
     grid-row: 1 / -1;
     align-self: start;
@@ -66,14 +66,14 @@ body.cli-shell #cliContainer {
     min-height: 0;
 }
 /* a size container: the terminal box opens to a share of it (coder_card.css) */
-body.cli-stage.cli-shell #cliContainer { padding: 0; position: relative; container-type: size; }
-body.cli-shell #cliContainer .cc-agent {
+body.cli-stage.cli-coder #cliContainer { padding: 0; position: relative; container-type: size; }
+body.cli-coder #cliContainer .cc-agent {
     position: absolute;
     inset: 0;
 }
 /* While the CoderUse bot comes in to a fresh chat (chat_input/mode_bot.js), the
    chat waits, unseen (only its opacity: the bot's flight up aims at the box's real
    place if you send meanwhile). */
-body.mode-intro.mode-fresh.cli-shell #cliContainer .cc-agent {
+body.mode-intro.mode-fresh.cli-coder #cliContainer .cc-agent {
     opacity: 0;
 }

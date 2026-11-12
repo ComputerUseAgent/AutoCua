@@ -180,7 +180,7 @@ def browser_profile_dir(name=None, browser=None) -> Path:
     localStorage and IndexedDB live in here and survive between runs, so a site
     the agent signed into once does not have to be signed into again — which
     matters far more than any fingerprint tuning, because a login wall is where
-    a web agent usually stops.
+    a browser agent usually stops.
     """
     if browser is None:
         browser = "chrome"
@@ -282,7 +282,7 @@ def skills_dir(platform=None) -> Path:
 
 def vault_file() -> Path:
     """AutoCua_data/vault/credentials.json — the app's saved credentials, one
-    section per device: {"ios": {<app>: {...}}, "web": {<site>: {...}}}. Each
+    section per device: {"ios": {<app>: {...}}, "browser": {<site>: {...}}}. Each
     agent reads only its own section.
 
     Created with empty sections if absent, so the folder is discoverable and the
@@ -293,7 +293,7 @@ def vault_file() -> Path:
         try:
             # write_text -> io.open, so the compiled build's builtins.open patch
             # can't swallow the write into a throwaway buffer.
-            p.write_text('{\n  "ios": {},\n  "web": {}\n}\n', encoding="utf-8")
+            p.write_text('{\n  "ios": {},\n  "browser": {}\n}\n', encoding="utf-8")
         except Exception:
             logger.exception("create %s", p)
     return p

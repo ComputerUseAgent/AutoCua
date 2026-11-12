@@ -5,11 +5,11 @@ build the Rust extension. A `pip install`
 runs neither: a wheel is unpacked, never executed. So each step also has to be
 reachable from the first run that needs it, which is what lives here.
 
-    rust.py        compile AutoCua/web and AutoCua/android (no-op from a
+    rust.py        compile AutoCua/browser and AutoCua/android (no-op from a
                    wheel — both ship prebuilt)
     wda.py         where WebDriverAgent must be for iOS (AutoCua_data), and the
                    command to put it there: never downloaded
-    chrome.py      find Google Chrome for the web agent: never downloaded
+    chrome.py      find Google Chrome for the browser agent: never downloaded
     ocr_models.py  fetch the PP-OCRv6 models for the Linux scanner's OCR
     electron.py    fetch Electron for the desktop app's Chromium window, once
                    the person says yes to it (the only one that asks first)

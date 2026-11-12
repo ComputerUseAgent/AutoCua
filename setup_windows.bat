@@ -226,11 +226,12 @@ if !errorlevel! neq 0 (
 )
 echo [OK] Requirements installed
 
-:: --- 7. Rust toolchain (for the web agent) ---
-:: The web agent is a Rust extension module (AutoCua\web, PyO3 cdylib) that
-:: AutoCua\web\agent\__init__.py compiles on first import. No cargo means
-::   python main.py  dies with "cargo not found" the moment web use is selected,
-:: so the toolchain belongs in setup rather than in a README step.
+:: --- 7. Rust toolchain (for the browser agent) ---
+:: The browser agent is a Rust extension module (AutoCua\browser, PyO3 cdylib)
+:: that AutoCua\browser\agent\__init__.py compiles on first import. No cargo
+:: means  python main.py  dies with "cargo not found" the moment the browser
+:: mode is selected, so the toolchain belongs in setup rather than in a README
+:: step.
 ::
 :: x86_64-pc-windows-gnu, NOT the usual msvc: the msvc target can only link
 :: through Visual Studio Build Tools, a 3-7 GB install with its own installer,
@@ -240,7 +241,7 @@ echo [OK] Requirements installed
 :: no difference to CPython.
 echo.
 echo ============================================
-echo   Rust toolchain (web agent)
+echo   Rust toolchain (browser agent)
 echo ============================================
 echo.
 
@@ -348,14 +349,14 @@ for /d %%D in ("%LOCALAPPDATA%\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.*
 if not defined MINGW_BIN (
     echo.
     echo [^^!] Could not find a mingw-w64 gcc after installing.
-    echo     The web agent will not build; every other mode still works.
+    echo     The browser agent will not build; every other mode still works.
     echo     Install it yourself and re-run:
     echo       winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e --source winget
-    goto :web_build
+    goto :browser_build
 )
 
 :: This session sees it via the prepend; later ones need the registry entry,
-:: because AutoCua\web\agent\__init__.py re-runs cargo whenever a .rs file
+:: because AutoCua\browser\agent\__init__.py re-runs cargo whenever a .rs file
 :: changes and cargo must still find gcc then.
 set "PATH=%MINGW_BIN%;%PATH%"
 powershell -NoProfile -Command ^
@@ -368,26 +369,26 @@ set "GCCLINE="
 for /f "usebackq delims=" %%v in (`gcc --version 2^>^&1`) do if not defined GCCLINE set "GCCLINE=%%v"
 echo [OK] Found !GCCLINE!
 
-:web_build
-:: Build the extension now instead of leaving it to the first "web use" run.
+:browser_build
+:: Build the extension now instead of leaving it to the first "browser" run.
 :: Doing it here means a compile error surfaces during setup, where the user is
 :: already watching, rather than mid-task minutes into an agent run.
 echo.
 echo ============================================
-echo   Building the web agent and the Android agent
+echo   Building the browser agent and the Android agent
 echo ============================================
 echo.
 echo [*] First build takes a few minutes...
-"venv\Scripts\python.exe" -c "import AutoCua.web.agent"
+"venv\Scripts\python.exe" -c "import AutoCua.browser.agent"
 if !errorlevel! neq 0 (
     echo.
-    echo [^^!] The web agent did not build. Everything else still works -
-    echo     computer use, shell use and mobile use do not need it.
+    echo [^^!] The browser agent did not build. Everything else still works -
+    echo     computer use, coder and mobile use do not need it.
     echo     Re-run this script after fixing the error above to retry.
 ) else (
-    echo [OK] Web agent built
+    echo [OK] Browser agent built
 )
-:: The Android agent (AutoCua\android, Rust like the web agent) is built the
+:: The Android agent (AutoCua\android, Rust like the browser agent) is built the
 :: same way, so the first "mobile use, android" run does not stop for a build.
 :: The emulator and the Android images are NOT fetched here (2.5 GB, Google's
 :: terms): the first emulator run does that, or

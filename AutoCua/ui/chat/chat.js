@@ -30,18 +30,18 @@
     var MODE_ICON_PATHS = {
         computer: '<rect x="3" y="4" width="18" height="12" rx="1"/><path d="M7 20h10"/><path d="M9 16v4"/><path d="M15 16v4"/>',
         mobile: '<rect x="5.5" y="2" width="13" height="20" rx="2.5"/><path d="M10.5 18h3"/>',
-        shell: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 8h18"/><path d="M7 12l2.5 2.5L7 17"/><path d="M13 17h4"/>',
-        web: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><ellipse cx="12" cy="12" rx="4" ry="9"/>'
+        coder: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 8h18"/><path d="M7 12l2.5 2.5L7 17"/><path d="M13 17h4"/>',
+        browser: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><ellipse cx="12" cy="12" rx="4" ry="9"/>'
     };
 
     function chatModeIcon(row) {
-        // agent_mode is stamped at chat mint (shell-conversation work); legacy
+        // agent_mode is stamped at chat mint (coder-conversation work); legacy
         // rows fall back to run_pkg (ios/android -> mobile, anything else ->
         // computer, same inference the reopen path uses).
         var mode = row.agent_mode;
         if (!MODE_ICON_PATHS[mode]) {
             mode = (row.run_pkg === 'ios' || row.run_pkg === 'android') ? 'mobile'
-                 : (row.run_pkg === 'web') ? 'web' : 'computer';
+                 : (row.run_pkg === 'browser') ? 'browser' : 'computer';
         }
         var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('class', 'chat-mode-icon');
@@ -148,11 +148,11 @@
                 if (!data || data.error) return;
                 // Full life of the chat: request/outcome pairs (exchanges.json).
                 var exchanges = Array.isArray(data.exchanges) ? data.exchanges : [];
-                // A SHELL chat renders its history in the CLI stage's own notes
+                // A CODER chat renders its history in the CLI stage's own notes
                 // row under the terminal.
-                var isShell = (data.agent_mode === 'shell');   // single read point of the backend marker
-                if (isShell) {
-                    if (window.cliShellHistory) window.cliShellHistory(exchanges);
+                var isCoder = (data.agent_mode === 'coder');   // single read point of the backend marker
+                if (isCoder) {
+                    if (window.cliCoderHistory) window.cliCoderHistory(exchanges);
                 } else {
                     // Its last turn, like the live view after a run: the request
                     // top right, the reply in the bottom container. The reply is
@@ -171,14 +171,14 @@
                     if (reply && window.showRunReply) window.showRunReply(reply, (last && last.status) || 'success', true);
                     // And its video, where it was when the run ended: a Computer
                     // use run's on its stage (run_bot.js). The backend sends
-                    // video_url only while that run's video is on disk. Web use and
-                    // iOS keep no screen once a run is over (not even an older Web
-                    // use recording).
-                    var noVideo = data.agent_mode === 'web' || data.agent_mode === 'mobile';
+                    // video_url only while that run's video is on disk. Browser and
+                    // iOS keep no screen once a run is over (not even an older
+                    // Browser recording).
+                    var noVideo = data.agent_mode === 'browser' || data.agent_mode === 'mobile';
                     var video = (last && !noVideo && last.video_url) || '';
                     if (window.chatScroll) {
                         window.chatScroll.setLive(liveRun, (last && last.recording) || '');
-                        // Nothing for its screen (Web use, iOS, or its video is gone):
+                        // Nothing for its screen (Browser, iOS, or its video is gone):
                         // no empty box, like its earlier turns.
                         window.chatScroll.setLiveScreen(running || !!video);
                     }
@@ -194,23 +194,23 @@
                 if (window.updateMemoryBar) window.updateMemoryBar(data.context_tokens || 0, data.context_cap || 300000);
                 if (window.showMemoryBar) window.showMemoryBar();
                 // Per-chat mode lock: the chat follows the agent that ran it.
-                // shell marker -> Shell use (the terminal re-pins via the silent
+                // coder marker -> Coder (the terminal re-pins via the silent
                 // set below); ios/android -> Mobile use with the device tick
                 // CLEARED (the phone session is gone — the user re-picks
                 // iOS/Android to re-pair); any desktop pkg -> Computer use;
                 // untagged -> free.
                 var pkg = data.run_pkg || '';
-                var lockMode = isShell ? 'shell'
+                var lockMode = isCoder ? 'coder'
                     : ((pkg === 'ios' || pkg === 'android') ? 'mobile'
-                    : (pkg === 'web' ? 'web'
+                    : (pkg === 'browser' ? 'browser'
                     : (pkg ? 'computer' : null)));
                 document.dispatchEvent(new CustomEvent('agentmode:lock', { detail: { mode: lockMode } }));
                 if (lockMode) {
                     document.dispatchEvent(new CustomEvent('agentmode:set', {
                         detail: lockMode === 'mobile' ? { mode: 'mobile', sub: null } : { mode: lockMode }
                     }));
-                } else if (document.body.classList.contains('cli-shell')) {
-                    // Untagged chat opened while the shell terminal is pinned —
+                } else if (document.body.classList.contains('cli-coder')) {
+                    // Untagged chat opened while the Coder terminal is pinned —
                     // its notes render in the stage BEHIND the panel and would be
                     // invisible. Hand the view back to the default mode (the CLI
                     // stage follows the silent set and slides the terminal away).

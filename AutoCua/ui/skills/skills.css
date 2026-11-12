@@ -74,14 +74,14 @@
 .skills-stage.active {
     display: flex;
     /* OPAQUE. The host zone is transparent, so without this the four zones
-       behind it (and the shell terminal) show straight through the skills
+       behind it (and the Coder terminal) show straight through the skills
        list. Same colour as <body> so the stage reads as the app surface. */
     background: #FFFFFF;
 }
 
 /* ── Skills owns the screen while it's open ───────────────────────────────
-   The host (.big-center-zone) sits at z-index 5 and the pinned shell panel
-   (#cliContainer) at 6, so in Shell use the terminal — its "AutoCua Code"
+   The host (.big-center-zone) sits at z-index 5 and the pinned Coder panel
+   (#cliContainer) at 6, so in Coder the terminal — its "AutoCua Code"
    header, its Agent Notes — rendered straight OVER the skills list. While
    `skills-open` is on the body, Skills wins the stack and everything else in
    the grid stands down. Driven by one body class rather than per-surface JS,

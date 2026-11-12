@@ -5,7 +5,7 @@
 # list is whatever the person has pulled: any name `ollama list` shows can be
 # typed as the model and is sent verbatim. The agents need native
 # (OpenAI-format) tool calling, and vision wherever they send screenshots
-# (computer use, web, mobile); `ollama show <model>` lists both under
+# (computer use, browser, mobile); `ollama show <model>` lists both under
 # Capabilities, as "tools" and "vision".
 #
 # `effort` goes out as reasoning_effort, which Ollama maps onto the model's
@@ -23,7 +23,7 @@
 # Probed 2026-11-08/09 on Ollama 0.40.15 (Apple M5 Pro, 64 GB) with the real
 # computer-use prompt and tools (step times below: a warm step, fast /
 # quality mode), then end to end: a coder task (write and run a script) and
-# a web task in headless Chrome (read a page's heading):
+# a browser task in headless Chrome (read a page's heading):
 # - qwen3.8:27b: dense 27B, MLX, 18 GB. Thinking levels false/low/medium/
 #   xhigh (default medium); `high` is not one of them and thinks at the
 #   default. 17 s / 27 s a step; acted on the first step every time; both
@@ -43,7 +43,7 @@
 # Left out, from the same probe: qwen3.5:35b-a3b-nvfp4 (as fast, but sent
 # malformed tool calls and failed the coder task), gemma4:26b-nvfp4 (a
 # mixture of experts as fast, but only ever wrote notes in the screen
-# agents: 100 web steps without one action), nemotron-3.5-bolt:e4b-nvfp4
+# agents: 100 browser steps without one action), nemotron-3.5-bolt:e4b-nvfp4
 # (fastest, 3 s a step, but no tool calls in fast mode, the coder's sent as
 # text, and a 65536-token window), mimo-v2.6:9b-nvfp4 (failed both tasks)
 # and gemma4:31b-mlx (dense, slowest at 23 s / 36 s a step, the coder's

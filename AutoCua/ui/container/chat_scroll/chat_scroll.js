@@ -14,7 +14,7 @@
 //   • A run's video can come after its turn became an earlier one (the next
 //     task was sent while it was being compressed): videoTurn finds its turn
 //     by run id or recording folder, showVideo puts it there (screen.js).
-//   • Each turn knows its mode's bot (data-bot: 'computer', 'web', 'mobile'),
+//   • Each turn knows its mode's bot (data-bot: 'computer', 'browser', 'mobile'),
 //     the one beside its reply (run_reply.css).
 //   • A sub-agent's box opening or closing under the live turn's tools
 //     (sub_agents.js): a view at the chat's end goes along with it (follow).
@@ -309,12 +309,12 @@
     // (only iOS chats are saved as 'mobile'), or none (AutoCua's, a chat from
     // before modes were saved).
     function botOf(mode) {
-        return (mode === 'computer' || mode === 'web' || mode === 'mobile') ? mode : '';
+        return (mode === 'computer' || mode === 'browser' || mode === 'mobile') ? mode : '';
     }
 
     // A reopened chat's turns before its last one (its exchanges rows). A
-    // Computer use chat's videos on the stage's background; Web use and iOS
-    // turns keep no screen (not even an older Web use recording).
+    // Computer use chat's videos on the stage's background; Browser and iOS
+    // turns keep no screen (not even an older Browser recording).
     function addPast(rows, mode) {
         var past = byId('chatPast');
         if (!past) return;
@@ -324,7 +324,7 @@
                 text: x.task || '',
                 stage: mode === 'computer',
                 bot: botOf(mode),
-                video: (mode === 'web' || mode === 'mobile') ? '' : (x.video_url || ''),
+                video: (mode === 'browser' || mode === 'mobile') ? '' : (x.video_url || ''),
                 reply: x.done_html || '',
                 ended: (x.status || 'success') !== 'success',
                 rec: x.recording || recOf(x.video_url)
@@ -380,7 +380,7 @@
     }
 
     // The bot beside the live turn's reply: a sent task's (chat_input.js:
-    // 'computer', 'web', 'mobile' for iOS) or a reopened chat's (chat.js, its
+    // 'computer', 'browser', 'mobile' for iOS) or a reopened chat's (chat.js, its
     // saved mode).
     function setLiveBot(bot) {
         var live = byId('liveTurn');

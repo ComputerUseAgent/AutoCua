@@ -40,7 +40,7 @@ load_dotenv()
 
 # One manager for every platform (windows, mac, linux, ios): each platform's
 # AutoCua/<os>/tool_registry/service.py holds its tool lists and subclasses
-# LLMManager below to hand them in. The web agent's Rust manager builds its
+# LLMManager below to hand them in. The browser agent's Rust manager builds its
 # providers here too (build_provider, resolve_model_info).
 #
 # Every agent here speaks NATIVE TOOL CALLING — the tool registries ARE
@@ -228,7 +228,7 @@ def tool_calls_to_steps(tool_calls: list, allowed, defaults_map, track_params=No
         # REAL action: a `left_click` with no arguments becomes id 0 / clicks 1
         # and clicks whatever element 0 happens to be; an `input` with none
         # becomes id 0 / value "", which focuses element 0 and clears it.
-        # Observed in the wild on the web driver (gpt-5.6-luna emitted
+        # Observed in the wild on the browser agent's driver (gpt-5.6-luna emitted
         # `"arguments": {}` on one step, then a well-formed call on the next).
         # Reject it exactly the way an unknown tool name is rejected, so the
         # model gets an error keyed to its own call id and re-issues the step
@@ -283,7 +283,7 @@ _CLI_FALLBACK_CANDIDATES = {
     # Non-Claude on purpose, for the Claude entries too: a fallback keeps the
     # primary's tool registry, and the Claude one (`agent_memory`) suits any
     # model, while a Claude model handed the default `reasoning` tool has
-    # refused it (seen on the web Claude path).
+    # refused it (seen on the browser agent's Claude path).
     "aws":        ("kimi-k3", "grok-4.7"),
     # None: the models are the ones the person has pulled, and no other is
     # sure to be there.
@@ -349,7 +349,7 @@ def dialect_tools(provider: str, registry: list) -> list:
     if provider == "perplexity":
         return coder_tools_perplexity(registry)
     # aws takes this format too and makes Converse toolSpecs of it itself,
-    # because it is also what the web agent's Rust manager sends any provider
+    # because it is also what the browser agent's Rust manager sends any provider
     # it has no dialect for.
     return coder_tools_openai(registry)
 
@@ -378,7 +378,7 @@ def build_provider(provider: str, model_short_name: str, model_info: dict, tools
     own format (None for mode="text"), and the API key (_key: the runtime key
     from the frontend first, then .env and the environment, then the one
     saved in the app's Settings). Every platform's LLMManager builds its
-    provider here, and so does the web agent's Rust manager. Runs the Windows
+    provider here, and so does the browser agent's Rust manager. Runs the Windows
     TLS probe of this provider's own host first (a no-op on macOS and Linux)."""
     _ensure_tls_works(provider, model_short_name)
     if provider == "openrouter":

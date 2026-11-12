@@ -56,7 +56,7 @@ class CerebrasProvider:
             "max_completion_tokens": self.max_tokens or 32768,
             # The table's level for this caller: the coder and its
             # subagents (coder_effort) work through code and think hard;
-            # computer use, web and the memory handoff (effort) answer
+            # computer use, browser and the memory handoff (effort) answer
             # every step and stay quick.
             "reasoning_effort": entry_value(self.model_info, "effort", self.cli_agent),
         }

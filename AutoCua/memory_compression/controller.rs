@@ -4,7 +4,7 @@
 //! The compression agent is its OWN agent: WHEN it fires, HOW the worker
 //! runs and HOW the result is spliced back all live here, in ONE place
 //! shared by every platform agent (mac, windows, linux and ios in Python;
-//! web, android and the coder in Rust). An agent wires it with four hooks,
+//! browser, android and the coder in Rust). An agent wires it with four hooks,
 //! all called from its main loop:
 //!
 //!     reset()          at the top of process_request (makes stale workers harmless)

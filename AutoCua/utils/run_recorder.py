@@ -5,11 +5,11 @@
     AutoCua_data/recordings/<time>_<mode>/screen.mp4
 
 macOS: the built-in display, the one the mac agent's get_screen() picks
-(mac/tree/element.py), in Computer use and Web use alike. In Computer use a
+(mac/tree/element.py), in Computer use and Browser alike. In Computer use a
 CG capture contains neither the pointer nor the edge glow (the glow is a
 sharing-none window), so both are drawn in: the lavender arrow that
 agent_glow shows on Windows, shrinking on a click, and the breathing
-lavender edge glow. A Web run has neither on the desktop, so nothing is
+lavender edge glow. A Browser run has neither on the desktop, so nothing is
 drawn.
 
 It is full resolution (Retina on a Mac), 30 fps, H.264, with all four
@@ -25,7 +25,7 @@ for its screenshots, so no new permission is needed; OpenCV encodes.
 Linux: nothing is drawn in, because agent_glow's glow and lavender cursor are
 real on screen there. screen.mp4 in computer use is the PipeWire screencast
 of the agent's own RemoteDesktop portal session (no second consent dialog);
-in web use it is Chrome's own screencast over its DevTools port, since on
+in a browser run it is Chrome's own screencast over its DevTools port, since on
 Wayland one app cannot read another's window. imageio-ffmpeg encodes:
 OpenCV's Linux wheels cannot write H.264.
 Windows: nothing is drawn in either, because agent_glow's lavender arrow is
@@ -33,7 +33,7 @@ the real system cursor there and its glow is real windows. screen.mp4 in
 computer use is the primary display, the one the Windows agent screenshots,
 read through DXGI Desktop Duplication with the pointer composited in from
 the shape the compositor reports; GDI BitBlt stands in while duplication is
-unavailable. In web use it is the Chrome window, found by the pid listening
+unavailable. In a browser run it is the Chrome window, found by the pid listening
 on the DevTools port, read with PrintWindow and PW_RENDERFULLCONTENT: DWM
 renders the window's own pixels, Chrome's GPU content included, while other
 windows cover it. imageio-ffmpeg
@@ -58,7 +58,7 @@ from AutoCua import _ensure, data_root
 FPS = 30
 CORNER = 0.022        # corner radius, as a fraction of the short side
 CURSOR_PT = 32        # arrow size in points (agent_glow draws a 32-unit box)
-CHROME_PORT = 9222    # the web agent's DevTools port; the UI's web agent always uses it
+CHROME_PORT = 9222    # the browser agent's DevTools port; the UI's browser agent always uses it
 
 _live = set()         # recorders not finalized yet
 _live_lock = threading.Lock()
@@ -95,7 +95,7 @@ def supported() -> bool:
 
 
 def start(ui_window, kind, on_done=None):
-    """Start recording a run. kind is "computer" or "web". on_done(folder) is
+    """Start recording a run. kind is "computer" or "browser". on_done(folder) is
     called once it is finished, with None when nothing was captured. Returns
     the recorder, or None when recording is unsupported or could not start.
     ui_window is no longer used (only the main screen is recorded); callers
@@ -568,14 +568,14 @@ class _PipeWireScreen:
 
 
 class _Screencast:
-    """screen.mp4 in Linux web use. Chrome is a native Wayland client there
+    """screen.mp4 in a Linux browser run. Chrome is a native Wayland client there
     and one client cannot read another's window, so Chrome streams the page
-    itself over its DevTools port (Page.startScreencast), the port the web
+    itself over its DevTools port (Page.startScreencast), the port the browser
     agent drives it on. Every page is attached; only the tab on show sends
     frames, and the agent shows its tab through the browser's tabs API
     (browser.rs show_tab), so the video follows the agent's tab
     switches. The page already
-    carries the web agent's own cursor and glow. Never polls /json/list,
+    carries the browser agent's own cursor and glow. Never polls /json/list,
     which stalls under load."""
     PORT = CHROME_PORT
 
@@ -821,7 +821,7 @@ def _bgr(bgra, out=None):
 
 
 def _chrome_hwnd():
-    """The web agent's Chrome window: the largest titled window of the process
+    """The browser agent's Chrome window: the largest titled window of the process
     listening on its DevTools port (popups and tooltips have no title). The
     pid lookup takes ~1 ms. None until Chrome is up."""
     try:
@@ -1225,7 +1225,7 @@ class _Desktop:
 
 class _Recorder:
     def __init__(self, ui_window, kind, on_done):
-        self.kind = "web" if kind == "web" else "computer"
+        self.kind = "browser" if kind == "browser" else "computer"
         self.ui_window = ui_window
         self.on_done = on_done
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -1246,7 +1246,7 @@ class _Recorder:
         if sys.platform != "darwin":
             self._streams = self._linux_streams()
             return self._start()
-        # The main screen, in Computer use and Web use alike.
+        # The main screen, in Computer use and Browser alike.
         rect = _display_rect()
         first = _grab_display(rect)
         if first is None:
@@ -1403,7 +1403,7 @@ if __name__ == "__main__":
 
         for name, check in (("imageio-ffmpeg, the encoder", _ffmpeg),
                             ("GStreamer + pipewiresrc, the screen in computer use", _gst),
-                            ("websockets, the screen in web use", _ws)):
+                            ("websockets, the screen in a browser run", _ws)):
             try:
                 check()
                 print(f"  ok       {name}")

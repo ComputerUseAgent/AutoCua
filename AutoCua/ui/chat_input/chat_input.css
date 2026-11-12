@@ -374,14 +374,14 @@ body.left-bar-animating .chat-container-wrapper {
     transition: background-color 0.3s ease, opacity 0.18s ease;
 }
 .fast-quality-toggle:hover { background: #e2e8f0; }
-/* Shell use has no fast/quality split — the coder agent runs one way — so the
+/* Coder has no fast/quality split — the coder agent runs one way — so the
    toggle just fades out (and back in on the way to another mode).
    data-agent-mode is mirrored onto .input-area-wrapper by agent_mode.js. */
-.input-area-wrapper[data-agent-mode="shell"] .fast-quality-toggle {
+.input-area-wrapper[data-agent-mode="coder"] .fast-quality-toggle {
     opacity: 0;
     pointer-events: none;
 }
-/* Shell use on Manual (the Auto / Manual pill, mirrored by agent_mode.js as
+/* Coder on Manual (the Auto / Manual pill, mirrored by agent_mode.js as
    data-shell-input): you type in the terminal, so the box hides its text and says
    so, and the send orb rests. CSS only: the placeholder and disabled have other
    writers. visibility keeps the row, so nothing jumps; a draft waits for Auto. */
@@ -471,10 +471,10 @@ body.left-bar-animating .chat-container-wrapper {
 }
 
 /* RUNNING: same read-only treatment as the model picker beside it. Skipped in
-   Shell use — :has() scores as its most specific argument, so this selector
-   (0,4,0) outweighs the shell hide rule (0,3,0) and would fade the toggle back
-   IN at 45% the moment a shell run started. */
-.input-area-wrapper:not([data-agent-mode="shell"]):has(.chat-input.agent-active) .fast-quality-toggle {
+   Coder — :has() scores as its most specific argument, so this selector
+   (0,4,0) outweighs the coder hide rule (0,3,0) and would fade the toggle back
+   IN at 45% the moment a coder run started. */
+.input-area-wrapper:not([data-agent-mode="coder"]):has(.chat-input.agent-active) .fast-quality-toggle {
     opacity: 0.45;
     pointer-events: none;
 }
@@ -483,8 +483,8 @@ body.left-bar-animating .chat-container-wrapper {
    connects, Android or iPhone, link_toggle.js). The Fast / Quality pill itself
    (it carries .fast-quality-toggle, so the running fade above covers it too),
    with its own icons and colours: sky Wi-Fi = Wireless (left), green plug =
-   Wired (right). display:none in Shell use and Web use, so it takes no room
-   there; it fades in like Shell use's Auto / Manual pill. */
+   Wired (right). display:none in Coder and Browser, so it takes no room
+   there; it fades in like Coder's Auto / Manual pill. */
 .fast-quality-toggle.link-toggle { display: none; }
 .input-area-wrapper[data-agent-mode="mobile"] .link-toggle,
 .input-area-wrapper[data-agent-mode="computer"] .link-toggle { display: flex; animation: lkIn 0.3s ease; }
@@ -736,7 +736,7 @@ body.left-bar-animating .chat-container-wrapper {
     pointer-events: auto;
     /* Exactly the room the composer gives up as it collapses: its one idle text line
        (.chat-input min-height) and the tools' gap (--tools-gap), so the stack's top,
-       where the Shell bot stands, stays where it was. Keep the two in step. */
+       where the Coder bot stands, stays where it was. Keep the two in step. */
     height: calc(clamp(30px, 2.9vw, 36px) + clamp(4px, 0.5vw, 7px));
     min-height: calc(clamp(30px, 2.9vw, 36px) + clamp(4px, 0.5vw, 7px));
     margin-bottom: -18px; /* Only apply negative margin when active */

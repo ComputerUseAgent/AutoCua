@@ -31,8 +31,8 @@ https://github.com/user-attachments/assets/f02ac3e9-fe6c-42f8-a685-88001d8d178e
 |:--|:--:|:--:|:--:|
 | **Computer use** — any desktop app, with real mouse and keyboard input | ✓ | ✓ | ✓ |
 | **Browser skills** — Chrome, Firefox, Edge, Brave and Opera | ✓ | ✓ | ✓ |
-| **Shell use** — a coding agent in a real terminal | ✓ | ✓ | ✓ |
-| **Web use** — your own Chrome, driven through the AutoCua extension | ✓ | ✓ | ✓ |
+| **Coder** — a coding agent in a real terminal | ✓ | ✓ | ✓ |
+| **Browser** — your own Chrome, driven through the AutoCua extension | ✓ | ✓ | ✓ |
 | **Mobile use** — an iOS Simulator, or your iPhone or iPad, over USB, or Wi-Fi in the app | — | — | ✓ |
 | **Mobile use** — an Android emulator, or your Android phone, over USB, or Wi-Fi in the app | ✓ | ✓ | ✓ |
 
@@ -40,16 +40,16 @@ https://github.com/user-attachments/assets/f02ac3e9-fe6c-42f8-a685-88001d8d178e
 
 ---
 
-## Web agent: fast mode
+## Browser agent: fast mode
 
-6.1 seconds for a flight search. Agent mode: web.
+6.1 seconds for a flight search. Agent mode: browser.
 
 https://github.com/user-attachments/assets/8cc797d5-5556-40a9-bbfc-5d6aa8880fb8
 
-## Web agent: quality mode
+## Browser agent: quality mode
 
 Under a minute for three tasks in one run: an iPhone 18 Pro into the Apple bag, a case into the
-Amazon basket, and a Google Sheet of Meta's five-year financials. Agent mode: web.
+Amazon basket, and a Google Sheet of Meta's five-year financials. Agent mode: browser.
 
 https://github.com/user-attachments/assets/82bf6163-55c9-4cc4-95e7-9c6466f2a25d
 
@@ -68,7 +68,7 @@ One string decides what the agent drives. Everything else stays the same.
 ```python
 from AutoCua.agent_launcher import run_agent
 
-run_agent(mode="web use", provider="openrouter", model="gemini-3.8-flash",
+run_agent(mode="browser", provider="openrouter", model="gemini-3.8-flash",
           task="Open wikipedia.org and summarise today's featured article.")
 ```
 
@@ -76,8 +76,8 @@ run_agent(mode="web use", provider="openrouter", model="gemini-3.8-flash",
 |---|---|---|
 | `"computer use"` | The desktop. Clicks, typing, hotkeys, apps, AppleScript | macOS, Windows or Linux, auto detected |
 | `"computer use, daisy chain"` | The same desktop, plus the phone sub-agents when a phone is connected: `android_agent`, and `ios_agent` on a Mac. Plain `"computer use"` lists them offline | macOS, Windows or Linux, auto detected |
-| `"shell use"` | A coding agent, straight into a real terminal | macOS, Windows or Linux |
-| `"web use"` | Your own Chrome through the AutoCua extension; headless runs on a debugging port | Any host with Google Chrome installed |
+| `"coder"` | A coding agent, straight into a real terminal | macOS, Windows or Linux |
+| `"browser"` | Your own Chrome through the AutoCua extension; headless runs on a debugging port | Any host with Google Chrome installed |
 | `"mobile use, ios"` | An iOS Simulator by default, or your paired iPhone or iPad over the cable | macOS host |
 | `"mobile use, android"` | An Android emulator by default, or your Android phone over the cable | macOS, Windows or Linux host |
 
@@ -85,7 +85,7 @@ From a script a phone always goes over the cable. Wi-Fi is the desktop app's: se
 [iPhone and iPad](#iphone-and-ipad) and [Android](#android). A phone needs `device="hardware"`;
 the default, `device="simulation"`, is the simulator or the emulator.
 
-On Linux, computer use needs a GNOME desktop (tested on Wayland), and computer use and shell use
+On Linux, computer use needs a GNOME desktop (tested on Wayland), and computer use and the coder
 both need a few distro packages that pip cannot install. See [Linux, from pip](#linux-from-pip).
 
 ---
@@ -101,7 +101,7 @@ layer. Mouse events posted at `kCGHIDEventTap` on macOS, pywinauto's real input 
 Windows, and a kernel driver when Windows UAC blocks everything else. An ordinary
 application sees the same events it would get from your hand on the mouse.
 
-**No debugging port on your browser either.** A normal `"web use"` run drives your own Chrome
+**No debugging port on your browser either.** A normal `"browser"` run drives your own Chrome
 through the AutoCua extension, which Chrome loads at launch with no store install. Chrome shows
 its own "AutoCua started debugging this browser" bar while the agent works, and its Cancel
 button hands the browser back to you. A debugging port is opened only for headless runs, on a
@@ -473,7 +473,7 @@ python -m AutoCua.coder.subagent --task "where is _validate_token defined in /Us
 
 ## The browser agent
 
-`"web use"` is a different program from the rest of the framework. The whole browser agent,
+The `"browser"` mode is a different program from the rest of the framework. The whole browser agent,
 the agent loop, the page scanner and the controller, is **one Rust crate** compiled into a
 single Python extension module and imported like any other. Its LLM calls go through the
 same Python providers every other mode uses, in `AutoCua/llm_provider/`.
@@ -487,7 +487,7 @@ parallel run included: Chrome is started with the flags that load it, or taken a
 is already running with it, and the agents drive your own browser, logged in as you are, with
 no debugging port open; each agent is on a line of its own to the extension. A headless run
 uses the **DevTools Protocol** on a Chrome of the agent's own. Every tool works the same way in
-both. Chrome is never downloaded: when it is missing, the terminal says so at each web run, the
+both. Chrome is never downloaded: when it is missing, the terminal says so at each browser run, the
 app shows a popup when it starts, and you install it from [google.com/chrome](https://www.google.com/chrome/).
 
 ### Raw CDP, hand written
@@ -537,7 +537,7 @@ Two honest exceptions, both deliberate:
   `AutoCua_data/scrapes/<run>/<n>.json` with its number and the time. On exit the mode's steps
   leave the history and the scrape result becomes one line per index; `<scraped_index>` lists
   them on every step, and `index_read` brings an index back in full. The rules the model follows
-  are in `AutoCua/default_skills/web/skills/scraping.md`.
+  are in `AutoCua/default_skills/browser/skills/scraping.md`.
 - The "agent is driving" overlay, an edge glow and the agent's own cursor, is injected into the
   page (its main world in the debugging-port mode, the extension's own world in extension
   mode), which makes it detectable by a page that looks for it. That is a product trade-off in
@@ -564,7 +564,7 @@ Two honest exceptions, both deliberate:
 A run with a window is in **your own Chrome**, so the agent is logged in wherever you are.
 Headless runs use a **persistent profile keyed by name**, so cookies, localStorage and logins
 survive between runs there too. As the source puts it, arriving already logged in
-matters far more than any fingerprint tuning, because a login wall is where a web agent usually
+matters far more than any fingerprint tuning, because a login wall is where a browser agent usually
 stops.
 
 **18 tools:** `new_tab`, `switch_tab`, `close_tab`, `update_tab`, `navigate_tab`, `click`,
@@ -818,7 +818,7 @@ agent finds the button again because it reads the screen the way a person does.
 from AutoCua.agent_launcher import run_agent
 
 result = run_agent(
-    mode="web use", provider="anthropic", model="claude-sonnet-5", headless=True,
+    mode="browser", provider="anthropic", model="claude-sonnet-5", headless=True,
     save_conversation=True,
     task="""
     Go to staging.example.com, sign in as demo@example.com, add any item to the basket,
@@ -850,7 +850,7 @@ previous step's expected outcome against the new screenshot before it does anyth
 
 ```python
 run_agent(
-    mode="web use", provider="openrouter", model="gemini-3.8-flash", headless=True,
+    mode="browser", provider="openrouter", model="gemini-3.8-flash", headless=True,
     task="Sign up for a new account on staging.example.com and confirm the welcome screen.",
     extra_tasks=[
         "Reset the password for demo@example.com and confirm the email prompt appears.",
@@ -888,7 +888,7 @@ process.
 
 ```python
 run_agent(
-    mode="web use", provider="anthropic", model="claude-sonnet-5", headless=True,
+    mode="browser", provider="anthropic", model="claude-sonnet-5", headless=True,
     task="find the cheapest flight to Tokyo next month",
     extra_tasks=[
         "summarise today's top Hacker News thread",
@@ -897,7 +897,7 @@ run_agent(
 )
 ```
 
-| | `"web use"` | `"mobile use, ios"` with `device="simulation"` | `"mobile use, android"` with `device="simulation"` |
+| | `"browser"` | `"mobile use, ios"` with `device="simulation"` | `"mobile use, android"` with `device="simulation"` |
 |---|---|---|---|
 | Each task gets | Its own agent pinned to **its own tab** | Its own **simulator** and its own WebDriverAgent port | Its own **copy of the emulator**, read-only |
 | Shared | Your own Chrome, through the extension (headless: one browser of the agent's own on a debugging port); its front tab shows a cover page while the agents work in tabs behind it | Nothing. A phone screen cannot be split | The saved first boot, which every copy starts from and none changes |
@@ -986,7 +986,7 @@ the agent runs would inherit it.
 | **Skills** | Browse, preview, add, edit and delete domain knowledge files, live, for desktop and iOS |
 | **Memory ring** | Context gauge beside the Skills icon, with the live token count inside. It breathes while compression runs and its count *falls* when the handoff lands |
 | **Fast / Quality** | Leaner prompt and fewer tokens per step, or full reasoning, which is the default |
-| **Mode picker** | Computer use (This PC, or Daisy chain to reach the phones: picking it pairs them at once, the chat box held until each one answers, then a line such as *iPhone online · Android offline*), Mobile use, Shell use |
+| **Mode picker** | Computer use (This PC, or Daisy chain to reach the phones: picking it pairs them at once, the chat box held until each one answers, then a line such as *iPhone online · Android offline*), Mobile use, Coder |
 | **Wireless / Wired** | Mobile use and Computer use: the phone over the cable, the default, or over Wi-Fi when you pick Wireless; its label reads *Mobile via: Wired* or *Mobile via: Wi-Fi*. In Mobile use, while it pairs, a circle turns beside the picker and the chat box is locked; if pairing fails, the box keeps the reason and the circle turns into an arrow that pairs again. In Computer use it says over what `android_agent` and `ios_agent` look for the phone at each request, and can be flipped any time, also while a run goes; it shows in Daisy chain only, as This PC looks for no phone |
 | **Stop** | Retires the run id instantly, so a still-running model call can never repaint your next chat |
 
@@ -999,7 +999,7 @@ and repairs stale grants left by a previous build.
 
 ### Two owners, one terminal prompt
 
-In Shell use the terminal card has a single `>` prompt that either the agent or **you** can own.
+In the Coder mode the terminal card has a single `>` prompt that either the agent or **you** can own.
 
 | | AI mode | Manual mode |
 |---|---|---|
@@ -1127,7 +1127,7 @@ Ollama app, `ollama pull` a model, and pass `provider="ollama"` with the name `o
 shows. Three are tested: `ornith-1.5:35b` and `qwen3.6:35b-a3b-nvfp4`, the fast ones (mixtures of
 experts: about 5 seconds a computer-use step on an M5 Pro; Ornith acts from the first step,
 Qwen3.6 is the quickest coder), and `qwen3.8:27b` (about 25 seconds a step). Any pulled model that lists `tools` in `ollama show <model>` works, and it needs
-`vision` too for computer, web and mobile use. The app's model list shows what you had pulled when
+`vision` too for computer use, the browser agent and mobile use. The app's model list shows what you had pulled when
 it opened. A local model is slower than a hosted one, and it answers one call at a time, so run one
 agent on it at once.
 
@@ -1168,7 +1168,7 @@ The script installs [uv](https://astral.sh/uv), creates a virtualenv on the Pyth
 your Mac and installs the platform requirements. It never downloads Python: without Python 3.10
 to 3.13 it opens python.org's download page and stops, so you install one and run it again. It
 then installs a Rust toolchain if you don't have one and precompiles the
-browser agent, so `"web use"` works on the first run instead of stopping with "cargo not
+browser agent, so the `"browser"` mode works on the first run instead of stopping with "cargo not
 found". It needs no `sudo` and does not reboot.
 
 The Rust half needs Apple's Command Line Tools to link — if they're missing the script opens
@@ -1214,7 +1214,7 @@ the scanner and controller read the desktop through, a C compiler and curl), the
 [uv](https://astral.sh/uv), a virtualenv on your distro's Python and the Linux requirements.
 With no distro Python 3.10 to 3.14 it says which package to install and stops; it never
 downloads Python. It then installs a Rust toolchain if you don't have one and precompiles the browser agent, so
-`"web use"` works on the first run instead of stopping with "cargo not found". Only the package
+the `"browser"` mode works on the first run instead of stopping with "cargo not found". Only the package
 step needs `sudo`; it does not reboot. Debian and Ubuntu use `apt`; Fedora, Arch and openSUSE
 get the same packages through their own package managers. To install the toolchain yourself
 instead:
@@ -1430,13 +1430,13 @@ AutoCua/
   desktop/                 the app's Chromium window (Electron, fetched on a yes at the first launch)
   default_skills/          the shipped skills, read-only; yours go in AutoCua_data/skills/
   llm_provider/            every LLM endpoint and the model tables, one copy for all platforms
-  Cargo.toml  lib.rs       the one Rust crate for the web agent, the Android agent, the coder, the computer-use agent and the iOS agent
+  Cargo.toml  lib.rs       the one Rust crate for the browser agent, the Android agent, the coder, the computer-use agent and the iOS agent
   coder/                   the coding agent, Rust, one copy for every OS; subagent/ holds its read-only scouts
   computer/                computer use, Rust: the one desktop loop for macOS, Windows and Linux, and its skills; mac/, windows/, linux/ hold each system's prompts
   mac/  windows/  linux/   computer use, each system's own parts: controller, tree, sandbox, tool_registry
     controller/tool/         shell, open_app, screenshot, applescript, kernel_input
     tree/                    accessibility scanner and OCR
-  web/                     the Rust browser agent; browser/AutoCuaBridge/ is the AutoCua Chrome extension
+  browser/                 the Rust browser agent; connector/AutoCuaBridge/ is the AutoCua Chrome extension
   ios/                     the iPhone and iPad agent
   ios_connector/           WebDriverAgent transport: cable, Wi-Fi (through Xcode) and simulator sessions
   android/                 the Rust Android agent: loop, controller, tool registry, screen reader

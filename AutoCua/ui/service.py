@@ -89,7 +89,7 @@ from AutoCua.ui.markdown import render as md_render, render_notes as md_render_n
 from AutoCua.utils import agent_glow
 # Every Computer use run is recorded (the main screen) into
 # AutoCua_data/recordings, on every machine run_recorder.supported() says can;
-# when it ends the video is compressed and shown in the screen box. Web use and
+# when it ends the video is compressed and shown in the screen box. Browser and
 # iOS runs are not: their screen box goes once the task is done.
 from AutoCua.utils import run_recorder
 from AutoCua.utils import video_compress
@@ -369,11 +369,11 @@ def get_platform_path(pkg=None):
 
 # run_pkg -> the per-chat mode marker saved with the session. One map, because
 # the stamp and the lock message have to agree: a chat stamped 'computer' can
-# only ever be reopened as Computer use, so stamping a web run wrong locks it
-# out of Web use permanently. "shell" is not here — that axis is its own marker,
-# set by run_shell_task, and shares the desktop pkg.
-_PKG_MODE = {'ios': 'mobile', 'android': 'mobile', 'web': 'web'}
-_MODE_LABEL = {'mobile': 'Mobile use', 'web': 'Web use', 'computer': 'Computer use'}
+# only ever be reopened as Computer use, so stamping a browser run wrong locks it
+# out of Browser permanently. "coder" is not here — that axis is its own marker,
+# set by run_coder_task, and shares the desktop pkg.
+_PKG_MODE = {'ios': 'mobile', 'android': 'mobile', 'browser': 'browser'}
+_MODE_LABEL = {'mobile': 'Mobile use', 'browser': 'Browser', 'computer': 'Computer use'}
 
 
 def agent_mode_for(pkg):
@@ -408,7 +408,7 @@ def clean_scratchpad():
                 else:
                     item.unlink()
 
-        # Shell-use conversation channel files leak only on an app crash (the
+        # Coder conversation channel files leak only on an app crash (the
         # run's finally deletes them); durable memory lives in agent_conversation,
         # so sweeping the whole folder at startup is always safe.
         shell_hist = app_data_dir() / "cli_shell_history"
@@ -1038,7 +1038,7 @@ def get_provider_api_key(provider):
 webview_window = None
 active_agent_stop_event = None
 active_agent_session_id = None
-# The thread of the run going on (start-agent or start-shell), so a task from
+# The thread of the run going on (start-agent or start-coder), so a task from
 # elsewhere (Telegram) can tell the app is busy.
 _run_thread = None
 # The newest run's id. Unlike active_agent_session_id, Stop and New chat leave
@@ -1246,7 +1246,7 @@ def desktop_events():
 def raise_app_window():
     """Bring the desktop app back in front of whatever just took the screen.
 
-    Web use only, and only once per run: Chrome is launched --start-maximized
+    Browser only, and only once per run: Chrome is launched --start-maximized
     from inside the browser agent's constructor, so it lands on top of the app
     the moment a run starts. The browser is not what the user is meant to watch
     here — the annotated viewport streams into the image panel above, mark
@@ -2022,7 +2022,7 @@ def send_todo_to_frontend(payload):
 
 
 # The words save_run puts in front of every done message
-# (agent_conversation/service.py _terminal_message). A Shell use terminal shows
+# (agent_conversation/service.py _terminal_message). A Coder terminal shows
 # the answer itself, as it showed it live, without them.
 _DONE_PREFIX = re.compile(r'^(Task completed|Agent stopped before completing|'
                           r'Agent terminated \(error / provider\)):\s*')
@@ -2031,8 +2031,8 @@ _DONE_PREFIX = re.compile(r'^(Task completed|Agent stopped before completing|'
 def _render_exchange_html(exchanges):
     """Add task_html/done_html (rendered Markdown) to each exchange row, in
     place, plus answer_html: the done message without its saved prefix. The
-    shape the reopen view consumes (chat.js -> showRunReply, and Shell use's
-    terminal through cliShellHistory)."""
+    shape the reopen view consumes (chat.js -> showRunReply, and Coder's
+    terminal through cliCoderHistory)."""
     for x in (exchanges or []):
         if isinstance(x, dict):
             done = x.get('done_message', '') or ''
@@ -2128,7 +2128,7 @@ def send_cli_event_to_frontend(event_type, *args):
             status = _js_escape(args[1] if len(args) > 1 else "complete")
             raw_summary = args[2] if len(args) > 2 else ""
             summary = _js_escape(raw_summary)
-            # The summary IS the coder's done message. Shell use shows it under
+            # The summary IS the coder's done message. Coder shows it under
             # the terminal the moment the run ends, rendered by the same
             # markdown.py pass a reopened chat's done_html gets.
             summary_html = _js_escape(md_render(raw_summary or ""))
@@ -2298,9 +2298,9 @@ def _start_agent_run(data, via=None, hooks=None):
         speed = (data.get('speed') or 'quality').strip().lower()   # ⚡/✨ toggle
         run_pkg = ('ios' if (agent_mode == 'mobile' and device_os == 'ios')
                    else 'android' if (agent_mode == 'mobile' and device_os == 'android')
-                   else 'web' if agent_mode == 'web'
+                   else 'browser' if agent_mode == 'browser'
                    else PLATFORM_PKG)
-        # Every Computer use run is recorded, on a machine that can (not Web use
+        # Every Computer use run is recorded, on a machine that can (not Browser
         # or iOS: their screen box goes once the task is done).
         record = agent_mode == 'computer' and run_recorder.supported()
         # The run's package folder — the todo/milestone watchers and resets below
@@ -2322,10 +2322,10 @@ def _start_agent_run(data, via=None, hooks=None):
         # so a reopened chat restores where memory was.
         _sess = conversation.get_session(chat_session_id) or {}
 
-        # Per-chat mode lock, shell axis FIRST: a chat owned by Shell use never
-        # runs the main agent. run_pkg alone can't catch this — shell chats
+        # Per-chat mode lock, coder axis FIRST: a chat owned by Coder never
+        # runs the main agent. run_pkg alone can't catch this — coder chats
         # share the desktop PLATFORM_PKG — hence the dedicated agent_mode marker.
-        if (_sess.get("agent_mode") or "") == "shell":
+        if (_sess.get("agent_mode") or "") == "coder":
             return jsonify({'error': 'This chat is locked to Coder — open a new chat to switch mode'}), 400
 
         # Per-chat mode lock: a chat that already ran in one mode only accepts
@@ -2345,7 +2345,7 @@ def _start_agent_run(data, via=None, hooks=None):
         from AutoCua.memory_compression.memory_tracker import MemoryTracker
         token_tracker = MemoryTracker(initial_context=_sess.get("context_tokens", 0))
 
-        # Memory-bar push — shared factory (Shell use builds the identical
+        # Memory-bar push — shared factory (Coder builds the identical
         # sender around its own tracker).
         send_token_to_frontend = _make_token_sender(token_tracker)
 
@@ -2465,7 +2465,7 @@ def _start_agent_run(data, via=None, hooks=None):
                 # try, so the finally below always ends the video.
                 if record:
                     recorder = run_recorder.start(
-                        webview_window, 'web' if run_pkg == 'web' else 'computer',
+                        webview_window, 'browser' if run_pkg == 'browser' else 'computer',
                         on_done=_recording_done(current_session_id, chat_session_id))
                     if recorder:
                         _run_recorders[current_session_id] = recorder
@@ -2474,26 +2474,26 @@ def _start_agent_run(data, via=None, hooks=None):
                         if not run_is_current():
                             _stop_run_recording(current_session_id, tail=1.0)
                 # Desktop says an agent is driving: lavender cursor + edge glow.
-                # Computer use only — web and iOS runs don't drive this desktop.
+                # Computer use only — browser and iOS runs don't drive this desktop.
                 # Inside the try, so the finally below always takes it back —
                 # on completion, on error, and on Stop.
                 if run_pkg == PLATFORM_PKG:
                     agent_glow.start()
                 # The browser and Android agents are Rust extensions
-                # (AutoCua/web/agent and AutoCua/android/agent hold .rs, not .py):
+                # (AutoCua/browser/agent and AutoCua/android/agent hold .rs, not .py):
                 # their AgentService is re-exported from the package facade. iOS
                 # is agent/iphone_use (Rust too, under its old name). Computer use
                 # is AutoCua/computer, one agent for macOS, Windows and Linux.
                 AgentService = importlib.import_module(
-                    "AutoCua.web.agent" if run_pkg == 'web'
+                    "AutoCua.browser.agent" if run_pkg == 'browser'
                     else "AutoCua.android.agent" if run_pkg == 'android'
                     else "AutoCua.ios.agent.iphone_use.service" if run_pkg == 'ios'
                     else "AutoCua.computer.service"
                 ).AgentService
 
-                # Web use: Google Chrome is never downloaded (utils/chrome.py),
+                # Browser: Google Chrome is never downloaded (utils/chrome.py),
                 # so a run without it stops here, saying so, before any agent starts.
-                if run_pkg == 'web':
+                if run_pkg == 'browser':
                     from AutoCua.utils.chrome import MISSING as CHROME_MISSING, ensure_chrome
                     if ensure_chrome() is None:
                         raise RuntimeError(CHROME_MISSING)
@@ -2548,10 +2548,10 @@ def _start_agent_run(data, via=None, hooks=None):
                 if run_pkg == 'mac':
                     agent.phone_window = False
 
-                # Web use: Chrome came up maximised during the construction
+                # Browser: Chrome came up maximised during the construction
                 # above and took the screen with it. Hand the front back to the
                 # app — see raise_app_window for why that is safe here.
-                if run_pkg == 'web':
+                if run_pkg == 'browser':
                     raise_app_window()
 
                 monitor_thread = threading.Thread(target=monitor_milestones)
@@ -2702,7 +2702,7 @@ def start_run_from_telegram(task, provider, model, session_id=None, text_callbac
 
 def _make_token_sender(token_tracker):
     """Build the per-run memory-bar push around one MemoryTracker — the closure
-    moved verbatim from /api/start-agent so Shell use drives the EXACT same
+    moved verbatim from /api/start-agent so Coder drives the EXACT same
     updateMemoryBar pipe with its own tracker."""
     def send_token_to_frontend(usage):
         # Cosmetic gauge ONLY — updates the visual memory bar each LLM call.
@@ -2729,28 +2729,28 @@ def _make_token_sender(token_tracker):
     return send_token_to_frontend
 
 
-# ── Shell-use conversation channel ───────────────────────────────────────────
-# The coder runs as a SUBPROCESS (argv-only), so a shell chat's conversation
+# ── Coder conversation channel ───────────────────────────────────────────────
+# The coder runs as a SUBPROCESS (argv-only), so a coder chat's conversation
 # crosses the process boundary through ONE JSON file: the seed is written here
 # before the spawn, the coder rewrites the file atomically after every step,
-# and run_shell reads it back for conversation.save_run. It lives OUTSIDE any
+# and run_coder reads it back for conversation.save_run. It lives OUTSIDE any
 # scratchpad/ folder — those are wiped on app start AND on every main-agent
 # construction, and this must survive both for the life of the run.
-def _shell_history_dir() -> Path:
+def _coder_history_dir() -> Path:
     return app_data_dir() / "cli_shell_history"
 
 
-def _new_shell_history_file() -> Path:
-    d = _shell_history_dir()
+def _new_coder_history_file() -> Path:
+    d = _coder_history_dir()
     d.mkdir(parents=True, exist_ok=True)
     # uuid suffix: a double-send landing in the same millisecond must never
     # share (and cross-clobber) one channel file.
     return d / f"history_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}.json"
 
 
-def _write_shell_seed(path: Path, task: str, prior_history, manual_block: str = "") -> dict:
+def _write_coder_seed(path: Path, task: str, prior_history, manual_block: str = "") -> dict:
     """Write the coder's seed (the chat's saved history, or empty lists for a
-    fresh chat). Returns the seed dict — run_shell's fallback if the file can't
+    fresh chat). Returns the seed dict — run_coder's fallback if the file can't
     be read back (e.g. the run died before its first snapshot)."""
     seed = {
         "task": (prior_history or {}).get("task") or task,
@@ -2766,11 +2766,11 @@ def _write_shell_seed(path: Path, task: str, prior_history, manual_block: str = 
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(seed, fh, ensure_ascii=False)
     except Exception:
-        debug_exception("write shell history seed")
+        debug_exception("write coder history seed")
     return seed
 
 
-def _read_shell_history(path: Path):
+def _read_coder_history(path: Path):
     """The coder's latest snapshot, or None. The coder rewrites via tmp +
     os.replace, so a torn read can't happen — None means no snapshot landed."""
     try:
@@ -2781,10 +2781,10 @@ def _read_shell_history(path: Path):
         return None
 
 
-# PID of the coder subprocess driving the LIVE Shell-use run. /api/stop-agent
+# PID of the coder subprocess driving the LIVE Coder run. /api/stop-agent
 # kills this tree the instant Stop is pressed - it has to happen while the coder
 # is still alive, because a process tree is resolved THROUGH the parent.
-_active_shell_pids = []
+_active_coder_pids = []
 
 
 def _live_cli_pids(controller) -> list:
@@ -2843,14 +2843,14 @@ def _kill_process_trees(pids) -> None:
 
 
 def _start_idle_bridge() -> None:
-    """The AutoCua extension's line while no run is on (web/browser/bridge.rs
+    """The AutoCua extension's line while no run is on (browser/connector/bridge.rs
     idle_bridge_start). Its Test button saves a scan under debug/ through
     whichever bridge is on the line; between runs that is this one, so the
     button works whenever the app is open, not only with test.command. The
     bridge steps aside by itself while a run is on. On a thread of its own:
     a checkout's first import builds the Rust crate."""
     try:
-        from AutoCua.web.agent import idle_bridge_start
+        from AutoCua.browser.agent import idle_bridge_start
         idle_bridge_start()
     except Exception:
         debug_exception("idle bridge start")
@@ -2863,7 +2863,7 @@ _ADB_NOT_NOW = "adb-not-now"
 
 def _prepare_native() -> None:
     """What the terminal sees before any window: a checkout's build of the
-    Rust agents, web, Android, coder, computer use and iOS in one
+    Rust agents, browser, Android, coder, computer use and iOS in one
     extension (the first start, a
     minute or two, cargo's lines as it goes), then adb for an Android phone,
     offered once (_offer_adb). Run by
@@ -2917,8 +2917,8 @@ def _offer_adb() -> None:
 def _stop_idle_bridge() -> None:
     """The line goes with the window: its config.json entry comes off, so the
     extension stops dialling. Looked up rather than imported: never build the
-    crate on the way out, and nothing to stop if web use was never loaded."""
-    agent = sys.modules.get("AutoCua.web.agent")
+    crate on the way out, and nothing to stop if the browser agent was never loaded."""
+    agent = sys.modules.get("AutoCua.browser.agent")
     if agent is None:
         return
     try:
@@ -2928,24 +2928,24 @@ def _stop_idle_bridge() -> None:
 
 
 @atexit.register
-def _kill_shell_trees_on_exit() -> None:
+def _kill_coder_trees_on_exit() -> None:
     """Quitting the app mid-run must not leave the coder running.
 
     The coder is spawned into its OWN session so Stop can killpg it without
     taking us down - which also means it no longer dies incidentally with us
     (a terminal-launched app used to SIGHUP its whole group on quit). Nothing
-    else covers this: run_shell_task's finally only fires if the run unwinds,
+    else covers this: run_coder_task's finally only fires if the run unwinds,
     and app.py's closing hook is Windows-only and just shuts banners.
 
     Covers a clean quit and Ctrl+C; a SIGKILL of the app skips atexit entirely,
     same as any other cleanup.
     """
     try:
-        pids = list(_active_shell_pids)
+        pids = list(_active_coder_pids)
         if pids:
             debug_log(f"app exiting - killing {len(pids)} live coder tree(s)")
             _kill_process_trees(pids)
-            _active_shell_pids.clear()
+            _active_coder_pids.clear()
     except Exception:
         pass
     # Quitting the app must also release the iPhone: nothing else covers the
@@ -2955,26 +2955,26 @@ def _kill_shell_trees_on_exit() -> None:
     _release_iphone()
 
 
-def _shell_outcome(result) -> dict:
-    """Map run_shell_task's agent_wait result onto the {status, message} shape
-    run_agent persists — so shell exchanges read identically across modes."""
+def _coder_outcome(result) -> dict:
+    """Map run_coder_task's agent_wait result onto the {status, message} shape
+    run_agent persists — so coder exchanges read identically across modes."""
     if not isinstance(result, dict) or result.get("status") == "stopped":
         return {"status": "incomplete", "message": "Stopped by user"}
     if result.get("status") == "error":
         # route_action's catch-all: surface the real reason, don't swallow it
-        return {"status": "error", "message": str(result.get("message", "") or "Shell run failed")}
+        return {"status": "error", "message": str(result.get("message", "") or "Coder run failed")}
     completed = result.get("completed") or []
     if not completed:
-        return {"status": "incomplete", "message": "Shell run ended without a result"}
+        return {"status": "incomplete", "message": "Coder run ended without a result"}
     last = completed[-1]
     status = "success" if last.get("status") == "complete" else "incomplete"
     return {"status": status, "message": last.get("summary", "") or ""}
 
 
-def run_shell_task(task, provider, model, api_key, run_pkg,
+def run_coder_task(task, provider, model, api_key, run_pkg,
                    cli_callback=None, stop_event=None,
                    history_file=None, request_no=None):
-    """Shell use — a DIRECT line from the composer to the coder (CLI) agent.
+    """Coder — a DIRECT line from the composer to the coder (CLI) agent.
 
     Runs ONE task on the coder and BLOCKS until it finishes; call from a
     background thread. No main agent, no chat session, no conversation memory,
@@ -3021,7 +3021,7 @@ def run_shell_task(task, provider, model, api_key, run_pkg,
         cli_request_no=request_no,
     )
 
-    logging.getLogger(__name__).info(f"Shell use — dispatching coder agent for: {task[:120]}")
+    logging.getLogger(__name__).info(f"Coder: dispatching the coder agent for: {task[:120]}")
     coder_pids = []   # bound before the try: the finally below always reads it
     try:
         # 1. Dispatch: spawns the coder subprocess, emits task_start and starts
@@ -3038,12 +3038,12 @@ def run_shell_task(task, provider, model, api_key, run_pkg,
         # coder is still alive. agent_wait terminates the coder itself the moment
         # it sees the stop event, and once the parent is dead its children can no
         # longer be resolved from its pid - they would survive as orphans.
-        _active_shell_pids[:] = coder_pids
+        _active_coder_pids[:] = coder_pids
         # 2. Await: emits await_start (stage slides up), blocks until the coder
         #    writes its result file, then emits task_end + await_end.
         return controller.route_action([{"type": "agent_wait", "agent_type": "coder_agent",
                                          "agent_id": (started or {}).get("id", 0),
-                                         "value": "Shell use"}])
+                                         "value": "Coder"}])
     finally:
         # Tree FIRST, while the coder is still alive: stop_cli_agent() terminates
         # only the coder process, and the minions it spawned are its own
@@ -3053,26 +3053,26 @@ def run_shell_task(task, provider, model, api_key, run_pkg,
         try:
             _kill_process_trees(coder_pids)
         except Exception:
-            debug_exception("shell run tree kill")
-        _active_shell_pids.clear()
+            debug_exception("coder run tree kill")
+        _active_coder_pids.clear()
         # Safety net for an early exception — a no-op on the normal path, where
         # agent_wait already drained the task list.
         try:
             controller.stop_cli_agent()
         except Exception:
-            debug_exception("shell run cleanup")
+            debug_exception("coder run cleanup")
 
 
-@app.route('/api/start-shell', methods=['POST'])
-def start_shell():
-    """Agent mode → Shell use: send the task STRAIGHT to the coder agent.
+@app.route('/api/start-coder', methods=['POST'])
+def start_coder():
+    """Agent mode → Coder: send the task STRAIGHT to the coder agent.
 
     Slim next to /api/start-agent — no main agent, no todo/milestone watchers
     (the CLI stage, its terminal beside the CoderUse bot, is the whole UI) —
-    but a shell run IS a chat: the session is resolved/minted via the conversation service, the
+    but a coder run IS a chat: the session is resolved/minted via the conversation service, the
     coder is seeded with the chat's saved history (--history file channel) and
     tags its task <user_request=N>, its token usage drives the memory bar, and
-    every ending is persisted with save_run. The chat locks to Shell use the
+    every ending is persisted with save_run. The chat locks to Coder the
     same way Computer/Mobile chats lock to theirs.
 
     Shares active_agent_stop_event / active_agent_session_id with the normal
@@ -3094,10 +3094,10 @@ def start_shell():
         api_key = get_provider_api_key(provider)
 
         # ── Resolve the CHAT session (same service as /api/start-agent). A
-        # freshly minted chat is stamped agent_mode='shell' at mint time, so the
+        # freshly minted chat is stamped agent_mode='coder' at mint time, so the
         # per-chat lock is right even if this run never reaches save_run.
         chat_session_id, prior_history = conversation.start_or_resume(
-            req_session_id, task, agent_mode='shell')
+            req_session_id, task, agent_mode='coder')
         _sess = conversation.get_session(chat_session_id) or {}
 
         # ── Per-chat mode lock backstop (mirror of start_agent's) ───────────
@@ -3106,15 +3106,15 @@ def start_shell():
         if not locked_mode and (locked_pkg or prior_history is not None
                                 or (_sess.get("exchanges") or [])):
             # Legacy chats (saved before agent_mode existed) are computer/mobile
-            # by construction — shell chats didn't exist yet. The exchanges
+            # by construction — coder chats didn't exist yet. The exchanges
             # signal also catches a legacy chat whose conversation.json was
             # truncated by a crash (prior_history None, pkg untagged): its
-            # transcript still proves it ran, so it must not convert to shell.
+            # transcript still proves it ran, so it must not convert to coder.
             locked_mode = agent_mode_for(locked_pkg)
-        if locked_mode and locked_mode != 'shell':
+        if locked_mode and locked_mode != 'coder':
             label = _MODE_LABEL.get(locked_mode, 'Computer use')
             return jsonify({'error': f'This chat is locked to {label} — open a new chat to switch mode'}), 400
-        # Cross-OS: a shell chat's memory never seeds the other platform's coder.
+        # Cross-OS: a coder chat's memory never seeds the other platform's coder.
         if locked_pkg and locked_pkg != PLATFORM_PKG:
             return jsonify({'error': 'This chat was created on a different OS — open a new chat'}), 400
 
@@ -3133,10 +3133,10 @@ def start_shell():
         # (Stop retires the run, then stop_cli_agent immediately emits task_end)
         # freezes the terminal mid-run forever. They are keyed by task_id, so a
         # stale one is a no-op for whatever run is on screen now. (sub_end, a
-        # sub-agent box's close, is one too; Shell use starts none.)
+        # sub-agent box's close, is one too; Coder starts none.)
         _CLI_TEARDOWN_EVENTS = ("task_end", "await_end", "subagent_end", "sub_end")
 
-        def shell_cli_callback(event_type, *args):
+        def coder_cli_callback(event_type, *args):
             # Everything else follows the main agent's rule: once the run is
             # retired (Stop / New chat clears the id) its output does not reach
             # the screen. The coder keeps streaming until it actually dies, so
@@ -3152,13 +3152,13 @@ def start_shell():
             send_cli_event_to_frontend(event_type, *args)
 
         # ── Conversation file channel to/from the coder subprocess ──────────
-        history_file = _new_shell_history_file()
+        history_file = _new_coder_history_file()
         # Hand-typed terminal commands since the last run ride the seed as a
         # <manual_mode> block — the coder replays it as conversation, so the
         # agent resumes knowing what the user tried by hand.
         manual_records = _drain_manual_records(chat_session_id, request_no == 1)
         manual_block = _render_manual_block(manual_records)
-        seed = _write_shell_seed(history_file, task, prior_history, manual_block)
+        seed = _write_coder_seed(history_file, task, prior_history, manual_block)
 
         active_agent_stop_event = threading.Event()
         active_agent_session_id = str(time.time())   # per-RUN guard
@@ -3166,24 +3166,24 @@ def start_shell():
         current_session_id = active_agent_session_id
         stop_event = active_agent_stop_event
 
-        def run_shell():
+        def run_coder():
             outcome = {"status": "incomplete", "message": ""}
             try:
-                result = run_shell_task(
+                result = run_coder_task(
                     task=task,
                     provider=provider,
                     model=model,
                     api_key=api_key,
                     run_pkg=PLATFORM_PKG,
-                    cli_callback=shell_cli_callback,
+                    cli_callback=coder_cli_callback,
                     stop_event=stop_event,
                     history_file=history_file,
                     request_no=request_no,
                 )
-                outcome = _shell_outcome(result)
-            except Exception as shell_exc:
-                debug_exception("run_shell")
-                outcome = {"status": "error", "message": str(shell_exc)}
+                outcome = _coder_outcome(result)
+            except Exception as coder_exc:
+                debug_exception("run_coder")
+                outcome = {"status": "error", "message": str(coder_exc)}
             finally:
                 stop_event.set()
 
@@ -3191,7 +3191,7 @@ def start_shell():
                 # window guard, same as run_agent, so memory survives a mid-run
                 # New chat / closed window. The coder snapshots per step, so a
                 # hard-killed run still reads back to its last finished step.
-                hist = _read_shell_history(history_file) or seed
+                hist = _read_coder_history(history_file) or seed
 
                 # <manual_mode> delivery ack: the coder stamps every snapshot
                 # with manual_delivered once its seed carried the block — so a
@@ -3215,11 +3215,11 @@ def start_shell():
                         context_tokens=token_tracker.current,
                         context_cap=token_tracker.cap,
                         run_pkg=PLATFORM_PKG,
-                        agent_mode="shell",             # keeps the chat locked to Shell use
+                        agent_mode="coder",             # keeps the chat locked to Coder
                         request_no=request_no,          # zero-step runs still record their request
                     )
                 except Exception:
-                    debug_exception("persist shell chat on finish")
+                    debug_exception("persist coder chat on finish")
                 try:
                     history_file.unlink(missing_ok=True)
                 except Exception:
@@ -3243,15 +3243,15 @@ def start_shell():
                             # frontend drops the note instead of writing this run's
                             # outcome onto that chat's terminal.
                             webview_window.evaluate_js(
-                                f"window.cliShellNote && window.cliShellNote('{_js_escape(reason)}', '{_js_escape(chat_session_id)}')"
+                                f"window.cliCoderNote && window.cliCoderNote('{_js_escape(reason)}', '{_js_escape(chat_session_id)}')"
                             )
                             webview_window.evaluate_js(
                                 f"window.agentError('{_js_escape(reason)}')"
                             )
                     except Exception:
-                        debug_exception("signaling shell run completion")
+                        debug_exception("signaling coder run completion")
 
-        thread = threading.Thread(target=run_shell)
+        thread = threading.Thread(target=run_coder)
         _run_thread = thread
         thread.daemon = True
         thread.start()
@@ -3260,7 +3260,7 @@ def start_shell():
         return jsonify({'status': 'started', 'session_id': chat_session_id})
 
     except Exception as e:
-        debug_exception("start_shell API")
+        debug_exception("start_coder API")
         return jsonify({'error': error_text(e)}), 500
 
 
@@ -3279,7 +3279,7 @@ def _get_manual_shell():
 
 # ── Manual-mode record: what the user typed, shown to the coder ──────────────
 # Every hand-typed command is captured as {cmd, cwd, status, exit_code, output}
-# and buffered here until the chat's NEXT shell run drains it into the coder's
+# and buffered here until the chat's NEXT coder run drains it into the coder's
 # seed as a <manual_mode> block — so the agent resumes knowing what the user
 # tried by hand and what it produced. Records are tagged with the chat's
 # session id (None = typed before any chat existed) so one chat's commands
@@ -3378,7 +3378,7 @@ def _render_manual_block(records) -> str:
 
 
 class _ManualTerminal:
-    """The live process behind Shell use's hand-typed `>` prompt.
+    """The live process behind Coder's hand-typed `>` prompt.
 
     Deliberately NOT Sandbox.run(): that blocks until the command exits and hands
     back one blob, which is fine for an agent tool call but useless at a prompt —
@@ -3598,7 +3598,7 @@ def shell_cwd():
 
 @app.route('/api/shell-exec', methods=['POST'])
 def shell_exec():
-    """Shell use → a command the USER typed at the `>` prompt. No agent, no LLM.
+    """Coder → a command the USER typed at the `>` prompt. No agent, no LLM.
 
     Runs through the same Sandbox the coder's shell tool uses, so it's zsh on
     macOS / bash on Linux / PowerShell on Windows, the cwd persists between commands, and the
@@ -3690,15 +3690,15 @@ def stop_agent():
         active_agent_stop_event.set()
         _stop_run_recording(active_agent_session_id, tail=1.0)
         active_agent_session_id = None
-        # Kill the Shell-use coder's whole process tree RIGHT NOW. Waiting for
+        # Kill the Coder run's whole process tree RIGHT NOW. Waiting for
         # the run to unwind is too late: agent_wait terminates the coder itself
         # within a second of seeing the stop event, and once that parent is dead
         # the minions it spawned can no longer be resolved from its pid - they
         # would keep running and keep burning API calls. Killing here, while the
         # coder is still alive, takes the minions down with it.
         try:
-            _kill_process_trees(list(_active_shell_pids))
-            _active_shell_pids.clear()
+            _kill_process_trees(list(_active_coder_pids))
+            _active_coder_pids.clear()
         except Exception:
             debug_exception("stop_agent tree kill")
         return jsonify({'status': 'stopped'})
@@ -4107,11 +4107,11 @@ def delete_chat(chat_id):
 def _read_main_system_prompt(agent_mode=None):
     """Best-effort read of the system prompt of the agent that owns a chat, so
     a downloaded conversation log shows the same SYSTEM PROMPT block as a
-    main.py run: the coder's for a Shell use chat, else the computer-use
+    main.py run: the coder's for a Coder chat, else the computer-use
     agent's for this system (AutoCua/computer/<platform>). Only for chats
     saved without their exact log."""
     try:
-        if agent_mode == "shell":
+        if agent_mode == "coder":
             p = Path(__file__).resolve().parent.parent / "coder" / "main" / "system_prompt.md"
         else:
             p = Path(__file__).resolve().parent.parent / "computer" / PLATFORM_PKG / "system_prompt.md"
@@ -4742,7 +4742,7 @@ def main():
     # Clear orphaned macOS TCC "ghost" entries from a previous build (once per
     # build identity; no-op on Windows / dev).
     repair_stale_tcc_entries()
-    # The extension's line while no run is on, for its Test button (the web
+    # The extension's line while no run is on, for its Test button (the browser
     # agent it imports was built before any window, _prepare_native).
     threading.Thread(target=_start_idle_bridge, daemon=True).start()
     # macOS permissions are now driven one-by-one by the setup wizard (served at
@@ -4854,7 +4854,7 @@ def main():
     # The app's own iPhone session too (the iOS pick in the chat box; the hook
     # above only lets computer-use phone links go). Quitting leaves through
     # os._exit (the desktop shell, right after this event) or C exit() (Cmd+Q),
-    # which both skip atexit, so _kill_shell_trees_on_exit never released it
+    # which both skip atexit, so _kill_coder_trees_on_exit never released it
     # there: the WDA runner and its cable forward ran on with no app left.
     # A no-op when no session is live.
     try:

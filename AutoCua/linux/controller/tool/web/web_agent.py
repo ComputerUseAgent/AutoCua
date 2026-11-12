@@ -30,7 +30,7 @@ from pathlib import Path
 from AutoCua import data_root, IS_COMPILED
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
-_WEB_SCRATCHPAD = _REPO_ROOT / "AutoCua" / "web" / "scratchpad"
+_WEB_SCRATCHPAD = _REPO_ROOT / "AutoCua" / "browser" / "scratchpad"
 
 # Dedicated Chrome port: launch_chrome_impl ATTACHES to whatever is already on
 # a port and then ignores --headless, and Chrome deliberately stays up after a
@@ -128,7 +128,7 @@ def web_search(query: str, provider: str, model: str, api_key: str = None, stop_
     log_file = run_dir / "agent.log"
 
     cmd = [
-        sys.executable, "-m", "AutoCua.web.agent",
+        sys.executable, "-m", "AutoCua.browser.agent",
         "--task", _TASK_TEMPLATE.format(query=query),
         "--provider", provider,
         "--model", model,

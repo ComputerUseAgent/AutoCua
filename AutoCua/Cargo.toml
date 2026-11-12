@@ -1,4 +1,4 @@
-# The Rust parts as ONE crate: the web agent (web/), the Android agent
+# The Rust parts as ONE crate: the browser agent (browser/), the Android agent
 # (android/), the coder (coder/), the computer-use agent (computer/), the
 # iPhone agent (ios/agent/), memory compression (memory_compression/) and
 # the desktop app's chat memory (agent_conversation/). Cargo.toml,
@@ -47,9 +47,9 @@ serde = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
 chrono = "0.4"
-# The screenshot the model gets (web and Android).
+# The screenshot the model gets (the browser agent and Android).
 base64 = "0.22"
-# -- the web agent (web/) --------------------------------------------------
+# -- the browser agent (browser/) ------------------------------------------
 # Addresses read the way the browser reads them (browser.rs web_store_url).
 url = "2"
 # ws:// to 127.0.0.1 only.
@@ -57,7 +57,7 @@ tungstenite = { version = "0.24", default-features = false, features = ["handsha
 # tree/element.rs: jpeg decode + encode of the annotated screenshot (marks are
 # drawn with a hand-rolled bitmap font, so no font crates).
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
-# browser/stage_bridge.rs: SHA-256 for AutoCuaBridge's file fingerprint and
+# connector/stage_bridge.rs: SHA-256 for AutoCuaBridge's file fingerprint and
 # Chrome's unpacked extension id.
 ring = { version = "0.17", default-features = false }
 # -- the Android agent's phone reader (android/tree/element.rs) ------------

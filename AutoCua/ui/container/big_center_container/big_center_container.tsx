@@ -1,6 +1,6 @@
 // Big center container — the main container, always on: the frame around the
 // zones, inside #mainGrid (ui/index.tsx), which also holds #chatScroll and,
-// later, Shell use's #cliContainer. It holds the Skills stage
+// later, Coder's #cliContainer. It holds the Skills stage
 // (skills/skills_stage.tsx), shown while the zone is .active: skills.js
 // toggles that, and chat_input.js drops .active on a new run and on Stop. React leaves that alone: a re-render
 // writes only props whose value changed, so as long as className is rendered

@@ -139,7 +139,7 @@ pub fn web_search(
         .call1((environ.call_method1("get", ("AutoCua_WEB_FALLBACK_TIMEOUT", "900"))?,))?
         .extract()?;
     let repo_root = repo_root(py)?;
-    let web_scratchpad = repo_root.join("AutoCua").join("web").join("scratchpad");
+    let web_scratchpad = repo_root.join("AutoCua").join("browser").join("scratchpad");
 
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let hex: String = py.import("uuid")?.call_method0("uuid4")?.getattr("hex")?.extract()?;
@@ -160,7 +160,7 @@ pub fn web_search(
         [
             py.import("sys")?.getattr("executable")?,
             s("-m"),
-            s("AutoCua.web.agent"),
+            s("AutoCua.browser.agent"),
             s("--task"),
             s(&TASK_TEMPLATE.replace("{query}", query)),
             s("--provider"),

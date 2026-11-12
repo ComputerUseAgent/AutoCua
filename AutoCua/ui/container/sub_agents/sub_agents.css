@@ -65,7 +65,7 @@
     -webkit-user-select: none;
     user-select: none;
 }
-/* The eyes blink around their own line (bot_blink.js): the Web use, Mobile
+/* The eyes blink around their own line (bot_blink.js): the Browser, Mobile
    use and CoderUse bots' eye line, 24.65% from the top. */
 .sub-bot .eyes {
     transform-origin: 50% 24.65%;
