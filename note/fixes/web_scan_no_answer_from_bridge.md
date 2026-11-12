@@ -124,7 +124,7 @@ starts Chrome with the new copy.
 ## The test (`web_scan_no_answer_from_bridge/`)
 
 The test uses headless Chrome with a temp profile, never your own Chrome, and drives it
-only through `AutoCua.web.agent_native.Bridge`. It never runs the agent or an LLM. It
+only through `AutoCua.agent_native.web.Bridge`. It never runs the agent or an LLM. It
 opens a form page with cross-site iframes, scans it, clicks Search (which navigates
 `rdelay` ms later), and then sends the scan that used to hang.
 

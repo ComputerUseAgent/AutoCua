@@ -37,10 +37,76 @@ import subprocess
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from AutoCua.utils.errors import error_text
 from pathlib import Path
 
-WDA_BUNDLE_ID = "com.AutoCua.WebDriverAgentRunner.xctrunner"
+# The bundle ID prefix pairing signs WebDriverAgent with: <prefix>.WebDriverAgentRunner
+# (on the phone, the app <prefix>.WebDriverAgentRunner.xctrunner), <prefix>.WebDriverAgentLib
+# and <prefix>.IntegrationApp. Apple registers a bundle ID to ONE developer team, so the
+# bare com.AutoCua, the earlier default, only ever signed for the team that took it
+# first; every other Apple account was refused it ("cannot be registered to your
+# development team"). The default is therefore one per team, com.AutoCua.<team ID>,
+# which no other account can hold, and pairing needs nothing set. A person who wants
+# their own sets IOS_BUNDLE_ID_PREFIX in the .env (Settings > Connect Device > iPhone >
+# Bundle ID writes it); a .env that says the bare com.AutoCua, as .env.example once had
+# it, counts as not set.
+BUNDLE_PREFIX_VAR = "IOS_BUNDLE_ID_PREFIX"
+DEFAULT_BUNDLE_PREFIX = "com.AutoCua"
+RUNNER_SUFFIX = ".WebDriverAgentRunner.xctrunner"
+_BUNDLE_PREFIX_RE = re.compile(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*")
 WDA_PORT = 8100
+
+
+def valid_bundle_prefix(value) -> bool:
+    """Letters, digits and hyphens, in parts joined by dots (com.yourname): the
+    characters Apple allows in a bundle ID."""
+    return bool(_BUNDLE_PREFIX_RE.fullmatch(value or ""))
+
+
+def user_bundle_prefix() -> str:
+    """The prefix the person set: IOS_BUNDLE_ID_PREFIX from the .env, read now
+    (Settings may have just changed it), else from the environment. "" when
+    none is set, or it is the bare default."""
+    try:
+        from AutoCua import read_env
+        value = (read_env().get(BUNDLE_PREFIX_VAR) or "").strip()
+    except Exception:
+        value = ""
+    value = value or (os.environ.get(BUNDLE_PREFIX_VAR) or "").strip()
+    return "" if value == DEFAULT_BUNDLE_PREFIX else value
+
+
+def built_bundle_prefix() -> str:
+    """The prefix the last pairing on this Mac built with (setup.py's note of
+    its build, build_paths.built_stamp), "" when there was none."""
+    try:
+        from AutoCua.ios_connector.build_paths import built_stamp
+        return str(json.loads(built_stamp().read_text(encoding="utf-8")).get("prefix") or "").strip()
+    except Exception:
+        return ""
+
+
+def default_bundle_prefix(team=None) -> str:
+    """The prefix used when none is set: com.AutoCua.<team ID> for `team`. With
+    no team at hand (the cable session, which only starts the app pairing put
+    on the phone), the last pairing's (built_bundle_prefix), else the bare
+    com.AutoCua."""
+    if team:
+        return f"{DEFAULT_BUNDLE_PREFIX}.{team}"
+    return built_bundle_prefix() or DEFAULT_BUNDLE_PREFIX
+
+
+def bundle_prefix(team=None) -> str:
+    """The prefix in use: the person's own (user_bundle_prefix), else the
+    default for `team` (default_bundle_prefix)."""
+    return user_bundle_prefix() or default_bundle_prefix(team)
+
+
+def wda_bundle_id(team=None) -> str:
+    """The AutoCua app on the phone (WebDriverAgent's runner) for the bundle ID
+    prefix pairing uses now. A phone paired under another prefix lacks it, and
+    its start then asks for pairing again (_classify: "repair")."""
+    return bundle_prefix(team) + RUNNER_SUFFIX
 # The desktop app's Wireless / Wired toggle, for computer use's ios_agent
 # (mac/controller/tool/ios_agent.py): ui/service.py sets it on every flip.
 # True is the Wi-Fi only (a paired iPhone, through Xcode), False the cable
@@ -383,8 +449,9 @@ class _XcodeRun:
                 return self._end("needaccount", "No Apple Account in Xcode", "Add one in Settings → Connect Device.")
             if self._ended:
                 return                        # stopped while it looked for the team: no run at all
-            # fast: the runner built before, as it is (setup.py builds only when that fails)
-            query = urllib.parse.urlencode({"team": team, "udid": self.udid, "prefix": "com.AutoCua",
+            # fast: the runner built before, as it is (setup.py builds only when that fails).
+            # No prefix: setup.py takes the .env's bundle ID prefix (bundle_prefix).
+            query = urllib.parse.urlencode({"team": team, "udid": self.udid,
                                             "mode": "test", "mount": "0",   # the mount step needs the cable
                                             "fast": "1"})
             self._streaming = True
@@ -527,10 +594,11 @@ def _forward_pids():
 
 
 def _orphan_runner_pids():
-    """[pid] of every WDA runner (pymobiledevice3 xcuitest for our bundle) whose
-    app is gone: an app that crashed or was force-quit leaves it running,
-    parented to launchd (ppid 1). A runner with a live parent belongs to a run
-    that is still going (the app, a terminal run) and is never listed."""
+    """[pid] of every WDA runner (pymobiledevice3 xcuitest for an AutoCua runner,
+    under any bundle ID prefix, the one before a change too) whose app is gone:
+    an app that crashed or was force-quit leaves it running, parented to
+    launchd (ppid 1). A runner with a live parent belongs to a run that is
+    still going (the app, a terminal run) and is never listed."""
     try:
         out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="],
                              capture_output=True, text=True, timeout=5).stdout
@@ -543,7 +611,7 @@ def _orphan_runner_pids():
             continue
         pid, ppid, cmd = parts
         if (ppid == "1" and pid.isdigit() and "pymobiledevice3" in cmd
-                and "xcuitest" in cmd and WDA_BUNDLE_ID in cmd):
+                and "xcuitest" in cmd and RUNNER_SUFFIX in cmd):
             found.append(int(pid))
     return found
 
@@ -870,7 +938,7 @@ class WDASession:
                     base + ["usbmux", "forward", str(WDA_PORT), str(WDA_PORT)],
                     stdout=subprocess.DEVNULL, stderr=log, env=env)
                 self._xctest = subprocess.Popen(
-                    base + ["developer", "dvt", "xcuitest", "--userspace", WDA_BUNDLE_ID],
+                    base + ["developer", "dvt", "xcuitest", "--userspace", wda_bundle_id()],
                     stdout=subprocess.DEVNULL, stderr=log, env=env)
                 mark("spawn")
                 self._mux_id = mux_device_id(udid)
@@ -879,7 +947,7 @@ class WDASession:
                 self._start_watchdog()
             except Exception as e:
                 self._stop_locked()
-                return {"ok": False, "state": "error", "error": str(e)}
+                return {"ok": False, "state": "error", "error": error_text(e)}
         return {"ok": True, "state": "connecting", "udid": udid, "timing": timing}
 
     def status(self):
@@ -1077,7 +1145,7 @@ class WDASession:
             self._xctest = _XcodeRun(udid, log, self._forward.set_target)
         except Exception as e:  # noqa: BLE001 - reported, like the cable start
             self._stop_locked()
-            return {"ok": False, "state": "error", "error": str(e)}
+            return {"ok": False, "state": "error", "error": error_text(e)}
         return {"ok": True, "state": "connecting", "udid": udid}
 
     def _stop_locked(self):
@@ -1185,7 +1253,7 @@ class WDASession:
                 while time.monotonic() < deadline and self._wda_up():
                     time.sleep(0.5)
             self._xctest = subprocess.Popen(
-                base + ["developer", "dvt", "xcuitest", "--userspace", WDA_BUNDLE_ID],
+                base + ["developer", "dvt", "xcuitest", "--userspace", wda_bundle_id()],
                 stdout=subprocess.DEVNULL, stderr=log, env=env)
             if mjpeg_port:
                 # the phone window keeps reading the same local port

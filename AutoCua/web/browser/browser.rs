@@ -31,9 +31,9 @@ use pyo3::prelude::*;
 use regex::Regex;
 use serde_json::{json, Value};
 
-use crate::bridge::Bridge;
-use crate::tree::element;
-use crate::ScannerError;
+use crate::web::bridge::Bridge;
+use crate::web::tree::element;
+use crate::web::ScannerError;
 
 pub const CHROME_PORT: u16 = 9222;
 // A blank tab is always about:blank — the URL the ADDRESS BAR shows. The logo
@@ -1783,30 +1783,102 @@ pub(crate) fn profile_locked_by_live_chrome(profile: &PathBuf) -> bool {
             .open(profile.join("lockfile"))
             .is_err_and(|e| e.raw_os_error() == Some(32));
     }
-    let Ok(target) = std::fs::read_link(profile.join("SingletonLock")) else {
-        return false;
+    let target = match std::fs::read_link(profile.join("SingletonLock")) {
+        Ok(target) => target,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
+        // macOS 27 keeps every other program out of the browsers' own data folders
+        // (bridge.rs launch_chrome), so the person's own Chrome's lock cannot be
+        // read from here (Operation not permitted). The process list says instead.
+        Err(_) => return chrome_main_pid_on(profile).is_some(),
     };
     let text = target.to_string_lossy().to_string();
     let Some(pid) = text.rsplit('-').next().and_then(|p| p.parse::<u32>().ok()) else {
         return false;
     };
-    // Running, and not a zombie. A browser that crashed or was killed stays in
-    // the process table as a zombie until the process that started it
-    // collects it, which this crate never does: counted as alive (`kill -0`
-    // does), it blocked every relaunch from that process, the desktop app's
-    // included, until the app restarted (measured). ps shows a zombie's state
-    // as Z, and nothing at all for a pid that is gone. A subprocess rather
-    // than a libc call so the crate keeps its dependency list; this runs once
-    // per launch, never in a loop.
+    live_browser_pid(pid)
+}
+
+/// Whether `pid` is a running browser: not a zombie, and a browser's process. A
+/// browser that crashed or was killed stays in the process table as a zombie
+/// until the process that started it collects it, which this crate never does:
+/// counted as alive (`kill -0` does), it blocked every relaunch from that
+/// process, the desktop app's included, until the app restarted (measured). ps
+/// shows a zombie's state as Z, and nothing at all for a pid that is gone. And
+/// a lock a crashed browser left behind names a pid another program may have
+/// by now, so the command is looked at too. A subprocess rather than a libc
+/// call so the crate keeps its dependency list; this runs once per launch,
+/// never in a loop.
+#[cfg(unix)]
+pub(crate) fn live_browser_pid(pid: u32) -> bool {
     Command::new("ps")
-        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .args(["-o", "stat=,command=", "-p", &pid.to_string()])
         .stderr(Stdio::null())
         .output()
         .map(|out| {
-            let state = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            !state.is_empty() && !state.starts_with('Z')
+            let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let (state, command) = line.split_once(char::is_whitespace).unwrap_or((&line, ""));
+            !state.is_empty() && !state.starts_with('Z') && looks_like_browser(command)
         })
         .unwrap_or(false)
+}
+
+/// Whether a command line is a Chromium browser's: Chrome, Chromium or Edge, by
+/// any path (find_chrome's candidates, a Linux launcher, a copy elsewhere).
+#[cfg(unix)]
+fn looks_like_browser(command: &str) -> bool {
+    let lower = command.to_lowercase();
+    ["chrome", "chromium", "msedge", "microsoft edge"].iter().any(|b| lower.contains(b))
+}
+
+/// The pid of the browser's main process on the profile `dir`, from the process
+/// list: on macOS 27 the person's own Chrome's folder cannot be read from here
+/// (bridge.rs launch_chrome), so its SingletonLock is out of reach
+/// (profile_locked_by_live_chrome, bridge.rs quit_chrome_on). A main process runs
+/// a browser binary find_chrome knows (its helpers run from other paths and carry
+/// --type=), is not a zombie, and names `dir` in --user-data-dir, or names no
+/// folder when `dir` is the default user data folder. ps joins the arguments
+/// with spaces, so the folder is matched as text followed by a space or the end.
+#[cfg(unix)]
+pub(crate) fn chrome_main_pid_on(dir: &Path) -> Option<u32> {
+    let out = Command::new("ps")
+        .args(["-axo", "pid=,stat=,command="])
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let binaries: Vec<String> =
+        chrome_candidates().into_iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    let trimmed = |p: &Path| p.to_string_lossy().trim_end_matches('/').to_string();
+    let want = trimmed(dir);
+    let is_default = want == trimmed(&crate::web::bridge::default_user_data_dir());
+    let flag = "--user-data-dir=";
+    for line in text.lines() {
+        let line = line.trim_start();
+        let Some((pid, rest)) = line.split_once(char::is_whitespace) else { continue };
+        let Some((state, command)) = rest.trim_start().split_once(char::is_whitespace) else { continue };
+        let command = command.trim_start();
+        if state.starts_with('Z') || command.contains(" --type=") {
+            continue;
+        }
+        let main = binaries.iter().any(|b| {
+            command.starts_with(b.as_str()) && command[b.len()..].chars().next().is_none_or(|c| c == ' ')
+        });
+        if !main {
+            continue;
+        }
+        let on_dir = match command.find(flag) {
+            Some(i) => {
+                let after = &command[i + flag.len()..];
+                after.starts_with(want.as_str())
+                    && after[want.len()..].chars().next().is_none_or(|c| c == ' ' || c == '/')
+            }
+            None => is_default,
+        };
+        if on_dir {
+            return pid.parse().ok();
+        }
+    }
+    None
 }
 
 /// Place a headful window on WINDOW_SHARE of its screen, centred. The screen
@@ -3034,7 +3106,7 @@ impl ScannerInner {
         // The page-tab guard exits a minute after its browser has gone, and
         // the agent's next step can come later than that.
         if !headless {
-            crate::page_tab_guard::restart(self.port);
+            crate::web::page_tab_guard::restart(self.port);
         }
         // Found up, with this agent's tab still in it: the browser never went
         // away (a port check that failed for a moment), so nothing reopens.
@@ -5053,7 +5125,7 @@ pub fn launch_chrome(
     headless: bool,
     profile_dir: Option<String>,
 ) -> PyResult<bool> {
-    crate::ensure_browser(py, port, headless);
+    crate::web::ensure_browser(py, port, headless);
     let dir = profile_dir.map(PathBuf::from);
     py.detach(move || launch_chrome_impl(port, headless, dir))
         .map_err(PyErr::from)
@@ -5073,7 +5145,7 @@ pub fn is_blank_page(url: Option<Bound<'_, PyAny>>) -> PyResult<bool> {
 /// The logo page as one line of HTML, ready to render into a blank tab.
 #[pyfunction]
 pub fn blank_html(py: Python<'_>) -> PyResult<String> {
-    let browser = crate::browser_dir(py)?;
+    let browser = crate::web::browser_dir(py)?;
     let logo = browser
         .parent()
         .and_then(|p| p.parent())
@@ -5149,7 +5221,7 @@ impl BrowserScanner {
         out_dir: Option<String>,
         single_tab: bool,
     ) -> PyResult<Self> {
-        let browser = crate::browser_dir(py)?;
+        let browser = crate::web::browser_dir(py)?;
         Ok(BrowserScanner::create(
             &browser,
             port,
@@ -5165,12 +5237,12 @@ impl BrowserScanner {
     #[pyo3(signature = (bridge, frontend_callback=None, out_dir=None, single_tab=false))]
     fn over_bridge(
         py: Python<'_>,
-        bridge: PyRef<'_, crate::bridge::PyBridge>,
+        bridge: PyRef<'_, crate::web::bridge::PyBridge>,
         frontend_callback: Option<Py<PyAny>>,
         out_dir: Option<String>,
         single_tab: bool,
     ) -> PyResult<Self> {
-        let browser = crate::browser_dir(py)?;
+        let browser = crate::web::browser_dir(py)?;
         let scanner = BrowserScanner::create(
             &browser,
             0,

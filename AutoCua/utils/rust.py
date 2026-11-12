@@ -1,29 +1,23 @@
-"""Build the Rust extensions (the web agent, the Android agent) if they aren't built yet.
+"""Build the Rust extension (the web agent, the Android agent, the coder, memory compression and the chat memory) if it isn't built yet.
 
-Each side is ONE crate rooted at its folder, AutoCua/web/ and AutoCua/android/:
-Cargo.toml, target/ and the built agent_native.so all live there, and the .rs
-sources sit in their own folders (agent/, controller/, tool_registry/, tree/)
-mirroring the old Python layout. Each compiles with plain
-`cargo build --release` — no maturin, no pyproject.toml — one cargo build for
-the whole side.
+They are ONE crate rooted at the package folder, AutoCua/:
+Cargo.toml, Cargo.lock, build.rs, lib.rs, target/ and the built
+agent_native.so all live there, and each agent's .rs sources sit in its own
+folder (web/, android/, coder/, memory_compression/, agent_conversation/)
+mirroring the old Python layout. It compiles
+with plain `cargo build --release` (no maturin, no pyproject.toml), one cargo
+build for all of them.
 
 WHEN THIS ACTUALLY RUNS
-    Checkout  — Cargo.toml sits beside the package, so this compiles when
-                the desktop app starts (ui/service.py _start_native_agents),
-                on a terminal run's first "web use" / "mobile use, android",
-                and on any later run where a .rs source is newer than the
-                built module.
-    pip wheel — both extensions ship prebuilt. maturin builds the web one
-                itself (agent_native.abi3.so / .pyd) and its crate sources
-                are excluded, so there is no Cargo.toml to find and cargo is
-                never touched for it. The Android one is built by THIS module
-                on the release machine, before maturin runs, and
-                pyproject.toml's `include` packs the result (agent_native.so
-                / .pyd) into the wheel — note/pypi-release.md. Its crate
-                sources ship too, so a wheel pip builds from the sdist, on a
-                platform without one of ours, gets the module on its first
-                Android run; a shipped module is trusted as it is (no
-                target/ beside it), never rebuilt from pip's own mtimes.
+    Checkout  — Cargo.toml sits in the package, so this compiles when
+                the desktop app starts (ui/service.py _prepare_native),
+                on a terminal run's first "web use" / "mobile use, android"
+                / coder run, and on any later run where a .rs source is
+                newer than the built module.
+    pip wheel — the extension ships prebuilt: maturin builds it
+                (agent_native.abi3.so / .pyd) and the crate's sources are
+                excluded, so there is no Cargo.toml to find and cargo is
+                never touched.
 
 Lives in utils/ beside wda.py because they are the same kind of thing: the
 one-time setup step a checkout gets from a shell script and a pip install has
@@ -39,8 +33,11 @@ import sys
 from pathlib import Path
 
 _PACKAGE = Path(__file__).resolve().parent.parent
-_WEB_DIR = _PACKAGE / "web"
-_ANDROID_DIR = _PACKAGE / "android"
+# The folders lib.rs declares, one per agent, then memory_compression, which
+# every agent shares (Python's included), and agent_conversation, the desktop
+# app's saved chats.
+_AGENT_DIRS = (_PACKAGE / "web", _PACKAGE / "android", _PACKAGE / "coder",
+               _PACKAGE / "memory_compression", _PACKAGE / "agent_conversation")
 
 # Two different naming schemes have to line up here, and neither is portable:
 # Python only imports an extension named .pyd on Windows and .so elsewhere,
@@ -68,12 +65,13 @@ elif sys.platform.startswith("linux"):
 else:
     _SETUP_HINT = "install Rust from https://rustup.rs and a C compiler"
 
-# Directories under a crate that hold no crate sources.
+# Directories under an agent's folder that hold no crate sources.
 _NOT_SOURCE = {"target", "tests", "scratchpad", "__pycache__"}
 
 
-def _rust_sources(crate_dir):
-    """Every .rs the crate compiles, wherever under its folder it lives.
+def _rust_sources():
+    """Every .rs the crate compiles: lib.rs and build.rs, and every .rs under
+    the agents' folders, wherever in them it lives.
 
     Walked rather than listed folder by folder. A hand-written list goes stale
     the moment a source moves, and it fails SILENTLY — the extension simply
@@ -81,25 +79,26 @@ def _rust_sources(crate_dir):
     the code. browser/browser.rs was exactly that: moved out of agent/, and
     with it out of the freshness check.
     """
-    for entry in crate_dir.iterdir():
-        if entry.name in _NOT_SOURCE:
-            continue
-        if entry.is_dir():
-            yield from entry.rglob("*.rs")
-        elif entry.suffix == ".rs":
-            yield entry
+    yield from _PACKAGE.glob("*.rs")
+    for agent_dir in _AGENT_DIRS:
+        for entry in agent_dir.iterdir():
+            if entry.name in _NOT_SOURCE:
+                continue
+            if entry.is_dir():
+                yield from entry.rglob("*.rs")
+            elif entry.suffix == ".rs":
+                yield entry
 
 
 def _ensure_built(crate_dir, what, others):
-    """Compile one crate's extension once — a minute on first use, then never again.
+    """Compile the crate's extension once — a minute on first use, then never again.
 
-    what: the crate's name in messages ("web agent"); others: the modes that
-    run without it, for the error text.
+    what: the parts it holds, in messages; others: the modes that run
+    without it, for the error text (None: every mode needs it).
 
     A no-op from a pip wheel: no Cargo.toml means the extension is already
-    built and shipped (the web crate), and a module with no target/ beside
-    it was shipped built (the Android crate, whose sources come along), so
-    nothing here has anything to do.
+    built and shipped, and a module with no target/ beside it was shipped
+    built, so nothing here has anything to do.
     """
     manifest = crate_dir / "Cargo.toml"
     if not manifest.is_file():
@@ -114,11 +113,11 @@ def _ensure_built(crate_dir, what, others):
     if so.exists() and not (crate_dir / "target").exists():
         return
 
-    # Everything the crate compiles, wherever under its folder it lives, and
-    # what pins its dependencies and its compiler: a `cargo update` or a
+    # Everything the crate compiles, wherever in the agents' folders it lives,
+    # and what pins its dependencies and its compiler: a `cargo update` or a
     # toolchain bump changes the module too, with no .rs touched.
     sources = [manifest, crate_dir / "Cargo.lock", _PACKAGE.parent / "rust-toolchain.toml",
-               *_rust_sources(crate_dir)]
+               *_rust_sources()]
     stamps = [p.stat().st_mtime for p in sources if p.exists()]
     if so.exists() and stamps and so.stat().st_mtime >= max(stamps):
         return
@@ -129,14 +128,14 @@ def _ensure_built(crate_dir, what, others):
     cargo = shutil.which("cargo") or str(Path.home() / ".cargo" / "bin" / cargo_exe)
     if not Path(cargo).exists():
         raise RuntimeError(
-            f"cargo not found — the {what} is a Rust extension that builds "
-            f"once from source. To fix it, {_SETUP_HINT}\n"
-            f"{others} run without it."
+            f"cargo not found — the {what} are one Rust extension that builds "
+            f"once from source. To fix it, {_SETUP_HINT}"
+            + (f"\n{others} run without it." if others else "")
         )
 
-    # cargo links through the system C compiler, and the web crate compiles C
-    # sources of its own (ring's SHA-256) — a Linux box straight from the
-    # installer has neither.
+    # cargo links through the system C compiler, and the crate compiles C
+    # sources of its own (ring's SHA-256, for the web agent) — a Linux box
+    # straight from the installer has neither.
     # Caught here with a readable message rather than minutes later as
     # "linker `cc` not found" deep in cargo's output. macOS always has
     # /usr/bin/cc (Apple's shim, which offers the Command Line Tools itself),
@@ -145,8 +144,8 @@ def _ensure_built(crate_dir, what, others):
         apt = " (or just:  sudo apt install build-essential)" if sys.platform.startswith("linux") else ""
         raise RuntimeError(
             f"no C compiler found — cargo needs one to link the {what}. "
-            f"To fix it, {_SETUP_HINT}{apt}\n"
-            f"{others} run without it."
+            f"To fix it, {_SETUP_HINT}{apt}"
+            + (f"\n{others} run without it." if others else "")
         )
 
     print(f"Building the {what} (first run, ~1 min)...")
@@ -197,13 +196,10 @@ def _ensure_built(crate_dir, what, others):
     os.replace(tmp, so)
 
 
-def ensure_web_agent_built() -> None:
-    """The web agent's extension (AutoCua/web/agent_native), built once."""
-    _ensure_built(_WEB_DIR, "web agent",
-                  "Every other mode (computer use, shell use, mobile use)")
-
-
-def ensure_android_agent_built() -> None:
-    """The Android agent's extension (AutoCua/android/agent_native), built once."""
-    _ensure_built(_ANDROID_DIR, "Android agent",
-                  "Every other mode (computer use, shell use, web use, iOS)")
+def ensure_built() -> None:
+    """The one Rust extension (AutoCua/agent_native): the web agent, the
+    Android agent and the coder, built once."""
+    # Every mode needs it now: computer use and iOS compress memory with it,
+    # and the desktop app keeps its chats with it.
+    _ensure_built(_PACKAGE, "Rust parts (the web, Android and coder agents, memory "
+                  "compression and the chat memory)", None)

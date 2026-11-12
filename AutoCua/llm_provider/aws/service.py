@@ -7,7 +7,7 @@ from urllib.parse import quote
 import requests
 
 from .view import DEFAULT_MAX_TOKENS, DEFAULT_REGION, find_entry, get_request_fields
-from .. import LLM_HTTP_TIMEOUT, screenshots
+from .. import entry_value, http_timeout, out_cap, screenshots
 
 # One cache checkpoint: Bedrock caches everything in the request before it.
 _CACHE_POINT = {"cachePoint": {"type": "default"}}
@@ -226,13 +226,13 @@ class AWSProvider:
             "messages": api_messages,
             # Output cap. The handoff manager passes 10k (LLMManager.max_tokens);
             # everything else keeps the model's cap from view.py.
-            "inferenceConfig": {"maxTokens": self.max_tokens or info.get("max_tokens") or DEFAULT_MAX_TOKENS},
+            "inferenceConfig": {"maxTokens": self.max_tokens or out_cap(self.cli_agent, info.get("max_tokens") or DEFAULT_MAX_TOKENS, info)},
         }
         if system:
             body["system"] = system
 
         # Claude's effort or Kimi/Grok's reasoning level, per view.py.
-        fields = get_request_fields(info)
+        fields = get_request_fields(info, self.cli_agent)
         if fields:
             body["additionalModelRequestFields"] = fields
 
@@ -243,7 +243,7 @@ class AWSProvider:
             # tool). Canonical rationale: see openrouter/service.py. The
             # manager may override it per line (the scrape optimizer runs on
             # "auto": its only tool is `more` and its answer is the text reply).
-            choice = "auto" if self.model_info.get("tool_choice") == "auto" else "any"
+            choice = "auto" if entry_value(self.model_info, "tool_choice", self.cli_agent) == "auto" else "any"
             body["toolConfig"] = {
                 "tools": [_tool_spec(t) for t in self.tools],
                 "toolChoice": {choice: {}},
@@ -256,7 +256,7 @@ class AWSProvider:
         url = f"{self.api_base}/model/{quote(model, safe='')}/converse"
 
         try:
-            response = self.session.post(url, json=body, headers=headers, timeout=LLM_HTTP_TIMEOUT)
+            response = self.session.post(url, json=body, headers=headers, timeout=http_timeout(self.cli_agent))
             response.raise_for_status()
             result = response.json()
         except requests.exceptions.RequestException as e:

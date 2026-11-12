@@ -2,96 +2,16 @@
 shell.py - Host-Mac shell tool for the iPhone agent.
 
 One `shell` call runs BOTH plain shell commands and AppleScript — AppleScript is
-just an `osascript -e '...'` command, so there's no separate tool. Everything
-goes through the sandboxed Desktop workspace, and a background watcher
-auto-clicks any macOS permission popup (TCC) that a command triggers, so
-AppleScript that drives another app is handled the same as any other command.
+just an `osascript -e '...'` command, so there's no separate tool. Every
+command runs in the coder's sandbox (AutoCua/coder/sandbox), the one sandbox
+in AutoCua.
 """
 
 import logging
-import subprocess
 
-from ...sandbox import Sandbox
+from AutoCua.coder import Sandbox
 
 logger = logging.getLogger(__name__)
-
-
-# Scans every process for a macOS permission popup and clicks its affirmative
-# button. Fingerprint: any window or sheet that has a NEGATIVE button — exact
-# name "Don't Allow" or "Deny". That structural pattern matches every TCC prompt
-# (Automation, Local Network, Files & Folders, Screen Recording, Microphone, …)
-# regardless of the affirmative button's label. We then click the affirmative,
-# trying "Allow" → "OK" → "Always Allow" so both the automation popup
-# ("Allow"/"Don't Allow") AND the folder popup ("OK"/"Don't Allow") are handled.
-# AppleScript list membership is exact, so "Don't Allow" never matches "Allow".
-# Returns "clicked" (affirmative pressed), "present" (popup seen but not clicked),
-# or "none".
-_DIALOG_SCANNER_SCRIPT = '''
-tell application "System Events"
-    set denyNames to {"Don't Allow", "Deny"}
-    set affirmNames to {"Allow", "OK", "Always Allow"}
-    set sawDialog to false
-    repeat with p in application processes
-        try
-            repeat with w in windows of p
-                set containers to {w}
-                try
-                    set containers to containers & (sheets of w)
-                end try
-                repeat with c in containers
-                    try
-                        set bnames to name of buttons of c
-                        set hasDeny to false
-                        repeat with dn in denyNames
-                            if bnames contains dn then set hasDeny to true
-                        end repeat
-                        if hasDeny then
-                            set sawDialog to true
-                            repeat with an in affirmNames
-                                if bnames contains an then
-                                    click (first button of c whose name is an)
-                                    return "clicked"
-                                end if
-                            end repeat
-                        end if
-                    end try
-                end repeat
-            end repeat
-        end try
-    end repeat
-    if sawDialog then
-        return "present"
-    end if
-    return "none"
-end tell
-'''
-
-
-def _scan_permission_dialog() -> str:
-    """Scan for a macOS TCC permission popup and click its affirmative button.
-
-    Returns "clicked" (Allow/OK pressed), "present" (popup is up but could not be
-    clicked — usually because Accessibility isn't granted), or "none". Idempotent.
-    """
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", _DIALOG_SCANNER_SCRIPT],
-            capture_output=True, text=True, timeout=3
-        )
-        status = result.stdout.strip() if result.returncode == 0 else "none"
-        if status not in ("clicked", "present", "none"):
-            status = "none"
-        if status == "clicked":
-            logger.info("Auto-clicked macOS permission popup (Allow/OK)")
-        return status
-    except Exception as e:
-        logger.debug(f"Permission dialog scan failed: {e}")
-        return "none"
-
-
-def _click_automation_allow_button() -> bool:
-    """Back-compat wrapper: True if a permission popup's affirmative was clicked."""
-    return _scan_permission_dialog() == "clicked"
 
 
 class ShellService:

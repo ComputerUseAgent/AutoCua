@@ -1027,6 +1027,60 @@ body.settings-open #chatWrapper {
     color: rgba(90, 90, 90, 0.7);
 }
 
+/* Ollama's row in API Keys: a model on this machine, so a status where the
+   other rows have a key field, in the same box. The dot turns green while
+   the Ollama app answers (script.js loadOllamaStatus). */
+.settings-local-row {
+    display: flex;
+    align-items: center;
+    gap: clamp(10px, 1.2vw, 14px);
+}
+
+.settings-local-status {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: clamp(8px, 0.9vw, 10px);
+    height: clamp(36px, 3.5vw, 42px);
+    padding: 0 clamp(10px, 1.2vw, 14px);
+
+    border-radius: clamp(8px, 1vw, 12px);
+    background: rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(12px, 1.2vw, 14px);
+    color: rgba(90, 90, 90, 0.8);
+    cursor: default;
+}
+
+.settings-local-dot {
+    width: 8px;
+    height: 8px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: rgba(120, 120, 120, 0.45);
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.settings-local-status.running {
+    color: rgba(55, 55, 55, 0.95);
+}
+
+.settings-local-status.running .settings-local-dot {
+    background: rgb(52, 199, 89);
+    box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.18);
+}
+
+.settings-local-text {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
 .settings-save-btn {
     width: 100%;
     height: clamp(40px, 3.8vw, 48px);

@@ -28,12 +28,12 @@
     var MAX_VISIBLE = 3;               // at most 3 coder cards stacked ("piped") at once
     var cards = new Map();             // task_id -> card (VISIBLE cards only)
     var queue = [];                    // FIFO of { taskId, desc } waiting for a free slot
-    var minionParent = new Map();      // minion_id -> parent task_id
+    var subagentParent = new Map();      // subagent id -> parent task_id
     var idleCard = null;               // the waiting terminal shown in Shell use
     var clearTimer = null;             // the deferred end-of-run wipe — cancellable, so a
                                        // run starting inside its 600ms window isn't destroyed
     var boxes = new Map();             // Computer use: task_id -> its coder box's card (mountBox)
-    var boxMinions = new Map();        // ...and minion_id -> its box's task_id
+    var boxSubagents = new Map();        // ...and subagent id -> its box's task_id
 
     function getContainer() { return document.getElementById('cliContainer'); }
     // 1 card -> full-size; 2 -> halves; 3 -> thirds (drives the height transition in CSS).
@@ -68,7 +68,7 @@
         if (shellPinned) {
             Array.from(cards.keys()).forEach(function (id) { demote(id, 'stopped', ''); });
             queue.length = 0;
-            minionParent.clear();
+            subagentParent.clear();
             if (!idleCard) mountIdle();
             return;
         }
@@ -76,7 +76,7 @@
         if (c) { c.innerHTML = ''; c.classList.remove('n2', 'n3'); }
         cards.clear();
         queue.length = 0;
-        minionParent.clear();
+        subagentParent.clear();
         idleCard = null;                  // innerHTML wiped it too
         runChat = null;
     }
@@ -184,7 +184,7 @@
     }
     function dropBox(taskId) {
         boxes.delete(taskId);
-        boxMinions.forEach(function (parent, m) { if (parent === taskId) boxMinions.delete(m); });
+        boxSubagents.forEach(function (parent, m) { if (parent === taskId) boxSubagents.delete(m); });
     }
 
     // Shell use: the run is over, its terminal goes back to waiting (the reverse of the
@@ -201,7 +201,7 @@
         cards.delete(taskId);
         syncLayout();
         // only this card's minions stop routing (another card's run may still be going)
-        minionParent.forEach(function (parent, m) { if (parent === taskId) minionParent.delete(m); });
+        subagentParent.forEach(function (parent, m) { if (parent === taskId) subagentParent.delete(m); });
         if (card.finish) card.finish();
         if (isShellCard(card) && !idleCard && !pendingHistory) {
             if (card._unit) card._unit.classList.add('cc-idle');
@@ -457,7 +457,7 @@
         document.addEventListener('chat:new', function () {
             pendingHistory = null;                         // fresh chat — nothing to fill in
             runChat = null;
-            boxes.clear(); boxMinions.clear();             // the coders' boxes went with the old chat
+            boxes.clear(); boxSubagents.clear();             // the coders' boxes went with the old chat
             if (!shellPinned) {
                 // a Shell run's card still on the stage belongs to the old chat (a
                 // Computer use coder's is left alone)
@@ -472,7 +472,7 @@
             cards.forEach(function (card) { if (card && card.dispose) card.dispose(); });
             cards.clear();
             queue.length = 0;
-            minionParent.clear();
+            subagentParent.clear();
             runEnded = true;
             clearTimeout(clearTimer); clearTimer = null;   // no deferred wipe into the new terminal
             document.body.classList.remove('cli-typing');
@@ -487,7 +487,7 @@
             heroWasVisible = true;
         });
         // ...and another chat opened (sub_agents.js cleared the boxes with the live turn)
-        document.addEventListener('chat:opened', function () { boxes.clear(); boxMinions.clear(); });
+        document.addEventListener('chat:opened', function () { boxes.clear(); boxSubagents.clear(); });
         syncShellStage();   // the picker's 'agentmode:ready' fired before these hooks went in
 
         // A coder agent starts → mount it if a slot is free, else queue it. Up to 2 show at once;
@@ -540,27 +540,27 @@
             for (var i = 0; i < queue.length; i++) if (queue[i].taskId === taskId) { queue.splice(i, 1); break; }
         };
 
-        window.cliMinionStart = function (parentId, taskId, query) {
+        window.cliSubagentStart = function (parentId, taskId, query) {
             var box = boxes.get(parentId);           // a Computer use coder's box: its bot in there
-            if (box) { boxMinions.set(taskId, parentId); box.addMinion(taskId, query); return; }
+            if (box) { boxSubagents.set(taskId, parentId); box.addSubagent(taskId, query); return; }
             var card = cards.get(parentId);
             if (!card) return;
-            minionParent.set(taskId, parentId);
-            card.addMinion(taskId, query);            // Shell use: its bot in the box too
+            subagentParent.set(taskId, parentId);
+            card.addSubagent(taskId, query);            // Shell use: its bot in the box too
         };
-        window.cliMinionLine = function (taskId, line, stream) {
-            var box = boxes.get(boxMinions.get(taskId));
-            if (box) { box.setMinionLine(taskId, line); return; }
-            var parent = minionParent.get(taskId);
+        window.cliSubagentLine = function (taskId, line, stream) {
+            var box = boxes.get(boxSubagents.get(taskId));
+            if (box) { box.setSubagentLine(taskId, line); return; }
+            var parent = subagentParent.get(taskId);
             var card = (parent != null) ? cards.get(parent) : null;
-            if (card) card.setMinionLine(taskId, line);
+            if (card) card.setSubagentLine(taskId, line);
         };
-        window.cliMinionEnd = function (taskId, status, summary) {
-            var box = boxes.get(boxMinions.get(taskId));
-            if (box) { box.endMinion(taskId, status); return; }
-            var parent = minionParent.get(taskId);
+        window.cliSubagentEnd = function (taskId, status, summary) {
+            var box = boxes.get(boxSubagents.get(taskId));
+            if (box) { box.endSubagent(taskId, status); return; }
+            var parent = subagentParent.get(taskId);
             var card = (parent != null) ? cards.get(parent) : null;
-            if (card) card.endMinion(taskId, status);
+            if (card) card.endSubagent(taskId, status);
         };
 
         // Stage-level message straight onto the terminal. In Shell use the four zones

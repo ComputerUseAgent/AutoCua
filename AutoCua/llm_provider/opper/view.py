@@ -18,7 +18,9 @@ MODEL_MAPPINGS = {
         "api_name": "claude-sonnet-5",
         "vision": True,
         "display_name": "Claude Sonnet 5",
-        "effort": "low"
+        "effort": "low",
+        "coder_effort": "medium",
+        "coder_tool_choice": "auto"
     },
     "gemini-3.6-flash": {
         "api_name": "gemini-3.6-flash",

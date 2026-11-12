@@ -1,7 +1,8 @@
 // Connect Device — Settings section for phone automation.
 //   • iPhone (iOS): clean pairing flow in the app's own theme, driving the
 //     existing setup.py backend. Two dropdowns (Apple Account — always with a
-//     "＋ Add Apple Account…" entry — and Device), one status line, one action.
+//     "＋ Add Apple Account…" entry — and Device), the optional Bundle ID box,
+//     one status line, one action (Stop while it pairs).
 //     PAIRED = the AutoCua app is installed on the phone:
 //       - already installed            -> "Device paired successfully" (no build)
 //       - not installed  -> Pair       -> sign/build/install via setup.py /run
@@ -23,6 +24,10 @@
     var teams = [];             // usable teams from /detect
     var devices = [];           // connected devices from /detect
     var chosen = { team: null, udid: null };
+    var bundleSaved = '';       // the bundle ID prefix the .env holds (the Bundle ID box); '' = none
+    var bundleDefault = '';     // the one pairing uses without it: com.AutoCua.<team ID>
+    var bundleSaving = null;    // a save on its way, so Pair waits for it
+    var BUNDLE_RE = /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$/;   // session.valid_bundle_prefix
 
     function $(id) { return document.getElementById(id); }
 
@@ -110,11 +115,68 @@
         renderDeviceMenu();
     }
 
+    // ---- Bundle ID (optional: IOS_BUNDLE_ID_PREFIX in the .env; without it pairing
+    // signs with com.AutoCua.<team ID>, the picked team's own, shown as the placeholder) ----
+    function showBundle(d) {
+        bundleSaved = d.prefix || '';
+        bundleDefault = d.default || '';
+        els.bundleInput.placeholder = bundleDefault ? 'Default: ' + bundleDefault : '';
+        if (document.activeElement !== els.bundleInput) els.bundleInput.value = bundleSaved;
+    }
+    function loadBundle() {
+        var q = chosen.team ? '?team=' + encodeURIComponent(chosen.team) : '';
+        fetch('/api/ios/bundle-prefix' + q).then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.error) showBundle(d);
+        }).catch(function () {});
+    }
+    function markBundle(bad) { els.bundle.classList.toggle('is-invalid', !!bad); }
+    // Saves what the box holds when it changed (empty = back to the default).
+    // Resolves true once the .env has it, false when it was not saved.
+    function saveBundle() {
+        if (bundleSaving) return bundleSaving.then(function () { return saveBundle(); });
+        var v = els.bundleInput.value.trim();
+        if (v === bundleSaved) { markBundle(false); return Promise.resolve(true); }
+        if (v && !BUNDLE_RE.test(v)) {
+            markBundle(true);
+            status('error', 'Bundle ID: use letters, digits, - and . only, like com.yourname');
+            steps('');
+            return Promise.resolve(false);
+        }
+        bundleSaving = fetch('/api/ios/bundle-prefix', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prefix: v, team: chosen.team || '' })
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.ok) {
+                markBundle(true);
+                status('error', d.error || 'Could not save the bundle ID');
+                steps('');
+                return false;
+            }
+            var changed = (d.prefix || '') !== bundleSaved;
+            showBundle(d);
+            markBundle(false);
+            // The phone holds the app signed with the old one: pair again.
+            if (changed && chosen.udid && chosen.team) {
+                status('idle', 'Ready to pair');
+                steps('The bundle ID is now <b>' + esc(bundleSaved || bundleDefault) + '</b>'
+                      + (bundleSaved ? '' : ' (the default)') + '. Pair your iPhone to use it.');
+                action('Pair device', pair);
+            }
+            return true;
+        }).catch(function () {
+            status('error', 'Could not save the bundle ID');
+            return false;
+        }).then(function (ok) { bundleSaving = null; return ok; });
+        return bundleSaving;
+    }
+
     // ---- flow ----
     function begin() {
         status('loading', 'Starting…');
         steps(''); noAction();
         loadPaired();                       // show the paired list immediately
+        loadBundle();
         fetch('/api/ios/setup-server', { method: 'POST' })
             .then(function (r) { return r.json(); })
             .then(function (d) {
@@ -157,6 +219,7 @@
     // in the list shows paired until it's deleted; a device not in the list is
     // pairable, full stop.
     function afterSelectionChange() {
+        loadBundle();                       // the default follows the picked team
         if (!devices.length) {
             status('idle', 'No iPhone found');
             steps('Plug your iPhone into this Mac with a USB cable, unlock it, and tap <b>Trust</b> if asked.');
@@ -186,14 +249,30 @@
         action('Pair device', pair);
     }
 
+    // The Stop button while it pairs: the run ends, its xcodebuild with it, and
+    // the panel is back at Pair.
+    function stopPair() {
+        closeStream();
+        fetch(base + '/stop').catch(function () {});
+        readyToPair();
+    }
+
     function pair() {
         if (!chosen.udid || !chosen.team) return refresh();
+        // A Bundle ID still being typed is saved first: pairing signs with the
+        // one the .env holds (setup.py reads it, no prefix is sent).
+        noAction();
+        saveBundle().then(function (ok) { if (ok) startPair(); else action('Pair device', pair); });
+    }
+
+    function startPair() {
         status('pairing', 'Signing…');
-        steps(''); noAction();
+        steps('');
         closeStream();
+        action('Stop', stopPair, true);
+        els.bundleInput.disabled = true;    // no edits while it signs (closeStream frees it)
         var qs = new URLSearchParams({
-            team: chosen.team, udid: chosen.udid,
-            prefix: 'com.AutoCua', mode: 'test', mount: '1'
+            team: chosen.team, udid: chosen.udid, mode: 'test', mount: '1'
         }).toString();
         es = new EventSource(base + '/run?' + qs);
 
@@ -246,7 +325,8 @@
     function checkInstalledThenMaybeFail(failMsg) {
         status('loading', 'Checking the device…');
         noAction();
-        fetch(base + '/installed?udid=' + encodeURIComponent(chosen.udid))
+        fetch(base + '/installed?udid=' + encodeURIComponent(chosen.udid)
+              + '&team=' + encodeURIComponent(chosen.team || ''))
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (d.installed) paired(true);
@@ -365,7 +445,10 @@
         action('Try again', refresh, true);
     }
 
-    function closeStream() { if (es) { es.close(); es = null; } }
+    function closeStream() {
+        if (es) { es.close(); es = null; }
+        if (els.bundleInput) els.bundleInput.disabled = false;
+    }
     function cleanup() {
         closeStream();
         if (acctTimer) { clearInterval(acctTimer); acctTimer = null; }
@@ -397,7 +480,25 @@
         els.action = $('dcAction');
         els.paired = $('dcPaired');
         els.pairedList = $('dcPairedList');
+        els.bundle = $('dcBundle');
+        els.bundleInput = $('dcBundleInput');
         if (!els.optioniOS) return;
+
+        // Bundle ID: click anywhere on the box to edit; Enter (or leaving the
+        // box) saves, Esc puts the saved one back.
+        els.bundle.addEventListener('click', function () { els.bundleInput.focus(); });
+        els.bundleInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); els.bundleInput.blur(); }
+            else if (e.key === 'Escape') {
+                // Undo only: script.js's Esc on the document would close Settings.
+                e.preventDefault();
+                e.stopPropagation();
+                els.bundleInput.value = bundleSaved || '';
+                markBundle(false);
+                els.bundleInput.blur();
+            }
+        });
+        els.bundleInput.addEventListener('blur', function () { saveBundle(); });
 
         els.optioniOS.addEventListener('click', toggleiOS);
         els.optioniOS.addEventListener('keydown', function (e) {

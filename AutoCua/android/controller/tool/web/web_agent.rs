@@ -41,6 +41,7 @@ const PROVIDER_ENV_KEY: [(&str, &str); 5] = [
     ("requesty", "REQUESTY_API_KEY"),
     ("opper", "OPPER_API_KEY"),
     ("aws", "AWS_API_KEY"),
+    ("ollama", "OLLAMA_API_KEY"),
 ];
 
 /// The browser agent's task, `{query}` filled in.
@@ -144,7 +145,7 @@ pub fn web_search(
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let hex: String = py.import("uuid")?.call_method0("uuid4")?.getattr("hex")?.extract()?;
     let sid = format!("web_{secs}_{}", &hex[..6]);
-    let run_dir = crate::data_root(py)?.join("web_fallback").join(&sid);
+    let run_dir = crate::android::data_root(py)?.join("web_fallback").join(&sid);
     // Through pathlib, as on iOS: a folder that cannot be made fails with
     // Python's error, which names it.
     py.import("pathlib")?

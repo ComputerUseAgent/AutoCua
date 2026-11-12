@@ -299,7 +299,11 @@ def _ask_wifi():
             if hasattr(socket, "SO_REUSEPORT"):
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
             s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
-            s.bind(("", 5353))
+            # The question leaves from one interface: bind that one's address
+            # on mDNS's own port (a route lookup names it, no packet is sent).
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as route:
+                route.connect(("224.0.0.251", 5353))
+                s.bind((route.getsockname()[0], 5353))
             s.sendto(question, ("224.0.0.251", 5353))
     except OSError:
         pass        # the port taken for good, no network: adb's list as it is

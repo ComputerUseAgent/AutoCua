@@ -7,8 +7,8 @@ Mirror of the macOS view.py, adapted so app.py's single
   POST /api/telegram/connect      → kicks off the guided walkthrough (Edge)
   POST /api/telegram/disconnect   → clears the token, owner chat and pairing code
 
-All token lookups read ONLY from api_key.txt. .env is intentionally not
-consulted — the bot treats api_key.txt as its single source of truth.
+All token lookups read ONLY the .env (AutoCua.env_file), never env vars: the
+bot treats that file as its single source of truth.
 """
 import json
 import logging
@@ -16,13 +16,13 @@ import threading
 import urllib.request
 
 from flask import Blueprint, jsonify
+from AutoCua.utils.errors import error_text
 
 # Re-export start_bot so app.py's
 #   from AutoCua.windows.remote_connection.telegram.view import telegram_bp, start_bot
 # works from a single import line, matching app.py:921.
-# _API_KEY_FILE comes from service.py too, which resolves it in a compiled-
-# build-aware way (next to the executable when frozen) — one source of truth.
-from .service import (start_bot, _API_KEY_FILE, _set_keys_in_file,  # noqa: F401
+# _ENV_FILE comes from service.py too (AutoCua.env_file): one source of truth.
+from .service import (start_bot, _ENV_FILE, _set_keys_in_file,  # noqa: F401
                       _resolve_token, _pair_code)
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ def _fetch_bot_username(token: str) -> str | None:
 @telegram_bp.route("/api/telegram/status", methods=["GET"])
 def telegram_status():
     """Frontend uses this to decide which Remote Connection panel state to
-    show. If a token is present in api_key.txt → 'connected', and the panel
+    show. If a token is present in the .env → 'connected', and the panel
     flips to the @bot_username + Disconnect view (Connect button is hidden).
     While the bot is not paired it also gets the pairing code to show (made
     on the first ask). Cached so we don't hit Telegram's API on every load."""
@@ -83,7 +83,7 @@ def telegram_connect():
         return jsonify({"status": "started"})
     except Exception as e:
         logger.exception("telegram_connect failed")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": error_text(e)}), 500
 
 
 @telegram_bp.route("/api/telegram/disconnect", methods=["POST"])
@@ -94,7 +94,7 @@ def telegram_disconnect():
     (soft disconnect), obeying nobody. A clean shutdown of the bot loop is a
     future enhancement."""
     global _bot_username_cache
-    _set_keys_in_file(_API_KEY_FILE, {"TELEGRAM_BOT_TOKEN": "",
+    _set_keys_in_file(_ENV_FILE, {"TELEGRAM_BOT_TOKEN": "",
                                       "TELEGRAM_OWNER_CHAT_ID": "",
                                       "TELEGRAM_PAIR_CODE": ""})
     _bot_username_cache = None

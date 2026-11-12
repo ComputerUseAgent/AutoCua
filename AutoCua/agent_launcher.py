@@ -3,8 +3,10 @@
 #   mode = "computer use, daisy chain" -> the same, plus the phone sub-agents
 #                                (ios_agent on a Mac, android_agent everywhere)
 #                                when connected; plain "computer use" lists them offline
-#   mode = "shell use"        -> CLI/coder agent for the host OS, straight to the
-#                                terminal (skips the main agent layer)
+#   mode = "shell use"        -> the coder, the same as "coder" (its older name)
+#   mode = "coder"            -> the Rust coder agent (AutoCua/coder), one copy for
+#                                every host OS, straight to the terminal (skips
+#                                the main agent layer)
 #   mode = "mobile use, ios"  -> iOS agent (iPhone or iPad). By default it runs on an iOS
 #                                SIMULATOR (device="simulation", ios_version
 #                                picks the runtime); pass device="hardware" to
@@ -80,18 +82,6 @@ def resolve_agent_service(mode, os=None):
             raise RuntimeError(f"Unsupported OS for computer use: {host}")
         return AgentService
 
-    if kind == "shell":
-        host = platform.system()
-        if host == "Darwin":
-            from AutoCua.mac.agent.coder import AgentService
-        elif host == "Windows":
-            from AutoCua.windows.agent.coder import AgentService
-        elif host == "Linux":
-            from AutoCua.linux.agent.coder import AgentService
-        else:
-            raise RuntimeError(f"Unsupported OS for shell use: {host}")
-        return AgentService
-
     if kind == "web":
         # Browser agent — no host-OS branch: it drives Chrome over CDP, which
         # is the same on every platform. The implementation is the Rust
@@ -113,8 +103,16 @@ def resolve_agent_service(mode, os=None):
             return AgentService
         raise ValueError('mobile use needs a device — "mobile use, ios" or "mobile use, android"')
 
+    if kind in ("shell", "coder"):
+        # The Rust coder (AutoCua/coder, agent_native): one copy for every
+        # host OS, compiled lazily by that package's __init__ on first
+        # import, like the web and Android agents. "shell use" is its older
+        # name.
+        from AutoCua.coder import AgentService
+        return AgentService
+
     raise ValueError(
-        f'Unknown mode "{mode}" — use "computer use", "shell use", "web use", '
+        f'Unknown mode "{mode}" — use "computer use", "shell use", "web use", "coder", '
         '"mobile use, ios" or "mobile use, android"'
     )
 

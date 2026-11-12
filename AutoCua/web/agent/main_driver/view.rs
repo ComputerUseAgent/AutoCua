@@ -76,7 +76,7 @@ pub fn ensure_ascii(s: &str) -> String {
 }
 
 /// Python truthiness for a JSON value (shared with browser.rs).
-pub use crate::browser::truthy;
+pub use crate::web::browser::truthy;
 
 /// Python `str()` of a JSON value ("None"/"True"/"False", numbers via repr).
 pub fn py_str_of(v: &Value) -> String {
@@ -600,7 +600,7 @@ pub const SCRAPES_FOLDER_LINE: &str = "scrapes folder: ";
 /// so a compressed chat still has its indexes and resumes into them
 /// (main_driver seeded_scrapes_dir). The note alone before the first index.
 fn compression_slot() -> String {
-    use crate::controller::run_script::service::window;
+    use crate::web::controller::run_script::service::window;
     let lines = window::index_lines();
     match window::run_dir() {
         Some(dir) if !lines.is_empty() => {

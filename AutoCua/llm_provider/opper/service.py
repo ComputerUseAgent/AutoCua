@@ -1,7 +1,7 @@
 import json
 import requests
 from typing import Dict, Any, Optional
-from .. import LLM_HTTP_TIMEOUT, screenshots
+from .. import entry_value, http_timeout, out_cap, screenshots
 
 class OpperProvider:
     """Opper API provider for LLM interactions (OpenAI-compatible chat completions)"""
@@ -49,12 +49,12 @@ class OpperProvider:
             "temperature": 0.2,
             # Output cap. The handoff manager passes 10k (LLMManager.max_tokens);
             # everything else keeps this default.
-            "max_tokens": self.max_tokens or 10000,
+            "max_tokens": self.max_tokens or out_cap(self.cli_agent, 10000, self.model_info),
         }
         # How hard the model thinks, from view.py's table, sent as the
         # standard `reasoning_effort`. An entry with no level keeps its default.
         if self.model_info.get("effort"):
-            data["reasoning_effort"] = self.model_info["effort"]
+            data["reasoning_effort"] = entry_value(self.model_info, "effort", self.cli_agent)
 
         # No tools (mode="text") -> plain text: omit the tool params entirely.
         if self.tools:
@@ -62,10 +62,10 @@ class OpperProvider:
             # "required" - every turn must call at least one tool; a text-only
             # turn is never a valid step. Canonical rationale: see
             # openrouter/service.py.
-            data["tool_choice"] = self.model_info.get("tool_choice") or "required"
+            data["tool_choice"] = entry_value(self.model_info, "tool_choice", self.cli_agent) or "required"
 
         try:
-            response = self.session.post(self.api_url, json=data, headers=headers, timeout=LLM_HTTP_TIMEOUT)
+            response = self.session.post(self.api_url, json=data, headers=headers, timeout=http_timeout(self.cli_agent))
             response.raise_for_status()
             result = response.json()
             if self.tools:

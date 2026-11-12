@@ -12,9 +12,10 @@ does.
 Installing it is the person's call, so nothing is downloaded without a yes.
 The first launch asks on the terminal (offer_electron); a yes fetches the
 official release zip for this machine from Electron's GitHub releases, the
-same file `npm install electron` fetches, checks its byte size and SHA-256
-against the pins below before anything is unpacked, and unpacks it into a
-per-user cache folder:
+same file `npm install electron` fetches (through GitHub's API when the
+release link fails: _download), checks its byte size and SHA-256 against
+the pins below before anything is unpacked, and unpacks it into a per-user
+cache folder:
 
     macOS     ~/Library/Caches/AutoCua/electron/v<version>-darwin-<arch>/
     Windows   %LOCALAPPDATA%/AutoCua/electron/v<version>-win32-<arch>/
@@ -55,17 +56,17 @@ from pathlib import Path
 # Keep in step with "electron" in AutoCua/desktop/package.json and with
 # THIRD_PARTY_NOTICES.md. A re-pin changes the version AND every size and
 # digest below, read from the release's SHASUMS256.txt and the files.
-VERSION = "44.7.0"
+VERSION = "44.9.1"
 
 # "<os>-<arch>", as Electron names its zips -> (bytes, sha256, bytes
 # unpacked). The last is only for telling the person what a yes costs.
 ZIPS = {
-    "darwin-arm64": (130394296, "e04e411b58a0a14375dd21b0ab4a378fd38930a702e4e20e322fee4849404c0b", 321398871),
-    "darwin-x64": (134289782, "4fe494a7159b10a81e2098dab388719582065e99e604c4510bb117e282213566", 324909831),
-    "linux-arm64": (124088755, "9cd736d1f5873839553c3fa6c8c5e57635ec4a399cc2d32e79c82a02d9cd2258", 301132304),
-    "linux-x64": (122998223, "3ae7d5bdad61c664486c6ab61361dd084d064c8c08af8d13a687096e18ce555a", 296307552),
-    "win32-arm64": (156427308, "ee2621a4513f92a952273d5363e153db6f0e4dd183d89f2c0f740faa13623316", 383913807),
-    "win32-x64": (158293649, "eee30dc8fa1f5ea95490e59f44e46ea68dd24c6e93d22facf70fe5c2d4c2665c", 385514847),
+    "darwin-arm64": (130543919, "ff597552c9c7b0b16c39a7fb93a346ee7148afbd372ebcf0c18415482c49fbea", 321928801),
+    "darwin-x64": (134409318, "27afc06d37b32b637d27fb20730a4ae7c2ce5a4d9351d84b9faf42f1f9dd6017", 325312625),
+    "linux-arm64": (124121082, "16e1f8f7993ca45bc3c2594d75da9d0f3bbd66d691f8cc408747e135c49cb1ad", 301393997),
+    "linux-x64": (123084231, "994bc3664cc3ac55b50c21a58d345cf8322003d37f5439a81801e3267e6145e2", 296529013),
+    "win32-arm64": (156452965, "81dc235e033cefb9d47ba5bbdedbf9d5390761ed0e362d9bf0518d981ef10b85", 384273106),
+    "win32-x64": (158389896, "41bd7900bd42d0f49110a81617876137041fbbf473466920248ddb076349ef91", 385802466),
 }
 
 # Where the executable sits in the unpacked zip (what npm's electron package
@@ -82,6 +83,9 @@ EXECUTABLE = {
 MIN_MACOS = (13, 0)
 
 URL = "https://github.com/electron/electron/releases/download/"
+# The same release through GitHub's API (_api_link), which keeps handing out
+# its files while github.com's release links fail.
+API = "https://api.github.com/repos/electron/electron/releases/tags/"
 ENV_CACHE = "AUTOCUA_ELECTRON_CACHE"
 
 # In cache_root(): the person said no, so the launch does not ask again.
@@ -90,6 +94,11 @@ DECLINED = "declined"
 # How long the question waits for an answer before it counts as "not now"
 # and the app opens in pywebview.
 ASK_TIMEOUT = 120
+
+# Times round the links (_download) before a fetch gives up, and the seconds
+# between rounds.
+ROUNDS = 2
+PAUSE = 5
 
 # In cache_root(), locked by whichever process is fetching (_FetchLock): a
 # second one waits for it rather than download the same 120-160 MB again. A
@@ -470,26 +479,125 @@ def _os_store_session():
     return session
 
 
-def _download(url, dest, size, sha):
-    """Write the zip at `url` to `dest`. Raises unless it is exactly `size`
-    bytes with SHA-256 `sha`."""
+def _download(name, dest, size, sha):
+    """Write the zip called `name` to `dest`. Raises unless it is exactly
+    `size` bytes with SHA-256 `sha`.
+
+    The release link first (the mirror's, with ELECTRON_MIRROR). A failure
+    another try can get past (_retryable) moves on to the same file through
+    GitHub's API: github.com can answer a release link with 504 Gateway
+    Time-out for minutes on end while api.github.com, whose link leads to
+    the same file in the same storage, hands it out. Then both once more,
+    after a pause. Anything else stops it at once, as another try would only
+    repeat it: a 404, a digest mismatch, a full disk. A mirror gets no API
+    link, since the question named where the file comes from. What is raised
+    in the end is the release link's first failure."""
+    import requests
+
+    def release(session):
+        _stream(session, _url(name), dest, size, sha)
+
+    def api(session):
+        _stream(session, _api_link(session, name), dest, size, sha,
+                accept="application/octet-stream")
+
+    links = [release]
+    if _url(name) == f"{URL}v{VERSION}/{name}":
+        links.append(api)
+    first = None
+    for attempt in range(ROUNDS):
+        if attempt:
+            print(f"[ui] Trying again in {PAUSE} seconds...", flush=True)
+            time.sleep(PAUSE)
+        for link in links:
+            try:
+                return _over_tls(link)
+            except Exception as e:
+                if link is api:
+                    # Whatever keeps the API from handing it out (its hourly
+                    # limit per address, a hiccup of its own) leaves the
+                    # release link's failure to report. A file that does not
+                    # match its pin, or a full disk, still stops it.
+                    if not isinstance(e, (requests.exceptions.RequestException, LookupError)):
+                        raise
+                    print(f"[ui] GitHub's API download failed too ({_why(e)}).", flush=True)
+                    continue
+                if not _retryable(e):
+                    raise
+                if first is None:
+                    first = e
+                if api in links:
+                    print(f"[ui] GitHub's release download failed ({_why(e)}); trying the "
+                          "same file through GitHub's API...", flush=True)
+                else:
+                    print(f"[ui] The download failed ({_why(e)}).", flush=True)
+    raise first
+
+
+def _over_tls(call):
+    """call(session) with certifi's roots, and again with the OS's when TLS
+    fails (_os_store_session says why)."""
     import requests      # certifi's roots: a python.org Python on macOS has none of its own
 
     try:
-        _stream(requests.Session(), url, dest, size, sha)
+        with requests.Session() as session:
+            return call(session)
     except requests.exceptions.SSLError:
-        _stream(_os_store_session(), url, dest, size, sha)
+        with _os_store_session() as session:
+            return call(session)
 
 
-def _stream(session, url, dest, size, sha):
+def _retryable(e):
+    """True for a failure another try can get past: a 429 or 5xx answer
+    (GitHub, a mirror or a proxy busy or down), or a connection that could
+    not be made, dropped or stalled. Not a TLS failure (_over_tls has tried
+    both sets of certificates), a 404 or a digest mismatch."""
+    import requests
+
+    if isinstance(e, requests.exceptions.SSLError):
+        return False
+    if isinstance(e, requests.exceptions.HTTPError):
+        status = e.response.status_code if e.response is not None else 0
+        return status == 429 or status >= 500
+    return isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout,
+                          requests.exceptions.ChunkedEncodingError))
+
+
+def _why(e):
+    """`e` in a few words: the HTTP status, else the kind of failure."""
+    response = getattr(e, "response", None)
+    if response is not None and response.status_code >= 400:
+        return f"{response.status_code} {response.reason or ''}".strip()
+    return type(e).__name__
+
+
+def _api_link(session, name):
+    """The API link of this release's file `name`
+    (api.github.com/repos/electron/electron/releases/assets/<id>), which,
+    asked for application/octet-stream, sends to the file itself."""
+    with session.get(f"{API}v{VERSION}", timeout=(15, 60),
+                     headers={"Accept": "application/vnd.github+json",
+                              "User-Agent": "AutoCua"}) as r:
+        r.raise_for_status()
+        release = r.json()
+    assets = release.get("assets") if isinstance(release, dict) else None
+    for asset in assets or ():
+        if isinstance(asset, dict) and asset.get("name") == name and asset.get("url"):
+            return asset["url"]
+    raise LookupError(f"GitHub's release v{VERSION} lists no {name}")
+
+
+def _stream(session, url, dest, size, sha, accept=None):
     digest = hashlib.sha256()
     got = 0
     progress = _Progress(size)
+    headers = {"User-Agent": "AutoCua"}
+    if accept:
+        headers["Accept"] = accept
     try:
         # The read timeout bounds a network that stalls; it is per read, not
         # for the whole download.
-        with session, session.get(url, stream=True, timeout=(15, 60),
-                                  headers={"User-Agent": "AutoCua"}) as r:
+        with session.get(url, stream=True, timeout=(15, 60), headers=headers) as r:
             r.raise_for_status()
             with open(dest, "wb") as out:
                 for chunk in r.iter_content(1 << 20):
@@ -729,7 +837,7 @@ def _fetch(root, key, force, locked):
           f"{size / 1e6:.0f} MB from {_source()}...", flush=True)
     placed = False
     try:
-        _download(_url(name), archive, size, sha)
+        _download(name, archive, size, sha)
         _unpack(archive, staging)
         if not _complete(staging, key):
             raise OSError(f"{name} did not hold a complete Electron")

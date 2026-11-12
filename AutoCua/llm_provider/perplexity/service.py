@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional
 
 from .view import get_model_info, get_reasoning_params
 from ..responses import async_route, send as send_responses
-from .. import LLM_HTTP_TIMEOUT, screenshots
+from .. import http_timeout, out_cap, screenshots
 
 
 class PerplexityProvider:
@@ -38,7 +38,8 @@ class PerplexityProvider:
                 error_prefix="Perplexity API request failed",
                 model=model, messages=messages, shot=annotated_screenshot_base64,
                 cli_agent=self.cli_agent, tools=self.tools,
-                reasoning=get_reasoning_params(model, self.model_info),
+                reasoning=get_reasoning_params(model, self.model_info, self.cli_agent),
+                info=self.model_info,
                 extra={},
                 # provider_meta is stripped before every send on this provider
                 # (_META_PROVIDERS): the replay reconstructs the calls.
@@ -107,13 +108,13 @@ class PerplexityProvider:
             "input": input_messages,
             # Output cap. The handoff manager passes 10k (LLMManager.max_tokens);
             # everything else keeps this default.
-            "max_output_tokens": self.max_tokens or 10000,
+            "max_output_tokens": self.max_tokens or out_cap(self.cli_agent, 10000, self.model_info),
         }
 
         # How hard the model thinks, per view.py's per-model table, carried as
         # the Agent API's reasoning config. Omitted for a hand-typed model
         # name, which then keeps Perplexity's own default.
-        data.update(get_reasoning_params(model, self.model_info))
+        data.update(get_reasoning_params(model, self.model_info, self.cli_agent))
 
         if instructions:
             data["instructions"] = instructions
@@ -129,7 +130,7 @@ class PerplexityProvider:
             data["tool_choice"] = self.model_info.get("tool_choice") or "required"
         
         try:
-            response = self.session.post(self.api_url, json=data, headers=headers, timeout=LLM_HTTP_TIMEOUT)
+            response = self.session.post(self.api_url, json=data, headers=headers, timeout=http_timeout(self.cli_agent))
             response.raise_for_status()
             result = response.json()
             

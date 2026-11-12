@@ -18,7 +18,7 @@ from typing import Optional
 
 import requests
 
-from . import LLM_HTTP_TIMEOUT, screenshots
+from . import LLM_HTTP_TIMEOUT, http_timeout, out_cap, screenshots
 
 # Tools that end the model's turn: the driver's `done` and the coder /
 # minion's `exit`. Everything else is declared async.
@@ -35,9 +35,12 @@ MAX_OUTPUT_TOKENS = 2000
 # The coder and minion (cli_agent) write far longer turns: a FULL `reasoning`
 # call plus a whole-file `write` or a `plan` set. At 2,000 such a turn was cut
 # mid-call and the trim below kept only the notes call, so the step read as
-# notes-only. 8,000 (the models allow 128,000) idles out in about 150 s, still
-# inside LLM_HTTP_TIMEOUT's 180 s read, so a cut reply is kept, not timed out.
-CLI_MAX_OUTPUT_TOKENS = 8000
+# notes-only. The idle tail above grows with this ceiling, so the coder does
+# not get CODER_MAX_TOKENS here: the GPT-6 entries set coder_max_tokens
+# 16000 (the models allow 128,000), which idles out in about 300 s, inside
+# the coder's 600 s read (CODER_HTTP_TIMEOUT), so a cut reply is kept, not
+# timed out. This is the route's default for an entry that sets none.
+CLI_MAX_OUTPUT_TOKENS = 16000
 
 
 def async_route(info: dict) -> bool:
@@ -141,7 +144,7 @@ def _responses_input(messages: list, shot: Optional[str], cli_agent: bool):
 def send(session: requests.Session, url: str, api_key: str, error_prefix: str,
          model: str, messages: list, shot: Optional[str], cli_agent: bool,
          tools: list, reasoning: dict, extra: dict,
-         provider_tag: Optional[str]) -> dict:
+         provider_tag: Optional[str], info: dict = None) -> dict:
     """Build, POST (with one degrade retry) and normalize one Responses
     request, on the calling provider's Session (one kept connection per
     provider object). `reasoning` is {"reasoning": {"effort": ...}} or {};
@@ -155,7 +158,7 @@ def send(session: requests.Session, url: str, api_key: str, error_prefix: str,
     if instructions:
         data["instructions"] = instructions
     data["input"] = items
-    data["max_output_tokens"] = CLI_MAX_OUTPUT_TOKENS if cli_agent else MAX_OUTPUT_TOKENS
+    data["max_output_tokens"] = out_cap(cli_agent, MAX_OUTPUT_TOKENS, info, CLI_MAX_OUTPUT_TOKENS)
     data.update(reasoning or {})
     data.update(extra or {})
     data["tools"] = responses_tools(tools)
@@ -167,7 +170,7 @@ def send(session: requests.Session, url: str, api_key: str, error_prefix: str,
         "Content-Type": "application/json",
     }
     try:
-        result = _post_responses(session, url, headers, data, error_prefix)
+        result = _post_responses(session, url, headers, data, error_prefix, http_timeout(cli_agent))
     except Exception as first:
         # A replayed `reasoning` item is bound to the endpoint that wrote it,
         # so a router pins every retry to that one endpoint; when it is the
@@ -181,25 +184,25 @@ def send(session: requests.Session, url: str, api_key: str, error_prefix: str,
         print(f"   Responses request failed ({first_line}); retrying once without the replayed reasoning items")
         degraded = dict(data)
         degraded["input"] = [i for i in items if i.get("type") != "reasoning"]
-        result = _post_responses(session, url, headers, degraded, error_prefix)
+        result = _post_responses(session, url, headers, degraded, error_prefix, http_timeout(cli_agent))
     return _normalize_responses(result, provider_tag)
 
 
-def _post_json(session: requests.Session, url: str, headers: dict, data: dict):
+def _post_json(session: requests.Session, url: str, headers: dict, data: dict, timeout=LLM_HTTP_TIMEOUT):
     """One JSON POST: (status, body). Transport failures raise."""
-    resp = session.post(url, json=data, headers=headers, timeout=LLM_HTTP_TIMEOUT)
+    resp = session.post(url, json=data, headers=headers, timeout=timeout)
     return resp.status_code, resp.text
 
 
 def _post_responses(session: requests.Session, url: str, headers: dict, data: dict,
-                    prefix: str) -> dict:
+                    prefix: str, timeout=LLM_HTTP_TIMEOUT) -> dict:
     """POST one Responses request. Besides the HTTP status, the body's own
     `error` and `status` are checked: a router answers 200 to an upstream
     failure mid-generation with status "failed" / "incomplete" and a cut
     function_call, which must reach the manager's retry ladder as an error,
     not the loop as a half call."""
     try:
-        status, body = _post_json(session, url, headers, data)
+        status, body = _post_json(session, url, headers, data, timeout)
     except requests.exceptions.RequestException as e:
         raise Exception(f"{prefix}: {e}")
     if status >= 400:

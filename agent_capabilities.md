@@ -28,7 +28,7 @@ run_agent(
 | Argument | What it is |
 |---|---|
 | `mode` | Which agent runs: `"computer use"` drives this desktop (Windows, macOS or Linux, detected automatically), `"computer use, daisy chain"` does the same and can also hand work to the phone sub-agents when a phone is connected (Android everywhere, iPhone on macOS; plain `"computer use"` lists them offline), `"shell use"` runs the coding agent straight in your terminal, `"web use"` drives Chrome, `"mobile use, ios"` drives an iPhone/iPad or an iOS Simulator, `"mobile use, android"` an Android emulator or your Android phone. Case, underscores and commas don't matter; hyphens do: `"computer-use"` raises `ValueError`. |
-| `provider` | `"openrouter"`, `"groq"`, `"openai"`, `"anthropic"`, `"google"`, `"perplexity"`, `"together"`, `"cerebras"`, `"requesty"`, `"opper"` or `"aws"`. The key comes from `<PROVIDER>_API_KEY` in the environment or `.env` (e.g. `OPENROUTER_API_KEY`, or `AWS_API_KEY` for a Bedrock API key), or from `api_key=` (Part 9). Google's `-vertex` models take no key: they use `VERTEX_PROJECT_ID` / `VERTEX_LOCATION` and your Google Cloud credentials. |
+| `provider` | `"openrouter"`, `"groq"`, `"openai"`, `"anthropic"`, `"google"`, `"perplexity"`, `"together"`, `"cerebras"`, `"requesty"`, `"opper"`, `"aws"` or `"ollama"`. The key comes from `<PROVIDER>_API_KEY` in the environment or `.env` (e.g. `OPENROUTER_API_KEY`, or `AWS_API_KEY` for a Bedrock API key), or from `api_key=` (Part 9). Google's `-vertex` models take no key: they use `VERTEX_PROJECT_ID` / `VERTEX_LOCATION` and your Google Cloud credentials. `"ollama"` takes none either: it runs a model on this machine (Part 5). |
 | `model` | A model name from [model_list.txt](model_list.txt), copied exactly. It isn't checked up front: an unknown name is sent to the provider as-is and fails at the first request. |
 | `task` | What the agent should do. |
 
@@ -133,7 +133,7 @@ run_agent(
 ```
 
 Use it when something else already owns `9222`. Avoid `9333`: that is the
-headless browser behind the `web` tool on Together, Cerebras, Requesty, Opper and AWS (Part 5). A
+headless browser behind the `web` tool on Together, Cerebras, Requesty, Opper, AWS and Ollama (Part 5). A
 parallel run (Part 2) launches its one shared Chrome on this port too.
 
 ## Chrome profile (`browser_profile`)
@@ -605,6 +605,58 @@ whichever region has capacity.
 Claude gets `effort` `low` and prompt caching, with a 4000-token output cap. Kimi K3 and Grok 4.7
 get reasoning `low`, with a 10000-token cap. The memory-compression handoff gets 10000 on all five.
 No sampling parameter is sent.
+
+## Ollama (`provider="ollama"`)
+
+A model running on your own machine through [Ollama](https://ollama.com): no API key and nothing
+billed per call. Start the Ollama app (or `ollama serve`), pull a model, and pass the name
+`ollama list` shows. Requests go to Ollama's OpenAI-compatible endpoint at
+`http://127.0.0.1:11434/v1`; set `OLLAMA_HOST` (as for Ollama's own CLI: `host`, `host:port` or a
+URL) to use an Ollama elsewhere, and `OLLAMA_API_KEY` only if that one sits behind a key. It has
+no native web search, so its `web` tool also goes to the headless browser agent described above.
+
+| `model=` | thinking | coder |
+|---|---|---|
+| `qwen3.8:27b` | off (`none`) | `medium` |
+| `qwen3.6:35b-a3b-nvfp4` | off (`none`) | `medium` |
+| `ornith-1.5:35b` | off (`none`) | `medium` |
+
+`qwen3.6:35b-a3b-nvfp4` and `ornith-1.5:35b` are mixtures of experts (about 3B of their 35-36B
+parameters active per token) and read a prompt about four times as fast as `qwen3.8:27b`: on an
+M5 Pro a computer-use step took 4 to 6 seconds against 17 to 27. Ornith, trained further for
+agents, acted on the very first step, as `qwen3.8:27b` did, which suits computer use; Qwen3.6 was
+the quickest at a small coder task (22 seconds, Ornith 33, `qwen3.8:27b` 76). Run local models in
+quality mode: in fast mode most other local models tested answered without any tool call.
+
+Any other pulled model can be passed as `model=` and is sent as is, thinking at its own default.
+The app's model list shows every pulled model that can call tools, read when the app opens (reopen
+it after pulling another or starting Ollama); Telegram reads it on every pick, and offers Ollama
+only while it runs. A model needs `tools` in `ollama show <model>` for every agent, and `vision`
+for computer, web and mobile use: without either, the run stops at once and says why. The lists
+mark a model without vision, which suits the coder only. Thinking levels are the model's own:
+Qwen3.8 has off, `low`, `medium` and `xhigh`, and a level a model does not have is ignored without
+an error.
+
+Every request sends `max_tokens` 10000 (32768 for the coder) and no sampling parameter, so the
+model's own settings apply. A model on your machine reads a prompt slowly: Qwen3.8 27B reads about
+400 tokens a second on an M5 Pro. A run's first step reads the whole prompt (about 20k tokens,
+roughly 50 seconds); after that Ollama reuses what it read, so a coder step takes about 4 to 15
+seconds and a computer-use step about 30 (each brings a new screenshot and element list, about 9k
+tokens). Each call may therefore take up to 15 minutes instead of the usual 3. Ollama answers one
+call at a time and keeps one prompt read: two agents on it at once (the coder's subagents, a
+parallel run, the `web` tool's browser agent) wait for each other, and each makes the other read
+its whole prompt again. Ollama takes `tool_choice` `required` without enforcing it, so a model can
+answer in text; the agents answer that with a "no tool called" nudge to act, and stop after three
+in a row.
+
+A run's prompt grows until memory compression starts at 110k tokens, so the model's context window
+must hold that plus some room; the run checks it after the first answer. A window too small for
+even a first step stops the run with what to change. A smaller one only says so: on Ollama's
+llama.cpp engine (GGUF models) the window is `OLLAMA_CONTEXT_LENGTH` (else a default Ollama sizes
+to the machine's memory) and a longer prompt is cut from the start without an error, so it names
+the `OLLAMA_CONTEXT_LENGTH` to restart Ollama with; on its MLX engine (Apple Silicon builds such as
+`qwen3.8:27b`, with a 262144-token window) a model gets its own maximum. Either way it names the
+`AutoCua_COMPRESS_THRESHOLD` that makes compression start in time, where the window allows one.
 
 ---
 

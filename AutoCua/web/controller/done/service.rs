@@ -11,9 +11,9 @@
 
 use serde_json::{json, Value};
 
-use crate::browser::truthy;
-use crate::controller::service::ActResult;
-use crate::agent::main_driver::view::py_str_of;
+use crate::web::browser::truthy;
+use crate::web::controller::service::ActResult;
+use crate::web::agent::main_driver::view::py_str_of;
 
 pub const FALLBACK_SUMMARY: &str = "Task completed";
 

@@ -2,7 +2,7 @@ import json
 import requests
 import base64
 from typing import Dict, Any, Optional
-from .. import LLM_HTTP_TIMEOUT, screenshots
+from .. import entry_value, http_timeout, out_cap, screenshots
 
 class GroqProvider:
     """Groq API provider for LLM interactions"""
@@ -50,8 +50,14 @@ class GroqProvider:
             "temperature": 0.2,
             # Output cap. The handoff manager passes 10k (LLMManager.max_tokens);
             # everything else keeps this default.
-            "max_tokens": self.max_tokens or 4000,
+            "max_tokens": self.max_tokens or out_cap(self.cli_agent, 4000, self.model_info),
         }
+        # The table's level for this caller (only the coder has one,
+        # coder_effort); with none, Groq's own default: no thinking for
+        # Qwen3.8.
+        effort = entry_value(self.model_info, "effort", self.cli_agent)
+        if effort:
+            data["reasoning_effort"] = effort
         
         # No tools (mode="text") -> plain text: omit the tool params entirely.
         if self.tools:
@@ -62,7 +68,7 @@ class GroqProvider:
             data["tool_choice"] = self.model_info.get("tool_choice") or "required"
         
         try:
-            response = self.session.post(self.api_url, json=data, headers=headers, timeout=LLM_HTTP_TIMEOUT)
+            response = self.session.post(self.api_url, json=data, headers=headers, timeout=http_timeout(self.cli_agent))
             response.raise_for_status()
             result = response.json()
             if self.tools:

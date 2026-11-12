@@ -91,7 +91,7 @@ export function AgentMode() {
                     <div className="agent-opt-wrap" data-mode="shell">
                         <button className="agent-opt" data-mode="shell" role="menuitemradio" aria-checked="false" type="button">
                             <Stroke className="am-icon">{SHELL}</Stroke>
-                            <span>Shell use</span>
+                            <span>Coder</span>
                             <Check />
                         </button>
                     </div>

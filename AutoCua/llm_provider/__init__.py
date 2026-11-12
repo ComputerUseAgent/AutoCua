@@ -19,12 +19,47 @@ from ..utils.tls import TLSError, is_cert_error, message as tls_message, os_cont
 # total cap would kill a slow reasoning response seconds before it landed; a
 # generous per-read bound only fires once the socket has genuinely gone quiet.
 #
-# Every provider call uses it, on every platform and in the web agent: the
+# Every provider call but the coder's (CODER_HTTP_TIMEOUT below) and Ollama's
+# (ollama/service.py READ_TIMEOUT: a model on this machine reads a long
+# prompt slowly) uses it, on every platform and in the web agent: the
 # requests ones as is, OpenAI as Timeout(180, connect=15) and Gemini as one
 # 180 s figure (its SDK has no separate connect bound, see google/service.py).
 # Each provider object posts through its own requests.Session, so the
 # connection is kept from one step to the next.
 LLM_HTTP_TIMEOUT = (15, 180)
+
+# The coder and its subagents (cli_agent=True: only AutoCua/coder builds a
+# provider that way) wait longer and may write longer, and each model's
+# table entry states its coder settings next to its normal ones:
+# coder_effort (or coder_<the table's level field>), coder_tool_choice,
+# coder_thinking, coder_max_tokens. Every other agent keeps
+# LLM_HTTP_TIMEOUT, its provider's own cap and the table's normal fields.
+CODER_HTTP_TIMEOUT = (15, 600)
+CODER_MAX_TOKENS = 32768
+
+
+def http_timeout(cli_agent: bool):
+    """(connect, read) seconds for one provider call."""
+    return CODER_HTTP_TIMEOUT if cli_agent else LLM_HTTP_TIMEOUT
+
+
+def out_cap(cli_agent: bool, default: int, info: dict = None,
+            coder_default: int = CODER_MAX_TOKENS) -> int:
+    """The output cap: `default` for every agent but the coder, which gets
+    its table entry's `coder_max_tokens`, else `coder_default`."""
+    if not cli_agent:
+        return default
+    return (info or {}).get("coder_max_tokens") or coder_default
+
+
+def entry_value(info: dict, key: str, cli_agent: bool):
+    """One setting of a model's table entry for this caller: the coder
+    (cli_agent) reads `coder_<key>` when the entry has one; every other
+    agent, and the coder when there is none, reads `<key>`."""
+    info = info or {}
+    if cli_agent and f"coder_{key}" in info:
+        return info[f"coder_{key}"]
+    return info.get(key)
 
 
 class RefusalError(Exception):

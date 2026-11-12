@@ -9,9 +9,9 @@
 
 use serde_json::{json, Value};
 
-use crate::browser::truthy;
-use crate::controller::service::{py_float_str, ActResult};
-use crate::agent::main_driver::view::py_str_of;
+use crate::web::browser::truthy;
+use crate::web::controller::service::{py_float_str, ActResult};
+use crate::web::agent::main_driver::view::py_str_of;
 
 pub const DEFAULT_WAIT_SECONDS: f64 = 1.0;
 /// A model that asks for a minute has almost always misread a loading page.

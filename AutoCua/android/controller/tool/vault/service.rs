@@ -39,9 +39,9 @@ use pyo3::prelude::*;
 use regex::Regex;
 use serde_json::{json, Map, Value};
 
-use crate::agent::android_use::view::{py_str_of, truthy};
-use crate::controller::service::{controller_service, py_int};
-use crate::tree::element::{fill_focused, is_input, read_tree, FillError};
+use crate::android::agent::android_use::view::{py_str_of, truthy};
+use crate::android::controller::service::{controller_service, py_int};
+use crate::android::tree::element::{fill_focused, is_input, read_tree, FillError};
 
 /// One digit, optionally with its phone letters ("2 ABC", "2, A B C", "0 +").
 /// Phone letters are uppercase, so "1 of 3" and "5 min" do not match.

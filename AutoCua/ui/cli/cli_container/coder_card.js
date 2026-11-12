@@ -4,7 +4,7 @@
 // can stack several later. Look ported from coder_animation.html + the proven native banner
 // (banner.py COMPACT_HTML). Styles: cli/cli_container/coder_card.css (scoped .coder-card).
 //
-// API: create(desc) -> { el, setLine, addMinion, setMinionLine, endMinion,
+// API: create(desc) -> { el, setLine, addSubagent, setSubagentLine, endSubagent,
 //                        setWeb, setDone, dispose }
 (function () {
     'use strict';
@@ -256,9 +256,9 @@
                 glideRaf = requestAnimationFrame(step);
             });
         }
-        function typeInto(line, src, isHtml, follow, done) {
+        function typeInto(line, text, html, follow, done) {
             var from = document.createElement('div');
-            if (isHtml) from.innerHTML = src; else from.textContent = src;
+            if (html != null) from.innerHTML = html; else from.textContent = text;
             var cps = Math.max(TYPE_CPS, from.textContent.length / TYPE_MAX_S);
             var stack = [{ src: from, dst: line, i: 0 }];
             var txt = null, txtSrc = null, shown = 0, raf = 0, ended = false;
@@ -337,15 +337,15 @@
             // Step boundary reached: the previous step has finished drawing, so wipe now
             // and carry straight on with the next step's first line.
             if (item === CLEAR) { hardClear(); running = false; pump(); return; }
-            // A queue entry is a bare string, or {text, cls} when the caller wants the
-            // rendered line tagged (the terminal marks its prompt echoes this way).
-            var plain = (typeof item === 'string');
-            var text = plain ? item : item.text;
-            var lineCls = plain ? '' : (item.cls ? ' ' + item.cls : '');
+            // A queue entry is {text, cls, mode, html}: cls tags the rendered line (the
+            // terminal marks its prompt echoes this way); html is a markup line's HTML
+            // (modes 'html' / 'typehtml'), the only thing ever read as HTML. text never is.
+            var text = item.text;
+            var lineCls = item.cls ? ' ' + item.cls : '';
             // {mode:'instant'|'html'} (multiline): the line lands whole at once, in its
             // place in the queue: your command's echo, the run's answer (HTML from
             // markdown.py), a reopened chat's rows.
-            if (multiline && !plain && (item.mode === 'type' || item.mode === 'typehtml')) {
+            if (multiline && (item.mode === 'type' || item.mode === 'typehtml')) {
                 if (activeLine) activeLine.classList.remove('cc-shimmer');
                 var typed = document.createElement('div');
                 typed.className = 'cc-line' + lineCls;
@@ -353,14 +353,14 @@
                 scroll.appendChild(typed);
                 activeLine = typed;
                 while (scroll.children.length > KEEP) scroll.removeChild(scroll.firstChild);
-                typeInto(typed, text, item.mode === 'typehtml', follow, function () { running = false; pump(); });
+                typeInto(typed, text, item.mode === 'typehtml' ? item.html : null, follow, function () { running = false; pump(); });
                 return;
             }
-            if (multiline && !plain && item.mode) {
+            if (multiline && item.mode) {
                 if (activeLine) activeLine.classList.remove('cc-shimmer');
                 var whole = document.createElement('div');
                 whole.className = 'cc-line' + lineCls;
-                if (item.mode === 'html') whole.innerHTML = text;
+                if (item.mode === 'html' && item.html != null) whole.innerHTML = item.html;
                 else whole.textContent = text;
                 var stickWhole = atEnd();       // before it goes in: a tall line must not count
                 scroll.appendChild(whole);
@@ -481,12 +481,13 @@
         return {
             // push(text) — a plain line. push(text, cls) — the rendered .cc-line also gets
             // `cls`, so callers can mark specific lines (the terminal tags prompt echoes).
-            // push(text, cls, mode) — mode 'instant' (whole at once) or 'html' (markup).
-            push: function (text, cls, mode) {
+            // push(text, cls, mode, html) — mode 'instant' (whole at once), 'html' or
+            // 'typehtml' (markup): the markup comes in as `html`, text is only ever text.
+            push: function (text, cls, mode, html) {
                 if (text == null || !String(text).trim()) return;
                 if (typing) typing.finish();   // a typed answer never holds up what follows
                 settleWanted = false;          // more IS coming again
-                queue.push((cls || mode) ? { text: String(text), cls: String(cls || ''), mode: mode || '' } : String(text));
+                queue.push({ text: String(text), cls: String(cls || ''), mode: mode || '', html: html == null ? null : String(html) });
                 if (queue.length > 600) queue.splice(0, queue.length - 600);   // memory safety only
                 if (!running) pump();
             },
@@ -612,7 +613,7 @@
         if (!a || typeof a !== 'object' || !a.type) return '';
         switch (a.type) {
             case 'shell':   return '$ ' + clip(a.command || a.value || '', 240);
-            case 'view':    return 'view ' + (a.path || '') + ((a.start || a.end) ? ('  :' + (a.start || 0) + '-' + (a.end || 0)) : '');
+            case 'read':    return 'read ' + (a.path || '') + ((a.start || a.end) ? ('  :' + (a.start || 0) + '-' + (a.end || 0)) : '');
             case 'grep':    return 'grep "' + clip(a.pattern || '', 120) + '"' + (a.path ? (' in ' + a.path) : '') + (a.glob ? (' (' + a.glob + ')') : '');
             case 'glob':    return 'glob ' + (a.pattern || a.path || '');
             case 'write':   return 'write ' + (a.path || '');
@@ -620,6 +621,7 @@
             case 'web':     return 'web "' + clip(a.value || a.query || '', 160) + '"';
             case 'wait':    return 'wait ' + (a.value || '1') + 's';
             case 'minion':  return 'minion: ' + clip(a.value || a.query || '', 200);
+            case 'subagent': return 'subagent' + (a.mode ? ' (' + a.mode + ')' : '') + ': ' + clip(a.value || '', 200);
             // Shell use prints the answer whole under it (cli_stage.js), so just 'done' there.
             case 'exit':    return 'done' + ((a.value && !all) ? (' — ' + clip(a.value, 240)) : '');
             // Surfaced elsewhere on the compact card, so silent there — but narrated in full
@@ -1153,7 +1155,7 @@
             toolTimer = setTimeout(function () { toolTimer = null; playTools(); }, TOOL_GAP_MS);
         }
         function hasExit(obj) { return actionList(obj).some(function (a) { return a && a.type === 'exit'; }); }
-        function hasMinion(obj) { return actionList(obj).some(function (a) { return a && a.type === 'minion'; }); }
+        function hasMinion(obj) { return actionList(obj).some(function (a) { return a && (a.type === 'minion' || a.type === 'subagent'); }); }
 
         // ---- hand-typed terminal (Shell use) ----------------------------------------
         // The `>` prompt is a real input: Enter runs the command through /api/shell-exec
@@ -1373,7 +1375,7 @@
             // Anticipate the next step once this packet's tools finish playing — but NOT after
             // a dispatched minion: the coder is blocked until that minion returns, so the chain
             // would sit on the opening beats while nothing is being asked. It stops at
-            // "dispatched minion" and endMinion() restarts the opening phase.
+            // "dispatched subagent" and endSubagent() restarts the opening phase.
             anticipateNext = !hasExit(obj) && !hasMinion(obj);
             playTools();   // covers a packet with no chain tools — hand straight to the next opening
         }
@@ -1525,7 +1527,7 @@
             return b.face;
         }
 
-        function addMinion(id, query) {
+        function addSubagent(id, query) {
             startFunLines();   // a minion is off working — the head-side line cycles fun "thinking" lines
             if (header) mbotIn(id);
             var row = document.createElement('div');
@@ -1538,7 +1540,7 @@
             // Each minion streams its live output (initial = query) AND grows its own
             // horizontal action sub-chain, parsed from the same per-minion JSON. Shell use:
             // no sub-chain under the row; its tools play on its Minion bot's face instead.
-            minionStreams[id] = makeLineStreamer(row.querySelector('.mline'), query || 'minion');
+            minionStreams[id] = makeLineStreamer(row.querySelector('.mline'), query || 'subagent');
             if (ICONS && !header) minionChains[id] = ICONS.createChain(row.querySelector('.cc-mchain'), { orientation: 'horizontal' });
             minionParsers[id] = makeActionParser(function (obj) {
                 // Shell use: same rule as the coder — the minion's row streams its OWN
@@ -1553,7 +1555,7 @@
             if (window.requestAnimationFrame) requestAnimationFrame(layoutTrunk); else layoutTrunk();
         }
 
-        function setMinionLine(id, line) {
+        function setSubagentLine(id, line) {
             // Default: the raw line IS the row's text. In Shell use the parser below
             // streams the parsed prose instead, so the raw JSON never lands in the row.
             if (!header && minionStreams[id]) minionStreams[id].push(line);
@@ -1603,9 +1605,9 @@
         // The minion is done — DON'T wait for its streaming or show a mark. Immediately fade the
         // whole row (line + L + tool sub-chain) and collapse its height to 0 so the rows below
         // slide up; then remove it and re-anchor the trunk.
-        function endMinion(id, status) {
+        function endSubagent(id, status) {
             var row = findRow(id);
-            if (!row || row.classList.contains('leaving')) return;   // idempotent (cliMinionEnd can repeat)
+            if (!row || row.classList.contains('leaving')) return;   // idempotent (cliSubagentEnd can repeat)
             if (header) mbotOut(id);                                 // its bot sinks away now
 
             // stop streaming into a row that's leaving
@@ -1740,7 +1742,8 @@
             note: function (t) { if (termStream) termStream.push(t); else { outStream.push(t); markOut(); } },
             // A line of the chat's own: your message, the run's answer.
             // mode: '' (types in), 'instant', or 'html' (markup from markdown.py, whole).
-            print: function (text, cls, mode) { outStream.push(text, cls, mode); outStream.settle(); markOut(); },
+            // A markup line ('html' / 'typehtml') hands its text in as the markup too.
+            print: function (text, cls, mode) { outStream.push(text, cls, mode, (mode === 'html' || mode === 'typehtml') ? text : null); outStream.settle(); markOut(); },
             // the chat glides to its end (your message just went in)
             toEnd: function () { outStream.toEnd(); },
             // Shell use: a new chat's hello, typed on the live line (it shows there until the
@@ -1781,9 +1784,9 @@
             botOn: botOn,
             botToAnswer: botToAnswer,
             botEnd: botEnd,
-            addMinion: addMinion,
-            setMinionLine: setMinionLine,
-            endMinion: endMinion,
+            addSubagent: addSubagent,
+            setSubagentLine: setSubagentLine,
+            endSubagent: endSubagent,
             setWeb: setWeb,
             setDone: setDone,
             // The run's scratchpad notes, in order — cli_stage.js snapshots these at task

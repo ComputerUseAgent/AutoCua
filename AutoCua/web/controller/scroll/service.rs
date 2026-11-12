@@ -14,11 +14,11 @@ use std::time::Duration;
 use pyo3::prelude::*;
 use serde_json::{json, Map, Value};
 
-use crate::browser::{Cdp, CdpFail, ScannerInner};
-use crate::controller::service::{
+use crate::web::browser::{Cdp, CdpFail, ScannerInner};
+use crate::web::controller::service::{
     label_for, rect_for, resolve_element_id, scan_op, with_cursor, ActErr, ActResult, VIEWPORT_ID,
 };
-use crate::agent::main_driver::view::py_str_of;
+use crate::web::agent::main_driver::view::py_str_of;
 
 pub const DIRECTIONS: [&str; 4] = ["up", "down", "left", "right"];
 
@@ -50,7 +50,7 @@ fn wheel(cdp: &mut Cdp, sess: &str, rect: &[f64; 4], dx: f64, dy: f64) -> Result
 
 /// The wheel over the driven tab: over CDP here, or turned by AutoCuaBridge in
 /// extension mode (tools.js scroll, the same two events).
-fn turn(s: &mut ScannerInner, rect: &[f64; 4], dx: f64, dy: f64) -> crate::browser::SResult<()> {
+fn turn(s: &mut ScannerInner, rect: &[f64; 4], dx: f64, dy: f64) -> crate::web::browser::SResult<()> {
     if s.bridged() {
         return s.bridge_call(json!({"type": "scroll", "rect": rect, "dx": dx, "dy": dy})).map(|_| ());
     }

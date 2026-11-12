@@ -67,6 +67,7 @@ _PROVIDER_ENV_KEY = {
     "requesty": "REQUESTY_API_KEY",
     "opper": "OPPER_API_KEY",
     "aws": "AWS_API_KEY",
+    "ollama": "OLLAMA_API_KEY",
 }
 # A `done` value shorter than this is almost certainly an activity log, so it
 # is topped up with what the agent recorded along the way.

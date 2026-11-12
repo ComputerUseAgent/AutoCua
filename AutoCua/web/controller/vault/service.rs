@@ -29,10 +29,10 @@ use std::sync::{Arc, Mutex};
 use pyo3::prelude::*;
 use serde_json::{json, Map, Value};
 
-use crate::agent::main_driver::view::py_str_of;
-use crate::browser::{truthy, ScannerInner};
-use crate::controller::input::service::type_into_rect;
-use crate::controller::service::{
+use crate::web::agent::main_driver::view::py_str_of;
+use crate::web::browser::{truthy, ScannerInner};
+use crate::web::controller::input::service::type_into_rect;
+use crate::web::controller::service::{
     err, label_for, rect_for, reject_viewport, resolve_element_id, scan_op, with_cursor, ActErr, ActResult,
 };
 
@@ -89,7 +89,7 @@ fn covers(host: &str, site: &str) -> bool {
 /// never quote the file.
 fn entries(py: Python<'_>) -> Result<Map<String, Value>, String> {
     const FILE: &str = "AutoCua_data/vault/credentials.json";
-    let path = crate::vault_file(py).map_err(|_| "the vault file could not be found".to_string())?;
+    let path = crate::web::vault_file(py).map_err(|_| "the vault file could not be found".to_string())?;
     let text = std::fs::read_to_string(&path).map_err(|_| format!("{FILE} could not be read"))?;
     match serde_json::from_str::<Value>(&text) {
         Ok(Value::Object(mut all)) => match all.remove("web") {

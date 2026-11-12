@@ -10,7 +10,7 @@ app.py is gone and main.py is the only entry point:
 
 This module is imported ONLY for UI mode, so its import-time bootstrap
 (stdio fixup, banner-mode stdio, the compiled build's embedded open() patch)
-never touches a terminal run. The coder/minion/controller/telegram modules
+never touches a terminal run. The controller/telegram modules
 that did `from app import debug_log, IS_COMPILED, app_data_dir` take their
 try/except fallbacks now. For binary builds, point Nuitka at main.py (or at
 this file); Nuitka follows imports."""
@@ -29,6 +29,7 @@ import platform
 import importlib
 import importlib.util
 import threading
+from AutoCua.utils.errors import error_text
 import queue
 import time
 import shutil
@@ -57,14 +58,27 @@ if platform.system() == "Linux":
 import webview
 
 # Where the user's data lives (AutoCua_data/, outside the install folder).
-from AutoCua import api_key_file, skills_dir, skills_platform, data_root, default_skills
-from AutoCua import api_key_lock, replace_file_text
+from AutoCua import read_env, set_env, skills_dir, skills_platform, data_root, default_skills
 from AutoCua import APP_PORT, ENV_APP_PORT
 from AutoCua import data_extraction
 
-# Resumable chat memory + per-chat token tracker. Platform-agnostic, pure-stdlib.
-from AutoCua.agent_conversation.service import conversation
-from AutoCua.memory_compression.memory_tracker import MemoryTracker
+
+class _LazyConversation:
+    """The resumable chat memory (AutoCua/agent_conversation), loaded on first
+    use. It is Rust, part of agent_native, and importing it loads the
+    extension: the process the person started only builds that, never loads
+    it (_prepare_native says why), and it imports this module. Every
+    conversation.<name> call works as it did on the module's own object."""
+
+    def __getattr__(self, name):
+        from AutoCua.agent_conversation.service import conversation as real
+        return getattr(real, name)
+
+
+conversation = _LazyConversation()
+# MemoryTracker (memory_compression, Rust too) is imported where a run makes
+# one, for the same reason.
+
 
 # Markdown -> HTML for everything the agent writes to the user (scratchpad
 # notes, done/exit summaries). The single place that formatting happens.
@@ -109,14 +123,9 @@ else:
 # Build / process flags + debug logging (compiled binary only)
 # =============================================================================
 IS_COMPILED = getattr(sys, 'frozen', False) or '__compiled__' in dir()
-IS_CLI_SUBPROCESS = "--cli-mode" in sys.argv
 # Any re-exec of AutoCua.exe that must NOT clobber the parent's debug log / wipe
-# the parent's scratchpad (--cli-mode / --minion-mode / --banner-mode).
-IS_SECONDARY_PROCESS = (
-    IS_CLI_SUBPROCESS
-    or "--banner-mode" in sys.argv
-    or "--minion-mode" in sys.argv
-)
+# the parent's scratchpad (--banner-mode).
+IS_SECONDARY_PROCESS = "--banner-mode" in sys.argv
 # Started by the Chromium desktop shell (AutoCua/desktop/main.js): this
 # process is the backend only, and the window belongs to the shell (see
 # DesktopWindow).
@@ -134,7 +143,7 @@ MACOS_BUNDLE_ID = "com.ashishyadav.AutoCua"
 
 
 def app_data_dir() -> Path:
-    """Root for cli_agent_result/ + cli_minion_result/ + settings/chats in the
+    """Root for cli_agent_result/ + settings/chats in the
     binary build. Compiled: ~/Library/Application Support/AutoCua (macOS) /
     %LOCALAPPDATA%/AutoCua (Windows). Dev: the repo root (where app.py lives)."""
     if IS_COMPILED:
@@ -284,7 +293,10 @@ _LOCAL_ORIGINS = (f'http://127.0.0.1:{APP_PORT}', f'http://localhost:{APP_PORT}'
 # start URL (_start_url): the answer sets it as a cookie that the page sends
 # with every /api/ call (its videos too). The desktop shell's own event stream
 # sends it as a header (AutoCua/desktop/main.js).
-_API_TOKEN = secrets.token_urlsafe(32)
+# The desktop shell (AutoCua/desktop/main.js) makes it and hands it over in
+# AUTOCUA_API_TOKEN, taken out of the environment here so nothing started
+# from this process inherits it; without the shell this process makes it.
+_API_TOKEN = os.environ.pop("AUTOCUA_API_TOKEN", "") or secrets.token_urlsafe(32)
 _TOKEN_COOKIE = 'autocua_token'
 _TOKEN_HEADER = 'X-AutoCua-Token'
 
@@ -332,7 +344,8 @@ def _block_foreign_requests():
     if not api and _token_ok(request.args.get('token')):
         # The window's first load: the token becomes its cookie, and the
         # window goes on to the clean URL, so the token leaves its address.
-        response = redirect(request.path)
+        # A path on this host, one leading slash (as Werkzeug builds request.path).
+        response = redirect('/' + request.path.lstrip('/'))
         response.set_cookie(_TOKEN_COOKIE, _API_TOKEN, path='/api',
                             httponly=True, samesite='Strict')
         return response
@@ -904,6 +917,14 @@ def get_llm_providers():
             aws_models = importlib.import_module(f"{base}.aws.view").MODEL_MAPPINGS
         except ModuleNotFoundError:
             aws_models = None
+        # Ollama lists the models pulled on this machine (listed_models asks
+        # it), so any failure there, not only a missing module, must drop
+        # just this provider.
+        try:
+            ollama_models = importlib.import_module(f"{base}.ollama.view").listed_models()
+        except Exception:
+            debug_exception("get_llm_providers: ollama")
+            ollama_models = None
 
         def format_models(mappings):
             return [{
@@ -929,6 +950,8 @@ def get_llm_providers():
             providers.append({'id': 'opper', 'name': 'opper', 'models': format_models(opper_models)})
         if aws_models:
             providers.append({'id': 'aws', 'name': 'aws', 'models': format_models(aws_models)})
+        if ollama_models:
+            providers.append({'id': 'ollama', 'name': 'ollama', 'models': format_models(ollama_models)})
         return providers
     except Exception:
         debug_exception("get_llm_providers")
@@ -949,51 +972,25 @@ PROVIDER_KEY_MAP = {
     'aws': 'AWS_API_KEY',
 }
 
-# Extra keys stored in the same api_key.txt
+# Providers that run without a key (a model on this machine), so the app
+# offers them with none saved. Not in PROVIDER_KEY_MAP, whose values are the
+# key names written to the .env and shown as key rows in Settings.
+KEYLESS_PROVIDERS = ('ollama',)
+
+# Extra keys stored in the same .env
 EXTRA_KEYS = ['VERTEX_PROJECT_ID', 'VERTEX_LOCATION']
 
 
-def get_api_key_file():
-    """Path to api_key.txt — AutoCua_data/api_key/, OUTSIDE the install folder so
-    an uninstall/reinstall no longer wipes every API key. Shared across
-    platforms; resolved in AutoCua/__init__.py so the Settings panel, the
-    Telegram bot and the llm_provider can't disagree about it."""
-    return api_key_file()
-
-
 def read_api_keys():
-    """Read api_key.txt and return dict of provider -> key value"""
-    key_file = get_api_key_file()
-    all_key_names = list(PROVIDER_KEY_MAP.values()) + EXTRA_KEYS
-    keys = {k: '' for k in all_key_names}
-    if key_file.exists():
-        try:
-            with open(key_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if '=' in line:
-                        name, _, value = line.partition('=')
-                        # Keep every key (e.g. TELEGRAM_BOT_TOKEN) so unmanaged
-                        # entries survive a read-modify-write cycle.
-                        keys[name] = value
-        except Exception:
-            debug_exception("read_api_keys")
-    return keys
-
-
-def write_api_keys(keys):
-    """Write dict of key names -> values to api_key.txt, in one rewrite
-    through replace_file_text: a reader meets the old file or the new one,
-    not an empty one (the Windows fallback in replace_file_text aside)."""
-    key_file = get_api_key_file()
+    """Every key name the Settings panel shows ('' when unset), plus whatever
+    else the .env sets, from the one .env (AutoCua.env_file): the file you
+    edit by hand is the file the Settings panel writes."""
+    keys = {k: '' for k in list(PROVIDER_KEY_MAP.values()) + EXTRA_KEYS}
     try:
-        all_key_names = list(PROVIDER_KEY_MAP.values()) + EXTRA_KEYS
-        # Preserve any unmanaged keys (e.g. TELEGRAM_*) written elsewhere.
-        extra = [k for k in keys if k not in all_key_names]
-        replace_file_text(key_file, "".join(
-            f"{name}={keys.get(name, '')}\n" for name in all_key_names + extra))
+        keys.update(read_env())
     except Exception:
-        debug_exception("write_api_keys")
+        debug_exception("read_api_keys")
+    return keys
 
 
 # Persisted last-used selection (provider + model). Lives alongside the chat
@@ -1506,10 +1503,10 @@ def api_app_quit():
 
 
 # =============================================================================
-# Flask route — iOS setup UI (Settings → Connect Device → iPhone)
+# Flask route — iOS setup backend (Settings → Connect Device → iPhone)
 # Runs the existing ios_connector/setup.py server (the full sign/build/install/
-# trust tool with Add Apple Account, team + device select, build console) and
-# hands its URL to the frontend, which shows setup.py's index.html in an iframe.
+# trust tool with Add Apple Account, team + device select, live build stream) and
+# hands its URL to the frontend, whose Connect Device panel talks to it directly.
 # We do NOT reimplement any of that flow.
 # =============================================================================
 @app.route('/api/ios/setup-server', methods=['POST'])
@@ -1538,6 +1535,43 @@ def api_ios_paired():
     except Exception:
         debug_exception("api_ios_paired")
         return jsonify({"devices": []})
+
+
+@app.route('/api/ios/bundle-prefix', methods=['GET'])
+def api_ios_bundle_prefix():
+    """The bundle ID prefix for Settings > Connect Device > iPhone > Bundle ID:
+    `prefix`, the one the person set (IOS_BUNDLE_ID_PREFIX in the .env, "" when
+    none), and `default`, the one pairing uses without it, for the Apple team
+    `team` (com.AutoCua.<team ID>; session.bundle_prefix says why)."""
+    from flask import request
+    try:
+        from AutoCua.ios_connector.session import user_bundle_prefix, default_bundle_prefix
+        team = (request.args.get('team') or '').strip() or None
+        return jsonify({"prefix": user_bundle_prefix(), "default": default_bundle_prefix(team)})
+    except Exception:
+        debug_exception("api_ios_bundle_prefix")
+        return jsonify({"error": "Could not read the bundle ID"}), 500
+
+
+@app.route('/api/ios/bundle-prefix', methods=['POST'])
+def api_ios_bundle_prefix_save():
+    """Save the bundle ID prefix as IOS_BUNDLE_ID_PREFIX in the .env. Empty goes
+    back to the default; the next pairing signs with it. Answers as the GET
+    does, for the Apple team `team`."""
+    from flask import request
+    try:
+        data = request.get_json(silent=True) or {}
+        prefix = str(data.get('prefix') or '').strip()
+        team = str(data.get('team') or '').strip() or None
+        from AutoCua.ios_connector.session import (user_bundle_prefix, default_bundle_prefix,
+                                                   valid_bundle_prefix, BUNDLE_PREFIX_VAR)
+        if prefix and not valid_bundle_prefix(prefix):
+            return jsonify({"error": "Use letters, digits, - and . only, like com.yourname"}), 400
+        set_env({BUNDLE_PREFIX_VAR: prefix})
+        return jsonify({"ok": True, "prefix": user_bundle_prefix(), "default": default_bundle_prefix(team)})
+    except Exception:
+        debug_exception("api_ios_bundle_prefix_save")
+        return jsonify({"error": "Could not save the bundle ID"}), 500
 
 
 @app.route('/api/ios/paired/add', methods=['POST'])
@@ -1631,7 +1665,7 @@ def api_android_detect():
         return jsonify({"ok": True, "devices": phones()})
     except Exception as e:
         debug_exception("api_android_detect")
-        return jsonify({"ok": False, "devices": [], "error": str(e)})
+        return jsonify({"ok": False, "devices": [], "error": error_text(e)})
 
 
 @app.route('/api/android/install-adb', methods=['POST'])
@@ -1761,31 +1795,52 @@ def get_keys_status():
         status = {}
         for provider_id, env_name in PROVIDER_KEY_MAP.items():
             status[provider_id] = bool(keys.get(env_name, ''))
+        # Nothing to set up, so always usable; a stopped Ollama is reported
+        # by the run itself, with what to do.
+        for provider_id in KEYLESS_PROVIDERS:
+            status[provider_id] = True
         return jsonify(status)
     except Exception:
         debug_exception("get_keys_status")
         return jsonify({})
 
 
+@app.route('/api/ollama/status', methods=['GET'])
+def get_ollama_status():
+    """Ollama's row in Settings: whether an Ollama answers (at OLLAMA_HOST,
+    else this machine) and the pulled models that can call tools, by the
+    names the model pickers show."""
+    try:
+        from AutoCua.llm_provider.ollama import service as ollama, view as ollama_view
+        host = ollama.base_url()
+        if not ollama.reachable():
+            return jsonify({'running': False, 'host': host, 'models': []})
+        models = [ollama_view.get_model_info(name).get('display_name', name)
+                  for name, _caps in ollama.pulled_models()]
+        return jsonify({'running': True, 'host': host, 'models': models})
+    except Exception:
+        debug_exception("get_ollama_status")
+        return jsonify({'running': False, 'host': '', 'models': []})
+
+
 @app.route('/api/keys/save', methods=['POST'])
 def save_api_key():
-    """Save a single provider's API key to file"""
+    """Save a single provider's API key into the .env (one line)"""
     from flask import request
     try:
         data = request.get_json()
         provider = data.get('provider')
-        key_value = data.get('key', '')
+        # Stripped, as the old key file's readers did: a key pasted with a
+        # space or line break around it must not be saved with it.
+        key_value = (data.get('key') or '').strip()
 
         env_name = PROVIDER_KEY_MAP.get(provider)
         if not env_name:
             return jsonify({'error': 'Unknown provider'}), 400
 
-        # One save at a time (one Save click sends a request per key): a
-        # parallel save must not write back a copy without this key.
-        with api_key_lock:
-            keys = read_api_keys()
-            keys[env_name] = key_value
-            write_api_keys(keys)
+        # set_env changes this one line in one locked write: one Save click
+        # sends a request per key, and none drops another's change.
+        set_env({env_name: key_value})
         return jsonify({'status': 'saved'})
     except Exception:
         debug_exception("save_api_key")
@@ -1794,7 +1849,7 @@ def save_api_key():
 
 @app.route('/api/keys/delete', methods=['POST'])
 def delete_api_key():
-    """Delete a single provider's API key from file"""
+    """Delete a single provider's API key from the .env (its line stays, empty)"""
     from flask import request
     try:
         data = request.get_json()
@@ -1804,10 +1859,7 @@ def delete_api_key():
         if not env_name:
             return jsonify({'error': 'Unknown provider'}), 400
 
-        with api_key_lock:
-            keys = read_api_keys()
-            keys[env_name] = ''
-            write_api_keys(keys)
+        set_env({env_name: ''})
         return jsonify({'status': 'deleted'})
     except Exception:
         debug_exception("delete_api_key")
@@ -1868,18 +1920,14 @@ def get_vertex_status():
 
 @app.route('/api/vertex/save', methods=['POST'])
 def save_vertex_config():
-    """Save Vertex AI project ID and location to api_key.txt"""
+    """Save Vertex AI project ID and location into the .env, in one write"""
     from flask import request
     try:
         data = request.get_json()
-        project_id = data.get('project_id', '')
-        location = data.get('location', 'global')
+        project_id = (data.get('project_id') or '').strip()
+        location = (data.get('location', 'global') or '').strip()
 
-        with api_key_lock:
-            keys = read_api_keys()
-            keys['VERTEX_PROJECT_ID'] = project_id
-            keys['VERTEX_LOCATION'] = location
-            write_api_keys(keys)
+        set_env({'VERTEX_PROJECT_ID': project_id, 'VERTEX_LOCATION': location})
         return jsonify({'status': 'saved'})
     except Exception:
         debug_exception("save_vertex_config")
@@ -2100,26 +2148,26 @@ def send_cli_event_to_frontend(event_type, *args):
             webview_window.evaluate_js(
                 f"window.cliTaskTodo && window.cliTaskTodo('{task_id}', '{todo_payload}')"
             )
-        elif event_type == "minion_start":
+        elif event_type == "subagent_start":
             parent_task_id = _js_escape(args[0] if len(args) > 0 else "")
             task_id = _js_escape(args[1] if len(args) > 1 else "")
             query = _js_escape(args[2] if len(args) > 2 else "")
             webview_window.evaluate_js(
-                f"window.cliMinionStart && window.cliMinionStart('{parent_task_id}', '{task_id}', '{query}')"
+                f"window.cliSubagentStart && window.cliSubagentStart('{parent_task_id}', '{task_id}', '{query}')"
             )
-        elif event_type == "minion_end":
+        elif event_type == "subagent_end":
             task_id = _js_escape(args[0] if len(args) > 0 else "")
             status = _js_escape(args[1] if len(args) > 1 else "complete")
             summary = _js_escape(args[2] if len(args) > 2 else "")
             webview_window.evaluate_js(
-                f"window.cliMinionEnd && window.cliMinionEnd('{task_id}', '{status}', '{summary}')"
+                f"window.cliSubagentEnd && window.cliSubagentEnd('{task_id}', '{status}', '{summary}')"
             )
-        elif event_type == "minion_line":
+        elif event_type == "subagent_line":
             task_id = _js_escape(args[0] if len(args) > 0 else "")
             line = _js_escape(args[1] if len(args) > 1 else "")
             stream = _js_escape(args[2] if len(args) > 2 else "out")
             webview_window.evaluate_js(
-                f"window.cliMinionLine && window.cliMinionLine('{task_id}', '{line}', '{stream}')"
+                f"window.cliSubagentLine && window.cliSubagentLine('{task_id}', '{line}', '{stream}')"
             )
         elif event_type == "pill_web_loading_start":
             task_id = _js_escape(args[0] if len(args) > 0 else "")
@@ -2285,7 +2333,7 @@ def _start_agent_run(data, via=None, hooks=None):
         # runs the main agent. run_pkg alone can't catch this — shell chats
         # share the desktop PLATFORM_PKG — hence the dedicated agent_mode marker.
         if (_sess.get("agent_mode") or "") == "shell":
-            return jsonify({'error': 'This chat is locked to Shell use — open a new chat to switch mode'}), 400
+            return jsonify({'error': 'This chat is locked to Coder — open a new chat to switch mode'}), 400
 
         # Per-chat mode lock: a chat that already ran in one mode only accepts
         # that mode (the UI greys the other option; this is the backstop).
@@ -2301,6 +2349,7 @@ def _start_agent_run(data, via=None, hooks=None):
         if prior_history is not None and saved_pkg and saved_pkg != run_pkg:
             prior_history = None
 
+        from AutoCua.memory_compression.memory_tracker import MemoryTracker
         token_tracker = MemoryTracker(initial_context=_sess.get("context_tokens", 0))
 
         # Memory-bar push — shared factory (Shell use builds the identical
@@ -2349,7 +2398,7 @@ def _start_agent_run(data, via=None, hooks=None):
                 # A browser / iOS / Android sub-agent's box closes the same way (sub_end),
                 # but its id is a small number a newer run can use again, so it
                 # stops once a newer run is on (sending it cleared the old boxes).
-                if (event_type in ("task_end", "await_end", "minion_end") or run_is_current()
+                if (event_type in ("task_end", "await_end", "subagent_end") or run_is_current()
                         or (event_type == "sub_end" and active_agent_session_id is None)):
                     send_cli_event_to_frontend(event_type, *args)
 
@@ -2634,7 +2683,7 @@ def _start_agent_run(data, via=None, hooks=None):
 
     except Exception as e:
         debug_exception("start_agent API")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': error_text(e)}), 500
 
 
 def start_run_from_telegram(task, provider, model, session_id=None, text_callback=None, cli_callback=None,
@@ -2819,9 +2868,10 @@ _ADB_NOT_NOW = "adb-not-now"
 
 
 def _prepare_native() -> None:
-    """What the terminal sees before any window: a checkout's builds of the
-    two Rust agents (the first start, a minute or two, cargo's lines as it
-    goes), then adb for an Android phone, offered once (_offer_adb). Run by
+    """What the terminal sees before any window: a checkout's build of the
+    Rust agents, web, Android and coder in one extension (the first start, a
+    minute or two, cargo's lines as it goes), then adb for an Android phone,
+    offered once (_offer_adb). Run by
     the process the person started, before the desktop shell or the window,
     so nothing builds or asks behind a window and the terminal shows it all,
     in order. Built, not imported: an import keeps agent_native.pyd loaded
@@ -2829,17 +2879,16 @@ def _prepare_native() -> None:
     replaced, so another process's rebuild (computer use's android_agent
     child, a terminal run) would fail to install. The emulator and its
     images are still fetched on first use, after their yes. A pip wheel
-    ships both agents built, a packaged app too. Printed when a build fails,
+    ships the extension built, a packaged app too. Printed when a build fails,
     since debug_exception is silent in a checkout."""
     if IS_COMPILED:
         return
     if (_REPO_ROOT / "main.py").is_file():
         from AutoCua.utils import rust
-        for what, build in (("web", rust.ensure_web_agent_built), ("android", rust.ensure_android_agent_built)):
-            try:
-                build()
-            except Exception as e:
-                print(f"[{what}] AGENT NOT BUILT — {e}", flush=True)
+        try:
+            rust.ensure_built()
+        except Exception as e:
+            print(f"[rust] AGENTS NOT BUILT — {e}", flush=True)
     _offer_adb()
     # Google Chrome is never downloaded: say once, here, when it is missing
     # (the page shows its popup too, /api/chrome)
@@ -2940,11 +2989,11 @@ def run_shell_task(task, provider, model, api_key, run_pkg,
     stream.
 
     That reuse is the point. Rather than re-implement the subprocess spawn, the
-    stdout reader threads, the `__MINION_UI_EVENT__` bridge and the cli_*
-    lifecycle, this drives the platform ControllerView's existing `sub_agent`
-    (dispatch) + `agent_wait` (block) actions — the two the main agent itself
-    uses. macOS and Windows go through the same two calls; only run_pkg differs,
-    and the coder subprocess command is already branched inside ControllerView.
+    stdout reader threads and the cli_* lifecycle, this drives the platform
+    ControllerView's existing `sub_agent` (dispatch) + `agent_wait` (block)
+    actions, the two the main agent itself uses. Every OS goes through the same
+    two calls; only run_pkg differs, and ControllerView starts the coder
+    (python -m AutoCua.coder).
 
     Args:
         task: the user's typed request, handed to the coder verbatim.
@@ -2962,18 +3011,13 @@ def run_shell_task(task, provider, model, api_key, run_pkg,
         f"AutoCua.{run_pkg}.controller.view"
     ).ControllerView
 
-    # cli_mode=True with NO session_id: keeps this run off the MAIN agent's
-    # scratchpad/todo files (it writes to the shared cli_milestone/ folder
-    # instead) without minting a per-run sandbox folder on the Desktop.
-    # cli_report_usage: the coder emits per-LLM-call token usage markers, so
-    # the memory bar tracks a Shell-use run the way it tracks Computer use.
-    # cli_history_file / cli_request_no: the chat's conversation channel — the
-    # coder seeds from the file, snapshots back into it, and tags its task
-    # <user_request=N>.
+    # cli_report_usage, cli_history_file and cli_request_no reach the coder
+    # as --report-usage, --history and --request-no: its token usage for the
+    # memory bar, and the chat's conversation channel (the coder seeds from
+    # the file, snapshots back into it, and tags its task <user_request=N>).
     controller = ControllerView(
         provider=provider,
         model=model,
-        cli_mode=True,
         cli_callback=cli_callback,
         api_key=api_key,
         stop_event=stop_event,
@@ -3085,6 +3129,7 @@ def start_shell():
 
         # ── Memory bar: same tracker + push pipe as Computer use, seeded from
         # the chat's last saved context size so a resumed chat restores its bar.
+        from AutoCua.memory_compression.memory_tracker import MemoryTracker
         token_tracker = MemoryTracker(initial_context=_sess.get("context_tokens", 0))
         send_token_to_frontend = _make_token_sender(token_tracker)
 
@@ -3094,7 +3139,7 @@ def start_shell():
         # freezes the terminal mid-run forever. They are keyed by task_id, so a
         # stale one is a no-op for whatever run is on screen now. (sub_end, a
         # sub-agent box's close, is one too; Shell use starts none.)
-        _CLI_TEARDOWN_EVENTS = ("task_end", "await_end", "minion_end", "sub_end")
+        _CLI_TEARDOWN_EVENTS = ("task_end", "await_end", "subagent_end", "sub_end")
 
         def shell_cli_callback(event_type, *args):
             # Everything else follows the main agent's rule: once the run is
@@ -3221,7 +3266,7 @@ def start_shell():
 
     except Exception as e:
         debug_exception("start_shell API")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': error_text(e)}), 500
 
 
 # One Sandbox for the hand-typed terminal, kept for the life of the app so its
@@ -3427,22 +3472,25 @@ class _ManualTerminal:
             return False, "a command is already running — press Ctrl+C to stop it"
 
         if IS_WINDOWS:
-            argv = ["powershell", "-NoProfile", "-Command", command]
+            shell, flags = "powershell", ["-NoProfile", "-Command"]
             # own group so CTRL_BREAK_EVENT reaches it and not us
             kwargs = {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
         else:
             # The platform's own shell: zsh on macOS, bash on Linux.
-            argv = ["/bin/zsh" if IS_MAC else "/bin/bash", "-c", command]
+            shell, flags = ("/bin/zsh" if IS_MAC else "/bin/bash"), ["-c"]
             kwargs = {"start_new_session": True}   # setsid -> killpg targets only the child
 
         try:
+            # The program run is the shell; the typed line is its argument, as a
+            # terminal passes it. The list is written here so code scanning can
+            # see that (py/command-line-injection reads only an inline list).
             proc = subprocess.Popen(
-                argv, cwd=cwd,
+                [shell, *flags, command], cwd=cwd,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 bufsize=0, **kwargs
             )
         except Exception as e:
-            return False, str(e)
+            return False, error_text(e)
 
         # one record per command: everything the user saw, plus how it ended —
         # harvested into <manual_mode> for the next agent run. The reader and
@@ -3550,7 +3598,7 @@ def shell_cwd():
         return jsonify({'cwd': cwd, 'short': _short_cwd(cwd)})
     except Exception as e:
         debug_exception('shell_cwd API')
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': error_text(e)}), 500
 
 
 @app.route('/api/shell-exec', methods=['POST'])
@@ -3614,7 +3662,7 @@ def shell_exec():
 
     except Exception as e:
         debug_exception('shell_exec API')
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': error_text(e)}), 500
 
 
 @app.route('/api/shell-kill', methods=['POST'])
@@ -3627,7 +3675,7 @@ def shell_kill():
         return jsonify({'status': 'killed' if killed else 'idle'})
     except Exception as e:
         debug_exception('shell_kill API')
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': error_text(e)}), 500
 
 
 @app.route('/api/stop-agent', methods=['POST'])
@@ -3711,7 +3759,7 @@ def open_github():
     navigate the pywebview window itself). Fixed URL — no arbitrary-URL opener."""
     try:
         import webbrowser
-        webbrowser.open("https://github.com/AutoCua/AutoCua")
+        webbrowser.open("https://github.com/ComputerUseAgent/AutoCua")
         return jsonify({'status': 'ok'})
     except Exception:
         debug_exception("open_github")
@@ -4061,11 +4109,16 @@ def delete_chat(chat_id):
         return jsonify({'error': 'Failed to delete'}), 500
 
 
-def _read_main_system_prompt():
-    """Best-effort read of the active platform's computer_use system prompt, so a
-    downloaded conversation log shows the same SYSTEM PROMPT block as a main.py run."""
+def _read_main_system_prompt(agent_mode=None):
+    """Best-effort read of the system prompt of the agent that owns a chat, so
+    a downloaded conversation log shows the same SYSTEM PROMPT block as a
+    main.py run: the coder's for a Shell use chat, else the active platform's
+    computer_use one. Only for chats saved without their exact log."""
     try:
-        p = get_platform_path() / "agent" / "computer_use" / "system_prompt.md"
+        if agent_mode == "shell":
+            p = Path(__file__).resolve().parent.parent / "coder" / "main" / "system_prompt.md"
+        else:
+            p = get_platform_path() / "agent" / "computer_use" / "system_prompt.md"
         with open(p, "r", encoding="utf-8") as f:
             return f.read()
     except Exception:
@@ -4077,7 +4130,8 @@ def download_chat(chat_id):
     """Debug: write a session's saved memory as a human-readable conversation log
     (.txt) to the user's Downloads folder and return the saved path."""
     try:
-        path = conversation.export_to_downloads(chat_id, system_prompt=_read_main_system_prompt())
+        mode = (conversation.get_session(chat_id) or {}).get("agent_mode")
+        path = conversation.export_to_downloads(chat_id, system_prompt=_read_main_system_prompt(mode))
         if not path:
             return jsonify({'error': 'Nothing saved for this chat yet'}), 404
         return jsonify({'status': 'saved', 'path': path})
@@ -4500,6 +4554,48 @@ def _stay_in_webview():
     os.environ["AUTOCUA_UI"] = "webview"
 
 
+# The shell's stdin pipe, read only by _serve_desktop_shell's thread, which
+# waits for the shell to close it (_keep_shell_pipe).
+_shell_pipe = None
+
+
+def _keep_shell_pipe():
+    """Keep the shell's stdin pipe for _serve_desktop_shell's thread alone and
+    make this process's stdin the null device. Run first in --desktop mode,
+    before this process starts anything. Every process started from here
+    inherits this process's stdin, and on Windows a Python process whose
+    stdin is a pipe that another process is blocked reading never gets past
+    its start: the coder from Coder mode sat at 0 s of CPU and never
+    answered. If the copy fails, the thread reads stdin itself, as before."""
+    global _shell_pipe
+    if sys.stdin is None:
+        return
+    try:
+        fd = sys.stdin.fileno()
+        pipe = os.fdopen(os.dup(fd), "rb", buffering=0)
+        null = os.open(os.devnull, os.O_RDONLY)
+        os.dup2(null, fd)
+    except (OSError, ValueError):
+        debug_exception("keep shell pipe")
+        _shell_pipe = sys.stdin.buffer
+        return
+    os.close(null)
+    _shell_pipe = pipe
+    if os.name == "nt":
+        # Children get Windows' own stdin handle, which dup2 moves only in a
+        # console Python: under pythonw.exe it would still be the pipe, or the
+        # pipe handle dup2 just closed.
+        try:
+            import ctypes
+            import msvcrt
+            from ctypes import wintypes
+            kernel32 = ctypes.WinDLL("kernel32")
+            kernel32.SetStdHandle.argtypes = (wintypes.DWORD, wintypes.HANDLE)
+            kernel32.SetStdHandle(-10 & 0xFFFFFFFF, msvcrt.get_osfhandle(fd))  # STD_INPUT_HANDLE
+        except Exception:
+            debug_exception("stdin handle")
+
+
 def _serve_desktop_shell(win, start_path):
     """--desktop's main loop, in place of webview.start(). Tells the shell
     (AutoCua/desktop/main.js) where the app is, then lives until the shell
@@ -4512,14 +4608,14 @@ def _serve_desktop_shell(win, start_path):
     accessory app: no Dock icon, never the active app."""
     def until_stdin_closes():
         try:
-            while sys.stdin.buffer.read(1):
+            while _shell_pipe.read(1):
                 pass
         except Exception:
             debug_exception("desktop shell stdin")
         win.events.closing.fire()
         os._exit(0)
 
-    if sys.stdin is not None:
+    if _shell_pipe is not None:
         threading.Thread(target=until_stdin_closes, daemon=True).start()
     # The shell came up: the launcher (_launch_desktop_shell) no longer falls
     # back to the pywebview window when it exits.
@@ -4529,7 +4625,9 @@ def _serve_desktop_shell(win, start_path):
             Path(started).write_text("1", encoding="utf-8")
         except OSError:
             debug_exception("desktop shell started marker")
-    print(f"AUTOCUA_DESKTOP_READY {_start_url(start_path)}", flush=True)
+    # The app's URL without the token: the shell made the token itself
+    # (AUTOCUA_API_TOKEN) and adds it to this URL, so stdout never carries it.
+    print(f"AUTOCUA_DESKTOP_READY http://127.0.0.1:{_app_port}{start_path}", flush=True)
 
     if IS_MAC:
         from AppKit import NSApplication
@@ -4568,8 +4666,8 @@ def _opt_out_of_app_nap():
 # main()
 # =============================================================================
 def main():
-    # --banner-mode / --cli-mode / --minion-mode are handled first — these
-    # re-exec'd children must not boot a second webview / Flask / Telegram bot.
+    # --banner-mode is handled first: this re-exec'd child must not boot a
+    # second webview / Flask / Telegram bot.
     if "--banner-mode" in sys.argv and IS_WINDOWS:
         # In dev the banner spawns via `python -m …banner`, but the Nuitka binary
         # has no `-m`, so StatusBanner.show() re-execs AutoCua.exe with this flag.
@@ -4593,6 +4691,9 @@ def main():
     if not IS_SECONDARY_PROCESS and not IS_DESKTOP_SHELL and _launch_desktop_shell():
         return
     if IS_DESKTOP_SHELL:
+        # Before anything is started: the shell's stdin pipe goes to the
+        # thread that waits for it to close, the rest get the null device.
+        _keep_shell_pipe()
         # Work from where the app was launched (_launch_desktop_shell): the
         # agent clears and writes its run folders (conversation/, debug/, ...)
         # relative to it, and after a pip install the folder the shell starts
@@ -4603,8 +4704,7 @@ def main():
 
     # Wire the Telegram remote-control bot. Windows mounts a Flask blueprint plus a
     # polling bot; macOS and Linux register the blueprint and start the polling
-    # bot. Only the real GUI process runs it — the cli/minion children
-    # dispatch + return below.
+    # bot. Only the real GUI process runs it, not the banner child.
     if not IS_SECONDARY_PROCESS:
         if IS_WINDOWS:
             try:
@@ -4635,30 +4735,6 @@ def main():
                 print(f"[telegram] IMPORT/INIT FAILED: {_tg_e!r}", file=sys.stderr, flush=True)
                 _tg_tb.print_exc(file=sys.stderr)
                 debug_exception("telegram_bot_init")
-
-    if "--cli-mode" in sys.argv:
-        sys.argv.remove("--cli-mode")
-        try:
-            cli_main = importlib.import_module(
-                f"AutoCua.{PLATFORM_PKG}.agent.coder.__main__"
-            ).main
-            cli_main()
-        except Exception:
-            debug_exception("CLI mode")
-        return
-
-    if "--minion-mode" in sys.argv:
-        # Required from the compiled binary, where the controller re-execs AutoCua
-        # with --minion-mode instead of `python -m ...minions`.
-        sys.argv.remove("--minion-mode")
-        try:
-            minion_main = importlib.import_module(
-                f"AutoCua.{PLATFORM_PKG}.agent.minions.__main__"
-            ).main
-            minion_main()
-        except Exception:
-            debug_exception("Minion mode")
-        return
 
     # macOS: never nap, in the pywebview window's process and in the Chromium
     # shell's backend alike (the shell's own process opts out in main.js).

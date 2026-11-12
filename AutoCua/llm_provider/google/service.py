@@ -8,7 +8,7 @@ from google.genai import types
 from dotenv import load_dotenv
 
 from .view import get_model_info, get_thinking_level, MODEL_MAPPINGS
-from .. import LLM_HTTP_TIMEOUT, screenshots, tls_verify
+from .. import http_timeout, out_cap, screenshots, tls_verify
 
 load_dotenv()
 
@@ -67,10 +67,11 @@ def _function_response_part(name: str, output: str, call_id: str = ""):
     return types.Part.from_function_response(name=name, response={"output": output})
 
 
-def _http_options():
-    """LLM_HTTP_TIMEOUT for the Gemini SDK, which takes ONE timeout, in
-    milliseconds. httpx applies it to the connect and to every read and
-    write (so the connect bound here is 180 s, not 15 s), and the SDK also
+def _http_options(cli_agent: bool = False):
+    """The read timeout (LLM_HTTP_TIMEOUT; CODER_HTTP_TIMEOUT for the coder)
+    for the Gemini SDK, which takes ONE timeout, in milliseconds. httpx
+    applies it to the connect and to every read and write (so the connect
+    bound here is 180 s, or 600 s for the coder, not 15 s), and the SDK also
     sends it to Google as the X-Server-Timeout deadline. Without it a server
     that goes silent is waited on forever. The read half is the one to use:
     the call is not streamed, so nothing arrives until the answer is
@@ -79,7 +80,7 @@ def _http_options():
     into the options it is handed. The SDK builds its httpx clients with a
     verify of its own (certifi, or SSL_CERT_FILE), so the Windows probe's
     switch to the OS store (tls_verify) has to be handed over here."""
-    options = {"timeout": LLM_HTTP_TIMEOUT[1] * 1000}
+    options = {"timeout": http_timeout(cli_agent)[1] * 1000}
     verify = tls_verify()
     if verify is not None:
         options["client_args"] = {"verify": verify}
@@ -122,10 +123,10 @@ class GoogleProvider:
             project = vertex_project_id or os.getenv("VERTEX_PROJECT_ID")
             location = vertex_location or os.getenv("VERTEX_LOCATION", "global")
             self.client = genai.Client(vertexai=True, project=project, location=location,
-                                       http_options=_http_options())
+                                       http_options=_http_options(cli_agent))
         else:
             key = api_key or os.getenv("GOOGLE_API_KEY")
-            self.client = genai.Client(api_key=key, http_options=_http_options())
+            self.client = genai.Client(api_key=key, http_options=_http_options(cli_agent))
     
     def _extract_text(self, content) -> str:
         """Extract text from message content (string or list format with cache_control)"""
@@ -207,7 +208,7 @@ class GoogleProvider:
         config_params = {
             # Output cap. The handoff manager passes 10k (LLMManager.max_tokens);
             # everything else keeps this default.
-            "max_output_tokens": self.max_tokens or 10000,
+            "max_output_tokens": self.max_tokens or out_cap(self.cli_agent, 10000),
         }
 
         # How hard the model thinks, per view.py's table. Gemini 3 takes a
@@ -215,7 +216,7 @@ class GoogleProvider:
         # and not the older thinking_budget. Omitted for an unregistered
         # model, which then keeps Google's default — worth having, since the
         # defaults are expensive: Pro's is `high`, the top of its range.
-        thinking_level = get_thinking_level(model)
+        thinking_level = get_thinking_level(model, self.cli_agent)
         if thinking_level:
             config_params["thinking_config"] = types.ThinkingConfig(
                 thinking_level=thinking_level

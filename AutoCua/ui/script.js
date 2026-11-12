@@ -35,7 +35,8 @@ document.addEventListener('DOMContentLoaded', () => {
         cerebras: null,
         requesty: null,
         opper: null,
-        aws: null
+        aws: null,
+        ollama: null
     };
 
 
@@ -628,12 +629,37 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => showSettingsView('menu'), 300);
     };
 
+    // Ollama's row in API Keys (index.tsx #ollamaStatus): it runs the model on
+    // this machine and needs no key, so the row says whether the Ollama app
+    // answers and how many models it offers; hovering lists them.
+    const loadOllamaStatus = () => {
+        const box = document.getElementById('ollamaStatus');
+        if (!box) return;
+        const text = box.querySelector('.settings-local-text');
+        fetch('/api/ollama/status')
+            .then(res => res.json())
+            .then(s => {
+                const models = s.models || [];
+                box.classList.toggle('running', !!s.running);
+                text.textContent = s.running
+                    ? 'Running · ' + models.length + (models.length === 1 ? ' model' : ' models') + ' · no API key needed'
+                    : 'Not running · open the Ollama app · no API key needed';
+                box.title = s.running ? models.join('\n') : 'Ollama does not answer at ' + (s.host || 'this computer');
+            })
+            .catch(() => {
+                box.classList.remove('running');
+                text.textContent = 'On this computer · no API key needed';
+                box.title = '';
+            });
+    };
+
     if (settingsOverlay) {
         // The settings button now lives in the left bar (settings/ component);
         // it emits 'open-settings'. The overlay + its data loaders stay here.
         document.addEventListener('open-settings', () => {
             // Flat layout: populate every section up front (no menu/nesting).
             loadKeyStatus();
+            loadOllamaStatus();
             populateProviderSelect();
             loadRemoteStatus();
             settingsOverlay.classList.add('active');
@@ -2049,7 +2075,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dropOne();
     }
 
-    window.cliMinionStart = (parentTaskId, taskId, query) => {
+    window.cliSubagentStart = (parentTaskId, taskId, query) => {
         console.log('[minion] start', parentTaskId, taskId, query);
         if (!parentTaskId || !taskId) return;
         if (!_minionDropQueue.has(parentTaskId)) {
@@ -2067,7 +2093,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Stream a line from a running minion's stdout/stderr into its pill body.
     // Reuses the parent-pill word-pagination runner so minion output looks identical
     // to CLI agent output — same word-by-word fade, same per-page hold.
-    window.cliMinionLine = (taskId, line, stream) => {
+    window.cliSubagentLine = (taskId, line, stream) => {
         const pill = _findMinionPill(taskId);
         if (!pill) return;
         const text = line == null ? '' : String(line);
@@ -2099,7 +2125,7 @@ document.addEventListener('DOMContentLoaded', () => {
         _stopWebFiller(taskId);
     };
 
-    window.cliMinionEnd = (taskId, status, summary) => {
+    window.cliSubagentEnd = (taskId, status, summary) => {
         console.log('[minion] end', taskId, status, summary);
         const pill = _findMinionPill(taskId);
         if (!pill) return;

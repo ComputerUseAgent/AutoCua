@@ -31,16 +31,16 @@ use super::groq_search::web_search as groq_web_search;
 use super::openrouter::web_search as openrouter_web_search;
 use super::perplexity_search::web_search as perplexity_web_search;
 use super::web_agent::{web_search as web_agent_web_search, Failure};
-use crate::agent::android_use::service::read_text;
+use crate::android::agent::android_use::service::read_text;
 
 /// Providers with no native web-search API: the query goes to the browser
 /// agent on the same provider+model instead (see web_agent.rs). Explicit
 /// membership, not a catch-all: a typo'd provider must still fail fast below.
-const BROWSER_FALLBACK_PROVIDERS: [&str; 5] = ["together", "cerebras", "requesty", "opper", "aws"];
+const BROWSER_FALLBACK_PROVIDERS: [&str; 6] = ["together", "cerebras", "requesty", "opper", "aws", "ollama"];
 
 /// AutoCua/android/controller/tool/web: this tool's folder.
 fn web_dir(py: Python<'_>) -> PyResult<PathBuf> {
-    Ok(crate::android_dir(py)?.join("controller").join("tool").join("web"))
+    Ok(crate::android::android_dir(py)?.join("controller").join("tool").join("web"))
 }
 
 /// web.md beside this file: every search's system prompt. Read once, as the

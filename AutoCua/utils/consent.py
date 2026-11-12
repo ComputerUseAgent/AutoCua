@@ -42,7 +42,7 @@ def allow_download(what, source, size=None, log=print, how=None):
     the person answered y on the terminal, or AUTO_ENV=1. False otherwise,
     after one line through `log` that says how to go on. `how` is a command
     that asks again on a terminal, for when there is none to ask on here
-    (the desktop app's backend, whose stdin is the shell's pipe)."""
+    (the desktop app's backend, whose stdout is the shell's pipe)."""
     if (os.environ.get(AUTO_ENV) or "").strip() == "1":
         return True
     if not can_ask():

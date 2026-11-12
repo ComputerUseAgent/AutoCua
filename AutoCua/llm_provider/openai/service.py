@@ -6,18 +6,18 @@ from openai import OpenAI, Timeout
 
 from .view import get_reasoning_effort
 from ..responses import async_route, send as send_responses
-from .. import LLM_HTTP_TIMEOUT, screenshots
+from .. import http_timeout, out_cap, screenshots
 
 class OpenAIProvider:
     """OpenAI API provider for LLM interactions"""
     
     def __init__(self, api_key: str, cli_agent: bool = False, tools: list = None, max_tokens: int = None, model_info: dict = None):
-        # LLM_HTTP_TIMEOUT in the SDK's own Timeout class (httpx in openai
-        # 2.x, httpx2 in 3.x): connect 15 s, each read and write 180 s, in
-        # place of the SDK's connect 5 s, read 600 s. max_retries stays at
-        # the SDK default of 2, so a server that stays silent costs 3 x 180 s
-        # before the manager's own retry.
-        connect, read = LLM_HTTP_TIMEOUT
+        # http_timeout() in the SDK's own Timeout class (httpx in openai 2.x,
+        # httpx2 in 3.x): connect 15 s, each read and write 180 s (600 s for
+        # the coder), in place of the SDK's connect 5 s, read 600 s.
+        # max_retries stays at the SDK default of 2, so a server that stays
+        # silent costs 3 reads before the manager's own retry.
+        connect, read = http_timeout(cli_agent)
         self.client = OpenAI(api_key=api_key, timeout=Timeout(read, connect=connect))
         # Kept for the Responses path, which posts without the SDK.
         self.api_key = api_key
@@ -40,14 +40,14 @@ class OpenAIProvider:
         # call plus the batch in one turn (see ..responses). mode="text" (no
         # tools) stays on chat/completions.
         if self.tools and async_route(self.model_info):
-            effort = get_reasoning_effort(model, self.model_info).get("reasoning_effort")
+            effort = get_reasoning_effort(model, self.model_info, self.cli_agent).get("reasoning_effort")
             return send_responses(
                 session=self.session,
                 url="https://api.openai.com/v1/responses",
                 api_key=self.api_key,
                 error_prefix="OpenAI API request failed",
                 model=model, messages=messages, shot=annotated_screenshot_base64,
-                cli_agent=self.cli_agent, tools=self.tools,
+                cli_agent=self.cli_agent, tools=self.tools, info=self.model_info,
                 # The table's `reasoning_effort` level in the Responses spelling.
                 reasoning={"reasoning": {"effort": effort}} if effort else {},
                 # Nothing stored server-side: the transcript is replayed from
@@ -94,7 +94,7 @@ class OpenAIProvider:
             "messages": messages,
             # Output cap. The handoff manager passes 10k (LLMManager.max_tokens);
             # everything else keeps this default.
-            "max_completion_tokens": self.max_tokens or 4000,
+            "max_completion_tokens": self.max_tokens or out_cap(self.cli_agent, 4000, self.model_info),
             "verbosity": "medium"  # Set verbosity to medium
         }
         # How hard the model thinks, per view.py's table. Kept out of the dict

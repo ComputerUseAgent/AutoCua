@@ -22,48 +22,56 @@
 # client — Vertex AI keeps the bare model ID rather than renaming it — so
 # api_name is intentionally duplicated across each pair. Only `vertex`
 # differs, which is what picks the client in service.py.
+from .. import entry_value
+
 MODEL_MAPPINGS = {
     "gemini-4-argon": {
         "api_name": "gemini-4-argon",
         "vision": True,
         "display_name": "Gemini 4 Argon",
         "vertex": False,
-        "thinking_level": "low"
+        "thinking_level": "low",
+        "coder_thinking_level": "medium"
     },
     "gemini-3.6-flash": {
         "api_name": "gemini-3.6-flash",
         "vision": True,
         "display_name": "Gemini 3.6 Flash",
         "vertex": False,
-        "thinking_level": "low"
+        "thinking_level": "low",
+        "coder_thinking_level": "medium"
     },
     "gemini-3.8-flash": {
         "api_name": "gemini-3.8-flash",
         "vision": True,
         "display_name": "Gemini 3.8 Flash",
         "vertex": False,
-        "thinking_level": "low"
+        "thinking_level": "low",
+        "coder_thinking_level": "medium"
     },
     "gemini-4-argon-vertex": {
         "api_name": "gemini-4-argon",
         "vision": True,
         "display_name": "Gemini 4 Argon (Vertex)",
         "vertex": True,
-        "thinking_level": "low"
+        "thinking_level": "low",
+        "coder_thinking_level": "medium"
     },
     "gemini-3.6-flash-vertex": {
         "api_name": "gemini-3.6-flash",
         "vision": True,
         "display_name": "Gemini 3.6 Flash (Vertex)",
         "vertex": True,
-        "thinking_level": "low"
+        "thinking_level": "low",
+        "coder_thinking_level": "medium"
     },
     "gemini-3.8-flash-vertex": {
         "api_name": "gemini-3.8-flash",
         "vision": True,
         "display_name": "Gemini 3.8 Flash (Vertex)",
         "vertex": True,
-        "thinking_level": "low"
+        "thinking_level": "low",
+        "coder_thinking_level": "medium"
     }
 }
 
@@ -78,7 +86,7 @@ def get_model_info(short_name: str) -> dict:
     }
 
 
-def get_thinking_level(api_name: str):
+def get_thinking_level(api_name: str, cli_agent: bool = False):
     """`thinking_level` for the model send_request is about to call, or None.
 
     Keyed by api_name, matching the same helper in the other providers.
@@ -96,5 +104,5 @@ def get_thinking_level(api_name: str):
     """
     for info in MODEL_MAPPINGS.values():
         if info["api_name"] == api_name and info.get("thinking_level"):
-            return info["thinking_level"]
+            return entry_value(info, "thinking_level", cli_agent)
     return None

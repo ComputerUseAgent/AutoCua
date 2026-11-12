@@ -26,8 +26,8 @@ On the phone, once:
 
 Notes:
     - First run fetches adb (Google's platform-tools) into
-      AutoCua/android_connector/, and builds the Android crate with cargo
-      into AutoCua/android/target/. Both gitignored.
+      AutoCua/android_connector/, and builds the Rust crate with cargo
+      into AutoCua/target/. Both gitignored.
     - autocua-helper.jar is built from Helper.java only when the source
       changes (android_connector/build_helper.py: a JDK and Android's d8,
       fetched once into ~/.AutoCua/android-build).

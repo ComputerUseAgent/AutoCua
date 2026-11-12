@@ -43,8 +43,8 @@ use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tungstenite::http::StatusCode;
 use tungstenite::{accept_hdr, Message, WebSocket};
 
-use crate::browser::{SResult, ScanErr};
-use crate::stage_bridge;
+use crate::web::browser::{SResult, ScanErr};
+use crate::web::stage_bridge;
 
 /// How long a request waits for the extension to dial in (or back in: its worker
 /// redials half a second after a close) before giving up.
@@ -151,38 +151,83 @@ pub fn token() -> io::Result<String> {
 /// (tools.js). `user_data_dir` None is the person's own Chrome; `restore` brings back
 /// the tabs of a Chrome just quit; `extra` adds switches (a test passes a debugging
 /// port). The browser is the one the debugging-port mode drives (browser.rs
-/// find_chrome: Chrome, else Chromium or Edge), started in a process group of its own
-/// so that it outlives this process and a terminal closing on it, as `open -a` left it
-/// to macOS before.
+/// find_chrome: Chrome, else Chromium or Edge).
+///
+/// On macOS the browser is started through the system's own launcher (`open`), not
+/// as a child of this process. macOS 27 keeps every other program out of the data
+/// folders of the browsers Apple lists (Chrome, Edge, Brave, Firefox: its XProtect
+/// app-protection rules), denying without a prompt, and a process started from here
+/// counts as this program, whatever binary it runs: a Chrome spawned as a child was
+/// refused its own profile folder (`Failed to create .../Google/Chrome/SingletonLock:
+/// Operation not permitted`) and quit before the extension could dial, so every run
+/// on the person's own Chrome failed on macOS 27 (measured). Launched by `open`,
+/// Chrome is Chrome to macOS and opens its profile as always; it is also independent
+/// of this process and its terminal, as the process group of its own gives it
+/// elsewhere.
 pub fn launch_chrome(
     staged: &Path,
     user_data_dir: Option<&Path>,
     restore: bool,
     extra: &[String],
 ) -> SResult<()> {
-    let chrome = crate::browser::find_chrome()?;
-    let mut cmd = Command::new(chrome);
+    let chrome = crate::web::browser::find_chrome()?;
+    let mut args: Vec<String> = Vec::new();
     if let Some(dir) = user_data_dir {
         fs::create_dir_all(dir)
             .map_err(|e| ScanErr::s(format!("could not create {}: {e}", dir.display())))?;
-        cmd.arg(format!("--user-data-dir={}", dir.display()));
-        cmd.args(["--no-first-run", "--no-default-browser-check"]);
+        args.push(format!("--user-data-dir={}", dir.display()));
+        args.extend(["--no-first-run".to_string(), "--no-default-browser-check".to_string()]);
     }
     if restore {
-        cmd.arg("--restore-last-session");
+        args.push("--restore-last-session".to_string());
     }
-    cmd.arg(format!("--disable-extensions-except={}", staged.display()));
+    args.push(format!("--disable-extensions-except={}", staged.display()));
     // Only the last --disable-features switch counts, so Windows keeps the rasterizer
     // the debugging-port mode asks for (browser.rs) in the same list.
-    if cfg!(windows) {
-        cmd.arg("--disable-features=SkiaGraphite,DisableDisableExtensionsExceptCommandLineSwitch");
+    args.push(if cfg!(windows) {
+        "--disable-features=SkiaGraphite,DisableDisableExtensionsExceptCommandLineSwitch".to_string()
     } else {
-        cmd.arg("--disable-features=DisableDisableExtensionsExceptCommandLineSwitch");
+        "--disable-features=DisableDisableExtensionsExceptCommandLineSwitch".to_string()
+    });
+    args.extend(extra.iter().cloned());
+    if cfg!(target_os = "macos") {
+        if let Some(bundle) = app_bundle(&chrome) {
+            // -n: a new instance even while another Chrome runs (on another profile;
+            // take_chrome quits one on this profile first).
+            let status = Command::new("/usr/bin/open")
+                .arg("-n")
+                .arg("-a")
+                .arg(&bundle)
+                .arg("--args")
+                .args(&args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map_err(|e| ScanErr::s(format!("could not launch Chrome: {e}")))?;
+            if !status.success() {
+                return Err(ScanErr::s(format!(
+                    "could not launch Chrome: open {} exited with {status}",
+                    bundle.display()
+                )));
+            }
+            return Ok(());
+        }
     }
-    cmd.args(extra).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    let mut cmd = Command::new(chrome);
+    cmd.args(&args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     detach(&mut cmd);
     cmd.spawn().map_err(|e| ScanErr::s(format!("could not launch Chrome: {e}")))?;
     Ok(())
+}
+
+/// The .app bundle the browser binary `binary` lives in (its `Contents/MacOS/...`
+/// executable), or None for a bare binary.
+fn app_bundle(binary: &Path) -> Option<PathBuf> {
+    binary
+        .ancestors()
+        .find(|p| p.extension().is_some_and(|e| e == "app"))
+        .map(PathBuf::from)
 }
 
 /// Open the extension's wake-up page (wake.html) in the Chrome already running: a
@@ -193,12 +238,9 @@ pub fn launch_chrome(
 /// worker woke: `take_chrome` waits for its dial.
 fn wake_extension(extension_id: &str) -> bool {
     let url = format!("chrome-extension://{extension_id}/wake.html");
-    let Ok(chrome) = crate::browser::find_chrome() else { return false };
+    let Ok(chrome) = crate::web::browser::find_chrome() else { return false };
     let mut cmd = if cfg!(target_os = "macos") {
-        let bundle = chrome
-            .ancestors()
-            .find(|p| p.extension().is_some_and(|e| e == "app"))
-            .map(PathBuf::from);
+        let bundle = app_bundle(&chrome);
         let mut c = Command::new("open");
         c.arg("-g");
         if let Some(bundle) = bundle {
@@ -231,26 +273,32 @@ fn detach(cmd: &mut Command) {
 }
 
 /// Quit the Chrome running on `dir`, if any, and wait for it to be gone. Its
-/// SingletonLock is a symlink to `host-pid`, and SIGTERM is Chrome's graceful exit,
+/// SingletonLock is a symlink to `host-pid` (on macOS 27 the person's own Chrome's
+/// folder cannot be read from here, and the process list names the pid instead:
+/// browser.rs chrome_main_pid_on), and SIGTERM is Chrome's graceful exit,
 /// which saves the session; a Chrome left running would keep its old worker and take
 /// a new launch over, flags ignored. The wait is on the process, not the symlink:
 /// Chrome is gone 0.1 s after the signal and leaves the symlink behind (measured), and
 /// a launch takes a stale lock over by itself. Says whether one was quit.
 #[cfg(unix)]
 pub fn quit_chrome_on(dir: &Path) -> bool {
-    let Ok(target) = fs::read_link(dir.join("SingletonLock")) else { return false };
-    let Some(pid) = target
-        .to_string_lossy()
-        .rsplit('-')
-        .next()
-        .and_then(|p| p.parse::<u32>().ok())
-    else {
-        return false;
+    let pid = match fs::read_link(dir.join("SingletonLock")) {
+        Ok(target) => target
+            .to_string_lossy()
+            .rsplit('-')
+            .next()
+            .and_then(|p| p.parse::<u32>().ok())
+            // A lock a crashed Chrome left behind names a pid another program may
+            // have by now: only a browser is quit.
+            .filter(|&pid| crate::web::browser::live_browser_pid(pid)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(_) => crate::web::browser::chrome_main_pid_on(dir),
     };
+    let Some(pid) = pid else { return false };
     let _ = Command::new("kill").arg(pid.to_string()).status();
     let dir = dir.to_path_buf();
     for _ in 0..80 {
-        if !crate::browser::profile_locked_by_live_chrome(&dir) {
+        if !crate::web::browser::profile_locked_by_live_chrome(&dir) {
             break;
         }
         std::thread::sleep(Duration::from_millis(250));
@@ -275,7 +323,7 @@ pub fn quit_chrome_on(dir: &Path) -> bool {
     let sent = win::chrome_on(dir).is_some_and(win::end_session);
     let dir = dir.to_path_buf();
     for _ in 0..if sent { 80 } else { 12 } {
-        if !crate::browser::profile_locked_by_live_chrome(&dir) {
+        if !crate::web::browser::profile_locked_by_live_chrome(&dir) {
             return true;
         }
         std::thread::sleep(Duration::from_millis(250));
@@ -333,7 +381,7 @@ mod win {
     /// frames, visible and owned by nothing). False when it has none, or Windows
     /// refused the message (a Chrome running elevated takes none from here).
     pub fn end_session(pid: u32) -> bool {
-        match crate::browser::win_tabs::windows_of(pid).first() {
+        match crate::web::browser::win_tabs::windows_of(pid).first() {
             Some(&(hwnd, _)) => unsafe {
                 PostMessageW(hwnd as Hwnd, WM_ENDSESSION, 1, ENDSESSION_CLOSEAPP) != 0
             },
@@ -502,7 +550,7 @@ impl Bridge {
         if self.connected() {
             return false;
         }
-        !crate::browser::profile_locked_by_live_chrome(&dir)
+        !crate::web::browser::profile_locked_by_live_chrome(&dir)
     }
 
     /// Start Chrome again the way it was started, and wait for the extension to dial
@@ -530,7 +578,7 @@ impl Bridge {
     pub fn take_chrome(&mut self, user_data_dir: Option<PathBuf>) -> SResult<()> {
         let dir = user_data_dir.clone().unwrap_or_else(default_user_data_dir);
         let mut quit = false;
-        if crate::browser::profile_locked_by_live_chrome(&dir) {
+        if crate::web::browser::profile_locked_by_live_chrome(&dir) {
             if self.wait_connected(ATTACH_WAIT)? {
                 self.note_launch(user_data_dir, true, Vec::new());
                 return Ok(());
@@ -581,7 +629,7 @@ impl Bridge {
             if Instant::now() >= deadline {
                 return Ok(false);
             }
-            crate::browser::check_py_signals()?;
+            crate::web::browser::check_py_signals()?;
             std::thread::sleep(Duration::from_millis(50));
         }
     }
@@ -621,7 +669,7 @@ impl Bridge {
             // Checked on every pass, not only when the line is quiet: a steady stream
             // of messages from the extension must not keep a request waiting past its
             // time, or deaf to Ctrl-C (Cdp::rpc does the same).
-            crate::browser::check_py_signals()?;
+            crate::web::browser::check_py_signals()?;
             if Instant::now() >= deadline {
                 return Err(ScanErr::s(format!(
                     "{kind}: no answer from AutoCuaBridge in {}s",
@@ -694,7 +742,7 @@ impl Bridge {
                 }
             }
             if signals {
-                crate::browser::check_py_signals()?;
+                crate::web::browser::check_py_signals()?;
             }
             if Instant::now() >= deadline {
                 return Ok(());
@@ -737,7 +785,7 @@ impl Bridge {
             // bridge is on the line does it: a run's, or the app's idle one.
             Some("save") if m.get("id").is_some_and(Value::is_string) => {
                 let id = m["id"].clone();
-                let outcome = crate::bridge_test::save_next(&m)
+                let outcome = crate::web::bridge_test::save_next(&m)
                     .map(|(dir, n)| json!({ "dir": dir.display().to_string(), "iteration": n }));
                 self.reply(&id, outcome);
             }
@@ -970,12 +1018,12 @@ fn idle_serve(src: PathBuf, dest: PathBuf, stop: Arc<AtomicBool>) {
 pub fn idle_bridge_start(py: Python<'_>, src: Option<String>) -> PyResult<()> {
     let src = match src {
         Some(s) => PathBuf::from(s),
-        None => crate::browser_dir(py)?.join("AutoCuaBridge"),
+        None => crate::web::browser_dir(py)?.join("AutoCuaBridge"),
     };
     let dest = stage_bridge::default_dest();
     let mut slot = IDLE
         .lock()
-        .map_err(|_| crate::ScannerError::new_err("idle bridge state poisoned by an earlier panic"))?;
+        .map_err(|_| crate::web::ScannerError::new_err("idle bridge state poisoned by an earlier panic"))?;
     if slot.is_some() {
         return Ok(());
     }
@@ -994,7 +1042,7 @@ pub fn idle_bridge_start(py: Python<'_>, src: Option<String>) -> PyResult<()> {
 pub fn idle_bridge_stop(py: Python<'_>) -> PyResult<()> {
     let taken = IDLE
         .lock()
-        .map_err(|_| crate::ScannerError::new_err("idle bridge state poisoned by an earlier panic"))?
+        .map_err(|_| crate::web::ScannerError::new_err("idle bridge state poisoned by an earlier panic"))?
         .take();
     if let Some((stop, thread)) = taken {
         stop.store(true, Ordering::Relaxed);
@@ -1026,11 +1074,11 @@ impl PyBridge {
     fn new(py: Python<'_>, dest: Option<String>, src: Option<String>) -> PyResult<Self> {
         let src = match src {
             Some(s) => PathBuf::from(s),
-            None => crate::browser_dir(py)?.join("AutoCuaBridge"),
+            None => crate::web::browser_dir(py)?.join("AutoCuaBridge"),
         };
         let dest = dest.map(PathBuf::from).unwrap_or_else(stage_bridge::default_dest);
         let bridge = Bridge::open(&src, &dest).map_err(|e| {
-            crate::ScannerError::new_err(format!("could not open the bridge to AutoCuaBridge: {e}"))
+            crate::web::ScannerError::new_err(format!("could not open the bridge to AutoCuaBridge: {e}"))
         })?;
         Ok(PyBridge { inner: Arc::new(Mutex::new(bridge)) })
     }

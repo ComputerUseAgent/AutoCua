@@ -10,8 +10,8 @@ use std::time::Duration;
 use pyo3::prelude::*;
 use serde_json::Value;
 
-use crate::controller::service::{controller_service, py_int};
-use crate::tree::element::read_tree;
+use crate::android::controller::service::{controller_service, py_int};
+use crate::android::tree::element::read_tree;
 
 /// The most Backs one call presses: enough to leave YouTube's full screen and
 /// its page, not enough to leave every app.

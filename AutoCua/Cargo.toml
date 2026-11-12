@@ -1,0 +1,84 @@
+# The Rust parts as ONE crate: the web agent (web/), the Android agent
+# (android/), the coder (coder/), memory compression (memory_compression/)
+# and the desktop app's chat memory (agent_conversation/). Cargo.toml,
+# Cargo.lock, build.rs and lib.rs sit here in AutoCua/, and each part's
+# sources sit in its own folder beside them, no src/ (lib.rs declares the
+# folders). One cargo build gives agent_native, all of them as one Python
+# extension module (PyO3 cdylib), the same on macOS, Windows and Linux. AutoCua/utils/rust.py builds
+# it and copies it beside this file as agent_native.so, no maturin; a pip
+# wheel gets it from maturin (pyproject.toml).
+
+[package]
+name = "agent_native"
+version = "0.1.0"
+edition = "2021"
+# The package folder is the whole Python package, so cargo looks for no
+# targets of its own in it (src/, tests/, examples/, benches/).
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+
+# Standalone crate, not part of any workspace.
+[workspace]
+
+[lib]
+name = "agent_native"
+crate-type = ["cdylib"]
+path = "lib.rs"
+
+[build-dependencies]
+# Emits the macOS -undefined dynamic_lookup link args (see build.rs) that
+# maturin would otherwise supply.
+pyo3-build-config = "0.29"
+
+[dependencies]
+# -- every part ------------------------------------------------------------
+# abi3-py310: one .so works on every CPython >= 3.10, so the user's Python
+# can move without a relink.
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py310"] }
+# serde_json::Value <-> Python objects at the LLM/controller boundary.
+pythonize = "0.29"
+# preserve_order: Python dicts are insertion-ordered; persisted transcript
+# JSON must not reshuffle keys relative to the Python implementation.
+serde = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+regex = "1"
+chrono = "0.4"
+# The screenshot the model gets (web and Android).
+base64 = "0.22"
+# -- the web agent (web/) --------------------------------------------------
+# Addresses read the way the browser reads them (browser.rs web_store_url).
+url = "2"
+# ws:// to 127.0.0.1 only.
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+# tree/element.rs: jpeg decode + encode of the annotated screenshot (marks are
+# drawn with a hand-rolled bitmap font, so no font crates).
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+# browser/stage_bridge.rs: SHA-256 for AutoCuaBridge's file fingerprint and
+# Chrome's unpacked extension id.
+ring = { version = "0.17", default-features = false }
+# -- the Android agent's phone reader (android/tree/element.rs) ------------
+# Pure-Rust JPEG decoder for the phone helper's screenshots (the scan draws
+# its marks on them; the video player looks at them). Its only dependency is
+# zune-core; image above locks the same version.
+zune-jpeg = "0.5"
+# Pure-Rust JPEG encoder for the marked screenshot.
+jpeg-encoder = "0.7"
+# Reads uiautomator's XML tree (no dependencies of its own). Pinned: 0.21.2
+# was a day old when this was written.
+roxmltree = "=0.21.1"
+# -- the coder (coder/) ----------------------------------------------------
+# The folder walk under the grep and glob tools.
+walkdir = "2"
+
+[target.'cfg(unix)'.dependencies]
+# The coder's killpg: a shell command runs in its own process group, so a
+# timeout or a stop kills everything it started.
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

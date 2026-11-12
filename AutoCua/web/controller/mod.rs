@@ -4,7 +4,7 @@
 //!
 //! These files live beside the manifest-less controller directory and are
 //! compiled INTO the agent_native crate (see the module declarations in
-//! web/lib.rs), so the whole web side builds as ONE crate with one target/
+//! AutoCua/lib.rs), the one crate of the three Rust agents, with one target/
 //! and one agent_native.so.
 //!
 //! A tool that touches the page does the CDP work itself, borrowing the
