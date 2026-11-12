@@ -52,7 +52,7 @@
         stage.classList.add('active');
         zone.classList.add('active');
         // Skills owns the screen: the body class stands every OTHER stage down
-        // (skills.css). Without it the shell terminal — a higher layer than this
+        // (skills.css). Without it the Coder terminal — a higher layer than this
         // container — keeps drawing over the list. See hideSkillsOnly for the undo.
         document.body.classList.add('skills-open');
         resetStage();
@@ -352,7 +352,7 @@
         var stage = stageEl();
         if (stage) stage.classList.remove('active');
         // Every close path funnels through here, so this is the one place the
-        // "Skills owns the screen" class comes off — the shell terminal and the
+        // "Skills owns the screen" class comes off — the Coder terminal and the
         // stacking order restore themselves from CSS.
         document.body.classList.remove('skills-open');
         var notes = notesEl();
@@ -462,7 +462,7 @@
         // A run STARTING takes the screen back. Same signal notes_stage.js
         // watches: .chat-input gains 'agent-active' the moment send fires.
         // Without this the `skills-open` body class would survive into the run
-        // and keep the shell terminal parked off-screen for the whole task.
+        // and keep the Coder terminal parked off-screen for the whole task.
         var runWatchWired = false;
         function watchRunStart() {
             if (runWatchWired) return;

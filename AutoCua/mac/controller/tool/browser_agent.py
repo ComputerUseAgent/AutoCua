@@ -1,10 +1,10 @@
 """The browser agent as a sub-agent of the main agent.
 
 `sub_agent {"agent_type": "browser_agent"}` lands here. It starts the browser
-agent (AutoCua/web, the Rust Chrome driver) on a task and returns at once;
+agent (AutoCua/browser, the Rust Chrome driver) on a task and returns at once;
 the controller then polls `outcome` until the run is over.
 
-Not the `web` tool's fallback (tool/web/web_agent.py), which is a blocking,
+Not the `web` tool's fallback (AutoCua/web/web_agent.rs), which is a blocking,
 headless, read-only research call. This one ACTS: it navigates, clicks and
 fills forms, in the person's own Chrome, through the AutoCua extension.
 
@@ -40,7 +40,7 @@ from pathlib import Path
 from AutoCua import data_root, IS_COMPILED
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_WEB_SCRATCHPAD = _REPO_ROOT / "AutoCua" / "web" / "scratchpad"
+_WEB_SCRATCHPAD = _REPO_ROOT / "AutoCua" / "browser" / "scratchpad"
 _CHILD = Path(__file__).resolve().parent / "browser_agent_child.py"
 
 # The child has its own 100-step cap; this bounds wall-clock.
@@ -103,7 +103,7 @@ def _cover_send(timeout: float = 10.0) -> None:
         if want != _cover["shown"]:
             try:
                 if _cover["bridge"] is None:
-                    from AutoCua.web.agent import Bridge
+                    from AutoCua.browser.agent import Bridge
                     _cover["bridge"] = Bridge()
                 _cover["bridge"].request({"type": "cover", "count": want}, timeout)
                 _cover["shown"] = want

@@ -155,8 +155,8 @@ screen_record.py
 /AutoCua/agent_conversation/chat_*/
 automation_grant.json
 AutoCua/ios_connector/paired_devices.json
-# cargo's build of the one Rust crate (AutoCua/Cargo.toml: the web agent, the
-# Android agent and the coder).
+# cargo's build of the one Rust crate (AutoCua/Cargo.toml: the browser agent,
+# the Android agent and the coder).
 /AutoCua/target
 # The old per-agent builds, from before the three crates became one: no longer
 # used, safe to delete.
@@ -168,6 +168,10 @@ AutoCua/ios_connector/paired_devices.json
 /AutoCua/windows/scratchpad
 /AutoCua/web/scratchpad
 /AutoCua/ios/scratchpad
+# The browser agent's folder, AutoCua/web before the rename. A checkout from
+# before it keeps leftover files in AutoCua/web, so the lines above stay.
+/AutoCua/browser/target
+/AutoCua/browser/scratchpad
 # WebDriverAgent's old place; it lives in AutoCua_data/WebDriverAgent now (utils/wda.py).
 /AutoCua/ios_connector/WebDriverAgent
 # Google's adb, fetched on first use (android_connector/adb.py), and its staging folder.

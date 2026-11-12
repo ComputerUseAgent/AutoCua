@@ -100,7 +100,7 @@ use serde_json::json;
 
 use crate::coder::{dumps, dumps_pretty, py_rstrip, py_splitlines, py_strip, read_text};
 
-/// A Shell use chat's bridge note is one `insight` call whose id starts with
+/// A Coder chat's bridge note is one `insight` call whose id starts with
 /// this. The Rust coder looks for the same prefix (coder/main/service.rs
 /// BRIDGE_ID_PREFIX): keep the two identical.
 pub const SHELL_BRIDGE_ID_PREFIX: &str = "bridge_";
@@ -1665,7 +1665,7 @@ fn content_text<'py>(content: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>>
     Ok(content.str()?.into_any())
 }
 
-/// _shell_bridge_id: the id of a Shell use bridge's insight call, when `d` (a
+/// _shell_bridge_id: the id of a Coder bridge's insight call, when `d` (a
 /// parsed step) is one.
 fn shell_bridge_id<'py>(d: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyAny>>> {
     let py = d.py();
@@ -1719,11 +1719,11 @@ fn is_terminal_note(entry: &Bound<'_, PyAny>) -> PyResult<bool> {
     let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
     // Main-agent bridge (both generations): pre-thinking {memory, next_goal}
     // and {thinking, memory, next_goal} (thinking = "not required"), also the
-    // shape shell chats saved before the coder's native-tools bridge.
+    // shape coder chats saved before the coder's native-tools bridge.
     if keys == ["memory", "next_goal"] || keys == ["memory", "next_goal", "thinking"] {
         return Ok(goal.starts_with("Previous run concluded."));
     }
-    // Shell (coder) bridge of the old Python coder: memory folded into
+    // Coder bridge of the old Python coder: memory folded into
     // next_goal ("memory: ... next_goal: ..."), no standalone memory key.
     if keys == ["next_goal", "thinking"] {
         return Ok(goal.starts_with("memory: ") && goal.contains("next_goal: Previous run concluded."));
@@ -2152,8 +2152,8 @@ impl ConversationService {
         if let Some(mode) = agent_mode {
             if mode.is_truthy()? {
                 // Which AGENT MODE owns this chat ("computer" / "mobile" /
-                // "shell"). Orthogonal to run_pkg: shell runs share the desktop
-                // PLATFORM_PKG, so the pkg alone can't tell a shell chat from a
+                // "coder"). Orthogonal to run_pkg: coder runs share the desktop
+                // PLATFORM_PKG, so the pkg alone can't tell a coder chat from a
                 // computer one; this field is what the per-chat mode lock
                 // reads. Stamped at MINT time (start_or_resume) so even a chat
                 // whose first run never finished is correctly tagged, then
@@ -2195,13 +2195,13 @@ impl ConversationService {
             tools = tools.get_slice(0, steps);
         }
         let done_message = terminal_message(status, message)?;
-        let shell = match agent_mode {
-            Some(mode) => mode.eq("shell")?,
+        let coder = match agent_mode {
+            Some(mode) => mode.eq("coder")?,
             None => false,
         };
         // A zero-step run (stopped/failed before its first step) saves its seed
         // back unchanged: the tail is then ALREADY a terminal note with an
-        // empty tool slot. Shell chats RECORD that run instead of erasing it:
+        // empty tool slot. Coder chats RECORD that run instead of erasing it:
         // fill the old bridge's slot with this request's numbered marker (the
         // same string a normal resume writes), then let the new terminal note
         // below cap it, so the memory keeps "request N arrived, stopped/failed"
@@ -2216,7 +2216,7 @@ impl ConversationService {
             let last = steps - 1;
             if tools.get_item(last)?.is_none() && is_terminal_note(&full_assistant.get_item(last)?)? {
                 let numbered = match request_no {
-                    Some(n) if shell && n.is_truthy()? => {
+                    Some(n) if coder && n.is_truthy()? => {
                         let task_text = str_text(&or_str(task.clone())?)?;
                         if py_strip(&task_text).is_empty() {
                             None
@@ -2244,8 +2244,8 @@ impl ConversationService {
         // how the previous run ended, on EVERY ending (done / stop / error). On
         // resume it becomes the most-recent step, so the agent's builder replays
         // every real step's tool result beneath it.
-        let note = if shell {
-            // Shell (coder) bridge: one insight, how request N ended; the next
+        let note = if coder {
+            // Coder bridge: one insight, how request N ended; the next
             // request fills its empty slot after the insight's `ok`.
             let none = py.None().into_bound(py);
             shell_bridge_value(status, message, request_no.unwrap_or(&none))?
@@ -2367,7 +2367,7 @@ impl ConversationService {
                     py.None().into_bound(py)
                 };
                 let coder = match agent_mode {
-                    Some(mode) => mode.eq("shell")?,
+                    Some(mode) => mode.eq("coder")?,
                     None => false,
                 };
                 let text = render_messages(messages, Some(header.as_any()), Some(&final_response), coder)?;
@@ -2897,7 +2897,7 @@ impl ConversationService {
         is_terminal_note(entry)
     }
 
-    /// The id of a Shell use bridge's insight call, when `d` (a parsed step)
+    /// The id of a Coder bridge's insight call, when `d` (a parsed step)
     /// is one: a coder step with exactly one `insight` call whose id starts
     /// with SHELL_BRIDGE_ID_PREFIX.
     #[staticmethod]
@@ -2906,7 +2906,7 @@ impl ConversationService {
         shell_bridge_id(d)
     }
 
-    /// A Shell use chat's bridge: one `insight` call (the coder's own kind of
+    /// A Coder chat's bridge: one `insight` call (the coder's own kind of
     /// step) saying how request N ended, so the next request continues from
     /// it. No thinking: the coder has none.
     #[staticmethod]
@@ -2921,7 +2921,7 @@ impl ConversationService {
         pythonize::pythonize(py, &value).map_err(Into::into)
     }
 
-    /// The bridge's slot once the next request is here: a Shell use bridge is
+    /// The bridge's slot once the next request is here: a Coder bridge is
     /// an insight call, so its `ok` comes first and the request follows as a
     /// user turn; an older bridge is plain text, so the request alone.
     #[staticmethod]
@@ -2988,7 +2988,7 @@ impl ConversationService {
     ///   - otherwise: fresh start, mint a new id and seed its index entry so
     ///     the sidebar shows it immediately. prior_history is None.
     ///
-    /// agent_mode ("computer"/"mobile"/"shell") stamps a freshly MINTED chat's
+    /// agent_mode ("computer"/"mobile"/"coder") stamps a freshly MINTED chat's
     /// index row so the per-chat mode lock is correct from second one, even if
     /// the run later dies before save_run ever re-stamps it.
     #[pyo3(signature = (req_session_id, task, agent_mode=None))]
@@ -3111,7 +3111,7 @@ impl ConversationService {
     /// substance rides in the calls).
     ///
     /// `memory` is a MAIN-DRIVER tracking param, so it is rendered only when
-    /// present. coder=True (a Shell use chat): the Rust coder's turn as its own
+    /// present. coder=True (a Coder chat): the Rust coder's turn as its own
     /// conversation log shows it, `insight` and `next_goal` being calls of
     /// their own, and only what the turn has: {insight, next_goal, action}.
     #[staticmethod]
@@ -3159,8 +3159,8 @@ impl ConversationService {
     /// (same shape as main.py's conversation_N.txt): SYSTEM PROMPT block, then
     /// each ASSISTANT / USER / TOOL turn in the order sent. Native (coder)
     /// assistant turns get their tool_calls rendered readably; main-agent turns
-    /// carry no tool_calls and render exactly as before. coder=True (a Shell
-    /// use chat): the Rust coder's turns as its own log shows them, without the
+    /// carry no tool_calls and render exactly as before. coder=True (a Coder
+    /// chat): the Rust coder's turns as its own log shows them, without the
     /// `ok` that answers each insight / next_goal call.
     #[pyo3(
         name = "_render_messages",
@@ -3329,7 +3329,7 @@ impl ConversationService {
                 out.text("</User_Task>");
                 out.text("");
             }
-            let coder = get(&meta, "agent_mode")?.eq("shell")?;
+            let coder = get(&meta, "agent_mode")?.eq("coder")?;
             out.text(render_persisted_step(&step, coder)?);
             let tr = if i < tools.len()? { Some(tools.get_item(i)?) } else { None };
             if let Some(tr) = tr {

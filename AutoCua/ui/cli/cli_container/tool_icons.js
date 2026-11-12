@@ -12,7 +12,7 @@
 //   createMascot(canvas, size)                -> { setGlow(on), dispose }  (the round agent head, its eyes look around)
 //   createFaceIcon(canvas, {color, size})     -> { show, clear, dispose, addStep, addAction }
 //                                                (the chain one icon at a time, one colour: a
-//                                                 Shell use minion bot's visor, coder_card.js)
+//                                                 Coder minion bot's visor, coder_card.js)
 // where `tool` = { name: <action type>, arg: <label param> }. Unmapped names (todo/
 // scratchpad/exit) are skipped by the chain — they're shown elsewhere.
 (function () {
@@ -757,7 +757,7 @@
     function dropStep(step) { var i = liveSteps.indexOf(step); if (i >= 0) liveSteps.splice(i, 1); }
 
     // The agent's round head (spherePainter: its eyes look around), standalone and at
-    // any size — the Shell-use terminal shows it at the start of its line. Rides the
+    // any size — the Coder terminal shows it at the start of its line. Rides the
     // shared rAF loop through the _render escape hatch, so no second loop starts.
     // spherePainter draws a 60-unit head already scaled by VSCALE, so pre-scale by
     // k about the centre to land it at exactly `size` px.

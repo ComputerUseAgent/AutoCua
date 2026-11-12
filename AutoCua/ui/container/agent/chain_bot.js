@@ -1,5 +1,5 @@
 // =====================================================================
-// The run's bot (chain_bot.css), for Computer use, Web use and iOS runs,
+// The run's bot (chain_bot.css), for Computer use, Browser and iOS runs,
 // each its own (ui/bots/<bot>*.webp). It is an item of the live turn's grid,
 // in the bottom container's row, made here on first need. When the run
 // starts (chat_input.js, once the backend says 'started') it is simply there
@@ -12,14 +12,14 @@
 // chat this bot already stands on the chat box (chat_input/mode_bot.js):
 // then it comes over to its place from there itself.
 //   window.chainBot.reserve()     a run's task was sent: room on the left
-//   window.chainBot.enter(kind)   the run started: 'computer', 'web', 'mobile'
+//   window.chainBot.enter(kind)   the run started: 'computer', 'browser', 'mobile'
 //   window.chainBot.toReply()     the run ended: to its place beside the reply
 //   window.chainBot.stop()        back to the plain container (resetChatUi)
 // =====================================================================
 (function () {
     'use strict';
 
-    var BOTS = { computer: 'computeruse', web: 'webuse', mobile: 'mobileuse' };
+    var BOTS = { computer: 'computeruse', browser: 'webuse', mobile: 'mobileuse' };
     var DOCK = 1100;                                     // a move to its place
     var EASE_EXPO = 'cubic-bezier(0.87, 0, 0.13, 1)';    // the splash's "inOutExpo"
 
@@ -92,7 +92,7 @@
             }
         },
         // The run ended (run_reply.js): called before its reply comes in (a
-        // Web use or iOS screen box goes), the function it gives back after
+        // Browser or iOS screen box goes), the function it gives back after
         // (with how far the chat is about to glide up to the reply's end).
         // The bot stays, or goes from where it was to its place: one bot,
         // nothing jumps.

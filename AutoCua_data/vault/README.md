@@ -28,7 +28,7 @@ Fill it in yourself:
       "pin": "123456"
     }
   },
-  "web": {
+  "browser": {
     "github.com": {
       "email": "you@example.com",
       "password": "..."
@@ -71,7 +71,7 @@ mix. A `"computer"` section (desktop apps) will join them later.
   PIN text field is filled like any other field.
 - `"iPhone"` / `"iPad"` hold the device passcode, used only on the lock screen.
 
-## "web": the browser agent
+## "browser": the browser agent
 
 - Keys are **sites**. A site covers itself and its subdomains: `google.com`
   also covers `accounts.google.com`. The longest matching site wins.

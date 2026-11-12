@@ -917,21 +917,21 @@ document.addEventListener('DOMContentLoaded', () => {
         // The live turn's screen: the chat's earlier turns have one too.
         const imgElement = document.querySelector('#screenContainer .stream-image');
         if (imgElement && base64Image) {
-            // A Web use or iOS turn has no screen once its run is over (it is not
+            // A Browser or iOS turn has no screen once its run is over (it is not
             // recorded, run_reply.js): a late frame does not bring it back, also
             // one that lands after Stop showed the reply but before the stop
             // request has answered.
             const live = document.getElementById('liveTurn');
             const input = document.querySelector('.chat-input');
             const reply = document.querySelector('#agentContainer.show-reply');
-            if (live && (live.dataset.bot === 'web' || live.dataset.bot === 'mobile')
+            if (live && (live.dataset.bot === 'browser' || live.dataset.bot === 'mobile')
                     && (reply || (input && !input.classList.contains('agent-active')))) return;
             // ...and its box, if a reopened turn had hidden it (chat_scroll.js).
             if (window.chatScroll) window.chatScroll.setLiveScreen(true);
             // The screen box is only as wide as the frame: its width follows
             // the frame's aspect ratio (--screen-ar on its turn, so the tool
             // box it sits in makes room for it: chat_scroll.css, screen.css).
-            // Not a Web use or iOS run's: its box keeps the shape it opened in
+            // Not a Browser or iOS run's: its box keeps the shape it opened in
             // (chat_input.js), the wide browser window or the phone fits inside
             // it on the stage, centred (run_bot.css), so it never resizes
             // (owner, 2026-10-18).
@@ -939,7 +939,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const zone = document.getElementById('screenContainer');
                 if (zone && imgElement.naturalHeight) {
                     const turn = zone.closest('.chat-turn') || zone;
-                    if (turn.dataset.bot === 'web' || turn.dataset.bot === 'mobile') return;
+                    if (turn.dataset.bot === 'browser' || turn.dataset.bot === 'mobile') return;
                     const ar = imgElement.naturalWidth / imgElement.naturalHeight;
                     turn.style.setProperty('--screen-ar', String(ar));
                     // A Computer use run's screen: the next one's box opens in its shape (chat_input.js)

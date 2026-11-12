@@ -1,11 +1,11 @@
-# Web agent: "scan: no answer from AutoCuaBridge in 40s" (fixed 2026-10-09)
+# Browser agent: "scan: no answer from AutoCuaBridge in 40s" (fixed 2026-10-09)
 
 The proof is reproducible: the test next to this note (`web_scan_no_answer_from_bridge/`)
 shows the bug on the old code and the fix on the new.
 
 ## Symptom
 
-Extension mode, meaning the web agent drives the person's own Chrome through the
+Extension mode, meaning the browser agent drives the person's own Chrome through the
 AutoCuaBridge extension. At random, usually just after a click that opens a new page
 (a form submit, a Search button), the terminal shows:
 
@@ -64,7 +64,7 @@ This is the owner's rule: **scan only a loaded page; if the page changes during 
 scan, wait for the new page to load and scan that; a page not responding for 5 s gets
 reloaded.**
 
-- **`AutoCua/web/browser/AutoCuaBridge/tools.js`**, new section
+- **`AutoCua/browser/connector/AutoCuaBridge/tools.js`**, new section
   "a scan reads a loaded page":
   - `toolsScanLoaded(tabId, scan)`:
     - Waits for the page (`toolsPageLoaded`), then runs the read.
@@ -83,10 +83,10 @@ reloaded.**
     calling `history.pushState`, does not count as a page change.
   - Unchanged: a page that doesn't answer for 5 s is closed and opened again
     (`toolsWatchScan` calls `toolsReopen`). That is the force reload.
-- **`AutoCua/web/browser/AutoCuaBridge/background.js`**: the "scan" request now calls
+- **`AutoCua/browser/connector/AutoCuaBridge/background.js`**: the "scan" request now calls
   `elementScan` through `toolsScanLoaded`. This covers both the normal read and the read
   retried after a failed screenshot.
-- **`AutoCua/web/browser/AutoCuaBridge/manifest.json`**: adds the `"webNavigation"`
+- **`AutoCua/browser/connector/AutoCuaBridge/manifest.json`**: adds the `"webNavigation"`
   permission.
 
 **Verified.** With the same test, the fixed code went 15 of 15 OK in 0.34–0.56 s, and
@@ -94,7 +94,7 @@ every scan returned the NEW page. In the same session, the old code had 3 of 5 h
 and the other 2 returned the stale OLD page, so the agent would have acted on old
 content.
 
-**After changing the extension, quit Chrome fully (Cmd+Q) before the next web run.**
+**After changing the extension, quit Chrome fully (Cmd+Q) before the next browser run.**
 A Chrome that is already running keeps the old extension: `bridge.rs` `take_chrome`
 reuses it. The next run restages `~/.AutoCua/AutoCuaBridge` (`stage_bridge.rs`) and
 starts Chrome with the new copy.
@@ -124,12 +124,12 @@ starts Chrome with the new copy.
 ## The test (`web_scan_no_answer_from_bridge/`)
 
 The test uses headless Chrome with a temp profile, never your own Chrome, and drives it
-only through `AutoCua.agent_native.web.Bridge`. It never runs the agent or an LLM. It
+only through `AutoCua.agent_native.browser.Bridge`. It never runs the agent or an LLM. It
 opens a form page with cross-site iframes, scans it, clicks Search (which navigates
 `rdelay` ms later), and then sends the scan that used to hang.
 
 ```bash
-cd ~/Desktop/AutoCua/note/fixes/web_scan_no_answer_from_bridge && python3 site/server.py 18744 site.jsonl & sleep 1 && ~/Desktop/AutoCua/.venv/bin/python drive.py --label check --ext ~/Desktop/AutoCua/AutoCua/web/browser/AutoCuaBridge --site http://127.0.0.1:18744 --form-query 'nav=0&frames=6&heavy=3000&store=1&rdelay=230&rframes=4&rheavy=400&rslow=0&rstore=1' --sweep 'rdelay=200,215,225,235,250' --after-ms 0; kill %1
+cd ~/Desktop/AutoCua/note/fixes/web_scan_no_answer_from_bridge && python3 site/server.py 18744 site.jsonl & sleep 1 && ~/Desktop/AutoCua/.venv/bin/python drive.py --label check --ext ~/Desktop/AutoCua/AutoCua/browser/connector/AutoCuaBridge --site http://127.0.0.1:18744 --form-query 'nav=0&frames=6&heavy=3000&store=1&rdelay=230&rframes=4&rheavy=400&rslow=0&rstore=1' --sweep 'rdelay=200,215,225,235,250' --after-ms 0; kill %1
 ```
 
 Each trial prints a line with three parts: ok or FAIL, the time in ms, and what was read.

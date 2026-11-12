@@ -3,7 +3,6 @@
 #   mode = "computer use, daisy chain" -> the same, plus the phone sub-agents
 #                                (ios_agent on a Mac, android_agent everywhere)
 #                                when connected; plain "computer use" lists them offline
-#   mode = "shell use"        -> the coder, the same as "coder" (its older name)
 #   mode = "coder"            -> the Rust coder agent (AutoCua/coder), one copy for
 #                                every host OS, straight to the terminal (skips
 #                                the main agent layer)
@@ -14,7 +13,7 @@
 #                                WDA connection is opened before the run and
 #                                closed after it (ios_connector).
 #   mode = "mobile use, android" -> Android agent (AutoCua/android, Rust like the
-#                                web agent). By default it runs on an Android
+#                                browser agent). By default it runs on an Android
 #                                EMULATOR (device="simulation", android_version
 #                                picks the Android, sim_device "phone"/"tablet";
 #                                android_connector/emulator.py); pass
@@ -24,8 +23,8 @@
 #                                (android_connector/session.py).
 #                                AutoCua_ANDROID_SERIAL picks one phone when
 #                                several are plugged in.
-#   mode = "web use"          -> browser agent driving CDP-controlled Chrome
-#                                (AutoCua/web). Host OS independent.
+#   mode = "browser"          -> browser agent driving CDP-controlled Chrome
+#                                (AutoCua/browser). Host OS independent.
 import atexit
 import inspect
 import json
@@ -61,7 +60,7 @@ def _parse_mode(mode, os=None):
 def resolve_agent_service(mode, os=None):
     """Return the AgentService class for the given mode.
 
-    mode: "computer use" / "shell use" / "web use" (host OS auto-detected or
+    mode: "computer use" / "browser" / "coder" (host OS auto-detected or
           irrelevant, nothing else needed) or "mobile use, ios" /
           "mobile use, android" — the device os rides along in the same string.
           Underscores/commas/case don't matter.
@@ -73,21 +72,21 @@ def resolve_agent_service(mode, os=None):
     if kind == "computer":
         host = platform.system()
         if host == "Darwin":
-            from AutoCua.mac.agent.computer_use.service import AgentService
+            from AutoCua.computer.service import AgentService
         elif host == "Windows":
-            from AutoCua.windows.agent.computer_use.service import AgentService
+            from AutoCua.computer.service import AgentService
         elif host == "Linux":
-            from AutoCua.linux.agent.computer_use.service import AgentService
+            from AutoCua.computer.service import AgentService
         else:
             raise RuntimeError(f"Unsupported OS for computer use: {host}")
         return AgentService
 
-    if kind == "web":
+    if kind == "browser":
         # Browser agent — no host-OS branch: it drives Chrome over CDP, which
         # is the same on every platform. The implementation is the Rust
-        # extension in AutoCua/web/agent (agent_native), compiled lazily by
+        # extension in AutoCua/browser/agent (agent_native), compiled lazily by
         # that package's __init__ on first import.
-        from AutoCua.web.agent import AgentService
+        from AutoCua.browser.agent import AgentService
         return AgentService
 
     if kind == "mobile":
@@ -98,21 +97,20 @@ def resolve_agent_service(mode, os=None):
         if device == "android":
             # The Rust extension in AutoCua/android (agent_native), compiled
             # lazily by that package's agent/__init__ on first import, like
-            # the web agent's.
+            # the browser agent's.
             from AutoCua.android.agent import AgentService
             return AgentService
         raise ValueError('mobile use needs a device — "mobile use, ios" or "mobile use, android"')
 
-    if kind in ("shell", "coder"):
+    if kind == "coder":
         # The Rust coder (AutoCua/coder, agent_native): one copy for every
         # host OS, compiled lazily by that package's __init__ on first
-        # import, like the web and Android agents. "shell use" is its older
-        # name.
+        # import, like the browser and Android agents.
         from AutoCua.coder import AgentService
         return AgentService
 
     raise ValueError(
-        f'Unknown mode "{mode}" — use "computer use", "shell use", "web use", "coder", '
+        f'Unknown mode "{mode}" — use "computer use", "browser", "coder", '
         '"mobile use, ios" or "mobile use, android"'
     )
 
@@ -121,7 +119,7 @@ def _supported_kwargs(AgentService, kwargs):
     """Keep only the kwargs this AgentService actually takes.
 
     One call site serves every mode, but the services differ: the mobile agent
-    has no external_terminal, the shell-use (coder) agent has no speed. Anything
+    has no external_terminal, the coder agent has no speed. Anything
     the target doesn't declare is dropped instead of raising TypeError.
     """
     params = inspect.signature(AgentService.__init__).parameters
@@ -441,10 +439,10 @@ def run_agent(mode, provider, model, task, os=None,
     ready. The run does not start unless the file exists and the app is
     installed.
 
-    extra_tasks ("web use", and "mobile use, ios" or "mobile use, android"
+    extra_tasks ("browser", and "mobile use, ios" or "mobile use, android"
     with device="simulation"): optional list of additional task strings
     (main.py's task_2, task_3, ...). Any non-empty entries make ALL tasks —
-    including `task` — run in parallel: on the web each as its own agent
+    including `task` — run in parallel: in browser mode each as its own agent
     sharing one Chrome, pinned to its own single tab; on iOS each on its own
     simulator; on Android each on its own copy of the emulator.
 
@@ -459,12 +457,12 @@ def run_agent(mode, provider, model, task, os=None,
 
     kind, mobile_os = _parse_mode(mode, os)
 
-    # Chrome is never downloaded (utils/chrome.py): a computer use or web use
-    # run says once when it is missing; a web use run cannot work without it,
+    # Chrome is never downloaded (utils/chrome.py): a computer use or browser
+    # run says once when it is missing; a browser run cannot work without it,
     # so it stops here, cleanly, before any agent starts.
-    if kind in ("computer", "web"):
+    if kind in ("computer", "browser"):
         from AutoCua.utils.chrome import MISSING as CHROME_MISSING, ensure_chrome
-        if ensure_chrome() is None and kind == "web":
+        if ensure_chrome() is None and kind == "browser":
             return {"status": "error", "message": CHROME_MISSING}
 
     build = None
@@ -493,7 +491,7 @@ def run_agent(mode, provider, model, task, os=None,
 
     extra = [str(t).strip() for t in (extra_tasks or []) if t and str(t).strip()]
     if extra:
-        if kind == "web":
+        if kind == "browser":
             return run_parallel_web_agents(
                 [task] + extra,
                 provider=provider,
@@ -539,7 +537,7 @@ def run_agent(mode, provider, model, task, os=None,
                 build=build,
             )
         raise ValueError(
-            f'extra tasks (task_2, task_3, ...) are only supported in "web use", '
+            f'extra tasks (task_2, task_3, ...) are only supported in "browser", '
             f'"mobile use, ios" and "mobile use, android" (device="simulation") — got "{mode}"'
         )
 
@@ -663,13 +661,13 @@ def run_parallel_sim_agents(tasks, provider, model, save_conversation=False,
     build (from _unpack_app_build): installed on each simulator the moment
     THAT simulator has booted, alongside its WDA start — never one after another.
 
-    The simulator counterpart of run_parallel_web_agents. Where web shares one
+    The simulator counterpart of run_parallel_web_agents. Where browser mode shares one
     Chrome and gives each agent a tab, a phone screen can't be shared: every
     task gets its own simulator, its own WebDriverAgent (ports 8100, 8101, ...)
     and its own child process in ./parallel/task_N/ (so its conversation/,
     raw_reasoning/ and debug/ never touch another task's). The parent boots the
     simulators and starts every WDA before any agent runs, exactly like the
-    web path pre-launches Chrome, and always shuts them down afterwards.
+    browser path pre-launches Chrome, and always shuts them down afterwards.
 
     Returns {"status", "message", "results": [{"task", "status", "message"}, ...]}.
     """
@@ -1086,7 +1084,7 @@ def run_parallel_emulator_agents(tasks, provider, model, save_conversation=False
 def run_parallel_web_agents(tasks, provider, model, save_conversation=False,
                             speed=None, headless=False, browser_port=None,
                             browser_profile=None):
-    """Run N web tasks in parallel — one child process per task, one shared Chrome.
+    """Run N browser tasks in parallel — one child process per task, one shared Chrome.
 
     Each child gets its own working directory ./parallel/task_N/ (so its
     conversation/, raw_reasoning/ and debug/ never touch another task's), its
@@ -1097,7 +1095,7 @@ def run_parallel_web_agents(tasks, provider, model, save_conversation=False,
     """
     # Importing the package builds the Rust extension ONCE here in the parent,
     # so N children never race the compiler — they find a fresh .so.
-    from AutoCua.web.agent import launch_chrome, Bridge, CHROME_PORT
+    from AutoCua.browser.agent import launch_chrome, Bridge, CHROME_PORT
     from AutoCua import browser_profile_dir
     from AutoCua.utils.chrome import ensure_chrome
 
@@ -1110,7 +1108,7 @@ def run_parallel_web_agents(tasks, provider, model, save_conversation=False,
         # Headless is the one case on a debugging port: one browser of the agent's own
         # for everyone, launched (or attached) before any child starts, so every child's
         # constructor takes the clean attach path.
-        print(f"Running {n} web tasks in parallel — one headless browser, port {port}")
+        print(f"Running {n} browser tasks in parallel — one headless browser, port {port}")
         launch_chrome(port, True, str(browser_profile_dir(browser_profile)))
     else:
         # Headful is extension mode, a parallel run too (the owner, 2026-10-03): the
@@ -1118,7 +1116,7 @@ def run_parallel_web_agents(tasks, provider, model, save_conversation=False,
         # page in front (the video, "Multiple agents running") for the whole run. Each
         # child then dials its own line to the extension (bridge.rs config.json lists
         # them all) and works in a background tab of its own; none switches the front.
-        print(f"Running {n} web tasks in parallel — your Chrome, through the AutoCua extension")
+        print(f"Running {n} browser tasks in parallel — your Chrome, through the AutoCua extension")
         print(f"Note: {n} agents share one browser window, each working in a "
               f"background tab of its own. Click a tab to watch that agent.")
         bridge = Bridge()
@@ -1143,7 +1141,7 @@ def run_parallel_web_agents(tasks, provider, model, save_conversation=False,
         task_dir = run_root / f"task_{i}"
         task_dir.mkdir(parents=True, exist_ok=True)
         result_file = task_dir / "result.json"
-        cmd = [sys.executable, "-m", "AutoCua.web.agent",
+        cmd = [sys.executable, "-m", "AutoCua.browser.agent",
                "--task", str(task_text),
                "--provider", provider,
                "--model", model,

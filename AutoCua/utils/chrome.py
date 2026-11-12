@@ -1,6 +1,6 @@
-"""Google Chrome, the web agent's browser: find it, and say when it is missing.
+"""Google Chrome, the browser agent's browser: find it, and say when it is missing.
 
-The web agent drives Google Chrome in both of its modes: the person's own Chrome
+The browser agent drives Google Chrome in both of its modes: the person's own Chrome
 through the AutoCua extension for a normal run, and a Chrome of its own on a
 debugging port for a headless or parallel run. AutoCua never downloads or
 installs it: the person installs Chrome themselves (google.com/chrome). While
@@ -23,7 +23,7 @@ from pathlib import Path
 MAC_APP = "Google Chrome.app/Contents/MacOS/Google Chrome"
 WIN_EXE = r"Google\Chrome\Application\chrome.exe"
 # The terminal's line and the app's popup while Chrome is missing
-MISSING = "Chrome is missing from the system: install it for the web agent to work"
+MISSING = "Chrome is missing from the system: install it for the browser agent to work"
 POPUP = "Chrome is not installed on this system. Please install it."
 # Set once this process has said Chrome is missing, so the line is not said
 # again by its next run, nor by the children a run starts (they inherit the
@@ -61,8 +61,8 @@ def _say(text):
 
 def ensure_chrome():
     """Chrome's executable, or None when it is not installed. Never downloads
-    or installs anything and never raises: the web agent calls it by name
-    before every launch (lib.rs, the web part). When Chrome is missing it says so, once."""
+    or installs anything and never raises: the browser agent calls it by name
+    before every launch (lib.rs, the browser part). When Chrome is missing it says so, once."""
     found = find_chrome()
     if found is None and not os.environ.get(SAID):
         os.environ[SAID] = "1"

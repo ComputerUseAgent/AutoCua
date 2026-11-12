@@ -1,6 +1,6 @@
 """The Responses endpoint, shared by the providers that carry a model whose
 table entry says `async_tools` (GPT-6 Astra on OpenRouter and on OpenAI
-direct). Every platform uses it, the web agent included.
+direct). Every platform uses it, the browser agent included.
 
 Under the ordinary tool protocol Astra issues ONE tool call per turn, so the
 notes-first batch never happens. On the Responses endpoint a tool declared
@@ -24,7 +24,7 @@ from . import LLM_HTTP_TIMEOUT, http_timeout, out_cap, screenshots
 # minion's `exit`. Everything else is declared async.
 SYNC_TOOLS = ("done", "exit")
 
-# A visible turn is a few hundred tokens (26 to 426 measured on the web
+# A visible turn is a few hundred tokens (26 to 426 measured on the browser
 # agent, FULL thinking included). After its async calls Astra sometimes
 # idles, emitting empty reasoning items until this ceiling cuts it (about
 # 28 s per 1,500 tokens of budget, billed as almost nothing); the calls are
@@ -281,7 +281,7 @@ def _normalize_responses(result: dict, provider_tag: Optional[str]) -> dict:
     fc = [i for i in output if i.get("type") == "function_call"]
     if (any((i.get("name") or "") not in SYNC_TOOLS for i in fc)
             and not any(i.get("async") is True for i in fc)):
-        # Plain ASCII: a web agent child on Windows may write to a cp1252 log
+        # Plain ASCII: a browser agent child on Windows may write to a cp1252 log
         # file, where an emoji would raise here and cost the reply.
         print("Warning: Responses route returned no async function_call: the async tool flags "
               "were dropped upstream, expect one call per turn")

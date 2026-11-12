@@ -8,7 +8,7 @@
 export function ScreenContainer() {
     return (
         <div className="container-zone screen-container" id="screenContainer" aria-label="Screenshot">
-            {/* Computer use, Web use, iOS: the moving background behind the screenshot (run_bot.js) */}
+            {/* Computer use, Browser, iOS: the moving background behind the screenshot (run_bot.js) */}
             <video className="cu-bg" muted loop playsInline preload="none" aria-hidden="true"></video>
 
             <div className="screenshot-frame" id="imageStreamContainer">

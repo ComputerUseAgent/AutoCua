@@ -224,16 +224,16 @@ downloads it from Google.
 
 ---
 
-## 9. Rust crates in the web agent, the Android agent and the coder — **redistributed; compiled into the prebuilt extension in every wheel**
+## 9. Rust crates in the browser agent, the Android agent and the coder — **redistributed; compiled into the prebuilt extension in every wheel**
 
 | | |
 |---|---|
 | **Authors** | The authors named in each crate's license files and `Cargo.toml`. Among them: Brian Smith (`ring`, `untrusted`), Unicode, Inc. (the ICU4X crates below), Carl Lerche (`bytes`), Julien Cretin and Google Inc. (`data-encoding`), Bartłomiej Kamiński (`generic-array`), David Hewitt and Contributors (`pythonize`), David Tolnay (`zmij`, `serde`, `serde_json`), Radzivon Bartoshyk (`moxcms`, `pxfm`), The Fuchsia Authors (`zerocopy`), Volker Ströbel (`jpeg-encoder`), Yevhenii Reizner (`roxmltree`), Andrew Gallant (`walkdir`, `same-file`, `winapi-util`), Microsoft (`windows-sys`, `windows-targets`, `windows_x86_64_gnu`, `windows-link`), the PyO3 Project, the image-rs Developers and the rust-url developers |
 | **Upstream** | https://crates.io, at the versions and SHA-256 checksums pinned in [`AutoCua/Cargo.lock`](AutoCua/Cargo.lock) |
-| **How it reaches you** | **Redistributed, in compiled form only.** maturin builds the one crate in `AutoCua/` (`AutoCua/Cargo.toml`) and links these crates statically into one extension module, `AutoCua/agent_native`, which holds the web agent, the Android agent and the coder. That module ships prebuilt in the Windows x64, Apple Silicon macOS and Linux x86_64 wheels. The crates' sources are not in the wheel. Elsewhere the same module is compiled on the user's machine: by maturin for a pip install from the source distribution, and by `AutoCua/utils/rust.py` (`cargo build --release`) in a checkout. A checkout builds it in the setup scripts' build step, when the desktop app starts, or on the first `"web use"`, `"mobile use, android"` or coder run. Either way, cargo downloads the crates from crates.io and checks them against `Cargo.lock`. It does so without AutoCua's terminal question. |
+| **How it reaches you** | **Redistributed, in compiled form only.** maturin builds the one crate in `AutoCua/` (`AutoCua/Cargo.toml`) and links these crates statically into one extension module, `AutoCua/agent_native`, which holds the browser agent, the Android agent and the coder. That module ships prebuilt in the Windows x64, Apple Silicon macOS and Linux x86_64 wheels. The crates' sources are not in the wheel. Elsewhere the same module is compiled on the user's machine: by maturin for a pip install from the source distribution, and by `AutoCua/utils/rust.py` (`cargo build --release`) in a checkout. A checkout builds it in the setup scripts' build step, when the desktop app starts, or on the first `"browser"`, `"mobile use, android"` or coder run. Either way, cargo downloads the crates from crates.io and checks them against `Cargo.lock`. It does so without AutoCua's terminal question. |
 | **Pinned versions** | `AutoCua/Cargo.lock`. Each wheel also lists them in `*.dist-info/sboms/agent_native.cyclonedx.json`, with names, versions and SPDX expressions but no license texts or copyright lines. |
 | **License** | Each crate's own, as declared in its `Cargo.toml` (table below). The module links 85 crates on Windows, 81 on Linux and 82 on macOS. All are permissive; none is under the GPL, LGPL or MPL. |
-| **Used by** | The web agent (`"web use"`), the Android agent (`"mobile use, android"`) and the coder (mode `"coder"`). |
+| **Used by** | The browser agent (`"browser"`), the Android agent (`"mobile use, android"`) and the coder (mode `"coder"`). |
 
 | License (each crate's `Cargo.toml`) | Crates linked into the module |
 |---|---|
@@ -259,8 +259,8 @@ that go with the wheels* below.
 Four crates of §9's module, and the 15 Unicode-3.0 crates, carry more than
 their declared license shows. They reach you inside §9's module, as §9 describes.
 
-- **ring 0.17.14** (SHA-256 and random numbers, for the web agent). Its own code is ISC, "Copyright 2015-2025 Brian Smith" (`LICENSE-other-bits`). Code taken from BoringSSL is under the Apache License 2.0 (`LICENSE-BoringSSL`) or ISC, as the top of each file says. `third_party/fiat` is Apache-2.0, "Copyright 2015-2020 the fiat-crypto authors". A `once_cell` polyfill is MIT / Apache-2.0. Its assembly is pregenerated from OpenSSL's Apache-2.0 perlasm scripts, for example `sha512-x86_64.pl`, "Copyright 2005-2016 The OpenSSL Project Authors". The Windows wheel's module contains ring's x86_64 SHA-256 code. ring carries no OpenSSL or SSLeay advertising-clause license and no NOTICE file.
-- **image 0.25.10.** The web agent encodes its annotated screenshots with this crate's JPEG encoder. The encoder's forward DCT (`src/codecs/jpeg/transform.rs`) is a Rust translation of `jfdctint.c` from the Independent JPEG Group's libjpeg 9a. It is under the IJG terms: "This software is copyright (C) 1991-2014, Thomas G. Lane, Guido Vollbeding." Those terms ask that copies distributed as executable code only say so in their documentation, which this sentence does: **this software is based in part on the work of the Independent JPEG Group.**
+- **ring 0.17.14** (SHA-256 and random numbers, for the browser agent). Its own code is ISC, "Copyright 2015-2025 Brian Smith" (`LICENSE-other-bits`). Code taken from BoringSSL is under the Apache License 2.0 (`LICENSE-BoringSSL`) or ISC, as the top of each file says. `third_party/fiat` is Apache-2.0, "Copyright 2015-2020 the fiat-crypto authors". A `once_cell` polyfill is MIT / Apache-2.0. Its assembly is pregenerated from OpenSSL's Apache-2.0 perlasm scripts, for example `sha512-x86_64.pl`, "Copyright 2005-2016 The OpenSSL Project Authors". The Windows wheel's module contains ring's x86_64 SHA-256 code. ring carries no OpenSSL or SSLeay advertising-clause license and no NOTICE file.
+- **image 0.25.10.** The browser agent encodes its annotated screenshots with this crate's JPEG encoder. The encoder's forward DCT (`src/codecs/jpeg/transform.rs`) is a Rust translation of `jfdctint.c` from the Independent JPEG Group's libjpeg 9a. It is under the IJG terms: "This software is copyright (C) 1991-2014, Thomas G. Lane, Guido Vollbeding." Those terms ask that copies distributed as executable code only say so in their documentation, which this sentence does: **this software is based in part on the work of the Independent JPEG Group.**
 - **jpeg-encoder 0.7.1** encodes the Android agent's marked screenshots (zune-jpeg decodes the phone helper's JPEGs). It compiles one IJG-derived file, its forward DCT (`src/fdct.rs`), ported from mozjpeg: "Copyright (C) 1991-1996, Thomas G. Lane", with libjpeg-turbo modifications "Copyright (C) 2015, 2020, D. R. Commander". It is under the IJG terms: "This software is copyright (C) 1991-2020, Thomas G. Lane, Guido Vollbeding". The crate includes those terms as `LICENSE-IJG`. The IJG statement under image above covers it too, and `THIRD_PARTY_LICENSES.txt` carries `LICENSE-IJG`.
 - **regex-syntax 0.8.11.** Its Unicode tables (`src/unicode_tables/`) are generated from Unicode's data files. They are under the Unicode data license in `src/unicode_tables/LICENSE-UNICODE`.
 
@@ -337,9 +337,9 @@ AutoCua does not redistribute it.
 |---|---|
 | **Author** | Google LLC |
 | **Upstream** | https://www.google.com/chrome/ |
-| **How it reaches you** | **Not vendored in this repository or in the wheel, and never downloaded or installed by AutoCua.** The user installs Google Chrome from Google. `AutoCua/utils/chrome.py` only looks for it; while it is missing, the terminal says so at each web run and the app shows a popup when it starts. |
+| **How it reaches you** | **Not vendored in this repository or in the wheel, and never downloaded or installed by AutoCua.** The user installs Google Chrome from Google. `AutoCua/utils/chrome.py` only looks for it; while it is missing, the terminal says so at each browser run and the app shows a popup when it starts. |
 | **License** | Google's proprietary software, under the Google Terms of Service and the Google Chrome and ChromeOS Additional Terms of Service (https://www.google.com/chrome/terms/). Its open-source parts are listed at `chrome://credits`. |
-| **Used by** | The web agent (`"web use"`): the person's own Chrome, through the AutoCuaBridge extension, or a Chrome of its own for headless and parallel runs. |
+| **Used by** | The browser agent (`"browser"`): the person's own Chrome, through the AutoCuaBridge extension, or a Chrome of its own for headless and parallel runs. |
 
 Chrome is Google's, under Google's terms, and is not covered by AutoCua's MIT
 license. AutoCua does not redistribute it: each person installs it from Google.
@@ -423,15 +423,15 @@ MIT license. AutoCua does not redistribute them.
 
 ---
 
-## 21. thinking-orbs — **vendored, modified, in the UI and the web agent's page script**
+## 21. thinking-orbs — **vendored, modified, in the UI and the browser agent's page script**
 
 | | |
 |---|---|
 | **Author** | Jakub Antalik |
 | **Upstream** | thinking-orbs v0.3.2, https://libraries.dev/orbs (https://github.com/Jakubantalik/Libraries.dev) |
-| **How it reaches you** | **Vendored, modified.** Parts of it are ported to plain JavaScript and CSS, committed, and shipped in the wheel. The desktop app's page loads: the orb engine, presets and painter (`AutoCua/ui/thinking_orb/thinking_orb.js`); the text shimmer (`AutoCua/ui/thinking_orb/shimmer.css`); and the "searching" globe and "composing" ribbon orbs (`AutoCua/ui/container/agent/agent.js`, with copies in `AutoCua/ui/cli/cli_container/tool_icons.js`). The "connecting" orb (`AutoCua/web/browser/glow/glow.js`) is injected by the web agent into the pages it drives. |
+| **How it reaches you** | **Vendored, modified.** Parts of it are ported to plain JavaScript and CSS, committed, and shipped in the wheel. The desktop app's page loads: the orb engine, presets and painter (`AutoCua/ui/thinking_orb/thinking_orb.js`); the text shimmer (`AutoCua/ui/thinking_orb/shimmer.css`); and the "searching" globe and "composing" ribbon orbs (`AutoCua/ui/container/agent/agent.js`, with copies in `AutoCua/ui/cli/cli_container/tool_icons.js`). The "connecting" orb (`AutoCua/browser/connector/glow/glow.js`) is injected by the browser agent into the pages it drives. |
 | **License** | MIT, "Copyright (c) 2026 Jakub Antalik", reproduced below |
-| **Used by** | The desktop app's agent status and tool icons; the web agent's on-page indicator. |
+| **Used by** | The desktop app's agent status and tool icons; the browser agent's on-page indicator. |
 
 thinking-orbs remains under its MIT license, which is reproduced below as it
 requires. It is not covered by AutoCua's own MIT license.
@@ -468,7 +468,7 @@ SOFTWARE.
 |---|---|
 | **Authors** | Lucide Contributors (Lucide); Cole Bemis (Feather, which Lucide was forked from) |
 | **Upstream** | https://lucide.dev (https://github.com/lucide-icons/lucide); https://feathericons.com (https://github.com/feathericons/feather) |
-| **How it reaches you** | **Vendored, as SVG path data**, committed and shipped in the wheel. Some glyphs are slightly redrawn. From Lucide: `bot`, `keyboard`, `rotate-cw`, `plug`, `sparkles` and `history`. From Feather: `zap`, `trash`, `settings` and `edit-3`. `link` is the same in both. They are in `AutoCua/ui/agent_mode/agent_mode.tsx`, `AutoCua/ui/chat_input/chat_input.tsx`, `AutoCua/ui/index.tsx`, `AutoCua/ui/settings/settings.tsx` and `AutoCua/ui/chat/chat.tsx`, which are built into `AutoCua/ui/index.js`, and in `AutoCua/ui/setup/setup.js`, `AutoCua/ui/container/dead/notes_stage/notes_stage.html` and `AutoCua/web/browser/AutoCuaBridge/sidepanel.html`. |
+| **How it reaches you** | **Vendored, as SVG path data**, committed and shipped in the wheel. Some glyphs are slightly redrawn. From Lucide: `bot`, `keyboard`, `rotate-cw`, `plug`, `sparkles` and `history`. From Feather: `zap`, `trash`, `settings` and `edit-3`. `link` is the same in both. They are in `AutoCua/ui/agent_mode/agent_mode.tsx`, `AutoCua/ui/chat_input/chat_input.tsx`, `AutoCua/ui/index.tsx`, `AutoCua/ui/settings/settings.tsx` and `AutoCua/ui/chat/chat.tsx`, which are built into `AutoCua/ui/index.js`, and in `AutoCua/ui/setup/setup.js`, `AutoCua/ui/container/dead/notes_stage/notes_stage.html` and `AutoCua/browser/connector/AutoCuaBridge/sidepanel.html`. |
 | **License** | Lucide: ISC, with the parts that come from Feather © Cole Bemis under MIT (reproduced below). Feather: MIT, "Copyright (c) 2013-2017 Cole Bemis", with the MIT permission notice as reproduced in §21. |
 | **Used by** | The desktop app's buttons and toggles, its setup page, and the AutoCuaBridge extension's side panel. |
 

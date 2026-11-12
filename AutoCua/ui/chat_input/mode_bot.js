@@ -1,19 +1,19 @@
 // =====================================================================
-// The mode's bot when a mode is picked (mode_bot.css): Computer use, Web use,
-// Mobile use and Shell use, each its own (ui/bots/<bot>*.webp; Shell use's is
+// The mode's bot when a mode is picked (mode_bot.css): Computer use, Browser,
+// Mobile use and Coder, each its own (ui/bots/<bot>*.webp; Coder's is
 // the CoderUse bot). It comes in big in the middle of the frame like the
 // splash's hero (intro_animation.tsx): it fades in, grows from 0.85x out
-// of a 6px blur, wakes and blinks; the welcome words (Shell use: its chat)
+// of a 6px blur, wakes and blinks; the welcome words (Coder: its chat)
 // wait meanwhile. Then, in a fresh chat (nothing sent yet), it shrinks onto
 // the chat box and stands there, its waist on the box's top edge,
 // blinking now and then (bot_blink.js). In a chat with turns it fades away
 // instead. When that chat's run starts it goes over to the run's bot's place
-// itself and is the run's bot there (chain_bot.js; Shell use: beside its
+// itself and is the run's bot there (chain_bot.js; Coder: beside its
 // terminal box, cli_container/coder_card.js). Any other task sent, New chat
 // or opening a saved chat takes it away. It fires 'modebot:intro-end' when
 // its entrance is over (on the chat box, on its way over, or going).
 // Its place is in the chat box's column.
-//   window.modeBot.enter(kind)   a mode was picked: 'computer', 'web', 'mobile', 'shell'
+//   window.modeBot.enter(kind)   a mode was picked: 'computer', 'browser', 'mobile', 'coder'
 //   window.modeBot.hide()        away (a task sent, a chat opened)
 //   window.modeBot.ready(kind)   a fresh chat's bot, as kind's?
 //   window.modeBot.flyTo(to, done)  then over to to's place (chain_bot.js)
@@ -27,9 +27,9 @@
     // (its waist stands on the chat box's top edge; == the screen stage's numbers).
     var BOTS = {
         computer: { img: 'computeruse', hem: 65 },
-        web: { img: 'webuse', hem: 44 },
+        browser: { img: 'webuse', hem: 44 },
         mobile: { img: 'mobileuse', hem: 70 },
-        shell: { img: 'coderuse', hem: 70 }
+        coder: { img: 'coderuse', hem: 70 }
     };
     // The splash's hero entrance (intro_animation.tsx), then onto the chat box.
     var FADE = 350, GROW = 1000;               // fades in; 0.85x -> 1x, blur 6px -> 0
@@ -125,7 +125,7 @@
         ], { delay: WAKE_AT, duration: span, fill: 'both' });
     }
 
-    // The entrance is over: the welcome words (Shell use: its chat) come back.
+    // The entrance is over: the welcome words (Coder: its chat) come back.
     function introEnd() {
         document.body.classList.remove('mode-fresh');
         if (!document.body.classList.contains('mode-intro')) return;
@@ -290,7 +290,7 @@
             return;
         }
         document.body.classList.add('mode-intro', 'mode-front');
-        // a fresh chat's entrance: Shell use's chat waits for it (cli_stage.css)
+        // a fresh chat's entrance: Coder's chat waits for it (cli_stage.css)
         document.body.classList.toggle('mode-fresh', stay);
         hold(p);
         // The splash's hero: fades in, grows from 0.85x out of a blur, wakes.
@@ -309,18 +309,18 @@
     }
 
     // A mode picked in the menu (agent_mode.js; every pick, not the silent
-    // sets below). On the next frame: leaving Shell use takes its stage away
+    // sets below). On the next frame: leaving Coder takes its stage away
     // in its own listener first (cli_stage.js), and the bot's place shows only then.
-    // Shell use at once: its chat comes up in the same moment (cli_stage.js) and
+    // Coder at once: its chat comes up in the same moment (cli_stage.js) and
     // waits for the bot from its first frame (cli_stage.css).
-    // Shell use picked again while it is already the mode: nothing (its chat
-    // stays as it is; the old Shell bot did the same).
+    // Coder picked again while it is already the mode: nothing (its chat
+    // stays as it is; the old Coder bot did the same).
     document.addEventListener('agentmode:changed', function (e) {
         var mode = (e.detail || {}).mode, was = lastMode;
         lastMode = mode || '';
         if (!BOTS[mode]) return leave();
-        if (mode === 'shell') {
-            if (was !== 'shell') enter(mode);
+        if (mode === 'coder') {
+            if (was !== 'coder') enter(mode);
             return;
         }
         requestAnimationFrame(function () { enter(mode); });

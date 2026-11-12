@@ -12,11 +12,11 @@
 // block). Image-less turns (a web SEARCH or a sub-agent turn, neither of which takes a
 // screenshot) pass hasImage:false to skip screenshot+mapping.
 //
-// Four agents drive this: computer use, Shell use, iOS, and the browser agent. The last
-// one is Rust and emits the same five events from AutoCua/web/agent/main_driver/service.rs;
+// Four agents drive this: computer use, Coder, iOS, and the browser agent. The last
+// one is Rust and emits the same five events from AutoCua/browser/agent/main_driver/service.rs;
 // it always scans, so its turns are always hasImage:true. Three of them send a tool called
 // `click` and two send `scroll`, meaning the same name has to draw different logos per
-// agent — see mobileRun / webRun and toolSpec.
+// agent — see mobileRun / browserRun and toolSpec.
 //
 // The chain stays EMPTY on app start and only animates while an agent run is driving it.
 // A built-in demo exists but is opt-in only (window.toolFlow.startTest()).
@@ -862,10 +862,10 @@
     }
 
 
-    // ---- web agent logos -------------------------------------------------
+    // ---- browser agent logos ---------------------------------------------
     // The browser has no pointer to borrow from the desktop agents: a page
     // click is a mouse click, not the iOS finger, and a tab is a thing of its
-    // own. These seven are drawn for the browser and used only by a web run.
+    // own. These seven are drawn for the browser and used only by a browser run.
 
     // click: the left button presses on a rhythm, with a shockwave off the corner
     function mouseClickPainter() {
@@ -1652,7 +1652,7 @@
         phonePause:  function () { return rotatePhonePainter(drawPauseSign); },
         phoneClose:  function () { return rotatePhonePainter(drawCrossSign); },
         phoneCheck:  function () { return rotatePhonePainter(drawTimelineSign, true); },
-        // web (browser) logos
+        // browser agent logos
         mouseClick:  mouseClickPainter,              // a page click, not the iOS finger
         holdClick:   holdClickPainter,               // button held, clock counting
         newTab:      newTabPainter,
@@ -1748,10 +1748,10 @@
         ground_click: { shape: 'tap',      label: 'tapping the screen' },
         // Android's system Back: a press of the phone's back button, the same finger.
         back:         { shape: 'tap',      label: 'going back' },
-        // web (browser) tool names — the browser driver's own set, from
-        // AutoCua/web/controller/view.rs. `input`, `scroll`, `wait`,
+        // browser agent tool names — the browser driver's own set, from
+        // AutoCua/browser/controller/view.rs. `input`, `scroll`, `wait`,
         // `scratchpad`, `todo_list`, `update_todo` and `done` are already above
-        // and resolve correctly for a web run; `click` and `scroll` collide with
+        // and resolve correctly for a browser run; `click` and `scroll` collide with
         // names another agent owns and are re-pointed in toolSpec below.
         keyboard:     { shape: 'keyboard',    label: 'pressing hotkeys' },
         hold_click:   { shape: 'holdClick',   label: 'holding a click' },
@@ -1850,7 +1850,7 @@
        (window.toolFlow): it reads the agent-mode picker, counts its tools
        ("N tools used"), marks its box .flow-started and has the opt-in demo.
        Any other is a sub-agent box's chain (window.createToolFlow): opts.kind
-       ('web' or 'mobile') fixes its logos, and it does none of those.
+       ('browser' or 'mobile') fixes its logos, and it does none of those.
        attach(root) gives it its elements; until then onFlow does nothing.
        ===================================================================== */
     function createFlow(opts) {
@@ -1931,7 +1931,7 @@
         var todoCreateCount = 0;   // # of create-todo (todo_list) calls this run — 2nd+ shows "overwrote todo"
         // True while the current run is a Mobile-use run — read once at run_start from
         // the agent-mode picker's DOM mirror (same source chat_input.js sends the backend).
-        // A sub-agent box's chain takes it (and webRun) from its kind instead.
+        // A sub-agent box's chain takes it (and browserRun) from its kind instead.
         var mobileRun = false;
         function isMobileRun() {
             var mw = document.getElementById('agentModeWrap');
@@ -1940,10 +1940,10 @@
         // Same trick for the browser agent. Three agents send a tool called `click`
         // and two send `scroll`, so the chain has to know which one is driving it
         // before it can pick the right logo (see toolSpec).
-        var webRun = false;
-        function isWebRun() {
+        var browserRun = false;
+        function isBrowserRun() {
             var mw = document.getElementById('agentModeWrap');
-            return !!(mw && mw.dataset.mode === 'web');
+            return !!(mw && mw.dataset.mode === 'browser');
         }
 
         function clearArr(a) { for (var i = 0; i < a.length; i++) clearTimeout(a[i]); a.length = 0; }
@@ -2081,7 +2081,7 @@
             // the iOS finger, because the iOS driver sends that flat name, and the
             // browser driver sends it too meaning a mouse click on a page. Without
             // this a browser click would draw a phone.
-            if (webRun) {
+            if (browserRun) {
                 if (name === 'click') return { shape: 'mouseClick', label: 'clicking' };
                 if (name === 'scroll') return { shape: 'mouse', label: 'scrolling the page' };
             }
@@ -2119,8 +2119,8 @@
             switch (event) {
                 case 'run_start':
                     // the main chain asks the picker which agent drives it; a sub-agent box's chain knows its kind
-                    if (main) { mobileRun = isMobileRun(); webRun = isWebRun(); }
-                    else { mobileRun = opts.kind === 'mobile'; webRun = opts.kind === 'web'; }
+                    if (main) { mobileRun = isMobileRun(); browserRun = isBrowserRun(); }
+                    else { mobileRun = opts.kind === 'mobile'; browserRun = opts.kind === 'browser'; }
                     stopDemo(); clearChain();
                     runActive = true;                             // after clearChain — it clears the flag
                     if (zoneEl) zoneEl.classList.add('flow-started');
@@ -2178,7 +2178,7 @@
     };
     // A sub-agent box's own chain (container/sub_agents/sub_agents.js). rootEl holds
     // .tool-flow > .tool-flow-tree, the same markup as the main tool panel; kind
-    // ('web' or 'mobile') fixes its click and scroll logos. It is driven like the
+    // ('browser' or 'mobile') fixes its click and scroll logos. It is driven like the
     // main one (onFlow, run-scoped) but counts no tools and has no demo or heading;
     // dispose() ends it for good.
     window.createToolFlow = function (rootEl, o) {

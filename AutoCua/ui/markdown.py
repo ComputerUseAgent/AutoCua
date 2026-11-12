@@ -10,7 +10,7 @@ The run's reply renders through here on both paths, so live and reopened
 chats look identical:
   • live run end  — service.py run end         -> window.showRunReply
   • reopened chat — /api/chats/<id> exchanges  -> window.showRunReply
-                                              -> window.cliShellHistory (shell)
+                                              -> window.cliCoderHistory (coder)
 
 Safety. The input is LLM output and the frontend assigns it with innerHTML, so
 every scrap of source text is HTML-escaped BEFORE any tag we emit is inserted,

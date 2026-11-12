@@ -3,7 +3,7 @@
 # This is the ONLY requirements file a Linux user installs — everything the
 # Linux code path can reach is declared here, grouped by feature, with a note
 # on what breaks when a group is missing. `bash setup_linux.sh` installs the
-# distro packages, uv, this file, the Rust toolchain and the web agent in one
+# distro packages, uv, this file, the Rust toolchain and the browser agent in one
 # go; the groups below are what that script feeds to pip.
 #
 # Versions are FLOOR-bound (>=), not pinned (==) like requirements_windows.txt.
@@ -99,7 +99,7 @@ onnxruntime>=1.20
 # requesty and aws go through `requests`. The shared manager imports every provider when it
 # loads, so dropping openai or google-genai breaks every agent, not one
 # provider. The groq and anthropic SDKs serve the `web` tool's search
-# backends (controller/tool/web/groq_search.py and anthropic.py).
+# backends (AutoCua/web/groq_search.rs and anthropic.rs).
 #
 # The controller (AutoCua/linux/controller) adds NOTHING else here — it drives the
 # desktop through the XDG RemoteDesktop portal and AT-SPI, both reached
@@ -198,12 +198,12 @@ imageio-ffmpeg>=0.5
 #
 #
 # ======================================================================
-# 5. Not pip-installable, needed only for "web use"
+# 5. Not pip-installable, needed only for the "browser" mode
 # ======================================================================
-# The browser agent (AutoCua/web) is a Rust extension built once from
+# The browser agent (AutoCua/browser) is a Rust extension built once from
 # source. It needs the Rust toolchain (https://rustup.rs) and a C compiler
 # (`sudo apt install build-essential`) — ring compiles C, and
 # without `cc` the build dies with an unreadable linker error.
 # `bash setup_linux.sh` installs the apt packages, uv, this file, the
-# toolchain, and pre-builds the extension, so the first "web use" run does
+# toolchain, and pre-builds the extension, so the first "browser" run does
 # not stop on "cargo not found".

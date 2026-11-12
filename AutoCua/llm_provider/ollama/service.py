@@ -183,8 +183,8 @@ class OllamaProvider:
             raise Exception(f"{model} cannot call tools, and every AutoCua agent acts through them. "
                             f"`ollama show {model}` lists what it can do; pick a model with \"tools\".")
         if annotated_screenshot_base64 and not self.cli_agent and caps is not None and "vision" not in caps:
-            raise Exception(f"{model} has no vision, and this agent works from screenshots: computer, "
-                            f"web and mobile use need a model with \"vision\" in `ollama show {model}`. "
+            raise Exception(f"{model} has no vision, and this agent works from screenshots: computer use, "
+                            f"browser and mobile use need a model with \"vision\" in `ollama show {model}`. "
                             f"The coder works without it.")
 
         # If screenshot is provided and NOT cli_agent, modify the user message to include the annotated image

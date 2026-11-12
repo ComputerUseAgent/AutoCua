@@ -9,14 +9,14 @@
 // For now: ONE card, centered in #cliContainer. (Multiple agents → multiple stacked
 // containers is the next step; the registry below already supports N cards.)
 //
-// Shell use: ONE card for the whole chat: a chat with a terminal box under it. The box
+// Coder: ONE card for the whole chat: a chat with a terminal box under it. The box
 // greets ("Hi! How can I help you!"; picked in a fresh chat, once the CoderUse bot has
 // come in and stands on the chat box: chat_input/mode_bot.js), your messages show as the
 // normal chat's bubbles, the box carries the agent's words while a run goes (and the
 // run's tool chain, its tracking progress and its minions' bots: coder_card.js), the
 // run's CoderUse bot stands beside it (flown up from the chat box in a fresh chat), and
 // the answer lands in the chat's reply box, that bot beside it; it all stays: at a run's
-// end the card goes back to waiting instead of being replaced. A reopened shell chat
+// end the card goes back to waiting instead of being replaced. A reopened coder chat
 // fills it with its messages and answers. The chat box's Auto / Manual pill
 // (agent_mode.js) hands the box's prompt to you (Manual) or to the agent.
 //
@@ -29,7 +29,7 @@
     var cards = new Map();             // task_id -> card (VISIBLE cards only)
     var queue = [];                    // FIFO of { taskId, desc } waiting for a free slot
     var subagentParent = new Map();      // subagent id -> parent task_id
-    var idleCard = null;               // the waiting terminal shown in Shell use
+    var idleCard = null;               // the waiting terminal shown in Coder
     var clearTimer = null;             // the deferred end-of-run wipe — cancellable, so a
                                        // run starting inside its 600ms window isn't destroyed
     var boxes = new Map();             // Computer use: task_id -> its coder box's card (mountBox)
@@ -63,9 +63,9 @@
         // The new run's own await_end reschedules.
         if (awaitActive) return;
         var c = getContainer();
-        // Shell use: the terminal is the chat's, never wiped. A run that died without
+        // Coder: the terminal is the chat's, never wiped. A run that died without
         // its cliTaskEnd (backend error / stop teardown) just goes back to waiting.
-        if (shellPinned) {
+        if (coderPinned) {
             Array.from(cards.keys()).forEach(function (id) { demote(id, 'stopped', ''); });
             queue.length = 0;
             subagentParent.clear();
@@ -81,19 +81,19 @@
         runChat = null;
     }
 
-    // Shell use gets the chat card (coder_card.js, its header): its terminal box holds the
+    // Coder gets the chat card (coder_card.js, its header): its terminal box holds the
     // run's tool chain and tracking progress. The other modes keep the plain
     // `> AutoCua Code` card.
     function cardOpts() {
-        if (!shellPinned) return {};
+        if (!coderPinned) return {};
         return { header: 'AutoCua Code' };
     }
 
-    // One agent row: left tool-chain | center terminal | right scratchpad. In Shell
-    // use the terminal alone (its chain and tracking are in its box). Shared by the
+    // One agent row: left tool-chain | center terminal | right scratchpad. In Coder
+    // the terminal alone (its chain and tracking are in its box). Shared by the
     // live cards and the idle placeholder so they're the same shape.
     function buildUnit(card) {
-        var sides = !shellPinned;
+        var sides = !coderPinned;
         var unit = document.createElement('div');
         unit.className = 'cc-agent';
         if (sides && card.chainEl) unit.appendChild(card.chainEl);     // "Tool response" — LEFT
@@ -113,7 +113,7 @@
         clearTimeout(clearTimer); clearTimer = null;   // the last run's deferred wipe is moot
         if (runChat == null) runChat = window.currentSessionId || null;
 
-        // Shell use: PROMOTE the waiting terminal rather than swapping it out. It is already
+        // Coder: PROMOTE the waiting terminal rather than swapping it out. It is already
         // the same card, in the same place, with the chat's lines in it — tearing it down
         // and sliding an identical replacement up from 16px is exactly the jitter you see
         // on send. Promotion just starts the run, so the terminal simply carries on (its box
@@ -131,10 +131,10 @@
         }
 
         unmountIdle();                    // (other modes / extra agents) idle makes way
-        // Shell use beside another live card (no idle one to promote): a fresh Shell card,
+        // Coder beside another live card (no idle one to promote): a fresh Coder card,
         // the agent's from the start (begin below), like a promoted one
         var opts = cardOpts();
-        if (shellPinned) opts.idle = true;
+        if (coderPinned) opts.idle = true;
         var card = window.CliCoderCard.create(desc, opts);
         var unit = buildUnit(card);
         unit.classList.add('entering');
@@ -142,9 +142,9 @@
         c.appendChild(unit);
         cards.set(taskId, card);
         syncLayout();
-        if (shellPinned && card.begin) {
+        if (coderPinned && card.begin) {
             card.begin();
-            if (isShellCard(card) && !runEnded && card.botIn) card.botIn();
+            if (isCoderCard(card) && !runEnded && card.botIn) card.botIn();
         }
         // strip .entering next frame so it transitions in (and after the .two height change lands)
         if (window.requestAnimationFrame) requestAnimationFrame(function () { unit.classList.remove('entering'); });
@@ -161,7 +161,7 @@
         syncLayout();
         if (!cards.size) runChat = null;                    // no run left to belong to a chat
         if (queue.length) { var next = queue.shift(); mountAgent(next.taskId, next.desc); }
-        else if (shellPinned && !cards.size) mountIdle();   // back to the waiting terminal
+        else if (coderPinned && !cards.size) mountIdle();   // back to the waiting terminal
     }
 
     // Computer use: a coder the main agent starts gets its own box in the chat, under the
@@ -187,14 +187,14 @@
         boxSubagents.forEach(function (parent, m) { if (parent === taskId) boxSubagents.delete(m); });
     }
 
-    // Shell use: the run is over, its terminal goes back to waiting (the reverse of the
+    // Coder: the run is over, its terminal goes back to waiting (the reverse of the
     // promotion in mountAgent) with everything it showed still in it. Late events for
     // the old task id find no card and are dropped.
-    // A card that is not the Shell terminal (a Computer use run's coder, still
-    // going when a shell chat was opened), or one whose chat was left for another
-    // shell chat mid-run (pendingHistory), is not kept: a fresh terminal takes
+    // A card that is not the Coder terminal (a Computer use run's coder, still
+    // going when a coder chat was opened), or one whose chat was left for another
+    // coder chat mid-run (pendingHistory), is not kept: a fresh terminal takes
     // its place, with that chat's rows.
-    function isShellCard(card) { return !!(card && card.el && card.el.classList.contains('has-head')); }
+    function isCoderCard(card) { return !!(card && card.el && card.el.classList.contains('has-head')); }
     function demote(taskId) {
         var card = cards.get(taskId);
         if (!card) return;
@@ -203,35 +203,35 @@
         // only this card's minions stop routing (another card's run may still be going)
         subagentParent.forEach(function (parent, m) { if (parent === taskId) subagentParent.delete(m); });
         if (card.finish) card.finish();
-        if (isShellCard(card) && !idleCard && !pendingHistory) {
+        if (isCoderCard(card) && !idleCard && !pendingHistory) {
             if (card._unit) card._unit.classList.add('cc-idle');
             idleCard = card;
         } else {
             if (card.dispose) card.dispose();
             if (card._unit && card._unit.parentNode) card._unit.parentNode.removeChild(card._unit);
         }
-        // the Shell run is over (not merely another card beside it, e.g. a Computer use
-        // coder's: that would cost the live Shell run its answer)
-        if (isShellCard(card)) {
+        // the Coder run is over (not merely another card beside it, e.g. a Computer use
+        // coder's: that would cost the live Coder run its answer)
+        if (isCoderCard(card)) {
             runEnded = true;
             runChat = null;
             if (card.botEnd) card.botEnd();     // no answer took it over (it was printed: nothing)
         }
-        if (shellPinned && !idleCard) mountIdle();
+        if (coderPinned && !idleCard) mountIdle();
     }
 
-    // Shell use PINS the stage open: the terminal is that mode's home screen, so
+    // Coder PINS the stage open: the terminal is that mode's home screen, so
     // the panel slides up the moment the mode is picked and stays after a run
     // ends (empty, waiting for the next task) instead of sliding away. Every
     // other mode keeps the original behaviour — the stage exists only for the
     // duration of a cli_await.
-    var shellPinned = false;      // Shell use selected?
+    var coderPinned = false;      // Coder selected?
     var awaitActive = false;      // a cli_await is in flight?
-    var heroWasVisible = false;   // was the "Made to do…" hero up before Shell use hid it?
+    var heroWasVisible = false;   // was the "Made to do…" hero up before Coder hid it?
 
-    // ---- the Shell use terminal's own lines ----------------------------------------
+    // ---- the Coder terminal's own lines ----------------------------------------
     var GREETING = 'Hi! How can I help you!';
-    var pendingHistory = null;    // a reopened chat's rows, waiting for its terminal (cliShellHistory)
+    var pendingHistory = null;    // a reopened chat's rows, waiting for its terminal (cliCoderHistory)
     var pendingGreet = null;      // a fresh terminal whose hello waits for the bot's entrance
     var runEnded = true;          // the latest run's ending (answer / stop) is already printed
     var runChat = null;           // the chat a running command was sent in
@@ -254,10 +254,10 @@
         card.hello(GREETING);
     }
 
-    // The Shell card on screen: the running one, else the waiting one.
-    function liveShellCard() {
+    // The Coder card on screen: the running one, else the waiting one.
+    function liveCoderCard() {
         var found = null;
-        cards.forEach(function (k) { if (!found && isShellCard(k)) found = k; });
+        cards.forEach(function (k) { if (!found && isCoderCard(k)) found = k; });
         return found || idleCard;
     }
 
@@ -267,7 +267,7 @@
     // that bot flies up to the answer the same way. No bot at all: the room the box kept
     // for one goes.
     function printRunAnswer(card, text, cls, mode) {
-        if (card.botIn && !card.botOn() && window.modeBot && window.modeBot.ready('shell')) card.botIn();
+        if (card.botIn && !card.botOn() && window.modeBot && window.modeBot.ready('coder')) card.botIn();
         var bot = !!(card.botOn && card.botOn());
         card.print(text, cls + (bot ? ' cc-bot-wait' : ''), mode);
         if (bot) card.botToAnswer();
@@ -322,7 +322,7 @@
         unit.classList.add('cc-idle');
         idleCard._unit = unit;
         c.appendChild(unit);
-        if (shellPinned) {
+        if (coderPinned) {
             if (pendingHistory) { fillHistory(idleCard, pendingHistory); pendingHistory = null; }
             else greet(idleCard);
         }
@@ -337,14 +337,14 @@
         idleCard = null;
     }
 
-    function syncShellStage() {
+    function syncCoderStage() {
         var wrap = document.getElementById('agentModeWrap');
-        shellPinned = !!wrap && wrap.dataset.mode === 'shell';
-        // Shell use re-lays-out the stage: the chat with its terminal box filling the
+        coderPinned = !!wrap && wrap.dataset.mode === 'coder';
+        // Coder re-lays-out the stage: the chat with its terminal box filling the
         // frame (cli_stage.css, coder_card.css).
         // Dispatched-coder runs in the other modes keep the left | center | right columns.
-        document.body.classList.toggle('cli-shell', shellPinned);
-        if (shellPinned) {
+        document.body.classList.toggle('cli-coder', coderPinned);
+        if (coderPinned) {
             injectPanel();
             document.body.classList.add('cli-stage');
             mountIdle();
@@ -359,14 +359,14 @@
             pendingGreet = null;
             pendingHistory = null;        // the chat they were for is not the one open now
             unmountIdle();
-            document.body.classList.remove('cli-typing');   // no prompt outside Shell use
-            // left Shell use — but never yank the stage out from under a live run's card
+            document.body.classList.remove('cli-typing');   // no prompt outside Coder
+            // left Coder — but never yank the stage out from under a live run's card
             // (an empty one would just hide the chat: Computer use's coders are boxes in it)
             if (!awaitActive || !cards.size) {
                 document.body.classList.remove('cli-stage');
                 // no terminal in this mode: the hero is the empty state again. Skipped
                 // mid-run (guarded above), and skipped when a CHAT is open (leaving
-                // shell because a saved chat was reopened — the hero would bleed
+                // Coder because a saved chat was reopened — the hero would bleed
                 // through the transparent grid over that chat's history).
                 if (heroWasVisible && !window.currentSessionId && window.showWelcomeHero) window.showWelcomeHero();
                 heroWasVisible = false;
@@ -380,7 +380,7 @@
         // Slide the panel in / out. The chat box is untouched (no .cli-mode).
         // Computer use: the coders waited on are boxes in the chat (mountBox), which stays.
         window.cliAwaitStart = function (reason) {
-            if (!shellPinned && window.subAgents) return;
+            if (!coderPinned && window.subAgents) return;
             injectPanel();
             awaitActive = true;
             // a stale end-of-run wipe from the LAST run must not fire into this one
@@ -388,16 +388,16 @@
             document.body.classList.add('cli-stage');
         };
         window.cliAwaitEnd = function () {
-            // Shell use: a run's own await_end always comes after its task_end (which
+            // Coder: a run's own await_end always comes after its task_end (which
             // demotes its card; the backend's teardown sends both, in that order). One
             // that finds a card still live is a stopped run's, arriving late after you
             // sent the next message: that run goes on.
-            if (shellPinned && cards.size) return;
-            // Computer use's own wait had no stage (a Shell run's, still going after another
+            if (coderPinned && cards.size) return;
+            // Computer use's own wait had no stage (a Coder run's, still going after another
             // chat was opened, ends its stage as before)
-            if (!shellPinned && !awaitActive && window.subAgents) return;
+            if (!coderPinned && !awaitActive && window.subAgents) return;
             awaitActive = false;
-            if (!shellPinned) {
+            if (!coderPinned) {
                 document.body.classList.remove('cli-stage');
                 // A New chat / mode switch DURING the live run deferred the hero
                 // hand-off (the un-pin branch skips it while awaitActive) — the
@@ -413,16 +413,16 @@
 
         // agent_mode.js paints the picker's data-mode BEFORE dispatching either
         // event, so reading it back here is always current.
-        document.addEventListener('agentmode:ready', syncShellStage);
-        document.addEventListener('agentmode:changed', syncShellStage);
+        document.addEventListener('agentmode:ready', syncCoderStage);
+        document.addEventListener('agentmode:changed', syncCoderStage);
         // agentmode:set is SILENT by contract (no agentmode:changed — ios_session
         // must not react), but the stage still has to follow it: New chat resets
-        // the picker to Computer use this way, and the pinned shell terminal must
+        // the picker to Computer use this way, and the pinned Coder terminal must
         // slide away with it. Deferred one tick so the read never depends on which
         // 'agentmode:set' listener runs first (this one or agent_mode's set handler
         // that paints dataset.mode); the timeout lets agent_mode paint first.
-        document.addEventListener('agentmode:set', function () { setTimeout(syncShellStage, 0); });
-        // Shell use, in Manual: the whole PANEL is the terminal — clicking
+        document.addEventListener('agentmode:set', function () { setTimeout(syncCoderStage, 0); });
+        // Coder, in Manual: the whole PANEL is the terminal — clicking
         // anywhere on it (the empty space around/below the card included) puts
         // you at the prompt, not just the thin `>` line. Clicks on the card
         // itself are handled by the card's own click-to-focus; this covers the
@@ -437,7 +437,7 @@
         var stageDownX = 0, stageDownY = 0;
         document.addEventListener('mousedown', function (e) { stageDownX = e.clientX; stageDownY = e.clientY; });
         document.addEventListener('click', function (e) {
-            if (!shellPinned || !idleCard || !idleCard.el) return;
+            if (!coderPinned || !idleCard || !idleCard.el) return;
             // Only in Manual: the pill switches to it, never a click (owner, 2026-10-17).
             var pill = document.getElementById('agentModeWrap');
             if (!pill || pill.dataset.shellInput !== 'manual') return;
@@ -449,19 +449,19 @@
             if (idleCard.el._focusPrompt) idleCard.el._focusPrompt();
         });
         // New chat = a NEW terminal. chat.js resets the main chat UI, but the
-        // shell stage owns its own panel — without this, the old terminal's
+        // Coder stage owns its own panel — without this, the old terminal's
         // scrollback, prompt path and typing state all survived into the "fresh"
         // chat. Tear everything down and mount a brand-new idle terminal, which
         // greets. (clearAll can't be reused here: it never wipes the terminal in
-        // Shell use.)
+        // Coder.)
         document.addEventListener('chat:new', function () {
             pendingHistory = null;                         // fresh chat — nothing to fill in
             runChat = null;
             boxes.clear(); boxSubagents.clear();             // the coders' boxes went with the old chat
-            if (!shellPinned) {
-                // a Shell run's card still on the stage belongs to the old chat (a
+            if (!coderPinned) {
+                // a Coder run's card still on the stage belongs to the old chat (a
                 // Computer use coder's is left alone)
-                Array.from(cards.keys()).forEach(function (id) { if (isShellCard(cards.get(id))) unmountAgent(id); });
+                Array.from(cards.keys()).forEach(function (id) { if (isCoderCard(cards.get(id))) unmountAgent(id); });
                 runEnded = true;
                 return;
             }
@@ -482,20 +482,20 @@
             // the fresh terminal IS this mode's empty state — startNewChat just
             // showed the hero, which would bleed through the transparent panel;
             // re-hide it (same synchronous dispatch, so it never flashes) and
-            // remember it belongs to this fresh chat if the user leaves Shell use.
+            // remember it belongs to this fresh chat if the user leaves Coder.
             if (window.hideWelcomeHero) window.hideWelcomeHero();
             heroWasVisible = true;
         });
         // ...and another chat opened (sub_agents.js cleared the boxes with the live turn)
         document.addEventListener('chat:opened', function () { boxes.clear(); boxSubagents.clear(); });
-        syncShellStage();   // the picker's 'agentmode:ready' fired before these hooks went in
+        syncCoderStage();   // the picker's 'agentmode:ready' fired before these hooks went in
 
         // A coder agent starts → mount it if a slot is free, else queue it. Up to 2 show at once;
         // the rest wait FIFO. Bare "[minion] " task_starts are ignored. Computer use: its box
         // in the chat instead (mountBox; agentId is its sub-agent registry id).
         window.cliTaskStart = function (taskId, desc, agentId) {
             if (typeof desc === 'string' && desc.indexOf('[minion] ') === 0) return;
-            if (!shellPinned && window.subAgents) { mountBox(taskId, desc, agentId); return; }
+            if (!coderPinned && window.subAgents) { mountBox(taskId, desc, agentId); return; }
             if (cards.has(taskId)) return;                                   // already visible
             for (var i = 0; i < queue.length; i++) if (queue[i].taskId === taskId) return;  // already queued
             if (cards.size < MAX_VISIBLE) mountAgent(taskId, desc);
@@ -506,7 +506,7 @@
             if (card) card.setLine(line);
         };
         // Todos are handled internally by the agent and NOT rendered as a checklist. The
-        // card swallows them in every mode except Shell use, where the terminal is the
+        // card swallows them in every mode except Coder, where the terminal is the
         // full transcript and setTodo() streams the list into it.
         window.cliTaskTodo = function (taskId, payload) {
             var card = boxes.get(taskId) || cards.get(taskId);   // (a box has no todo column)
@@ -523,13 +523,13 @@
                 return;
             }
             if (cards.has(taskId)) {
-                // Shell use: the run's answer under its lines, then the terminal waits for
+                // Coder: the run's answer under its lines, then the terminal waits for
                 // the next run with all of it still there (it is the chat's).
-                if (shellPinned) {
+                if (coderPinned) {
                     var ended = cards.get(taskId);
                     // only the run your message on screen started answers here (another
                     // chat's run, or a Computer use coder, just goes back to waiting)
-                    if (isShellCard(ended) && !runEnded) printAnswer(ended, status, summary, summaryHtml);
+                    if (isCoderCard(ended) && !runEnded) printAnswer(ended, status, summary, summaryHtml);
                     demote(taskId);
                     return;
                 }
@@ -546,7 +546,7 @@
             var card = cards.get(parentId);
             if (!card) return;
             subagentParent.set(taskId, parentId);
-            card.addSubagent(taskId, query);            // Shell use: its bot in the box too
+            card.addSubagent(taskId, query);            // Coder: its bot in the box too
         };
         window.cliSubagentLine = function (taskId, line, stream) {
             var box = boxes.get(boxSubagents.get(taskId));
@@ -563,7 +563,7 @@
             if (card) card.endSubagent(taskId, status);
         };
 
-        // Stage-level message straight onto the terminal. In Shell use the four zones
+        // Stage-level message straight onto the terminal. In Coder the four zones
         // that normally carry errors (milestone stream et al.) are hidden, so a run that
         // fails before producing any output would otherwise read as "nothing happened".
         function currentCard() {
@@ -572,16 +572,16 @@
             return first && first.value;
         }
 
-        window.cliShellNote = function (text, chatId) {
+        window.cliCoderNote = function (text, chatId) {
             // A late run-end note carries its CHAT id — if the user has since
             // opened a DIFFERENT chat, that outcome belongs to the other chat's
             // terminal, not the one on screen: drop it. (A New chat needs no
             // guard here — /api/new-chat already invalidates the run's pushes.)
             if (chatId && window.currentSessionId && String(window.currentSessionId) !== String(chatId)) return;
-            // Shell use: a run that ended without an answer of its own (it never got
+            // Coder: a run that ended without an answer of its own (it never got
             // going, or the send itself failed) says why, once, as its answer, without
             // the note's leading mark. One that printed its ending already is done.
-            if (shellPinned) {
+            if (coderPinned) {
                 if (runEnded) return;
                 runEnded = true;
                 var ended = currentCard();
@@ -592,13 +592,13 @@
             if (card && card.note) card.note(text);
         };
 
-        // Reopened shell chat: chat.js hands us the chat's exchanges ({task,
+        // Reopened coder chat: chat.js hands us the chat's exchanges ({task,
         // done_message, status, done_html} per run). The terminal shows them: each
         // request as a command line, its answer under it. State-based, so it works
         // whichever order it lands in relative to the silent agentmode:set that
         // re-pins the stage (mountIdle fills a terminal made after it). A run going
         // in this terminal is left as it is.
-        window.cliShellHistory = function (exchanges) {
+        window.cliCoderHistory = function (exchanges) {
             var rows = Array.isArray(exchanges) ? exchanges : [];
             if (cards.size) {
                 // a run is going: its own chat keeps it as it is; another chat's rows
@@ -614,10 +614,10 @@
             else pendingHistory = rows;
         };
 
-        // Shell use: your message, the chat's next line the moment you send it
+        // Coder: your message, the chat's next line the moment you send it
         // (chat_input.js); its run follows under it.
-        window.cliShellSend = function (text) {
-            if (!shellPinned) return;
+        window.cliCoderSend = function (text) {
+            if (!coderPinned) return;
             runEnded = false;
             runChat = window.currentSessionId || null;
             pendingGreet = null;                       // you spoke first: no hello under it
@@ -629,21 +629,21 @@
             if (card.toEnd) card.toEnd();              // the chat glides down to it
         };
 
-        // Shell use: the run just started (chat_input.js). A brand-new chat only gets its
+        // Coder: the run just started (chat_input.js). A brand-new chat only gets its
         // id now, from the backend: the run is that chat's.
-        window.cliShellStarted = function (id) {
+        window.cliCoderStarted = function (id) {
             if (runChat == null && !runEnded && id) runChat = id;
             // the run's bot beside the box now (from the chat box in a fresh chat), whichever
             // comes first: this or the run's card (mountAgent)
-            if (!shellPinned || runEnded) return;
-            var card = liveShellCard();
+            if (!coderPinned || runEnded) return;
+            var card = liveCoderCard();
             if (card && card.botIn) card.botIn();
         };
 
-        // Shell use: Stop (chat_input.js). The run says so and the terminal is yours
+        // Coder: Stop (chat_input.js). The run says so and the terminal is yours
         // again at once; the run's own late end finds no card.
-        window.cliShellStop = function () {
-            if (!shellPinned) return;
+        window.cliCoderStop = function () {
+            if (!coderPinned) return;
             var ids = Array.from(cards.keys());
             if (!ids.length) {
                 if (runEnded) return;
@@ -654,7 +654,7 @@
             }
             ids.forEach(function (id) {
                 var card = cards.get(id);
-                if (isShellCard(card)) printRunAnswer(card, 'Stopped.', 'cc-answer cc-fresh is-ended', 'type');
+                if (isCoderCard(card)) printRunAnswer(card, 'Stopped.', 'cc-answer cc-fresh is-ended', 'type');
                 demote(id);
             });
         };
@@ -663,7 +663,7 @@
         // prompt is yours (you type the commands). Auto: the agent's again.
         document.addEventListener('shellinput:changed', function (e) {
             var manual = ((e.detail || {}).mode === 'manual');
-            if (!shellPinned || !idleCard) return;
+            if (!coderPinned || !idleCard) return;
             if (!manual) { if (idleCard.leaveTyping) idleCard.leaveTyping(); return; }
             var cmd = idleCard.el && idleCard.el.querySelector('.cc-cmd');
             if (idleCard.el && idleCard.el._focusPrompt && document.activeElement !== cmd) idleCard.el._focusPrompt();

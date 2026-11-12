@@ -70,7 +70,7 @@
     line-height: 1.38;
 }
 
-/* The two zones' rules below, and the Shell card's running box's further down, also
+/* The two zones' rules below, and the Coder card's running box's further down, also
    serve Computer use's coder box in the chat's sub-agent stack (container/sub_agents):
    :is(#cliContainer, .sub-stack), as specific as #cliContainer alone. */
 /* ===== LEFT zone: "Tool response: N tools used" + the vertical action-icon chain.
@@ -188,7 +188,7 @@
 #cliContainer .cc-mchain .cc-chain-item.in::before { transform: scaleX(1); }
 #cliContainer .cc-mchain .cc-chain-word { display: none; }
 
-/* ---- the Shell use card (.has-head): a chat with a terminal box ----
+/* ---- the Coder card (.has-head): a chat with a terminal box ----
    Built by coder_card.js create(desc, {header}). The scrollback holds the chat
    (cli_stage.js prints your messages as the normal chat's bubbles and the
    answers in its reply box) and your hand-typed commands with their output;
@@ -573,8 +573,8 @@ body.cli-typing .coder-card.has-head.cc-busy .cc-prow {
    (container/sub_agents: its CoderUse bot outside the box's left, at its top). The card
    is the running live box above and nothing else: the head, the `>` and the agent's
    words, the minions' tree and their bots, the tool chain and the tracking progress.
-   As wide as it is given, with Shell use's terminal line around it (owner, 2026-10-18),
-   three tool steps tall; Shell use's type size. Its padding is the main box's, so the
+   As wide as it is given, with Coder's terminal line around it (owner, 2026-10-18),
+   three tool steps tall; Coder's type size. Its padding is the main box's, so the
    two are as tall and their insides start at the same place. */
 .coder-card.cc-box {
     width: 100%;
@@ -588,7 +588,7 @@ body.cli-typing .coder-card.has-head.cc-busy .cc-prow {
     width: 100%;
     max-width: none;
 }
-/* its words wrap, a line per field (in Shell use the chat's line rule does this) */
+/* its words wrap, a line per field (in Coder the chat's line rule does this) */
 .coder-card.cc-box .cc-think .cc-scroll > .cc-line {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -597,7 +597,7 @@ body.cli-typing .coder-card.has-head.cc-busy .cc-prow {
 }
 
 
-/* ---- the Shell use card's geometry (body.cli-shell) ----
+/* ---- the Coder card's geometry (body.cli-coder) ----
    The scrollback is REALLY scrollable (native scroll, coder_card.js), not the compact
    card's translateY conveyor, so the whole chat stays reachable. Scrollbar hidden to
    match the rest of the app; the wheel is driven from JS (see the WKWebView note in
@@ -605,24 +605,24 @@ body.cli-typing .coder-card.has-head.cc-busy .cc-prow {
    the scrollback, CONTENT-sized (flex-grow 0) so the live line sits right under the
    last line, and once the chat is taller than the stage it shrinks and scrolls,
    which keeps the live line on the bottom. */
-body.cli-shell .coder-card.has-head .cc-body { overflow: hidden; }
-body.cli-shell .coder-card.has-head .cc-main {
+body.cli-coder .coder-card.has-head .cc-body { overflow: hidden; }
+body.cli-coder .coder-card.has-head .cc-main {
     display: flex;
     flex-direction: column;
     min-height: 0;
 }
-body.cli-shell .coder-card.has-head .cc-out { flex: 0 0 auto; }
-body.cli-shell .coder-card.has-head .cc-term {
+body.cli-coder .coder-card.has-head .cc-out { flex: 0 0 auto; }
+body.cli-coder .coder-card.has-head .cc-term {
     flex: 0 1 auto;
     min-height: 0;
 }
-body.cli-shell .coder-card.has-head .cc-out-text {
+body.cli-coder .coder-card.has-head .cc-out-text {
     display: flex;
     flex-direction: column;
     flex: 0 1 auto;
     min-height: 0;
 }
-body.cli-shell .coder-card.has-head .cc-out-view {
+body.cli-coder .coder-card.has-head .cc-out-view {
     flex: 0 1 auto;
     min-height: 0;
     height: auto;                /* the flex line above sets it, not --cc-max-lines */
@@ -630,23 +630,23 @@ body.cli-shell .coder-card.has-head .cc-out-view {
     scrollbar-width: none;
     -ms-overflow-style: none;
 }
-body.cli-shell .coder-card.has-head .cc-out-view::-webkit-scrollbar { display: none; }
+body.cli-coder .coder-card.has-head .cc-out-view::-webkit-scrollbar { display: none; }
 /* Its edges fade where there is more chat that way (== chat_scroll.css; the card
    toggles the two classes, coder_card.js). */
-body.cli-shell .coder-card.has-head .cc-out-view {
+body.cli-coder .coder-card.has-head .cc-out-view {
     -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top),
                                         #000 calc(100% - var(--fade-bottom)), transparent 100%);
             mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top),
                                         #000 calc(100% - var(--fade-bottom)), transparent 100%);
     transition: --fade-top 0.25s ease, --fade-bottom 0.25s ease;
 }
-body.cli-shell .coder-card.has-head .cc-out-view.cc-fade-top { --fade-top: clamp(16px, 2.2vw, 28px); }
+body.cli-coder .coder-card.has-head .cc-out-view.cc-fade-top { --fade-top: clamp(16px, 2.2vw, 28px); }
 /* the chat follows its end itself (coder_card.js glide, fadeRo); the browser's own
    scroll anchoring would move it in steps as an answer types in above the live box */
-body.cli-shell .coder-card.has-head .cc-out-view { overflow-anchor: none; }
-body.cli-shell .coder-card.has-head .cc-out-view.cc-fade-bottom { --fade-bottom: clamp(16px, 2.2vw, 28px); }
+body.cli-coder .coder-card.has-head .cc-out-view { overflow-anchor: none; }
+body.cli-coder .coder-card.has-head .cc-out-view.cc-fade-bottom { --fade-bottom: clamp(16px, 2.2vw, 28px); }
 
-/* ---- todo column (.has-todo — Shell use only) ----
+/* ---- todo column (.has-todo — Coder only) ----
    The card's body is a ROW: .cc-main (head + brain + terminal + minions) with a
    todo column to its RIGHT. The column is EMPTY and collapsed until the agent
    actually writes a list — setTodo() adds .has-todo, which opens it to a quarter
@@ -722,7 +722,7 @@ body.cli-shell .coder-card.has-head .cc-out-view.cc-fade-bottom { --fade-bottom:
 /* The conveyor WINDOW — the same pattern as .cc-chain-flow / .cc-track-flow: it clips, and
    the .cc-mtree inside translates up, so the NEWEST minions always stay in view and older
    rows slide away under the top fade (.cc-mscrolled, toggled from layoutTrunk). Without it
-   a 4th minion simply grew past the height-capped Shell-use card and painted over the Tool
+   a 4th minion simply grew past the height-capped Coder card and painted over the Tool
    response row below — .cc-body is overflow:visible on purpose, for the compact card whose
    height its tree really does set.
    padding-left:16px IS the trunk→row gap (it used to sit on .cc-minions): the elbow is drawn
@@ -794,15 +794,15 @@ body.cli-shell .coder-card.has-head .cc-out-view.cc-fade-bottom { --fade-bottom:
 @keyframes cc-orbit { 80%, 100% { transform: rotate(360deg); } }
 @keyframes cc-flow { 0% { transform: translateX(-75%); opacity: 0.8; } 50% { opacity: 1; } 100% { transform: translateX(75%); opacity: 0.8; } }
 
-/* ---- SHELL USE layout ----
-   Shell use is a terminal-first mode, so the card stops being a narrow column
-   between two side rails and becomes the surface: the terminal on the Shell use
+/* ---- CODER layout ----
+   Coder is a terminal-first mode, so the card stops being a narrow column
+   between two side rails and becomes the surface: the terminal on the Coder
    stage (cli_stage.css). It is the chat's whole terminal: your commands, the run's
    lines and its answers stay in it. There are no side zones here: the run's tool
-   chain and tracking progress are in its live line's box (above). body.cli-shell
+   chain and tracking progress are in its live line's box (above). body.cli-coder
    is toggled by cli/cli_stage.js; every other mode keeps the left | center | right
    columns. */
-body.cli-shell #cliContainer .cc-agent {
+body.cli-coder #cliContainer .cc-agent {
     /* FIT the panel, never push past it: the panel doesn't scroll, so the unit must
        shrink to it. */
     flex: 1 1 auto;
@@ -812,7 +812,7 @@ body.cli-shell #cliContainer .cc-agent {
     /* One row: the card, the whole stage tall. */
     grid-template-rows: minmax(0, 1fr);
     grid-template-areas: "term  term";
-    /* a Computer use run's card, still going when a shell chat opened, keeps its
+    /* a Computer use run's card, still going when a coder chat opened, keeps its
        chain + tracking zones' row (auto-placed under the terminal) */
     grid-auto-rows: minmax(166px, auto);
     align-content: start;
@@ -822,18 +822,18 @@ body.cli-shell #cliContainer .cc-agent {
    live line below it get the stage's height to share (the chat scrolls, the line
    stays on the bottom once the chat is long). The sliding bar now lives in the
    live line's box (it shows only while that box is open). */
-body.cli-shell #cliContainer .cc-card-wrap {
+body.cli-coder #cliContainer .cc-card-wrap {
     grid-area: term;
     align-items: stretch;
 }
-/* Shell use only: the terminal goes full-bleed (normally capped at 340px + centred). */
-body.cli-shell #cliContainer .coder-card { width: 100%; }
+/* Coder only: the terminal goes full-bleed (normally capped at 340px + centred). */
+body.cli-coder #cliContainer .coder-card { width: 100%; }
 /* A big terminal: its text a step up from the compact card's 10px. */
-body.cli-shell .coder-card.has-head .cc-body { font-size: 12px; }
+body.cli-coder .coder-card.has-head .cc-body { font-size: 12px; }
 
-/* A Shell run still going after you opened another mode's chat: only its live line
-   shows over that chat, not the Shell chat's own lines. */
-body:not(.cli-shell) .coder-card.has-head .cc-out-text { display: none; }
+/* A Coder run still going after you opened another mode's chat: only its live line
+   shows over that chat, not the Coder chat's own lines. */
+body:not(.cli-coder) .coder-card.has-head .cc-out-text { display: none; }
 
 /* The chat's own lines (cli_stage.js), the normal chat's look. Your message: its
    bubble on the right (container/user/user.css); its text (.cc-user-text) four
@@ -930,8 +930,8 @@ body:not(.cli-shell) .coder-card.has-head .cc-out-text { display: none; }
             mask: linear-gradient(to top, #000 0%, #000 45%, transparent 100%);
 }
 
-/* ---- IDLE card (Shell use) ----
-   Shell use parks an empty terminal in the stage whenever nothing is running, so
+/* ---- IDLE card (Coder) ----
+   Coder parks an empty terminal in the stage whenever nothing is running, so
    the mode always LOOKS like a terminal instead of a blank panel. It's an
    ordinary coder card that's simply never fed events, mounted WITHOUT its side
    zones (cli_stage.js's mountIdle) — terminal only until a real run starts.
@@ -940,7 +940,7 @@ body:not(.cli-shell) .coder-card.has-head .cc-out-text { display: none; }
 #cliContainer .cc-idle .cc-fill { animation: none; opacity: 0; }
 
 /* ---- todo rows (.todo-list / .todo-item / .todo-check / .todo-spinner / .todo-text) ----
-   The rows setTodo() builds in the Shell-use todo column, and tw-tickGlow for their
+   The rows setTodo() builds in the Coder todo column, and tw-tickGlow for their
    tick. They came from the main agent's todo list
    (container/bottom_right/), which is parked in container/dead/ now. */
 .todo-list {

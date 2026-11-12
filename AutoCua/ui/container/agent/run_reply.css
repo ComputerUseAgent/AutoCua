@@ -16,7 +16,7 @@
 }
 /* A bot beside the AI's final message: the run's own (data-bot, below), or
    the AutoCua bot (bots/autocua*.webp, from the owner's autocua-helmet.html);
-   Shell use's chat has the CoderUse bot (coder_card.css). As tall as a one-line reply's box
+   Coder's chat has the CoderUse bot (coder_card.css). As tall as a one-line reply's box
    (its padding, a 1.5 line, its line), a gap from it; the run's bot stands
    here, this size, while it runs (chain_bot.css). Three layers like the splash's
    bots (body, eyes, shine on one canvas), so its eyes can blink. */
@@ -32,7 +32,7 @@
    together, a pure fade (runReplyIn). No transition: the chat's glide to the
    reply's last line (chat_scroll.js toEnd) measures it at once. */
 .agent-container.show-reply {
-    /* The reply has its box, the thin line (like Shell use's answers); the
+    /* The reply has its box, the thin line (like Coder's answers); the
        container has no line while it holds the tool chain (agent.css). */
     border-color: rgba(0, 0, 0, 0.08);
     display: block;
@@ -78,7 +78,7 @@
     background-repeat: no-repeat;
     pointer-events: none;
 }
-/* A Computer use, Web use or Mobile use (iOS) chat's turns (chat_scroll.js
+/* A Computer use, Browser or Mobile use (iOS) chat's turns (chat_scroll.js
    data-bot): that mode's own bot instead (the splash's layers), the one that
    stood here while it ran (chain_bot.css). */
 .chat-turn[data-bot="computer"] > .agent-container.show-reply::before {
@@ -86,7 +86,7 @@
     background-image: url("../../bots/computeruse-shine.webp"), url("../../bots/computeruse-eyes.webp"),
                       url("../../bots/computeruse.webp");
 }
-.chat-turn[data-bot="web"] > .agent-container.show-reply::before {
+.chat-turn[data-bot="browser"] > .agent-container.show-reply::before {
     --reply-eye: 24.65%;
     background-image: url("../../bots/webuse-shine.webp"), url("../../bots/webuse-eyes.webp"),
                       url("../../bots/webuse.webp");

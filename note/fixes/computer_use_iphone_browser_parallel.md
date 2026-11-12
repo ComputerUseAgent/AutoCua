@@ -126,14 +126,14 @@ The phone's own log is the other half. Pull it with
   Measured call-in from the running Chrome: 0.2 s when the worker is warm (a run a
   minute after the last: the owner's terminal tests), 1.4-4.9 s after minutes of
   idle. Chrome stops the extension's worker by about 5 minutes idle despite its
-  20 s keepalive ([background.js:231](../../AutoCua/web/browser/AutoCuaBridge/background.js#L231)),
+  20 s keepalive ([background.js:231](../../AutoCua/browser/connector/AutoCuaBridge/background.js#L231)),
   and a stopped worker dials nobody until something wakes it. The staged
   extension path is the same for the app and the terminal (`~/.AutoCua/AutoCuaBridge`),
   so it was not an identity mismatch.
-- **Where:** [AutoCua/web/browser/bridge.rs:53](../../AutoCua/web/browser/bridge.rs#L53) `ATTACH_WAIT`,
-  [bridge.rs:60](../../AutoCua/web/browser/bridge.rs#L60) `WAKE_WAIT`,
-  [bridge.rs:185](../../AutoCua/web/browser/bridge.rs#L185) `wake_extension`,
-  [bridge.rs:519](../../AutoCua/web/browser/bridge.rs#L519) in `take_chrome`.
+- **Where:** [AutoCua/browser/connector/bridge.rs:53](../../AutoCua/browser/connector/bridge.rs#L53) `ATTACH_WAIT`,
+  [bridge.rs:60](../../AutoCua/browser/connector/bridge.rs#L60) `WAKE_WAIT`,
+  [bridge.rs:185](../../AutoCua/browser/connector/bridge.rs#L185) `wake_extension`,
+  [bridge.rs:519](../../AutoCua/browser/connector/bridge.rs#L519) in `take_chrome`.
 - **Fix:** when nobody dials within 2 s, the agent opens the extension's new
   `wake.html` in the running Chrome (`open -g -a <Chrome.app>` on macOS, the Chrome
   binary with the URL elsewhere: a second Chrome hands a URL to the running one).
