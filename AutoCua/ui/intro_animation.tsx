@@ -18,7 +18,7 @@ import { useLayoutEffect, useRef } from 'react';
 // front of them): the name the script finds them by, and their image files
 // in ui/bots/ (body, eyes, shine).
 const SIDE: [string, string][] = [
-    ['AutoCua', 'autocua'], ['Web use', 'webuse'], ['Mobile use', 'mobileuse'],
+    ['AutoCua', 'autocua'], ['Browser', 'webuse'], ['Mobile use', 'mobileuse'],
     ['Coder use', 'coderuse'], ['Scraper use', 'scraperuse'], ['Minion', 'minion'],
 ];
 
@@ -146,7 +146,7 @@ export function startIntro(root: HTMLElement): void {
     const side = root.querySelector('.side') as HTMLElement;
     // The slots in TEAM's order, left to right (in the markup the lead
     // comes last, in front of the side group).
-    const slots = ['AutoCua', 'Web use', 'Mobile use', 'Computer use', 'Coder use', 'Scraper use', 'Minion'].map(function (name) {
+    const slots = ['AutoCua', 'Browser', 'Mobile use', 'Computer use', 'Coder use', 'Scraper use', 'Minion'].map(function (name) {
         return (root.querySelector('.bot[aria-label="' + name + '"]') as HTMLElement).parentNode as HTMLElement;
     });
     const title = root.querySelector('.title') as HTMLElement;

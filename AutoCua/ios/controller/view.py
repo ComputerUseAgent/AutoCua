@@ -21,7 +21,7 @@ try:
 except ImportError:
     ShellService = None
 try:
-    from .tool.web.service import WebService
+    from AutoCua.web import WebService
 except ImportError:
     WebService = None
 

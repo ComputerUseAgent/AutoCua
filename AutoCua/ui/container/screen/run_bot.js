@@ -1,14 +1,14 @@
 // =====================================================================
 // The run's screen stage, in the screen box (run_bot.css): the moving
 // background (logo/simulation_background.mp4) behind the run's screenshots,
-// framed a little smaller than the box, for Computer use, Web use and iOS
+// framed a little smaller than the box, for Computer use, Browser and iOS
 // runs. The run's bot is not here any more: it comes in at the bottom
 // container (container/agent/chain_bot.js).
 // A Computer use run is recorded: once it has ended and its video is being
 // compressed, "Preparing video" shows on the background (after a short
 // grace, so a video that is ready at once just shows) until the video is
 // in; if none comes, the last screen is back. A reopened Computer use chat
-// shows its video on the same stage. Web use and iOS runs are not recorded:
+// shows its video on the same stage. Browser and iOS runs are not recorded:
 // their screen box goes once the task is done (run_reply.js).
 //   window.screenStageStart()          a run started (chat_input.js)
 //   window.screenStageOn()             a reopened Computer use chat's stage (chat.js)

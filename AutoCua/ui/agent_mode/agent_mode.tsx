@@ -4,7 +4,7 @@
 // + sub-option and a chevron. The floating menu above carries Computer use /
 // Mobile use, each with a > flyout: Computer use → This PC / Daisy chain
 // (This PC default), Mobile use → iOS / Android (iOS default), then the two
-// flat rows with no flyout: Shell use and Web use. Shell use adds the Auto /
+// flat rows with no flyout: Coder and Browser. Coder adds the Auto /
 // Manual pill. The Skills icon (skills/skills.tsx) stands just right of the
 // trigger. This was agent_mode.html, injected by agent_mode.js; agent_mode.js
 // still owns the state and wires it all, and fires 'agentmode:ready'.
@@ -87,20 +87,20 @@ export function AgentMode() {
                         </div>
                     </div>
 
-                    {/* Shell use: no sub-options, so no .agent-sub and no > hint. */}
-                    <div className="agent-opt-wrap" data-mode="shell">
-                        <button className="agent-opt" data-mode="shell" role="menuitemradio" aria-checked="false" type="button">
+                    {/* Coder: no sub-options, so no .agent-sub and no > hint. */}
+                    <div className="agent-opt-wrap" data-mode="coder">
+                        <button className="agent-opt" data-mode="coder" role="menuitemradio" aria-checked="false" type="button">
                             <Stroke className="am-icon">{SHELL}</Stroke>
                             <span>Coder</span>
                             <Check />
                         </button>
                     </div>
 
-                    {/* Web use: the browser agent. No sub-options either. */}
-                    <div className="agent-opt-wrap" data-mode="web">
-                        <button className="agent-opt" data-mode="web" role="menuitemradio" aria-checked="false" type="button">
+                    {/* Browser: the browser agent. No sub-options either. */}
+                    <div className="agent-opt-wrap" data-mode="browser">
+                        <button className="agent-opt" data-mode="browser" role="menuitemradio" aria-checked="false" type="button">
                             <Stroke className="am-icon">{GLOBE}</Stroke>
-                            <span>Web use</span>
+                            <span>Browser</span>
                             <Check />
                         </button>
                     </div>
@@ -112,8 +112,8 @@ export function AgentMode() {
                 {/* mode logo (monitor / phone / terminal / globe), driven by data-mode */}
                 <Stroke className="am-mode-icon am-mode-computer" hidden>{MONITOR}</Stroke>
                 <Stroke className="am-mode-icon am-mode-mobile" hidden>{PHONE}</Stroke>
-                <Stroke className="am-mode-icon am-mode-shell" hidden>{SHELL}</Stroke>
-                <Stroke className="am-mode-icon am-mode-web" hidden>{GLOBE}</Stroke>
+                <Stroke className="am-mode-icon am-mode-coder" hidden>{SHELL}</Stroke>
+                <Stroke className="am-mode-icon am-mode-browser" hidden>{GLOBE}</Stroke>
                 <span className="am-cur-label" id="agentCurLabel">Computer use</span>
                 {/* sub-option after the mode name: the chain for Daisy chain, the
                     words iOS / Android for those. This PC (and no-sub) shows nothing. */}
@@ -135,7 +135,7 @@ export function AgentMode() {
                 <Stroke className="ps-retry" hidden>{RETRY}</Stroke>
             </button>
 
-            {/* Shell use only: Auto / Manual. Auto: your message goes to the agent and the
+            {/* Coder only: Auto / Manual. Auto: your message goes to the agent and the
                 terminal shows its work and answer. Manual: you type commands in the terminal
                 yourself (the chat box points there), and the terminal grows. Same pill and
                 menu look as the mode picker; agent_mode.js owns its state. */}

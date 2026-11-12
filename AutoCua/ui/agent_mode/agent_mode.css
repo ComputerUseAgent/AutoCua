@@ -251,8 +251,8 @@
 }
 .agent-mode-wrap[data-mode="computer"] .am-mode-computer { display: block; }
 .agent-mode-wrap[data-mode="mobile"]   .am-mode-mobile   { display: block; }
-.agent-mode-wrap[data-mode="shell"]    .am-mode-shell    { display: block; }
-.agent-mode-wrap[data-mode="web"]      .am-mode-web      { display: block; }
+.agent-mode-wrap[data-mode="coder"]    .am-mode-coder    { display: block; }
+.agent-mode-wrap[data-mode="browser"]  .am-mode-browser  { display: block; }
 
 .am-cur-label { white-space: nowrap; }
 
@@ -293,9 +293,9 @@ html:not([data-host="mac"]) .agent-subopt[data-sub="ios"] { display: none; }
     .agent-btn, .agent-menu, .agent-opt, .am-chev { transition: none; }
 }
 
-/* ---------- Auto / Manual (Shell use only), right of the picker ----------
+/* ---------- Auto / Manual (Coder only), right of the picker ----------
    The picker's own pill and menu (.agent-btn, .agent-menu, .agent-opt); this box
-   only places them. display:none outside Shell use, so the skills icon closes up
+   only places them. display:none outside Coder, so the skills icon closes up
    in the other modes. position:relative so its menu opens above it. */
 .shell-input-wrap {
     position: relative;
@@ -303,7 +303,7 @@ html:not([data-host="mac"]) .agent-subopt[data-sub="ios"] { display: none; }
     align-items: center;
     margin-left: clamp(2px, 0.4vw, 6px);
 }
-.agent-mode-wrap[data-mode="shell"] .shell-input-wrap { display: flex; animation: siIn 0.3s ease; }
+.agent-mode-wrap[data-mode="coder"] .shell-input-wrap { display: flex; animation: siIn 0.3s ease; }
 @keyframes siIn { from { opacity: 0; } to { opacity: 1; } }
 .shell-input-menu { width: clamp(150px, 16vw, 180px); }
 .si-icon {
@@ -316,7 +316,7 @@ html:not([data-host="mac"]) .agent-subopt[data-sub="ios"] { display: none; }
 .agent-mode-wrap[data-shell-input="auto"] .si-auto,
 .agent-mode-wrap[data-shell-input="manual"] .si-manual { display: block; }
 @media (prefers-reduced-motion: reduce) {
-    .agent-mode-wrap[data-mode="shell"] .shell-input-wrap { animation: none; }
+    .agent-mode-wrap[data-mode="coder"] .shell-input-wrap { animation: none; }
 }
 
 /* ---------- Mobile use: the phone's pairing, right of the picker ----------
@@ -417,14 +417,14 @@ html:not([data-host="mac"]) .agent-subopt[data-sub="ios"] { display: none; }
 }
 /* Android while CONNECTING: the green glow breathes the same way, driven by
    android_session.js (its rest frame is the steady glow above). */
-/* Shell use — pink (hot pink → deep rose). Keyed on data-MODE, not data-sub:
-   Shell has no sub-options, so its data-sub is "none" and a [data-sub=…] rule
+/* Coder — pink (hot pink → deep rose). Keyed on data-MODE, not data-sub:
+   Coder has no sub-options, so its data-sub is "none" and a [data-sub=…] rule
    could never match it.
    Hue choice: the four above already own blue (~199-224°), amber (~48-36°),
    purple (~280-241°) and green-teal (~147-177°). Pink at ~323-341° is the one
    wide gap left — ~60° clear of the iOS purple, its nearest neighbour — so the
    glow is never mistaken for another mode at a glance. */
-.input-area-wrapper:has(.agent-mode-wrap[data-mode="shell"]) {
+.input-area-wrapper:has(.agent-mode-wrap[data-mode="coder"]) {
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05),
         inset 0 14px 28px -16px rgba(255, 122, 205, 0.34),
         inset 14px 0 28px -16px rgba(255, 122, 205, 0.20),
@@ -432,14 +432,14 @@ html:not([data-host="mac"]) .agent-subopt[data-sub="ios"] { display: none; }
         inset -14px 0 28px -16px rgba(233, 45, 115, 0.20);
 }
 
-/* Web use — lime (chartreuse → leaf). Keyed on data-MODE for the same reason
-   Shell is: no sub-options, so its data-sub stays "none".
+/* Browser — lime (chartreuse → leaf). Keyed on data-MODE for the same reason
+   Coder is: no sub-options, so its data-sub stays "none".
    Hue choice by the same rule: the five glows above sit at ~36-48° (amber),
    ~148-177° (green-teal), ~197-224° (blue), ~241-280° (purple) and ~323-341°
    (pink). The widest gap left is 48-148°, so lime at ~86-105° is the pick —
    it lands ~38° off the amber below it and ~43° off the green-teal above,
    the most separation any remaining hue can buy. */
-.input-area-wrapper:has(.agent-mode-wrap[data-mode="web"]) {
+.input-area-wrapper:has(.agent-mode-wrap[data-mode="browser"]) {
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05),
         inset 0 14px 28px -16px rgba(176, 240, 92, 0.34),
         inset 14px 0 28px -16px rgba(176, 240, 92, 0.20),

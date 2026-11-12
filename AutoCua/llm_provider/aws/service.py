@@ -130,7 +130,7 @@ class AWSProvider:
         self.session = requests.Session()
         # Native tool calling: chat-completions function tools — the format
         # the manager hands every provider without a dialect of its own, and
-        # the one the web agent's Rust manager sends. They become Converse
+        # the one the browser agent's Rust manager sends. They become Converse
         # toolSpecs per request, because show_screen_tools swaps this list
         # between calls. None only for mode="text" (plain prose).
         self.tools = tools or None

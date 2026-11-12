@@ -1,11 +1,11 @@
 /* =====================================================================
-   The mode's bot (mode_bot.js): Computer use's, Web use's, Mobile use's or
-   Shell use's, standing on top of the chat box in its middle in a fresh chat:
+   The mode's bot (mode_bot.js): Computer use's, Browser's, Mobile use's or
+   Coder's, standing on top of the chat box in its middle in a fresh chat:
    a small item of the chat box's column, just above the "Agent running..." strip.
    While it comes in it is held big in the middle of the frame by a transform (the
-   script), and the welcome words (Shell use: its chat, cli_stage.css) wait. When
+   script), and the welcome words (Coder: its chat, cli_stage.css) wait. When
    its chat's run starts it flies over to the run's bot's place
-   (container/agent/chain_bot.js; Shell use: cli_container/coder_card.js). Only
+   (container/agent/chain_bot.js; Coder: cli_container/coder_card.js). Only
    transform / opacity animate (and the entrance's blur).
    ===================================================================== */
 #modeBot {

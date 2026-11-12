@@ -1291,7 +1291,7 @@ body.settings-open #chatWrapper {
    container's frame. One cell, shared by the frame (big_center_container),
    the chat that scrolls under it (#chatScroll, container/chat_scroll: the
    turns, each the user's message, the screen and the tool response |
-   tracking progress row) and the Shell use panel (#cliContainer).
+   tracking progress row) and the Coder panel (#cliContainer).
    ===================================================================== */
 .main-grid {
     position: fixed;

@@ -1,19 +1,20 @@
-"""Build the Rust extension (the web agent, the Android agent, the coder, memory compression and the chat memory) if it isn't built yet.
+"""Build the Rust extension (the browser agent, the Android agent, the coder, the computer-use agent, the iPhone agent, the web tool, memory compression and the chat memory) if it isn't built yet.
 
 They are ONE crate rooted at the package folder, AutoCua/:
 Cargo.toml, Cargo.lock, build.rs, lib.rs, target/ and the built
 agent_native.so all live there, and each agent's .rs sources sit in its own
-folder (web/, android/, coder/, memory_compression/, agent_conversation/)
-mirroring the old Python layout. It compiles
+folder (browser/, android/, coder/, computer/, ios/, web/, memory_compression/,
+agent_conversation/) mirroring the old Python layout. It compiles
 with plain `cargo build --release` (no maturin, no pyproject.toml), one cargo
 build for all of them.
 
 WHEN THIS ACTUALLY RUNS
     Checkout  — Cargo.toml sits in the package, so this compiles when
                 the desktop app starts (ui/service.py _prepare_native),
-                on a terminal run's first "web use" / "mobile use, android"
-                / coder run, and on any later run where a .rs source is
-                newer than the built module.
+                on a terminal run's first "browser" / "mobile use, android"
+                / "mobile use, ios" / coder / "computer use" run, and on
+                any later run where a .rs source is newer than the built
+                module.
     pip wheel — the extension ships prebuilt: maturin builds it
                 (agent_native.abi3.so / .pyd) and the crate's sources are
                 excluded, so there is no Cargo.toml to find and cargo is
@@ -33,10 +34,12 @@ import sys
 from pathlib import Path
 
 _PACKAGE = Path(__file__).resolve().parent.parent
-# The folders lib.rs declares, one per agent, then memory_compression, which
-# every agent shares (Python's included), and agent_conversation, the desktop
-# app's saved chats.
-_AGENT_DIRS = (_PACKAGE / "web", _PACKAGE / "android", _PACKAGE / "coder",
+# The folders lib.rs declares, one per agent (computer holds the
+# computer-use agent, ios the iPhone agent), then web, the web tool, and
+# memory_compression, which every agent shares (Python's included), and
+# agent_conversation, the desktop app's saved chats.
+_AGENT_DIRS = (_PACKAGE / "browser", _PACKAGE / "android", _PACKAGE / "coder",
+               _PACKAGE / "computer", _PACKAGE / "ios", _PACKAGE / "web",
                _PACKAGE / "memory_compression", _PACKAGE / "agent_conversation")
 
 # Two different naming schemes have to line up here, and neither is portable:
@@ -76,7 +79,7 @@ def _rust_sources():
     Walked rather than listed folder by folder. A hand-written list goes stale
     the moment a source moves, and it fails SILENTLY — the extension simply
     stops rebuilding and every later import loads a .so that no longer matches
-    the code. browser/browser.rs was exactly that: moved out of agent/, and
+    the code. connector/browser.rs was exactly that: moved out of agent/, and
     with it out of the freshness check.
     """
     yield from _PACKAGE.glob("*.rs")
@@ -134,7 +137,7 @@ def _ensure_built(crate_dir, what, others):
         )
 
     # cargo links through the system C compiler, and the crate compiles C
-    # sources of its own (ring's SHA-256, for the web agent) — a Linux box
+    # sources of its own (ring's SHA-256, for the browser agent) — a Linux box
     # straight from the installer has neither.
     # Caught here with a readable message rather than minutes later as
     # "linker `cc` not found" deep in cargo's output. macOS always has
@@ -197,9 +200,10 @@ def _ensure_built(crate_dir, what, others):
 
 
 def ensure_built() -> None:
-    """The one Rust extension (AutoCua/agent_native): the web agent, the
-    Android agent and the coder, built once."""
+    """The one Rust extension (AutoCua/agent_native): the browser agent, the
+    Android agent, the coder, the computer-use agent, the iPhone agent and
+    the web tool, built once."""
     # Every mode needs it now: computer use and iOS compress memory with it,
     # and the desktop app keeps its chats with it.
-    _ensure_built(_PACKAGE, "Rust parts (the web, Android and coder agents, memory "
-                  "compression and the chat memory)", None)
+    _ensure_built(_PACKAGE, "Rust parts (the browser, Android, coder, computer-use and "
+                  "iPhone agents, the web tool, memory compression and the chat memory)", None)

@@ -18,7 +18,7 @@ This was the bottom-right zone (`#zoneBottomRight`) of the main grid until
 
 The todo-row styles (`.todo-list`, `.todo-item`, `.todo-check`,
 `.todo-spinner`, `.todo-text` and the `tw-*` keyframes) moved to the end of
-`cli/cli_container/coder_card.css`. The CLI's Shell-use todo column still
+`cli/cli_container/coder_card.css`. The CLI's Coder todo column still
 uses them.
 
 The backend still sends the main agent's `todo.md` to `window.updateTodoList`
@@ -37,7 +37,7 @@ video shows in the screen box and its reply in the bottom container. These
 connections were removed:
 
 - `index.html`: the `notes_stage/notes_stage.js` script.
-  `notes_stage/notes_stage.css` is still loaded: Shell use's notes rows and the
+  `notes_stage/notes_stage.css` is still loaded: Coder's notes rows and the
   shared `.md` Markdown styles use it.
 - `ui/service.py`: `send_agent_notes()`, called at run end. It pushed
   `window.showAgentNotes` (the scratchpad) or `window.showAgentHistory`.

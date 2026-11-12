@@ -3,11 +3,11 @@
 # AutoCua — Linux one-click setup
 # ================================
 # Installs the distro packages AutoCua needs (the AT-SPI bindings the scanner
-# and controller read the desktop through, a C compiler and curl for the web
+# and controller read the desktop through, a C compiler and curl for the browser
 # agent), installs uv (if missing), creates a local .venv/ on the distro's
 # Python, and installs requirements_linux.txt into it. Then installs the Rust
-# toolchain (if missing) and builds the web agent's native extension, so the
-# first "web use" run doesn't stop on a missing cargo. The Linux twin of
+# toolchain (if missing) and builds the browser agent's native extension, so the
+# first "browser" run doesn't stop on a missing cargo. The Linux twin of
 # setup_mac.sh, step for step.
 #
 # How to run (either):
@@ -116,7 +116,7 @@ as_root() {
 #       which does not care, so nothing here depends on it. Other distros
 #       ship ensurepip inside their python3 package.
 #   build-essential
-#       cc. cargo links the web agent through it, and ring (the SHA-256
+#       cc. cargo links the browser agent through it, and ring (the SHA-256
 #       that stages the browser extension) compiles C sources. Nothing
 #       else needs it.
 #   curl ca-certificates
@@ -305,28 +305,28 @@ if ! uv pip install --python "$VENV_PYTHON" -r requirements_linux.txt; then
 fi
 
 # -----------------------------------------------------------------------------
-# Step 4 — Rust toolchain (for the web agent)
+# Step 4 — Rust toolchain (for the browser agent)
 # -----------------------------------------------------------------------------
-# The web agent is the one mode that isn't pure Python: AutoCua/web is a PyO3
-# cdylib that AutoCua/web/agent/__init__.py compiles with cargo on first
-# import. No cargo means
+# The browser agent is the one mode that isn't pure Python: AutoCua/browser
+# is a PyO3 cdylib that AutoCua/browser/agent/__init__.py compiles with cargo
+# on first import. No cargo means
 #     python main.py
-# dies with "cargo not found" the moment web use is selected, so the toolchain
-# belongs in setup rather than in a README step — same step as the macOS and
-# Windows scripts.
+# dies with "cargo not found" the moment the browser mode is selected, so the
+# toolchain belongs in setup rather than in a README step — same step as the
+# macOS and Windows scripts.
 #
 # Nothing from here on is fatal. By this point the venv and every dependency
-# are in place, and computer use, shell use and mobile use all run without
-# cargo — a failed toolchain install should cost the user the web agent, not
-# the whole setup.
-print_step "STEP 4: Rust toolchain (web agent)"
+# are in place, and computer use, coder and mobile use all run without
+# cargo — a failed toolchain install should cost the user the browser agent,
+# not the whole setup.
+print_step "STEP 4: Rust toolchain (browser agent)"
 
 # rustup installs into ~/.cargo/bin and appends that to the shell profile,
 # which does not reach the shell we're in now — same situation as the uv
 # install in step 1, same fix.
 export PATH="$HOME/.cargo/bin:$PATH"
 
-WEB_AGENT_READY=1
+BROWSER_AGENT_READY=1
 
 # Run cargo rather than look for it. ~/.cargo/bin/cargo is a symlink to the
 # rustup proxy, created during rustup's self-install whether or not a
@@ -341,27 +341,27 @@ have_cargo() { cargo --version >/dev/null 2>&1; }
 # installs. Failing here beats failing later inside a cargo error nobody can
 # read.
 if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1 && ! command -v clang >/dev/null 2>&1; then
-    print_error "No C compiler found — cargo needs one to link the web agent."
+    print_error "No C compiler found — cargo needs one to link the browser agent."
     print_info  "Install build-essential (step 0) and re-run this script."
     print_info  "Everything else is already installed."
-    WEB_AGENT_READY=0
+    BROWSER_AGENT_READY=0
 fi
 
 # The repo pins its Rust (rust-toolchain.toml at the root): the first cargo
 # call, in have_cargo below, has rustup install that version, about 150 MB,
 # once, with no output of its own.
-if [ "$WEB_AGENT_READY" = "1" ] && command -v rustup >/dev/null 2>&1; then
+if [ "$BROWSER_AGENT_READY" = "1" ] && command -v rustup >/dev/null 2>&1; then
     print_info "Checking the Rust version the repo pins (rust-toolchain.toml); a first install is about 150 MB..."
 fi
 
 # A rustup that is installed but has no default toolchain is repaired in place.
-if [ "$WEB_AGENT_READY" = "1" ] && ! have_cargo && command -v rustup >/dev/null 2>&1; then
+if [ "$BROWSER_AGENT_READY" = "1" ] && ! have_cargo && command -v rustup >/dev/null 2>&1; then
     print_info "rustup is installed but has no usable default toolchain — installing stable"
     rustup toolchain install stable || true
     rustup default stable || true
 fi
 
-if [ "$WEB_AGENT_READY" = "1" ] && ! have_cargo; then
+if [ "$BROWSER_AGENT_READY" = "1" ] && ! have_cargo; then
     print_info "cargo not found — installing the Rust toolchain (https://rustup.rs)"
 
     # The assignment is guarded: `set -e` DOES abort on a bare assignment whose
@@ -370,7 +370,7 @@ if [ "$WEB_AGENT_READY" = "1" ] && ! have_cargo; then
     if ! RUSTUP_SH="$(mktemp "${TMPDIR:-/tmp}/rustup-init.XXXXXXXX")"; then
         print_error "Could not create a temp file for the Rust installer."
         print_info  "Install Rust yourself from https://rustup.rs, then re-run this script."
-        WEB_AGENT_READY=0
+        BROWSER_AGENT_READY=0
     else
         # --profile minimal: rustc + cargo + std, no docs/clippy/rustfmt. -y
         # keeps it non-interactive. The profile edit it makes is deliberate —
@@ -382,13 +382,13 @@ if [ "$WEB_AGENT_READY" = "1" ] && ! have_cargo; then
         else
             print_error "Could not install Rust."
             print_info  "Install it yourself from https://rustup.rs, then re-run this script."
-            WEB_AGENT_READY=0
+            BROWSER_AGENT_READY=0
         fi
         rm -f "$RUSTUP_SH" || true
     fi
 fi
 
-if [ "$WEB_AGENT_READY" = "1" ]; then
+if [ "$BROWSER_AGENT_READY" = "1" ]; then
     # Captured, not interpolated inline: a cargo that exits non-zero prints
     # nothing, and `print_ok "Found $(cargo --version)"` would report the empty
     # string as success.
@@ -399,29 +399,29 @@ if [ "$WEB_AGENT_READY" = "1" ]; then
     else
         print_error "cargo still isn't usable in this shell."
         print_info  "Open a new terminal and re-run this script."
-        WEB_AGENT_READY=0
+        BROWSER_AGENT_READY=0
     fi
 fi
 
 # -----------------------------------------------------------------------------
-# Step 5 — build the web agent
+# Step 5 — build the browser agent
 # -----------------------------------------------------------------------------
-# Built here rather than left to the first "web use" run, so a compile error
+# Built here rather than left to the first "browser" run, so a compile error
 # surfaces during setup while the user is still watching, instead of minutes
 # into an agent run. Importing the package is the build: the loader compiles
 # whenever the .so is missing or older than any .rs source.
-print_step "STEP 5: Building the web agent and the Android agent"
+print_step "STEP 5: Building the browser agent and the Android agent"
 
-if [ "$WEB_AGENT_READY" = "1" ]; then
+if [ "$BROWSER_AGENT_READY" = "1" ]; then
     print_info "The first build takes a few minutes..."
-    if "$VENV_PYTHON" -c "import AutoCua.web.agent"; then
-        print_ok "Web agent built"
+    if "$VENV_PYTHON" -c "import AutoCua.browser.agent"; then
+        print_ok "Browser agent built"
     else
-        print_error "The web agent did not build."
-        print_info  "Everything else still works — computer use, shell use and"
+        print_error "The browser agent did not build."
+        print_info  "Everything else still works — computer use, coder and"
         print_info  "mobile use don't need it. Fix the error above and re-run."
     fi
-    # The Android agent (AutoCua/android, Rust like the web agent) is built the
+    # The Android agent (AutoCua/android, Rust like the browser agent) is built the
     # same way, so the first "mobile use, android" run does not stop for a
     # build. The emulator and the Android images are NOT fetched here (2.5 GB,
     # Google's terms): the first emulator run does that, or
@@ -436,7 +436,7 @@ if [ "$WEB_AGENT_READY" = "1" ]; then
     fi
 else
     print_info "Skipped — see the step above."
-    print_info "Computer use, shell use and mobile use on iOS are unaffected."
+    print_info "Computer use, coder and mobile use on iOS are unaffected."
 fi
 
 # -----------------------------------------------------------------------------

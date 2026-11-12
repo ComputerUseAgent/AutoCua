@@ -1,4 +1,4 @@
-"""Drive a scratch Chrome through agent_native.Bridge only, the way the web agent does
+"""Drive a scratch Chrome through agent_native.Bridge only, the way the browser agent does
 in fast mode: open the form, scan, click Search, settle, tabs, glow, then the scan
 that failed in the incident, timed. No agent, no LLM, never the person's Chrome.
 
@@ -17,7 +17,7 @@ import time
 
 # The checkout this note lives in: note/fixes/<this folder>/drive.py
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
-from AutoCua.web.agent import Bridge  # noqa: E402  (builds the extension first if needed)
+from AutoCua.browser.agent import Bridge  # noqa: E402  (builds the extension first if needed)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--label", required=True)

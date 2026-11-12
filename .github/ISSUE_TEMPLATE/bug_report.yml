@@ -42,8 +42,8 @@ body:
       label: Mode
       options:
         - computer use
-        - coder / shell use
-        - web use
+        - coder
+        - browser
         - mobile use, iOS simulator
         - mobile use, iOS hardware
     validations:

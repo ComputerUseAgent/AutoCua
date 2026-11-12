@@ -25,7 +25,7 @@
     'use strict';
 
     var BOTS = { browser: 'webuse', ios: 'mobileuse', android: 'mobileuse', coder: 'coderuse' };   // ui/bots/<bot>*.webp
-    var FLOWS = { browser: 'web', ios: 'mobile', android: 'mobile' };    // their chain's click and scroll logos
+    var FLOWS = { browser: 'browser', ios: 'mobile', android: 'mobile' };    // their chain's click and scroll logos
     var MOVE_MS = 350;            // a box opens or closes (sub_agents.css .sub-slot)
     var TYPE_MS = 5;              // the tracking progress's typing (tracking_progress.js)
     var CHARS_PER_TICK = 2;

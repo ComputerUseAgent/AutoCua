@@ -109,8 +109,8 @@ def _tap_pin_keys(controller_service, session, points):
 # ─────────────────────────────── Field fills ──────────────────────────────────
 # vault {"id": 5, "value": "password"}: the value saved under the key the agent
 # names, in the "ios" entry of the app in front (its exact name, case and
-# spaces ignored), typed into [5] like `input`. The same rules as the web vault
-# (web/controller/vault): the agent sees key names only (`block`), a password
+# spaces ignored), typed into [5] like `input`. The same rules as the browser vault
+# (browser/controller/vault): the agent sees key names only (`block`), a password
 # goes only into a password field, and what was typed reads as [vault] from
 # then on (`hide`). Right before the keys go out, after the focus tap, the app
 # scanned must still be in front: an earlier call in the step can switch apps.
@@ -255,7 +255,7 @@ class VaultService:
                     loaded = json.load(f)
                 if not isinstance(loaded, dict):
                     raise ValueError("credentials.json must hold an object")
-                # One file for every device, a section each ("ios", "web", ...):
+                # One file for every device, a section each ("ios", "browser", ...):
                 # iOS reads only its own, so a site key can never match an app.
                 section = loaded.get("ios", {})
                 if not isinstance(section, dict):
