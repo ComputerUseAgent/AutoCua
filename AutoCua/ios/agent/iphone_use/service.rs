@@ -371,7 +371,7 @@ fn special<'py>(value: &Obj<'py>, name: &str) -> PyResult<Option<Obj<'py>>> {
 
 /// `with manager as value: body(value)`. None when the body failed and
 /// __exit__ swallowed the error: Python then goes on after the block.
-fn with<'py, T>(manager: &Obj<'py>, body: impl FnOnce(&Obj<'py>) -> PyResult<T>) -> PyResult<Option<T>> {
+pub(crate) fn with<'py, T>(manager: &Obj<'py>, body: impl FnOnce(&Obj<'py>) -> PyResult<T>) -> PyResult<Option<T>> {
     let py = manager.py();
     let Some(enter) = special(manager, "__enter__")? else {
         return Err(PyTypeError::new_err(format!(
