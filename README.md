@@ -13,7 +13,7 @@
 
 [![Desktop input](https://img.shields.io/badge/desktop%20input-real%20hardware%20events-e8590c)](https://github.com/ComputerUseAgent/AutoCua/blob/main/README.md#how-it-acts-on-a-screen)
 [![Browser agent](https://img.shields.io/badge/browser%20agent-Rust%20%2B%20a%20Chrome%20extension-b7410e)](https://github.com/ComputerUseAgent/AutoCua/blob/main/README.md#the-browser-agent)
-[![Models](https://img.shields.io/badge/models-60%20across%2010%20providers-7048e8)](https://github.com/ComputerUseAgent/AutoCua/blob/main/README.md#providers-and-models)
+[![Models](https://img.shields.io/badge/models-66%20across%2012%20providers-7048e8)](https://github.com/ComputerUseAgent/AutoCua/blob/main/README.md#providers-and-models)
 
 <table><tr><td>
 
@@ -1115,11 +1115,12 @@ Eleven providers, all supported on every surface.
 | Ollama, on your own machine | yes | yes | yes | yes | yes |
 | OpenAI | yes | yes | yes | yes | yes |
 | OpenRouter | yes | yes | yes | yes | yes |
+| Opper | yes | yes | yes | yes | yes |
 | Perplexity | yes | yes | yes | yes | yes |
 | Requesty | yes | yes | yes | yes | yes |
 | Together AI | yes | yes | yes | yes | yes |
 
-63 model names are listed in **[model_list.txt](https://github.com/ComputerUseAgent/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
+66 model names are listed in **[model_list.txt](https://github.com/ComputerUseAgent/AutoCua/blob/main/model_list.txt)**. Copy them exactly. A name
 that is not on the list gets no validation. It is forwarded verbatim and comes back as a 404.
 
 Ollama runs the model on your own machine, with no key and nothing billed per call: start the
@@ -1140,7 +1141,7 @@ search tool, Gemini grounding, Groq's compound model, OpenRouter's Exa plugin ru
 chosen model, and Perplexity Sonar. It is one shared Rust tool, in `AutoCua/web`, used by every
 agent: computer use on macOS, Windows and Linux, the iPhone and Android agents, and the coder.
 
-> Together AI, Cerebras, Requesty, AWS Bedrock and Ollama have no native web search. Under any of them the `web` tool hands the query to the
+> Together AI, Cerebras, Requesty, AWS Bedrock and Ollama have no native web search, and Opper takes the same path here. Under any of them the `web` tool hands the query to the
 > browser agent running headless on its own dedicated port and profile, capped at 15 minutes,
 > and returns its report. Expect that step to take minutes rather than seconds.
 

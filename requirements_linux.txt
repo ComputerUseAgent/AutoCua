@@ -94,9 +94,9 @@ onnxruntime>=1.20
 # requirements_mac.txt declares the same set unpinned; the floors below are
 # this file's own choice (see the header).
 #
-# All ten providers are reachable on Linux: openai and google-genai use
+# All eleven providers are reachable on Linux: openai and google-genai use
 # their SDKs; anthropic, groq, openrouter, perplexity, together, cerebras,
-# requesty and aws go through `requests`. The shared manager imports every provider when it
+# requesty, opper and aws go through `requests`. The shared manager imports every provider when it
 # loads, so dropping openai or google-genai breaks every agent, not one
 # provider. The groq and anthropic SDKs serve the `web` tool's search
 # backends (AutoCua/web/groq_search.rs and anthropic.rs).

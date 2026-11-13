@@ -138,6 +138,16 @@ deepseek-v4.1-flash-1017  none      none      yes
 
 
 --------------------------------------------------------------
+provider="opper"
+--------------------------------------------------------------
+model name                thinking  coder     vision
+--------------------------------------------------------------
+claude-sonnet-5           low       medium    yes
+gemini-3.6-flash          default   default   yes
+gpt-5.4                   default   default   yes
+
+
+--------------------------------------------------------------
 provider="aws"
 --------------------------------------------------------------
 model name                thinking  coder     vision
@@ -162,5 +172,5 @@ ornith-1.5:35b            none      medium    yes
 
 
 --------------------------------------------------------------
-63 models across 11 providers.
+66 models across 12 providers.
 --------------------------------------------------------------
