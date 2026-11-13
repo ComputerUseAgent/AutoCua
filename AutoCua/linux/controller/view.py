@@ -16,7 +16,7 @@ from .task_tracker.service import TaskTrackerService
 from .scratchpad.service import ScratchpadService
 from .tool import open_app, ShellService, AppScriptService
 from .hotkey.service import HotkeyService
-from AutoCua.web import WebService
+from AutoCua.universal_tool.web import WebService
 from .tool.screenshot import ScreenshotService
 try:
     from app import debug_log, app_data_dir

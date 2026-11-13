@@ -110,10 +110,12 @@ exclude = [
     # loader never tries cargo.
     { path = "AutoCua/*.rs", format = "wheel" },
     { path = "AutoCua/browser/**/*.rs", format = "wheel" },
-    # AutoCua/web: the web tool (its web.md and __init__.py ship). It was the
-    # browser agent's folder before the rename, and a checkout from before it
-    # keeps leftover files there, hence the scratchpad and HANDOFF lines below.
-    { path = "AutoCua/web/**/*.rs", format = "wheel" },
+    # AutoCua/universal_tool: the tools every OS shares, the web tool in web/
+    # (its web.md and __init__.py ship). AutoCua/web was the browser agent's
+    # folder before the rename, then the web tool's, and a checkout from
+    # before keeps leftover files there, hence the AutoCua/web scratchpad and
+    # HANDOFF lines below.
+    { path = "AutoCua/universal_tool/**/*.rs", format = "wheel" },
     { path = "AutoCua/android/**/*.rs", format = "wheel" },
     { path = "AutoCua/coder/**/*.rs", format = "wheel" },
     { path = "AutoCua/computer/**/*.rs", format = "wheel" },

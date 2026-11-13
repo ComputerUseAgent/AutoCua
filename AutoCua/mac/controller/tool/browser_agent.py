@@ -4,9 +4,10 @@
 agent (AutoCua/browser, the Rust Chrome driver) on a task and returns at once;
 the controller then polls `outcome` until the run is over.
 
-Not the `web` tool's fallback (AutoCua/web/web_agent.rs), which is a blocking,
-headless, read-only research call. This one ACTS: it navigates, clicks and
-fills forms, in the person's own Chrome, through the AutoCua extension.
+Not the `web` tool's fallback (AutoCua/universal_tool/web/web_agent.rs),
+which is a blocking, headless, read-only research call. This one ACTS: it
+navigates, clicks and fills forms, in the person's own Chrome, through the
+AutoCua extension.
 
 It runs the way parallel `web use` does (see browser_agent_child.py): each
 agent works in a background tab of its own and never in another's, so up to

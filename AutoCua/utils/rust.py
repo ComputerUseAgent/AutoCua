@@ -3,10 +3,10 @@
 They are ONE crate rooted at the package folder, AutoCua/:
 Cargo.toml, Cargo.lock, build.rs, lib.rs, target/ and the built
 agent_native.so all live there, and each agent's .rs sources sit in its own
-folder (browser/, android/, coder/, computer/, ios/, mac/, web/, memory_compression/,
-agent_conversation/) mirroring the old Python layout. It compiles
-with plain `cargo build --release` (no maturin, no pyproject.toml), one cargo
-build for all of them.
+folder (browser/, android/, coder/, computer/, ios/, mac/, universal_tool/
+(the web tool, in web/), memory_compression/, agent_conversation/) mirroring
+the old Python layout. It compiles with plain `cargo build --release` (no
+maturin, no pyproject.toml), one cargo build for all of them.
 
 WHEN THIS ACTUALLY RUNS
     Checkout  — Cargo.toml sits in the package, so this compiles when
@@ -37,12 +37,13 @@ _PACKAGE = Path(__file__).resolve().parent.parent
 # The folders lib.rs declares, one per agent (computer holds the
 # computer-use agent, ios the iPhone agent, mac, windows and linux each
 # their controller's scratchpad and todo list and their tool registry, vault
-# the saved credentials the phone agents type), then web, the web tool, and
-# memory_compression, which every agent shares (Python's included), and
-# agent_conversation, the desktop app's saved chats.
+# the saved credentials the phone agents type), then universal_tool, the
+# tools every OS shares (the web tool), and memory_compression, which every
+# agent shares (Python's included), and agent_conversation, the desktop app's
+# saved chats.
 _AGENT_DIRS = (_PACKAGE / "browser", _PACKAGE / "android", _PACKAGE / "coder",
                _PACKAGE / "computer", _PACKAGE / "ios", _PACKAGE / "mac", _PACKAGE / "windows",
-               _PACKAGE / "linux", _PACKAGE / "vault", _PACKAGE / "web",
+               _PACKAGE / "linux", _PACKAGE / "vault", _PACKAGE / "universal_tool",
                _PACKAGE / "memory_compression", _PACKAGE / "agent_conversation")
 
 # Two different naming schemes have to line up here, and neither is portable:

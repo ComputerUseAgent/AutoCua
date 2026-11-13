@@ -1438,7 +1438,8 @@ AutoCua/
     controller/tool/         shell, open_app, screenshot, applescript, kernel_input
     tree/                    accessibility scanner and OCR
   browser/                 the Rust browser agent; connector/AutoCuaBridge/ is the AutoCua Chrome extension
-  web/                     the web search tool, Rust, one copy shared by every agent
+  universal_tool/          the tools every OS shares
+    web/                     the web search tool, Rust, one copy shared by every agent
   ios/                     the iPhone and iPad agent
   ios_connector/           WebDriverAgent transport: cable, Wi-Fi (through Xcode) and simulator sessions
   android/                 the Rust Android agent: loop, controller, tool registry, screen reader

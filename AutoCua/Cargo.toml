@@ -1,7 +1,7 @@
 # The Rust parts as ONE crate: the browser agent (browser/), the Android agent
 # (android/), the coder (coder/), the computer-use agent (computer/), the
-# iPhone agent (ios/agent/), the web tool (web/), memory compression
-# (memory_compression/) and the desktop app's chat memory
+# iPhone agent (ios/agent/), the web tool (universal_tool/web/), memory
+# compression (memory_compression/) and the desktop app's chat memory
 # (agent_conversation/). Cargo.toml,
 # Cargo.lock, build.rs and lib.rs sit here in AutoCua/, and each part's
 # sources sit in its own folder beside them, no src/ (lib.rs declares the
