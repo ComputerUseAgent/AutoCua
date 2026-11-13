@@ -106,7 +106,7 @@ def _bind_view():
     except ImportError:
         ShellService = None
     try:
-        from AutoCua.web import WebService
+        from AutoCua.universal_tool.web import WebService
     except ImportError:
         WebService = None
 

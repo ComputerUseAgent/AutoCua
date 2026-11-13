@@ -50,7 +50,7 @@ use super::cli::service::CLIService;
 use super::scratchpad::service::ScratchpadService;
 use super::task_tracker::service::TaskTrackerService;
 use super::tool::plan::service::PlanService;
-use crate::web::service::WebService;
+use crate::universal_tool::web::service::WebService;
 use crate::coder::sandbox::service::{py_os_error, py_repr_str};
 use crate::coder::tool_registry::service::NOTE_TOOLS;
 use crate::coder::{py_err_str, py_str_of, truthy};
@@ -1450,7 +1450,8 @@ fn uuid_hex(py: Python<'_>, n: usize) -> PyResult<String> {
     Ok(hex.chars().take(n).collect())
 }
 
-/// The folder that holds the AutoCua package (as repo_root() in web/web_agent.rs).
+/// The folder that holds the AutoCua package (as repo_root() in
+/// universal_tool/web/web_agent.rs).
 fn repo_root(py: Python<'_>) -> PyResult<PathBuf> {
     let file = py.import("AutoCua")?.getattr("__file__")?;
     py.import("pathlib")?

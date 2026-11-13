@@ -2,13 +2,13 @@
 
 Every agent's `web` action runs here: computer use on macOS, Windows and
 Linux and the iPhone agent through their Python controllers
-(`from AutoCua.web import WebService`), the Android agent and the coder
-through their Rust controllers. WebService(provider, model, api_key=None,
-vertex=False, vertex_project_id=None, vertex_location=None, stop_event=None)
-.search(query) sends the query to the agent's own provider (service.rs, one
-.rs per provider beside it, web.md their system prompt), or to the headless
-browser agent for a provider with no web-search API (web_agent.rs), and
-gives back the `{\\ntool: web,\\nstatus: ...}` text.
+(`from AutoCua.universal_tool.web import WebService`), the Android agent and
+the coder through their Rust controllers. WebService(provider, model,
+api_key=None, vertex=False, vertex_project_id=None, vertex_location=None,
+stop_event=None).search(query) sends the query to the agent's own provider
+(service.rs, one .rs per provider beside it, web.md their system prompt), or
+to the headless browser agent for a provider with no web-search API
+(web_agent.rs), and gives back the `{\\ntool: web,\\nstatus: ...}` text.
 
 This __init__ is the loader, like AutoCua/computer/__init__.py. The Rust
 modules are the web part of the one Rust extension, AutoCua.agent_native (the

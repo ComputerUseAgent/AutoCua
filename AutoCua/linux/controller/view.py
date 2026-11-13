@@ -16,7 +16,7 @@ from .task_tracker.service import TaskTrackerService
 from .scratchpad.service import ScratchpadService
 from .tool import open_app, ShellService, AppScriptService
 from .hotkey.service import HotkeyService
-from AutoCua.web import WebService
+from AutoCua.universal_tool.web import WebService
 from .tool.screenshot import ScreenshotService
 try:
     from app import debug_log, app_data_dir
@@ -132,7 +132,7 @@ class ControllerView:
         self._browser_tasks = []      # Browser agents at work: [{"id": int, "task": str, "run": dict}]
         self._android_tasks = []      # android_agent runs at work: [{"id": int, "task": str, "run": dict}]
         self._sub_ended = set()       # Browser / Android ids whose box in the chat got its sub_end (sent once)
-        self.android = None           # The request's AndroidLink (tool/android_agent.py), set by the main driver
+        self.android = None           # The request's AndroidLink (universal_tool/android_agent), set by the main driver
         self._phones_online = []      # The phones in the order they came online: their ids (slot_ids)
         self.daisy_chain = False      # Daisy chain mode: the phone sub-agent is reachable; set by the main driver (off = This PC)
         self.speed = None             # The main agent's speed, so a browser agent runs the same way
@@ -323,7 +323,7 @@ class ControllerView:
     def _relay_sub_agent(self, agent_id: int, live: dict):
         """One pass of a browser / Android run's live view to its box in the chat: the
         tool-flow events and the newest screen its child wrote to the run's
-        folder (events.jsonl and frame.jpg, see browser_agent_child.py), and
+        folder (events.jsonl and frame.jpg, see universal_tool/browser_agent_child), and
         the new lines of its notes. Any read may fail: stop() and outcome()
         delete folders from other threads."""
         if self.cli_callback is None or agent_id in self._sub_ended:
@@ -359,7 +359,7 @@ class ControllerView:
     def _watch_browser_agent(self, agent_id: int, run: dict):
         """Watcher thread: shows one browser agent live in its box in the chat,
         about three times a second, then reports it"""
-        from .tool import browser_agent
+        from AutoCua.universal_tool.browser_agent import service as browser_agent
         live = {"dir": run["result_file"].parent, "since": 0,
                 "notes": browser_agent._WEB_SCRATCHPAD / run["session_id"] / "milestone" / "milestone.md"}
         while True:
@@ -388,7 +388,7 @@ class ControllerView:
         """Watcher thread: shows one android_agent run live in its box in the
         chat, about three times a second, then reports it. A phone that goes
         away mid-run ends the run at once."""
-        from .tool import android_agent
+        from AutoCua.universal_tool.android_agent import service as android_agent
         # Its notes are the Android agent's one shared scratchpad, wiped when
         # the child starts: a file older than this run is an earlier run's
         live = {"dir": run["result_file"].parent, "since": run["started"],
@@ -432,7 +432,7 @@ class ControllerView:
             self._android_tasks.clear()
         link, self.android = self.android, None
         if android_runs:
-            from .tool import android_agent
+            from AutoCua.universal_tool.android_agent import service as android_agent
             for run in android_runs:
                 android_agent.stop(run)
         if link is not None:
@@ -528,12 +528,12 @@ class ControllerView:
 
         # Browser agents go down with the run; the browser itself stays up
         if browser_runs:
-            from .tool import browser_agent
+            from AutoCua.universal_tool.browser_agent import service as browser_agent
             for run in browser_runs:
                 browser_agent.stop(run)
         # So do android_agent runs (their helper goes with the child)
         if android_runs:
-            from .tool import android_agent
+            from AutoCua.universal_tool.android_agent import service as android_agent
             for run in android_runs:
                 android_agent.stop(run)
 
@@ -862,10 +862,10 @@ class ControllerView:
 
                 elif action_type == "sub_agent" and action_item.get("agent_type") == "browser_agent":
                     # DISPATCH MODE: start a browser agent in the first free slot
-                    # (each one works in a tab of its own, browser_agent_child.py)
+                    # (each one works in a tab of its own, universal_tool/browser_agent_child)
                     task_description = action_item.get("value", "")
                     slot = self._free_slot("browser_agent")
-                    from .tool import browser_agent
+                    from AutoCua.universal_tool.browser_agent import service as browser_agent
                     run = None
                     if slot is None:
                         results.append(self._slots_busy("browser_agent"))
@@ -927,7 +927,7 @@ class ControllerView:
                         })
                     else:
                         logger.info(f"Starting Android Agent for task: {task_description}")
-                        from .tool import android_agent
+                        from AutoCua.universal_tool.android_agent import service as android_agent
                         try:
                             run = android_agent.start(task_description, self.provider, self.model,
                                                       api_key=self.api_key, speed=self.speed,

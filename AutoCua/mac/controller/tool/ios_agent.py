@@ -44,7 +44,7 @@ import uuid
 from pathlib import Path
 
 from AutoCua import data_root, IS_COMPILED
-from .browser_agent import _PROVIDER_ENV_KEY
+from AutoCua.universal_tool.browser_agent.service import _PROVIDER_ENV_KEY
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _IOS_SCRATCHPAD = _REPO_ROOT / "AutoCua" / "ios" / "scratchpad"

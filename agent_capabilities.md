@@ -521,9 +521,9 @@ minutes rather than seconds.
 - Each run's `result.json` + `agent.log` are kept under
   `AutoCua_data/web_fallback/<run-id>/` for inspection.
 
-Implementation: `AutoCua/web/web_agent.rs`. The `web` tool is one shared Rust tool, in
-`AutoCua/web`, used by every agent: computer use on macOS, Windows and Linux, the iPhone
-and Android agents, and the coder.
+Implementation: `AutoCua/universal_tool/web/web_agent.rs`. The `web` tool is one shared
+Rust tool, in `AutoCua/universal_tool/web`, used by every agent: computer use on macOS,
+Windows and Linux, the iPhone and Android agents, and the coder.
 
 ## Cerebras (`provider="cerebras"`)
 

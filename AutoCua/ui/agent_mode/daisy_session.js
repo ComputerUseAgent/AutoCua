@@ -9,7 +9,7 @@
 // back when the request ends. The Android phone is only checked (connected,
 // one screen read, let go): a request's own check then starts its
 // android_agent child ahead (the standby child), which a helper held here
-// would stop (android_agent.py _start_standby). The check at the start of
+// would stop (universal_tool/android_agent/service.py _start_standby). The check at the start of
 // every request stays the backup, so a phone plugged in later still comes
 // online during a run; a terminal run has only that check.
 //

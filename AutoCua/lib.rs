@@ -1,9 +1,10 @@
 //! Crate root: AutoCua.agent_native, the one Rust extension module behind
 //! the Rust agents: the browser agent (browser/), the Android agent
 //! (android/), the coder (coder/), the computer-use agent (computer/) and the
-//! iPhone agent (ios/agent/). The web tool (web/) and memory compression
-//! (memory_compression/), which every agent shares, Python's included, and
-//! the desktop app's chat memory (agent_conversation/) are parts of it too.
+//! iPhone agent (ios/agent/). The web tool (universal_tool/web/) and memory
+//! compression (memory_compression/), which every agent shares, Python's
+//! included, and the desktop app's chat memory (agent_conversation/) are
+//! parts of it too.
 //!
 //! ONE crate for all of them: this file, Cargo.toml, Cargo.lock and build.rs
 //! sit here in AutoCua/, and each agent's sources sit in its own folder,
@@ -14,7 +15,7 @@
 //! .ios, which its loader re-exports (browser/agent/__init__.py,
 //! android/agent/__init__.py, coder/__init__.py, computer/__init__.py and
 //! computer/skills/__init__.py, and the __init__.py of each folder under
-//! ios/agent/); the web tool is .web (web/__init__.py).
+//! ios/agent/); the web tool is .web (universal_tool/web/__init__.py).
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -1914,28 +1915,109 @@ pub mod linux {
     }
 }
 
-/// The web tool (AutoCua/web), one web search shared by every agent:
-/// service.rs routes a query to the agent's own provider, one file per
-/// provider's search and the browser-agent fallback (web_agent.rs) beside
-/// it. Computer use (macOS, Windows, Linux) and the iPhone agent use it
-/// from their Python controllers through AutoCua.agent_native.web (from
-/// AutoCua.web import WebService); the Android agent and the coder call
-/// crate::web::service::WebService from their Rust controllers.
-pub mod web {
+/// The vault (AutoCua/vault): the saved credentials the iPhone and Android
+/// agents type for the user, never shown to the model, and the [vault]
+/// hiding of what was typed. vault/__init__.py is its loader.
+pub mod vault {
     use pyo3::prelude::*;
 
     pub mod service;
-    pub mod web_agent;
-    pub mod anthropic;
-    pub mod chatgpt;
-    pub mod google_search;
-    pub mod groq_search;
-    pub mod openrouter;
-    pub mod perplexity_search;
 
-    /// Fills AutoCua.agent_native.web: the WebService class.
+    /// This part's name in sys.modules (AutoCua.agent_native.vault.service).
+    pub const NATIVE: &str = "AutoCua.agent_native.vault";
+
+    /// Fills the vault part: its service module, made under the name Python
+    /// has always known it by, AutoCua.vault.service.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-        m.add_class::<service::WebService>()?;
+        let py = m.py();
+        let service = crate::system_part::python_module(py, "vault", "service", service::register)?;
+        m.add("service", &service)?;
+        py.import("sys")?.getattr("modules")?.set_item(format!("{NATIVE}.service"), &service)?;
+        Ok(())
+    }
+}
+
+/// The tools every agent shares, on every OS (AutoCua/universal_tool).
+pub mod universal_tool {
+    use pyo3::prelude::*;
+
+    /// The web tool (AutoCua/universal_tool/web), one web search shared by
+    /// every agent: service.rs routes a query to the agent's own provider,
+    /// one file per provider's search and the browser-agent fallback
+    /// (web_agent.rs) beside it. Computer use (macOS, Windows, Linux) and the
+    /// iPhone agent use it from their Python controllers through
+    /// AutoCua.agent_native.web (from AutoCua.universal_tool.web import
+    /// WebService); the Android agent and the coder call
+    /// crate::universal_tool::web::service::WebService from their Rust
+    /// controllers.
+    pub mod web {
+        use pyo3::prelude::*;
+
+        pub mod service;
+        pub mod web_agent;
+        pub mod anthropic;
+        pub mod chatgpt;
+        pub mod google_search;
+        pub mod groq_search;
+        pub mod openrouter;
+        pub mod perplexity_search;
+
+        /// Fills AutoCua.agent_native.web: the WebService class.
+        pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+            m.add_class::<service::WebService>()?;
+            Ok(())
+        }
+    }
+
+    /// Computer use's shell tool (macOS, Windows, Linux): ShellService.
+    pub mod shell {
+        pub mod service;
+    }
+    /// Computer use's android_agent sub-agent tool (the runs, the phone link).
+    pub mod android_agent {
+        pub mod service;
+    }
+    /// One android_agent run's child process (android_agent_child/service.py,
+    /// run by path, only starts its main()).
+    pub mod android_agent_child {
+        pub mod service;
+    }
+    /// Computer use's browser_agent sub-agent tool (the runs in Chrome tabs).
+    pub mod browser_agent {
+        pub mod service;
+    }
+    /// One browser_agent run's child process (browser_agent_child/service.py,
+    /// run by path, only starts its main()).
+    pub mod browser_agent_child {
+        pub mod service;
+    }
+
+    /// This part's name in sys.modules (the web tool keeps its own part, web).
+    pub const NATIVE: &str = "AutoCua.agent_native.universal_tool";
+
+    /// Fills AutoCua.agent_native.universal_tool: each tool's service module,
+    /// made under the name Python has always known it by,
+    /// AutoCua.universal_tool.<tool>.service, laid out as the folders are and
+    /// also put in sys.modules under its full name. Each tool's __init__.py
+    /// (or, for a child, its service.py run by path) then uses it.
+    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        let py = m.py();
+        let modules = py.import("sys")?.getattr("modules")?;
+        let tools: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 5] = [
+            ("shell", shell::service::register),
+            ("android_agent", android_agent::service::register),
+            ("android_agent_child", android_agent_child::service::register),
+            ("browser_agent", browser_agent::service::register),
+            ("browser_agent_child", browser_agent_child::service::register),
+        ];
+        for (tool, fill) in tools {
+            let service = crate::system_part::python_module(py, "universal_tool", &format!("{tool}.service"), fill)?;
+            let package = PyModule::new(py, &format!("{NATIVE}.{tool}"))?;
+            package.add("service", &service)?;
+            m.add(tool, &package)?;
+            modules.set_item(format!("{NATIVE}.{tool}"), &package)?;
+            modules.set_item(format!("{NATIVE}.{tool}.service"), &service)?;
+        }
         Ok(())
     }
 }
@@ -2068,7 +2150,7 @@ pub mod agent_conversation {
 fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     let modules = py.import("sys")?.getattr("modules")?;
-    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 11] = [
+    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 13] = [
         ("browser", browser::register),
         ("android", android::register),
         ("coder", coder::register),
@@ -2077,7 +2159,9 @@ fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ("mac", mac::register),
         ("windows", windows::register),
         ("linux", linux::register),
-        ("web", web::register),
+        ("vault", vault::register),
+        ("web", universal_tool::web::register),
+        ("universal_tool", universal_tool::register),
         ("memory_compression", memory_compression::register),
         ("agent_conversation", agent_conversation::register),
     ];

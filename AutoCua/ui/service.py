@@ -1748,7 +1748,7 @@ def api_android_deactivate():
 @app.route('/api/phone-link', methods=['POST'])
 def api_phone_link():
     """The chat box's Wireless / Wired toggle ({"link": "wireless" | "wired"}),
-    for computer use's phone sub-agents (controller/tool/android_agent.py and
+    for computer use's phone sub-agents (universal_tool/android_agent and
     mac's ios_agent.py): they look for the phone at the start of every
     request, over the Wi-Fi only with Wireless, the cable only with Wired
     (the connectors' WIRELESS). The page sends it on every flip and once when
@@ -4836,8 +4836,10 @@ def main():
     # Returns None, so the close is never cancelled.
     try:
         def _stop_browser_agents():
-            for name in ("browser_agent", "ios_agent", "android_agent"):
-                launcher = sys.modules.get(f"AutoCua.{PLATFORM_PKG}.controller.tool.{name}")
+            for module in ("AutoCua.universal_tool.browser_agent.service",
+                           f"AutoCua.{PLATFORM_PKG}.controller.tool.ios_agent",
+                           "AutoCua.universal_tool.android_agent.service"):
+                launcher = sys.modules.get(module)
                 if launcher is not None:
                     launcher.stop_all()
 
