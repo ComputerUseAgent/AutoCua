@@ -3,7 +3,7 @@
 They are ONE crate rooted at the package folder, AutoCua/:
 Cargo.toml, Cargo.lock, build.rs, lib.rs, target/ and the built
 agent_native.so all live there, and each agent's .rs sources sit in its own
-folder (browser/, android/, coder/, computer/, ios/, web/, memory_compression/,
+folder (browser/, android/, coder/, computer/, ios/, mac/, web/, memory_compression/,
 agent_conversation/) mirroring the old Python layout. It compiles
 with plain `cargo build --release` (no maturin, no pyproject.toml), one cargo
 build for all of them.
@@ -35,11 +35,12 @@ from pathlib import Path
 
 _PACKAGE = Path(__file__).resolve().parent.parent
 # The folders lib.rs declares, one per agent (computer holds the
-# computer-use agent, ios the iPhone agent), then web, the web tool, and
+# computer-use agent, ios the iPhone agent, mac the Mac controller's
+# scratchpad and todo list), then web, the web tool, and
 # memory_compression, which every agent shares (Python's included), and
 # agent_conversation, the desktop app's saved chats.
 _AGENT_DIRS = (_PACKAGE / "browser", _PACKAGE / "android", _PACKAGE / "coder",
-               _PACKAGE / "computer", _PACKAGE / "ios", _PACKAGE / "web",
+               _PACKAGE / "computer", _PACKAGE / "ios", _PACKAGE / "mac", _PACKAGE / "web",
                _PACKAGE / "memory_compression", _PACKAGE / "agent_conversation")
 
 # Two different naming schemes have to line up here, and neither is portable:
