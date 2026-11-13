@@ -35,8 +35,8 @@ from pathlib import Path
 
 _PACKAGE = Path(__file__).resolve().parent.parent
 # The folders lib.rs declares, one per agent (computer holds the
-# computer-use agent, ios the iPhone agent, mac the Mac controller's
-# scratchpad and todo list), then web, the web tool, and
+# computer-use agent, ios the iPhone agent, mac the scratchpad and todo
+# list of the Mac, Windows and Linux controllers), then web, the web tool, and
 # memory_compression, which every agent shares (Python's included), and
 # agent_conversation, the desktop app's saved chats.
 _AGENT_DIRS = (_PACKAGE / "browser", _PACKAGE / "android", _PACKAGE / "coder",

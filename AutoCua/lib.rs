@@ -1728,11 +1728,14 @@ pub mod ios {
     }
 }
 
-/// The Mac's controller pieces that moved from Python (AutoCua/mac), one
-/// file at a time: the scratchpad and the todo list. Computer use itself is
-/// the shared agent in the computer part; these are the services its Mac
-/// controller (mac/controller/view.py) keeps. The exact-Python helpers they
-/// use are the ones in ios::controller.
+/// The computer-use controllers' pieces that moved from Python, one file at
+/// a time: the scratchpad and the todo list. Their .rs files sit in
+/// AutoCua/mac and serve macOS, Windows and Linux alike (the three systems'
+/// service.py were the same code), each system with its own part:
+/// AutoCua.agent_native.mac, .windows and .linux. Computer use itself is the
+/// shared agent in the computer part; these are the services each system's
+/// controller (<system>/controller/view.py) keeps. The exact-Python helpers
+/// they use are the ones in ios::controller.
 pub mod mac {
     use pyo3::prelude::*;
 
@@ -1747,18 +1750,15 @@ pub mod mac {
         }
     }
 
-    /// This part's name in sys.modules; its modules sit below it, named as
-    /// the folders are (AutoCua.agent_native.mac.controller.scratchpad.service).
-    pub const NATIVE: &str = "AutoCua.agent_native.mac";
-
     /// A module that takes a .py's place (see ios::python_module): made under
-    /// the name Python has always known it by, AutoCua.mac.<path>.
+    /// the name Python has always known it by, AutoCua.<system>.<path>.
     fn python_module<'py>(
         py: Python<'py>,
+        system: &str,
         path: &str,
         fill: fn(&Bound<'py, PyModule>) -> PyResult<()>,
     ) -> PyResult<Bound<'py, PyModule>> {
-        let name = format!("AutoCua.mac.{path}");
+        let name = format!("AutoCua.{system}.{path}");
         let module = PyModule::new(py, &name)?;
         if let Some((package, _)) = name.rsplit_once('.') {
             module.setattr("__package__", package)?;
@@ -1770,20 +1770,27 @@ pub mod mac {
         Ok(module)
     }
 
-    /// Fills AutoCua.agent_native.mac with its modules, laid out as the
-    /// folders are, each also put in sys.modules under its full name. The
-    /// loaders (the __init__.py of scratchpad and task_tracker) then point
-    /// the old dotted names at them.
-    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    /// Fills AutoCua.agent_native.<system> (mac, windows or linux) with its
+    /// modules, laid out as the folders are, each also put in sys.modules
+    /// under its full name. The loaders (the __init__.py of the system's
+    /// scratchpad and task_tracker) then point the old dotted names at them.
+    /// `notes` and `todo` fill the system's two modules.
+    fn register_system(
+        m: &Bound<'_, PyModule>,
+        system: &str,
+        notes: fn(&Bound<'_, PyModule>) -> PyResult<()>,
+        todo: fn(&Bound<'_, PyModule>) -> PyResult<()>,
+    ) -> PyResult<()> {
         let py = m.py();
+        let native = format!("AutoCua.agent_native.{system}");
         let modules = py.import("sys")?.getattr("modules")?;
-        let notes = python_module(py, "controller.scratchpad.service", controller::scratchpad::service::register)?;
-        let scratchpad = PyModule::new(py, &format!("{NATIVE}.controller.scratchpad"))?;
+        let notes = python_module(py, system, "controller.scratchpad.service", notes)?;
+        let scratchpad = PyModule::new(py, &format!("{native}.controller.scratchpad"))?;
         scratchpad.add("service", &notes)?;
-        let todo = python_module(py, "controller.task_tracker.service", controller::task_tracker::service::register)?;
-        let task_tracker = PyModule::new(py, &format!("{NATIVE}.controller.task_tracker"))?;
+        let todo = python_module(py, system, "controller.task_tracker.service", todo)?;
+        let task_tracker = PyModule::new(py, &format!("{native}.controller.task_tracker"))?;
         task_tracker.add("service", &todo)?;
-        let controller = PyModule::new(py, &format!("{NATIVE}.controller"))?;
+        let controller = PyModule::new(py, &format!("{native}.controller"))?;
         controller.add("scratchpad", &scratchpad)?;
         controller.add("task_tracker", &task_tracker)?;
         m.add("controller", &controller)?;
@@ -1794,9 +1801,27 @@ pub mod mac {
             ("controller.task_tracker", &task_tracker),
             ("controller.task_tracker.service", &todo),
         ] {
-            modules.set_item(format!("{NATIVE}.{name}"), module)?;
+            modules.set_item(format!("{native}.{name}"), module)?;
         }
         Ok(())
+    }
+
+    /// The mac part.
+    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        use controller::{scratchpad::service as notes, task_tracker::service as todo};
+        register_system(m, "mac", notes::mac::register, todo::mac::register)
+    }
+
+    /// The windows part: the same two files, Windows' own classes.
+    pub fn register_windows(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        use controller::{scratchpad::service as notes, task_tracker::service as todo};
+        register_system(m, "windows", notes::windows::register, todo::windows::register)
+    }
+
+    /// The linux part: the same two files, Linux's own classes.
+    pub fn register_linux(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        use controller::{scratchpad::service as notes, task_tracker::service as todo};
+        register_system(m, "linux", notes::linux::register, todo::linux::register)
     }
 }
 
@@ -1954,13 +1979,15 @@ pub mod agent_conversation {
 fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     let modules = py.import("sys")?.getattr("modules")?;
-    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 9] = [
+    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 11] = [
         ("browser", browser::register),
         ("android", android::register),
         ("coder", coder::register),
         ("computer", computer::register),
         ("ios", ios::register),
         ("mac", mac::register),
+        ("windows", mac::register_windows),
+        ("linux", mac::register_linux),
         ("web", web::register),
         ("memory_compression", memory_compression::register),
         ("agent_conversation", agent_conversation::register),
