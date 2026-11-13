@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 # Run by path, so Python put THIS folder first on the import path. Its files
-# (shell.py, plan.py, web/ ...) must never shadow a real module.
+# (open_app.py, screenshot.py ...) must never shadow a real module.
 _HERE = Path(__file__).resolve().parent
 sys.path[:] = [p for p in sys.path if Path(p or ".").resolve() != _HERE]
 
@@ -46,7 +46,7 @@ class _LiveView:
     """The run's live view, written for the app (controller/view.py reads it):
     each tool-flow event as one JSON line in events.jsonl, and each screen,
     made small, as frame.jpg plus a line saying a new one is there. The same
-    as browser_agent_child.py's.
+    as universal_tool/browser_agent_child's.
 
     Both are the agent's callbacks, so every call catches everything: the run
     never fails over its live view. Nothing goes to stdout, which is agent.log,

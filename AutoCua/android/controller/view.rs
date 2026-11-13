@@ -32,7 +32,7 @@ use super::tool::shell::service::ShellService;
 use super::tool::back::service as back;
 use super::tool::vault::service::{vault_service, DEVICE_ENTRIES, MAX_PIN_ATTEMPTS, TEXT_FIELDS};
 use super::tool::videoplayer::service as videoplayer;
-use crate::web::service::WebService;
+use crate::universal_tool::web::service::WebService;
 use crate::android::agent::android_use::view::{py_str_of, truthy};
 
 /// Python `str(x or "")`.

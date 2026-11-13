@@ -1,13 +1,13 @@
 //! The `web` tool: ONE web search, shared by every agent. Computer use on
 //! macOS, Windows and Linux and the iPhone agent call it from their Python
-//! controllers (`from AutoCua.web import WebService`); the Android agent and
-//! the coder call it from their Rust controllers
-//! (crate::web::service::WebService). It routes a query to the agent's own
-//! provider. The searches sit beside this file, one file each (anthropic.rs,
-//! chatgpt.rs, google_search.rs, groq_search.rs, openrouter.rs,
-//! perplexity_search.rs), with web.md, their system prompt; the providers
-//! with no web-search API go to the headless browser agent instead
-//! (web_agent.rs). Either way the answer is the text
+//! controllers (`from AutoCua.universal_tool.web import WebService`); the
+//! Android agent and the coder call it from their Rust controllers
+//! (crate::universal_tool::web::service::WebService). It routes a query to
+//! the agent's own provider. The searches sit beside this file, one file
+//! each (anthropic.rs, chatgpt.rs, google_search.rs, groq_search.rs,
+//! openrouter.rs, perplexity_search.rs), with web.md, their system prompt;
+//! the providers with no web-search API go to the headless browser agent
+//! instead (web_agent.rs). Either way the answer is the text
 //! `{\ntool: web,\nstatus: ...}`, which the controller reports as the tool's
 //! result.
 //!
@@ -60,9 +60,10 @@ const NO_REPORT: &str = "{{\ntool: web,\nstatus: error,\nquery: \"{}\",\nNote: {
 const NOT_STARTED: &str =
     "{{\ntool: web,\nstatus: error,\nquery: \"{}\",\nNote: Browser agent failed to start,\nInformation: \"{}\"\n}}";
 
-/// AutoCua/web: this tool's folder, beside the extension module.
+/// AutoCua/universal_tool/web: this tool's folder (universal_tool/ sits
+/// beside the extension module).
 fn web_dir(py: Python<'_>) -> PyResult<PathBuf> {
-    Ok(crate::native_dir(py)?.join("web"))
+    Ok(crate::native_dir(py)?.join("universal_tool").join("web"))
 }
 
 /// web.md beside this file: every search's system prompt. Read once, as the
@@ -193,9 +194,10 @@ fn service_error<'py>(py: Python<'py>, e: &PyErr) -> PyResult<Bound<'py, PyAny>>
 }
 
 /// Web service to route queries to the appropriate provider. The same class
-/// for the Python callers (AutoCua.web.WebService) and the Rust ones. Its
-/// attributes hold what the Python class held, as Python objects.
-#[pyclass(frozen, module = "AutoCua.web", name = "WebService")]
+/// for the Python callers (AutoCua.universal_tool.web.WebService) and the
+/// Rust ones. Its attributes hold what the Python class held, as Python
+/// objects.
+#[pyclass(frozen, module = "AutoCua.universal_tool.web", name = "WebService")]
 pub struct WebService {
     /// provider.lower(), as the caller's object made it.
     #[pyo3(get)]
