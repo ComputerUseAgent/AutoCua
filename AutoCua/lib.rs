@@ -1848,10 +1848,12 @@ pub mod mac {
         tool_registry_part(m, "windows", crate::windows::tool_registry::service::register)
     }
 
-    /// The linux part: the same two files, Linux's own classes.
+    /// The linux part: the same two files, Linux's own classes, and Linux's
+    /// own tool registry (crate::linux).
     pub fn register_linux(m: &Bound<'_, PyModule>) -> PyResult<()> {
         use controller::{scratchpad::service as notes, task_tracker::service as todo};
-        register_system(m, "linux", notes::linux::register, todo::linux::register)
+        register_system(m, "linux", notes::linux::register, todo::linux::register)?;
+        tool_registry_part(m, "linux", crate::linux::tool_registry::service::register)
     }
 }
 
@@ -1862,6 +1864,18 @@ pub mod mac {
 pub mod windows {
     /// Every tool the computer-use agent can call on Windows, and its
     /// LLMManager.
+    pub mod tool_registry {
+        pub mod service;
+    }
+}
+
+/// Linux's own pieces that moved from Python (AutoCua/linux): its tool
+/// registry. The part (AutoCua.agent_native.linux) is filled by
+/// mac::register_linux, with the scratchpad and the todo list the three
+/// systems share.
+pub mod linux {
+    /// Every tool the computer-use agent can call on Linux, and its
+    /// LLMManager (which sends the screenshot to the model as JPEG).
     pub mod tool_registry {
         pub mod service;
     }
