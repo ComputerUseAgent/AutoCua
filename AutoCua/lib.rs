@@ -1812,32 +1812,58 @@ pub mod mac {
         Ok(())
     }
 
-    /// The mac part: the scratchpad and the todo list, and the Mac's own
-    /// tool registry (tool_registry/__init__.py is its loader).
-    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-        use controller::{scratchpad::service as notes, task_tracker::service as todo};
-        register_system(m, "mac", notes::mac::register, todo::mac::register)?;
+    /// A system's own tool registry in its part (<system>/tool_registry,
+    /// whose __init__.py is its loader): AutoCua.agent_native.<system>.
+    /// tool_registry.service, filled by `fill`.
+    fn tool_registry_part(
+        m: &Bound<'_, PyModule>,
+        system: &str,
+        fill: fn(&Bound<'_, PyModule>) -> PyResult<()>,
+    ) -> PyResult<()> {
         let py = m.py();
+        let native = format!("AutoCua.agent_native.{system}");
         let modules = py.import("sys")?.getattr("modules")?;
-        let registry = python_module(py, "mac", "tool_registry.service", tool_registry::service::register)?;
-        let package = PyModule::new(py, "AutoCua.agent_native.mac.tool_registry")?;
+        let registry = python_module(py, system, "tool_registry.service", fill)?;
+        let package = PyModule::new(py, &format!("{native}.tool_registry"))?;
         package.add("service", &registry)?;
         m.add("tool_registry", &package)?;
-        modules.set_item("AutoCua.agent_native.mac.tool_registry", &package)?;
-        modules.set_item("AutoCua.agent_native.mac.tool_registry.service", &registry)?;
+        modules.set_item(format!("{native}.tool_registry"), &package)?;
+        modules.set_item(format!("{native}.tool_registry.service"), &registry)?;
         Ok(())
     }
 
-    /// The windows part: the same two files, Windows' own classes.
+    /// The mac part: the scratchpad and the todo list, and the Mac's own
+    /// tool registry.
+    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        use controller::{scratchpad::service as notes, task_tracker::service as todo};
+        register_system(m, "mac", notes::mac::register, todo::mac::register)?;
+        tool_registry_part(m, "mac", tool_registry::service::register)
+    }
+
+    /// The windows part: the same two files, Windows' own classes, and
+    /// Windows' own tool registry (crate::windows).
     pub fn register_windows(m: &Bound<'_, PyModule>) -> PyResult<()> {
         use controller::{scratchpad::service as notes, task_tracker::service as todo};
-        register_system(m, "windows", notes::windows::register, todo::windows::register)
+        register_system(m, "windows", notes::windows::register, todo::windows::register)?;
+        tool_registry_part(m, "windows", crate::windows::tool_registry::service::register)
     }
 
     /// The linux part: the same two files, Linux's own classes.
     pub fn register_linux(m: &Bound<'_, PyModule>) -> PyResult<()> {
         use controller::{scratchpad::service as notes, task_tracker::service as todo};
         register_system(m, "linux", notes::linux::register, todo::linux::register)
+    }
+}
+
+/// Windows' own pieces that moved from Python (AutoCua/windows): its tool
+/// registry. The part (AutoCua.agent_native.windows) is filled by
+/// mac::register_windows, with the scratchpad and the todo list the three
+/// systems share.
+pub mod windows {
+    /// Every tool the computer-use agent can call on Windows, and its
+    /// LLMManager.
+    pub mod tool_registry {
+        pub mod service;
     }
 }
 
