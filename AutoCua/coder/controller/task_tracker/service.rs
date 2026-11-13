@@ -1,4 +1,4 @@
-//! The ToDo task list: the copy of mac/controller/task_tracker/service.py.
+//! The ToDo task list: the copy of mac/controller/task_tracker/service.rs.
 //! Lives at AutoCua/coder/scratchpad/cli_todo/<session>/todo.md, so each
 //! run's list stays its own.
 

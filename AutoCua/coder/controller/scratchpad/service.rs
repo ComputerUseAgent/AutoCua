@@ -1,5 +1,5 @@
 //! The scratchpad, the agent's notes: the copy of
-//! mac/controller/scratchpad/service.py. On disk under
+//! mac/controller/scratchpad/service.rs. On disk under
 //! AutoCua/coder/scratchpad as cli_milestone/<session>/milestone.md for the
 //! coder and cli_subagent/<session>/milestone.md for a subagent (mac's
 //! cli_minion), one entry per line, `N. <text>`. The file keeps mac's name,
