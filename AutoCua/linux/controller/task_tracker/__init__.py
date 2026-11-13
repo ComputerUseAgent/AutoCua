@@ -1,11 +1,10 @@
 """The todo list, the Linux agent's numbered tasks (todo.md).
 
-The service is Rust (AutoCua/mac/controller/task_tracker/service.rs, the one file for
-macOS, Windows and Linux, in place of service.py), in the linux part of
+The service is Rust (service.rs, in place of service.py), in the linux part of
 the one Rust extension, AutoCua.agent_native (the crate is
 AutoCua/Cargo.toml, and AutoCua/utils/rust.py builds it).
 
-This __init__ is the loader, like AutoCua/mac/controller/task_tracker/__init__.py. The
+This __init__ is the loader, like AutoCua/ios/controller/task_tracker/__init__.py. The
 Rust module is put in sys.modules under its old dotted name,
 AutoCua.linux.controller.task_tracker.service, and set as an attribute here, so
 every import of that name keeps working unchanged.
