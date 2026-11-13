@@ -1604,6 +1604,14 @@ pub mod ios {
         }
     }
 
+    /// The tool registry: every tool the iPhone agent can call, and the
+    /// LLMManager that hands them to the model (tool_registry/service.rs, in
+    /// place of service.py; the manager it subclasses stays the shared
+    /// Python one, AutoCua/llm_provider/llm_manager.py).
+    pub mod tool_registry {
+        pub mod service;
+    }
+
     /// This part's name in sys.modules; its modules sit below it, named as
     /// the folders are (AutoCua.agent_native.ios.agent.iphone_use.view).
     pub const NATIVE: &str = "AutoCua.agent_native.ios";
@@ -1671,6 +1679,10 @@ pub mod ios {
         controller.add("task_tracker", &task_tracker)?;
         controller.add("tool", &tool)?;
         m.add("controller", &controller)?;
+        let tools = python_module(py, "tool_registry.service", tool_registry::service::register)?;
+        let tool_registry = PyModule::new(py, &format!("{NATIVE}.tool_registry"))?;
+        tool_registry.add("service", &tools)?;
+        m.add("tool_registry", &tool_registry)?;
         for (name, module) in [
             ("agent", &agent),
             ("agent.iphone_use", &iphone_use),
@@ -1689,6 +1701,8 @@ pub mod ios {
             ("controller.tool.open_app", &launcher),
             ("controller.tool.shell", &shell),
             ("controller.tool.videoplayer", &player),
+            ("tool_registry", &tool_registry),
+            ("tool_registry.service", &tools),
         ] {
             modules.set_item(format!("{NATIVE}.{name}"), module)?;
         }

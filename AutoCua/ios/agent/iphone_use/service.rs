@@ -1000,23 +1000,35 @@ fn read_todo_from_file<'py>(me: &Obj<'py>) -> PyResult<Obj<'py>> {
     )
 }
 
-/// Read the current scratchpad entries from scratchpad/milestone/
-/// milestone.md, where the controller's scratchpad service
-/// (ios/controller/scratchpad/service.rs) writes them when no session
-/// (AutoCua_IOS_SESSION) is set.
-fn read_scratchpad_from_file(py: Python<'_>) -> PyResult<Obj<'_>> {
+/// Read the current scratchpad entries from the scratchpad service's own
+/// milestone.md, exactly where it writes them, as the todo list is read
+/// from the task tracker's file. That is scratchpad/<session>/milestone/
+/// for a parallel simulator task (AutoCua_IOS_SESSION), so each task sees
+/// its own notes. Without a scratchpad service, the same place is worked out
+/// here: scratchpad/milestone/milestone.md, under the session's folder when
+/// one is set.
+fn read_scratchpad_from_file<'py>(me: &Obj<'py>) -> PyResult<Obj<'py>> {
+    let py = me.py();
     read_own_file(
         py,
         || {
-            // Path(__file__).parent.parent.parent / "scratchpad" / "milestone" / "milestone.md"
-            g(py, "Path")?
+            let service = me.getattr("controller")?.getattr("scratchpad_service")?;
+            if !service.is_none() {
+                return g(py, "Path")?.call1((service.getattr("scratchpad_file")?,));
+            }
+            // Path(__file__).parent.parent.parent / "scratchpad"
+            let mut folder = g(py, "Path")?
                 .call1((module_file(py)?,))?
                 .getattr("parent")?
                 .getattr("parent")?
                 .getattr("parent")?
-                .div("scratchpad")?
-                .div("milestone")?
-                .div("milestone.md")
+                .div("scratchpad")?;
+            // session = os.environ.get("AutoCua_IOS_SESSION") or ""
+            let session = or_empty(g(py, "os")?.getattr("environ")?.call_method1("get", ("AutoCua_IOS_SESSION",))?)?;
+            if session.is_truthy()? {
+                folder = folder.div(&session)?;
+            }
+            folder.div("milestone")?.div("milestone.md")
         },
         "⚠ Error reading scratchpad file: ",
     )
@@ -1655,7 +1667,7 @@ fn step<'py>(me: &Obj<'py>, task: &Obj<'py>, run: &mut Run<'py>) -> PyResult<Flo
     } else {
         // Fetch fresh todo and scratchpad entries from the file system
         let todo_list = read_todo_from_file(me)?;
-        let scratchpad_content = read_scratchpad_from_file(py)?;
+        let scratchpad_content = read_scratchpad_from_file(me)?;
 
         // Subsequent iterations: request + todo_list. No <last_response>
         // block: under native tool calling each result arrives in its own
@@ -2547,11 +2559,11 @@ impl AgentService {
         read_todo_from_file(slf.as_any())
     }
 
-    /// Read the current scratchpad entries from scratchpad/milestone/
-    /// milestone.md.
+    /// Read the current scratchpad entries from the scratchpad service's own
+    /// milestone.md (the session's folder for a parallel simulator task).
     #[pyo3(name = "_read_scratchpad_from_file")]
     fn read_scratchpad_from_file_py<'py>(slf: &Bound<'py, Self>) -> PyResult<Obj<'py>> {
-        read_scratchpad_from_file(slf.py())
+        read_scratchpad_from_file(slf.as_any())
     }
 
     /// Build the compact tool_response preserved in agent memory for a step.
