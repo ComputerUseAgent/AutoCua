@@ -25,9 +25,9 @@ use pyo3::types::{PyDict, PyString, PyTuple};
 
 use crate::computer::as_python_class;
 use crate::ios::agent::iphone_use::service::with;
-use crate::ios::controller::{logged, make_dir, only_self, open_utf8, os_path, session_dir};
+use crate::ios::controller::{logged, make_dir, name, only_self, open_utf8, os_path, session_dir};
 use crate::ios::NATIVE;
-use crate::memory_compression::{format_value, global, join_str};
+use crate::memory_compression::{format_value, join_str};
 
 /// This module, as registered: its globals are read from it at run time.
 static MODULE: PyOnceLock<Py<PyModule>> = PyOnceLock::new();
@@ -148,7 +148,7 @@ impl ScratchpadService {
         let cleared = (|| -> PyResult<()> {
             let exists = os_path(&module, "exists")?;
             if exists.call1((slf.getattr("scratchpad_file")?,))?.is_truthy()? {
-                let remove = global(&module, "os")?.getattr("remove")?;
+                let remove = name(&module, "os")?.getattr("remove")?;
                 remove.call1((slf.getattr("scratchpad_file")?,))?;
             }
             Ok(())
@@ -179,6 +179,12 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     as_python_class(&class, &python_name)?;
     // The Python class had no docstring: None, where the extension gives "".
     class.setattr("__doc__", py.None())?;
+    // What Python 3.13 gave the class statement: its line in service.py and
+    // the attributes its methods set through self, sorted.
+    if py.version_info() >= (3, 13) {
+        class.setattr("__firstlineno__", 7)?;
+        class.setattr("__static_attributes__", ("scratchpad_dir", "scratchpad_file"))?;
+    }
     let _ = MODULE.set(py, m.clone().unbind());
     Ok(())
 }

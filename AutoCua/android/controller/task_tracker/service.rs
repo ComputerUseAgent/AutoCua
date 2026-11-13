@@ -1,4 +1,4 @@
-//! The ToDo task list: the copy of ios/controller/task_tracker/service.py.
+//! The ToDo task list: the copy of ios/controller/task_tracker/service.rs.
 //! Lives at android/scratchpad/todo/todo.md (scratchpad/<session>/todo/
 //! for a parallel task, AutoCua_ANDROID_SESSION), so each task's list stays
 //! its own.
