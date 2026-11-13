@@ -1,11 +1,10 @@
 """The scratchpad, the Windows agent's numbered notes (milestone.md).
 
-The service is Rust (AutoCua/mac/controller/scratchpad/service.rs, the one file for
-macOS, Windows and Linux, in place of service.py), in the windows part of
+The service is Rust (service.rs, in place of service.py), in the windows part of
 the one Rust extension, AutoCua.agent_native (the crate is
 AutoCua/Cargo.toml, and AutoCua/utils/rust.py builds it).
 
-This __init__ is the loader, like AutoCua/mac/controller/scratchpad/__init__.py. The
+This __init__ is the loader, like AutoCua/ios/controller/scratchpad/__init__.py. The
 Rust module is put in sys.modules under its old dotted name,
 AutoCua.windows.controller.scratchpad.service, and set as an attribute here, so
 every import of that name keeps working unchanged.

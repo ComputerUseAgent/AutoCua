@@ -7,7 +7,7 @@ AutoCua/Cargo.toml, and AutoCua/utils/rust.py builds it). The manager it
 subclasses stays the shared Python one, AutoCua/llm_provider/llm_manager.py,
 the same on every platform.
 
-This __init__ is its loader, like AutoCua/mac/tool_registry/__init__.py. The
+This __init__ is its loader, like AutoCua/ios/tool_registry/__init__.py. The
 Rust module is put in sys.modules under its old dotted name,
 AutoCua.windows.tool_registry.service, so every import of that name keeps
 working unchanged. What service.py did when it was imported is done here, at
