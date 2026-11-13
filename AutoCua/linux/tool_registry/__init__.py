@@ -8,7 +8,7 @@ subclasses stays the shared Python one, AutoCua/llm_provider/llm_manager.py,
 the same on every platform; its send_request here sends the screenshot as
 JPEG (as_jpeg_base64).
 
-This __init__ is its loader, like AutoCua/mac/tool_registry/__init__.py. The
+This __init__ is its loader, like AutoCua/ios/tool_registry/__init__.py. The
 Rust module is put in sys.modules under its old dotted name,
 AutoCua.linux.tool_registry.service, so every import of that name keeps
 working unchanged. What service.py did when it was imported is done here, at

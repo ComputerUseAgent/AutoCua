@@ -1728,37 +1728,16 @@ pub mod ios {
     }
 }
 
-/// The computer-use controllers' pieces that moved from Python, one file at
-/// a time: the scratchpad and the todo list. Their .rs files sit in
-/// AutoCua/mac and serve macOS, Windows and Linux alike (the three systems'
-/// service.py were the same code), each system with its own part:
-/// AutoCua.agent_native.mac, .windows and .linux. Computer use itself is the
-/// shared agent in the computer part; these are the services each system's
-/// controller (<system>/controller/view.py) keeps. The exact-Python helpers
-/// they use are the ones in ios::controller.
-pub mod mac {
+/// What the three computer-use systems (macOS, Windows, Linux) need to make
+/// their parts' modules: each system keeps its own files in its own folder
+/// and fills its own part (mac::register, windows::register,
+/// linux::register); only this plumbing is the same for the three.
+mod system_part {
     use pyo3::prelude::*;
-
-    pub mod controller {
-        /// The scratchpad, the agent's numbered notes (milestone.md).
-        pub mod scratchpad {
-            pub mod service;
-        }
-        /// The todo list, the agent's numbered tasks (todo.md).
-        pub mod task_tracker {
-            pub mod service;
-        }
-    }
-
-    /// The Mac's own tool registry (mac/tool_registry): every tool the
-    /// computer-use agent can call on the Mac, and its LLMManager.
-    pub mod tool_registry {
-        pub mod service;
-    }
 
     /// A module that takes a .py's place (see ios::python_module): made under
     /// the name Python has always known it by, AutoCua.<system>.<path>.
-    fn python_module<'py>(
+    pub(crate) fn python_module<'py>(
         py: Python<'py>,
         system: &str,
         path: &str,
@@ -1776,16 +1755,18 @@ pub mod mac {
         Ok(module)
     }
 
-    /// Fills AutoCua.agent_native.<system> (mac, windows or linux) with its
-    /// modules, laid out as the folders are, each also put in sys.modules
-    /// under its full name. The loaders (the __init__.py of the system's
-    /// scratchpad and task_tracker) then point the old dotted names at them.
-    /// `notes` and `todo` fill the system's two modules.
-    fn register_system(
+    /// Fills AutoCua.agent_native.<system> with its modules, laid out as the
+    /// folders are, each also put in sys.modules under its full name: the
+    /// controller's scratchpad and todo list (`notes`, `todo`) and the tool
+    /// registry (`registry`). The loaders (the __init__.py of the system's
+    /// scratchpad, task_tracker and tool_registry) then point the old dotted
+    /// names at them.
+    pub(crate) fn register(
         m: &Bound<'_, PyModule>,
         system: &str,
         notes: fn(&Bound<'_, PyModule>) -> PyResult<()>,
         todo: fn(&Bound<'_, PyModule>) -> PyResult<()>,
+        registry: fn(&Bound<'_, PyModule>) -> PyResult<()>,
     ) -> PyResult<()> {
         let py = m.py();
         let native = format!("AutoCua.agent_native.{system}");
@@ -1800,84 +1781,136 @@ pub mod mac {
         controller.add("scratchpad", &scratchpad)?;
         controller.add("task_tracker", &task_tracker)?;
         m.add("controller", &controller)?;
+        let registry = python_module(py, system, "tool_registry.service", registry)?;
+        let tool_registry = PyModule::new(py, &format!("{native}.tool_registry"))?;
+        tool_registry.add("service", &registry)?;
+        m.add("tool_registry", &tool_registry)?;
         for (name, module) in [
             ("controller", &controller),
             ("controller.scratchpad", &scratchpad),
             ("controller.scratchpad.service", &notes),
             ("controller.task_tracker", &task_tracker),
             ("controller.task_tracker.service", &todo),
+            ("tool_registry", &tool_registry),
+            ("tool_registry.service", &registry),
         ] {
             modules.set_item(format!("{native}.{name}"), module)?;
         }
         Ok(())
     }
+}
 
-    /// A system's own tool registry in its part (<system>/tool_registry,
-    /// whose __init__.py is its loader): AutoCua.agent_native.<system>.
-    /// tool_registry.service, filled by `fill`.
-    fn tool_registry_part(
-        m: &Bound<'_, PyModule>,
-        system: &str,
-        fill: fn(&Bound<'_, PyModule>) -> PyResult<()>,
-    ) -> PyResult<()> {
-        let py = m.py();
-        let native = format!("AutoCua.agent_native.{system}");
-        let modules = py.import("sys")?.getattr("modules")?;
-        let registry = python_module(py, system, "tool_registry.service", fill)?;
-        let package = PyModule::new(py, &format!("{native}.tool_registry"))?;
-        package.add("service", &registry)?;
-        m.add("tool_registry", &package)?;
-        modules.set_item(format!("{native}.tool_registry"), &package)?;
-        modules.set_item(format!("{native}.tool_registry.service"), &registry)?;
-        Ok(())
+/// The Mac's pieces that moved from Python (AutoCua/mac), one file at a
+/// time: the controller's scratchpad and todo list, and the tool registry.
+/// Computer use itself is the shared agent in the computer part; these are
+/// what the Mac controller (mac/controller/view.py) and the agent use. The
+/// exact-Python helpers they use are the ones in ios::controller.
+pub mod mac {
+    use pyo3::prelude::*;
+
+    pub mod controller {
+        /// The scratchpad, the agent's numbered notes (milestone.md).
+        pub mod scratchpad {
+            pub mod service;
+        }
+        /// The todo list, the agent's numbered tasks (todo.md).
+        pub mod task_tracker {
+            pub mod service;
+        }
+    }
+    /// Every tool the computer-use agent can call on the Mac, and its
+    /// LLMManager.
+    pub mod tool_registry {
+        pub mod service;
     }
 
-    /// The mac part: the scratchpad and the todo list, and the Mac's own
-    /// tool registry.
+    /// This part's name in sys.modules; its modules sit below it, named as
+    /// the folders are (AutoCua.agent_native.mac.controller.scratchpad.service).
+    pub const NATIVE: &str = "AutoCua.agent_native.mac";
+
+    /// Fills the mac part.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-        use controller::{scratchpad::service as notes, task_tracker::service as todo};
-        register_system(m, "mac", notes::mac::register, todo::mac::register)?;
-        tool_registry_part(m, "mac", tool_registry::service::register)
-    }
-
-    /// The windows part: the same two files, Windows' own classes, and
-    /// Windows' own tool registry (crate::windows).
-    pub fn register_windows(m: &Bound<'_, PyModule>) -> PyResult<()> {
-        use controller::{scratchpad::service as notes, task_tracker::service as todo};
-        register_system(m, "windows", notes::windows::register, todo::windows::register)?;
-        tool_registry_part(m, "windows", crate::windows::tool_registry::service::register)
-    }
-
-    /// The linux part: the same two files, Linux's own classes, and Linux's
-    /// own tool registry (crate::linux).
-    pub fn register_linux(m: &Bound<'_, PyModule>) -> PyResult<()> {
-        use controller::{scratchpad::service as notes, task_tracker::service as todo};
-        register_system(m, "linux", notes::linux::register, todo::linux::register)?;
-        tool_registry_part(m, "linux", crate::linux::tool_registry::service::register)
+        crate::system_part::register(
+            m,
+            "mac",
+            controller::scratchpad::service::register,
+            controller::task_tracker::service::register,
+            tool_registry::service::register,
+        )
     }
 }
 
-/// Windows' own pieces that moved from Python (AutoCua/windows): its tool
-/// registry. The part (AutoCua.agent_native.windows) is filled by
-/// mac::register_windows, with the scratchpad and the todo list the three
-/// systems share.
+/// Windows' pieces that moved from Python (AutoCua/windows), its own files
+/// in its own folders: the controller's scratchpad and todo list, and the
+/// tool registry.
 pub mod windows {
+    use pyo3::prelude::*;
+
+    pub mod controller {
+        /// The scratchpad, the agent's numbered notes (milestone.md).
+        pub mod scratchpad {
+            pub mod service;
+        }
+        /// The todo list, the agent's numbered tasks (todo.md).
+        pub mod task_tracker {
+            pub mod service;
+        }
+    }
     /// Every tool the computer-use agent can call on Windows, and its
     /// LLMManager.
     pub mod tool_registry {
         pub mod service;
     }
+
+    /// This part's name in sys.modules (AutoCua.agent_native.windows...).
+    pub const NATIVE: &str = "AutoCua.agent_native.windows";
+
+    /// Fills the windows part.
+    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        crate::system_part::register(
+            m,
+            "windows",
+            controller::scratchpad::service::register,
+            controller::task_tracker::service::register,
+            tool_registry::service::register,
+        )
+    }
 }
 
-/// Linux's own pieces that moved from Python (AutoCua/linux): its tool
-/// registry. The part (AutoCua.agent_native.linux) is filled by
-/// mac::register_linux, with the scratchpad and the todo list the three
-/// systems share.
+/// Linux's pieces that moved from Python (AutoCua/linux), its own files in
+/// its own folders: the controller's scratchpad and todo list, and the tool
+/// registry.
 pub mod linux {
+    use pyo3::prelude::*;
+
+    pub mod controller {
+        /// The scratchpad, the agent's numbered notes (milestone.md).
+        pub mod scratchpad {
+            pub mod service;
+        }
+        /// The todo list, the agent's numbered tasks (todo.md).
+        pub mod task_tracker {
+            pub mod service;
+        }
+    }
     /// Every tool the computer-use agent can call on Linux, and its
     /// LLMManager (which sends the screenshot to the model as JPEG).
     pub mod tool_registry {
         pub mod service;
+    }
+
+    /// This part's name in sys.modules (AutoCua.agent_native.linux...).
+    pub const NATIVE: &str = "AutoCua.agent_native.linux";
+
+    /// Fills the linux part.
+    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        crate::system_part::register(
+            m,
+            "linux",
+            controller::scratchpad::service::register,
+            controller::task_tracker::service::register,
+            tool_registry::service::register,
+        )
     }
 }
 
@@ -2042,8 +2075,8 @@ fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ("computer", computer::register),
         ("ios", ios::register),
         ("mac", mac::register),
-        ("windows", mac::register_windows),
-        ("linux", mac::register_linux),
+        ("windows", windows::register),
+        ("linux", linux::register),
         ("web", web::register),
         ("memory_compression", memory_compression::register),
         ("agent_conversation", agent_conversation::register),
