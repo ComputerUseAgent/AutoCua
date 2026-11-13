@@ -1373,37 +1373,55 @@ pub mod ios {
         }
 
         /// The folder an __init__ made first, with Python's lookups in
-        /// Python's order. ios_dir is two levels above the service's own
-        /// folder (`folder`, as in "task_tracker"), found from where its
-        /// service.py was, os.path.abspath(__file__), with that __file__
-        /// made in Rust. Then os.path.join(ios_dir, "scratchpad", session,
-        /// leaf) for a parallel simulator task (AutoCua_IOS_SESSION), or
-        /// without the session.
-        pub(crate) fn session_dir<'py>(module: &Bound<'py, PyModule>, folder: &str, leaf: &str) -> PyResult<Bound<'py, PyAny>> {
+        /// Python's order. The agent's folder (`agent`, as in "ios" or
+        /// "mac") is two levels above the service's own folder (`folder`, as
+        /// in "task_tracker"), found from where its service.py was,
+        /// os.path.abspath(__file__), with that __file__ made in Rust. Then
+        /// os.path.join(<agent's folder>, "scratchpad", leaf). With
+        /// `session_env` (the iPhone's AutoCua_IOS_SESSION), the session read
+        /// from os.environ goes between "scratchpad" and leaf when it is set,
+        /// for a parallel simulator task. Without it, os.environ is not read
+        /// (the Mac's service.py never read it).
+        pub(crate) fn agent_dir<'py>(
+            module: &Bound<'py, PyModule>,
+            agent: &str,
+            folder: &str,
+            leaf: &str,
+            session_env: Option<&str>,
+        ) -> PyResult<Bound<'py, PyAny>> {
             let py = module.py();
             // current_dir = os.path.dirname(os.path.abspath(__file__))
             let dirname = os_path(module, "dirname")?;
             let abspath = os_path(module, "abspath")?;
             // service.py's __file__, as it was: a str made in Rust with no
             // Python call, so a patched os.path.join sees only the two joins
-            // Python made (ios_dir's folder, then the file).
-            let file = crate::native_dir(py)?.join("ios").join("controller").join(folder).join("service.py");
+            // Python made (the agent's folder, then the file).
+            let file = crate::native_dir(py)?.join(agent).join("controller").join(folder).join("service.py");
             let current_dir = dirname.call1((abspath.call1((file.to_string_lossy().into_owned(),))?,))?;
-            // ios_dir = os.path.dirname(os.path.dirname(current_dir))
+            // ios_dir (mac_dir) = os.path.dirname(os.path.dirname(current_dir))
             let dirname = os_path(module, "dirname")?;
             let inner = os_path(module, "dirname")?.call1((current_dir,))?;
-            let ios_dir = dirname.call1((inner,))?;
+            let agent_folder = dirname.call1((inner,))?;
+            let Some(session_env) = session_env else {
+                return os_path(module, "join")?.call1((&agent_folder, "scratchpad", leaf));
+            };
             // session = os.environ.get("AutoCua_IOS_SESSION") or ""
             let get = name(module, "os")?.getattr("environ")?.getattr("get")?;
-            let mut session = get.call1(("AutoCua_IOS_SESSION",))?;
+            let mut session = get.call1((session_env,))?;
             if !session.is_truthy()? {
                 session = PyString::new(py, "").into_any();
             }
             if session.is_truthy()? {
-                os_path(module, "join")?.call1((&ios_dir, "scratchpad", &session, leaf))
+                os_path(module, "join")?.call1((&agent_folder, "scratchpad", &session, leaf))
             } else {
-                os_path(module, "join")?.call1((&ios_dir, "scratchpad", leaf))
+                os_path(module, "join")?.call1((&agent_folder, "scratchpad", leaf))
             }
+        }
+
+        /// The iPhone's folders: agent_dir for ios, with a parallel simulator
+        /// task's own session folder (AutoCua_IOS_SESSION).
+        pub(crate) fn session_dir<'py>(module: &Bound<'py, PyModule>, folder: &str, leaf: &str) -> PyResult<Bound<'py, PyAny>> {
+            agent_dir(module, "ios", folder, leaf, Some("AutoCua_IOS_SESSION"))
         }
 
         /// `logger.<level>(message)`: logger and its method are looked up
@@ -1710,6 +1728,78 @@ pub mod ios {
     }
 }
 
+/// The Mac's controller pieces that moved from Python (AutoCua/mac), one
+/// file at a time: the scratchpad and the todo list. Computer use itself is
+/// the shared agent in the computer part; these are the services its Mac
+/// controller (mac/controller/view.py) keeps. The exact-Python helpers they
+/// use are the ones in ios::controller.
+pub mod mac {
+    use pyo3::prelude::*;
+
+    pub mod controller {
+        /// The scratchpad, the agent's numbered notes (milestone.md).
+        pub mod scratchpad {
+            pub mod service;
+        }
+        /// The todo list, the agent's numbered tasks (todo.md).
+        pub mod task_tracker {
+            pub mod service;
+        }
+    }
+
+    /// This part's name in sys.modules; its modules sit below it, named as
+    /// the folders are (AutoCua.agent_native.mac.controller.scratchpad.service).
+    pub const NATIVE: &str = "AutoCua.agent_native.mac";
+
+    /// A module that takes a .py's place (see ios::python_module): made under
+    /// the name Python has always known it by, AutoCua.mac.<path>.
+    fn python_module<'py>(
+        py: Python<'py>,
+        path: &str,
+        fill: fn(&Bound<'py, PyModule>) -> PyResult<()>,
+    ) -> PyResult<Bound<'py, PyModule>> {
+        let name = format!("AutoCua.mac.{path}");
+        let module = PyModule::new(py, &name)?;
+        if let Some((package, _)) = name.rsplit_once('.') {
+            module.setattr("__package__", package)?;
+        }
+        fill(&module)?;
+        if module.hasattr("__all__")? {
+            module.delattr("__all__")?;
+        }
+        Ok(module)
+    }
+
+    /// Fills AutoCua.agent_native.mac with its modules, laid out as the
+    /// folders are, each also put in sys.modules under its full name. The
+    /// loaders (the __init__.py of scratchpad and task_tracker) then point
+    /// the old dotted names at them.
+    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        let py = m.py();
+        let modules = py.import("sys")?.getattr("modules")?;
+        let notes = python_module(py, "controller.scratchpad.service", controller::scratchpad::service::register)?;
+        let scratchpad = PyModule::new(py, &format!("{NATIVE}.controller.scratchpad"))?;
+        scratchpad.add("service", &notes)?;
+        let todo = python_module(py, "controller.task_tracker.service", controller::task_tracker::service::register)?;
+        let task_tracker = PyModule::new(py, &format!("{NATIVE}.controller.task_tracker"))?;
+        task_tracker.add("service", &todo)?;
+        let controller = PyModule::new(py, &format!("{NATIVE}.controller"))?;
+        controller.add("scratchpad", &scratchpad)?;
+        controller.add("task_tracker", &task_tracker)?;
+        m.add("controller", &controller)?;
+        for (name, module) in [
+            ("controller", &controller),
+            ("controller.scratchpad", &scratchpad),
+            ("controller.scratchpad.service", &notes),
+            ("controller.task_tracker", &task_tracker),
+            ("controller.task_tracker.service", &todo),
+        ] {
+            modules.set_item(format!("{NATIVE}.{name}"), module)?;
+        }
+        Ok(())
+    }
+}
+
 /// The web tool (AutoCua/web), one web search shared by every agent:
 /// service.rs routes a query to the agent's own provider, one file per
 /// provider's search and the browser-agent fallback (web_agent.rs) beside
@@ -1864,12 +1954,13 @@ pub mod agent_conversation {
 fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     let modules = py.import("sys")?.getattr("modules")?;
-    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 8] = [
+    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 9] = [
         ("browser", browser::register),
         ("android", android::register),
         ("coder", coder::register),
         ("computer", computer::register),
         ("ios", ios::register),
+        ("mac", mac::register),
         ("web", web::register),
         ("memory_compression", memory_compression::register),
         ("agent_conversation", agent_conversation::register),
