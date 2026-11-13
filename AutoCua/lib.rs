@@ -1914,6 +1914,28 @@ pub mod linux {
     }
 }
 
+/// The vault (AutoCua/vault): the saved credentials the iPhone and Android
+/// agents type for the user, never shown to the model, and the [vault]
+/// hiding of what was typed. vault/__init__.py is its loader.
+pub mod vault {
+    use pyo3::prelude::*;
+
+    pub mod service;
+
+    /// This part's name in sys.modules (AutoCua.agent_native.vault.service).
+    pub const NATIVE: &str = "AutoCua.agent_native.vault";
+
+    /// Fills the vault part: its service module, made under the name Python
+    /// has always known it by, AutoCua.vault.service.
+    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        let py = m.py();
+        let service = crate::system_part::python_module(py, "vault", "service", service::register)?;
+        m.add("service", &service)?;
+        py.import("sys")?.getattr("modules")?.set_item(format!("{NATIVE}.service"), &service)?;
+        Ok(())
+    }
+}
+
 /// The web tool (AutoCua/web), one web search shared by every agent:
 /// service.rs routes a query to the agent's own provider, one file per
 /// provider's search and the browser-agent fallback (web_agent.rs) beside
@@ -2068,7 +2090,7 @@ pub mod agent_conversation {
 fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     let modules = py.import("sys")?.getattr("modules")?;
-    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 11] = [
+    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 12] = [
         ("browser", browser::register),
         ("android", android::register),
         ("coder", coder::register),
@@ -2077,6 +2099,7 @@ fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ("mac", mac::register),
         ("windows", windows::register),
         ("linux", linux::register),
+        ("vault", vault::register),
         ("web", web::register),
         ("memory_compression", memory_compression::register),
         ("agent_conversation", agent_conversation::register),
