@@ -1001,9 +1001,9 @@ fn read_todo_from_file<'py>(me: &Obj<'py>) -> PyResult<Obj<'py>> {
 }
 
 /// Read the current scratchpad entries from scratchpad/milestone/
-/// milestone.md. The controller has no scratchpad service on iOS yet, so the
-/// file is read where the macOS layout keeps it (the scratchpad handler to
-/// come must write there).
+/// milestone.md, where the controller's scratchpad service
+/// (ios/controller/scratchpad/service.rs) writes them when no session
+/// (AutoCua_IOS_SESSION) is set.
 fn read_scratchpad_from_file(py: Python<'_>) -> PyResult<Obj<'_>> {
     read_own_file(
         py,

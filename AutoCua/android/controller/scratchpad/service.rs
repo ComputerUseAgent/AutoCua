@@ -1,5 +1,5 @@
 //! The scratchpad, the agent's notes: the copy of
-//! ios/controller/scratchpad/service.py. On disk as
+//! ios/controller/scratchpad/service.rs. On disk as
 //! android/scratchpad/milestone/milestone.md (scratchpad/<session>/milestone/
 //! for a parallel task, AutoCua_ANDROID_SESSION), which keeps clear of a
 //! scratchpad/scratchpad/scratchpad.md collision with the parent folder.

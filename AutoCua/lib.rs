@@ -993,13 +993,20 @@ pub mod ios {
     /// takes the service's own module, so a global it reads (os, open, str,
     /// logger) is that module's, read at the moment of use, as in Python.
     pub mod controller {
-        use pyo3::exceptions::PyTypeError;
+        use pyo3::exceptions::{PyImportError, PyNameError, PySystemError, PyTypeError, PyUnboundLocalError, PyValueError};
+        use pyo3::ffi;
         use pyo3::prelude::*;
-        use pyo3::types::{PyDict, PyString, PyTuple};
+        use pyo3::types::{PyDict, PyList, PyString, PyTuple};
 
-        use crate::computer::Handling;
-        use crate::memory_compression::{format_value, global, is_exception, join_str};
+        use crate::computer::{type_name, Handling};
+        use crate::memory_compression::{format_value, global, join_str};
 
+        /// The controller service: the WDA session and the element taps,
+        /// typing and scrolls (service.rs, in place of service.py).
+        pub mod service;
+        /// The view: the router from the model's actions to the services
+        /// and tools (view.rs, in place of view.py).
+        pub mod view;
         /// The scratchpad, the agent's numbered notes (milestone.md).
         pub mod scratchpad {
             pub mod service;
@@ -1022,6 +1029,328 @@ pub mod ios {
             pub mod videoplayer;
         }
 
+        // -------------------------------------------------------------------
+        // Python's statements, as the seven files share them
+        // -------------------------------------------------------------------
+
+        /// What Python says when an except clause names something that is
+        /// not an exception class.
+        const CANNOT_CATCH: &str = "catching classes that do not inherit from BaseException is not allowed";
+
+        /// An error made in Rust, raised now: the error being handled at
+        /// this moment becomes its __context__, as it does for an error
+        /// Python raises. (Left alone, it would only be raised once it is
+        /// first looked at.)
+        pub(crate) fn now(py: Python<'_>, e: PyErr) -> PyErr {
+            e.value(py);
+            e
+        }
+
+        /// One of the module's globals (or a builtin), read now, as Python
+        /// reads a global name. A missing one is Python's NameError, naming
+        /// the name (its .name).
+        pub(crate) fn name<'py>(module: &Bound<'py, PyModule>, wanted: &str) -> PyResult<Bound<'py, PyAny>> {
+            let py = module.py();
+            global(module, wanted).map_err(|e| {
+                let e = now(py, e);
+                if e.is_instance_of::<PyNameError>(py) {
+                    let _ = e.value(py).setattr("name", wanted);
+                }
+                e
+            })
+        }
+
+        /// Python's `raise value`, now. An exception class is called with no
+        /// arguments first, and anything that is not an exception is the
+        /// TypeError Python gives instead.
+        pub(crate) fn raise(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyErr {
+            // SAFETY: the GIL is held and every pointer is a live object.
+            // PyErr_SetObject takes its own references.
+            unsafe {
+                if ffi::PyExceptionClass_Check(value.as_ptr()) != 0 {
+                    let instance = match value.call0() {
+                        Ok(instance) => instance,
+                        Err(e) => return e,
+                    };
+                    if ffi::PyExceptionInstance_Check(instance.as_ptr()) == 0 {
+                        let shown = |object: &Bound<'_, PyAny>| object.repr().map(|r| r.to_string()).unwrap_or_default();
+                        let message = format!(
+                            "calling {} should have returned an instance of BaseException, not {}",
+                            shown(value),
+                            shown(instance.get_type().as_any())
+                        );
+                        return now(py, PyTypeError::new_err(message));
+                    }
+                    // Raised as the class that was named, as Python's raise does.
+                    ffi::PyErr_SetObject(value.as_ptr(), instance.as_ptr());
+                } else if ffi::PyExceptionInstance_Check(value.as_ptr()) != 0 {
+                    ffi::PyErr_SetObject(ffi::Py_TYPE(value.as_ptr()).cast(), value.as_ptr());
+                } else {
+                    return now(py, PyTypeError::new_err("exceptions must derive from BaseException"));
+                }
+            }
+            PyErr::fetch(py)
+        }
+
+        /// `raise <kind>(<message>)`: the module's global `kind` read first,
+        /// then the message made, then the error made and raised, in
+        /// Python's order.
+        pub(crate) fn throw<'py>(
+            module: &Bound<'py, PyModule>,
+            kind: &str,
+            message: impl FnOnce() -> PyResult<Bound<'py, PyAny>>,
+        ) -> PyErr {
+            let made = (|| -> PyResult<Bound<'py, PyAny>> {
+                let kind = name(module, kind)?;
+                let message = message()?;
+                kind.call1((message,))
+            })();
+            match made {
+                Ok(value) => raise(module.py(), &value),
+                Err(e) => e,
+            }
+        }
+
+        /// Python's `except <kinds>:` test of `e`, made while `e` is being
+        /// handled (the caller holds its Handling): `kinds` must be an
+        /// exception class or a tuple of them, or Python raises TypeError
+        /// (with `e` as its __context__), and then e matches it or not.
+        pub(crate) fn caught(py: Python<'_>, e: &PyErr, kinds: &Bound<'_, PyAny>) -> PyResult<bool> {
+            // SAFETY: the GIL is held and the pointers are live objects.
+            let class = |kind: &Bound<'_, PyAny>| -> bool { unsafe { ffi::PyExceptionClass_Check(kind.as_ptr()) != 0 } };
+            let valid = match kinds.cast::<PyTuple>() {
+                Ok(kinds) => kinds.iter().all(|kind| class(&kind)),
+                Err(_) => class(kinds),
+            };
+            if !valid {
+                return Err(now(py, PyTypeError::new_err(CANNOT_CATCH)));
+            }
+            // SAFETY: as above.
+            let matched = unsafe { ffi::PyErr_GivenExceptionMatches(e.value(py).as_ptr(), kinds.as_ptr()) };
+            Ok(matched != 0)
+        }
+
+        /// An `except Exception as e:` block: `body` runs while `e` is being
+        /// handled, with Exception read from the module as Python reads it
+        /// there, so an error the body raises carries `e` as its
+        /// __context__. What does not match passes on untouched.
+        pub(crate) fn except_exception<'py, T>(
+            module: &Bound<'py, PyModule>,
+            e: PyErr,
+            body: impl FnOnce(&PyErr) -> PyResult<T>,
+        ) -> PyResult<T> {
+            let py = module.py();
+            let _handling = Handling::new(py, &e);
+            if !caught(py, &e, &name(module, "Exception")?)? {
+                return Err(e);
+            }
+            body(&e).map_err(|raised| now(py, raised))
+        }
+
+        /// `isinstance(value, <class_name>)`: isinstance and the class, both
+        /// read as the module's globals at this moment (the builtins unless
+        /// patched), then the truth of the answer, as an `if` takes it. So an
+        /// object whose __class__ says dict (Mock(spec=dict), a proxy)
+        /// counts, as in the .py.
+        pub(crate) fn isinstance<'py>(module: &Bound<'py, PyModule>, value: &Bound<'py, PyAny>, class_name: &str) -> PyResult<bool> {
+            let check = name(module, "isinstance")?;
+            let class = name(module, class_name)?;
+            check.call1((value, class))?.is_truthy()
+        }
+
+        /// The UnboundLocalError Python raises where a local is read before
+        /// it was set, in the running Python's words (3.11 changed them).
+        pub(crate) fn unbound_local(py: Python<'_>, variable: &str) -> PyErr {
+            let message = if py.version_info() >= (3, 11) {
+                format!("cannot access local variable '{variable}' where it is not associated with a value")
+            } else {
+                format!("local variable '{variable}' referenced before assignment")
+            };
+            now(py, PyUnboundLocalError::new_err(message))
+        }
+
+        /// `a, b, c = value`: Python's unpacking of exactly three items, with
+        /// the errors the running Python gives (as crate::computer::unpack2
+        /// for two).
+        pub(crate) fn unpack3<'py>(
+            value: &Bound<'py, PyAny>,
+        ) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+            let py = value.py();
+            let not_enough = |got: usize| {
+                now(py, PyValueError::new_err(format!("not enough values to unpack (expected 3, got {got})")))
+            };
+            let mut items = match value.try_iter() {
+                Ok(items) => items,
+                Err(e) => {
+                    let kind = value.get_type();
+                    // SAFETY: a live type object and a live object.
+                    let has_iter = unsafe { !ffi::PyType_GetSlot(kind.as_type_ptr(), ffi::Py_tp_iter).is_null() };
+                    let is_sequence = unsafe { ffi::PySequence_Check(value.as_ptr()) } == 1;
+                    if e.is_instance_of::<PyTypeError>(py) && !has_iter && !is_sequence {
+                        let message = format!("cannot unpack non-iterable {} object", type_name(value)?);
+                        return Err(now(py, PyTypeError::new_err(message)));
+                    }
+                    return Err(e);
+                }
+            };
+            let first = items.next().ok_or_else(|| not_enough(0))??;
+            let second = items.next().ok_or_else(|| not_enough(1))??;
+            let third = items.next().ok_or_else(|| not_enough(2))??;
+            match items.next() {
+                None => Ok((first, second, third)),
+                Some(Err(e)) => Err(e),
+                Some(Ok(_)) => {
+                    let exact = value.is_exact_instance_of::<PyList>()
+                        || value.is_exact_instance_of::<PyTuple>()
+                        || value.is_exact_instance_of::<PyDict>();
+                    let message = if exact && py.version_info() >= (3, 14) {
+                        format!("too many values to unpack (expected 3, got {})", value.len()?)
+                    } else {
+                        "too many values to unpack (expected 3)".to_string()
+                    };
+                    Err(now(py, PyValueError::new_err(message)))
+                }
+            }
+        }
+
+        /// `from <from> import <wanted>, ...`, run when the line ran, as
+        /// Python runs it: one __import__ with the module's globals and every
+        /// name in the fromlist, then each name in turn from what came back,
+        /// or else the submodule of that name already in sys.modules, or else
+        /// Python's ImportError, with its name, path and name_from.
+        pub(crate) fn import_from<'py>(
+            module: &Bound<'py, PyModule>,
+            from: &str,
+            wanted: &[&str],
+        ) -> PyResult<Vec<Bound<'py, PyAny>>> {
+            let py = module.py();
+            let import = py.import("builtins")?.getattr("__import__")?;
+            let fromlist = PyTuple::new(py, wanted)?;
+            let found = import.call1((from, module.dict(), py.None(), fromlist, 0))?;
+            let mut names = Vec::with_capacity(wanted.len());
+            for one in wanted {
+                names.push(import_one(&found, one)?);
+            }
+            Ok(names)
+        }
+
+        /// One name of a from-import, as CPython's IMPORT_FROM takes it.
+        fn import_one<'py>(found: &Bound<'py, PyAny>, wanted: &str) -> PyResult<Bound<'py, PyAny>> {
+            let py = found.py();
+            if let Some(value) = found.getattr_opt(wanted)? {
+                return Ok(value);
+            }
+            let package = found.getattr_opt("__name__")?.filter(|package| package.is_instance_of::<PyString>());
+            if let Some(package) = &package {
+                let full = join_str(py, &[package, &text(py, "."), &text(py, wanted)])?;
+                // SAFETY: a live str; a new reference, or NULL with or without an error set.
+                let module = unsafe { Bound::from_owned_ptr_or_opt(py, ffi::PyImport_GetModule(full.as_ptr())) };
+                if let Some(module) = module {
+                    return Ok(module);
+                }
+                if let Some(e) = PyErr::take(py) {
+                    return Err(e);
+                }
+            }
+            Err(import_error(found, wanted, package)?)
+        }
+
+        /// The ImportError of a `from <module> import <wanted>` that found
+        /// nothing, worded as the running Python words it. Up to 3.12 the
+        /// location is the module's __file__, and a spec that cannot be read
+        /// counts as not initializing. From 3.13 the module's __spec__ is
+        /// read first: its origin when it has a location, else the module's
+        /// __file__, and an error in reading the spec is raised. (3.13 can
+        /// also say that a file may shadow a module of the same name; it says
+        /// so only for a module in the folder Python started from, which the
+        /// modules imported here never are.)
+        fn import_error<'py>(
+            found: &Bound<'py, PyAny>,
+            wanted: &str,
+            package: Option<Bound<'py, PyAny>>,
+        ) -> PyResult<PyErr> {
+            let py = found.py();
+            // SAFETY: a live object.
+            let is_module = unsafe { ffi::PyModule_Check(found.as_ptr()) } != 0;
+            // The module's __file__ when it is a str, else None.
+            let file = || -> PyResult<Option<Bound<'py, PyAny>>> {
+                if !is_module {
+                    return Ok(None);
+                }
+                // SAFETY: a live module; a new reference, or NULL with an error set.
+                match unsafe { Bound::from_owned_ptr_or_err(py, ffi::PyModule_GetFilenameObject(found.as_ptr())) } {
+                    Ok(file) => Ok(Some(file)),
+                    Err(e) if e.is_instance_of::<PySystemError>(py) => Ok(None),
+                    Err(e) => Err(e),
+                }
+            };
+            let (location, initializing) = if py.version_info() >= (3, 13) {
+                match found.getattr_opt("__spec__")? {
+                    None => (None, false),
+                    Some(spec) => {
+                        let mut origin = None;
+                        if let Some(has_location) = spec.getattr_opt("has_location")? {
+                            if has_location.is_truthy()? {
+                                origin = spec.getattr_opt("origin")?.filter(|origin| origin.is_instance_of::<PyString>());
+                            }
+                        }
+                        if origin.is_none() {
+                            origin = file()?;
+                        }
+                        let initializing = match spec.getattr_opt("_initializing")? {
+                            Some(flag) => flag.is_truthy()?,
+                            None => false,
+                        };
+                        (origin, initializing)
+                    }
+                }
+            } else {
+                let path = file().unwrap_or(None);
+                let initializing = path.is_some()
+                    && found
+                        .getattr("__spec__")
+                        .and_then(|spec| spec.getattr("_initializing"))
+                        .and_then(|flag| flag.is_truthy())
+                        .unwrap_or(false);
+                (path, initializing)
+            };
+            let shown_package = match &package {
+                Some(package) => package.repr()?,
+                None => PyString::new(py, "<unknown module name>").repr()?,
+            };
+            let mut parts = vec![
+                text(py, "cannot import name "),
+                PyString::new(py, wanted).repr()?.into_any(),
+                text(py, if initializing { " from partially initialized module " } else { " from " }),
+                shown_package.into_any(),
+            ];
+            if initializing {
+                parts.push(text(py, " (most likely due to a circular import)"));
+            }
+            match &location {
+                Some(location) => {
+                    parts.push(text(py, " ("));
+                    parts.push(location.str()?.into_any());
+                    parts.push(text(py, ")"));
+                }
+                None if !initializing => parts.push(text(py, " (unknown location)")),
+                None => {}
+            }
+            let message = join_str(py, &parts.iter().collect::<Vec<_>>())?;
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("name", package)?;
+            kwargs.set_item("path", location)?;
+            if py.version_info() >= (3, 12) {
+                kwargs.set_item("name_from", wanted)?;
+            }
+            let error = py.get_type::<PyImportError>().call((message,), Some(&kwargs))?;
+            Ok(raise(py, &error))
+        }
+
+        // -------------------------------------------------------------------
+        // The lines the service.py files each had inline
+        // -------------------------------------------------------------------
+
         /// A str, as a Python object.
         pub(crate) fn text<'py>(py: Python<'py>, s: &str) -> Bound<'py, PyAny> {
             PyString::new(py, s).into_any()
@@ -1040,31 +1369,32 @@ pub mod ios {
         /// `os.path.<function>`, looked up now, as Python looks it up at
         /// each call.
         pub(crate) fn os_path<'py>(module: &Bound<'py, PyModule>, function: &str) -> PyResult<Bound<'py, PyAny>> {
-            global(module, "os")?.getattr("path")?.getattr(function)
+            name(module, "os")?.getattr("path")?.getattr(function)
         }
 
         /// The folder an __init__ made first, with Python's lookups in
         /// Python's order. ios_dir is two levels above the service's own
         /// folder (`folder`, as in "task_tracker"), found from where its
-        /// service.py was, os.path.abspath(__file__). Then
-        /// os.path.join(ios_dir, "scratchpad", session, leaf) for a parallel
-        /// simulator task (AutoCua_IOS_SESSION), or without the session.
+        /// service.py was, os.path.abspath(__file__), with that __file__
+        /// made in Rust. Then os.path.join(ios_dir, "scratchpad", session,
+        /// leaf) for a parallel simulator task (AutoCua_IOS_SESSION), or
+        /// without the session.
         pub(crate) fn session_dir<'py>(module: &Bound<'py, PyModule>, folder: &str, leaf: &str) -> PyResult<Bound<'py, PyAny>> {
             let py = module.py();
             // current_dir = os.path.dirname(os.path.abspath(__file__))
             let dirname = os_path(module, "dirname")?;
             let abspath = os_path(module, "abspath")?;
-            let file = py.import("os")?.getattr("path")?.call_method1(
-                "join",
-                (crate::native_dir(py)?, "ios", "controller", folder, "service.py"),
-            )?;
-            let current_dir = dirname.call1((abspath.call1((file,))?,))?;
+            // service.py's __file__, as it was: a str made in Rust with no
+            // Python call, so a patched os.path.join sees only the two joins
+            // Python made (ios_dir's folder, then the file).
+            let file = crate::native_dir(py)?.join("ios").join("controller").join(folder).join("service.py");
+            let current_dir = dirname.call1((abspath.call1((file.to_string_lossy().into_owned(),))?,))?;
             // ios_dir = os.path.dirname(os.path.dirname(current_dir))
             let dirname = os_path(module, "dirname")?;
             let inner = os_path(module, "dirname")?.call1((current_dir,))?;
             let ios_dir = dirname.call1((inner,))?;
             // session = os.environ.get("AutoCua_IOS_SESSION") or ""
-            let get = global(module, "os")?.getattr("environ")?.getattr("get")?;
+            let get = name(module, "os")?.getattr("environ")?.getattr("get")?;
             let mut session = get.call1(("AutoCua_IOS_SESSION",))?;
             if !session.is_truthy()? {
                 session = PyString::new(py, "").into_any();
@@ -1076,29 +1406,26 @@ pub mod ios {
             }
         }
 
-        /// `logger.<level>(message)`: the method is looked up before the
-        /// message is made, as Python does.
+        /// `logger.<level>(message)`: logger and its method are looked up
+        /// before the message is made, as Python does.
         pub(crate) fn log<'py>(
             module: &Bound<'py, PyModule>,
             level: &str,
             message: impl FnOnce() -> PyResult<Bound<'py, PyAny>>,
         ) -> PyResult<()> {
-            let method = global(module, "logger")?.getattr(level)?;
+            let method = name(module, "logger")?.getattr(level)?;
             method.call1((message()?,))?;
             Ok(())
         }
 
         /// An `except Exception as e:` block: `logger.error(f"{what}{e}")`
         /// (the exception through format, as an f-string's {e} does) while
-        /// `e` is the exception being handled. What is not an Exception
-        /// (KeyboardInterrupt, SystemExit) passes on untouched, as Err.
+        /// `e` is the exception being handled. What does not match the
+        /// module's Exception (KeyboardInterrupt, SystemExit) passes on
+        /// untouched, as Err.
         pub(crate) fn log_failure(module: &Bound<'_, PyModule>, what: &str, e: PyErr) -> PyResult<()> {
             let py = module.py();
-            if !is_exception(py, &e) {
-                return Err(e);
-            }
-            let _handling = Handling::new(py, &e);
-            log(module, "error", || fstring(py, &[&text(py, what), e.value(py)]))
+            except_exception(module, e, |e| log(module, "error", || fstring(py, &[&text(py, what), e.value(py)])))
         }
 
         /// A dict built in the order given, as a dict display builds it.
@@ -1111,23 +1438,21 @@ pub mod ios {
         }
 
         /// An `except Exception as e:` block: `logger.error(f"{what}{str(e)}")`
-        /// while `e` is the exception being handled. What is not an
-        /// Exception (KeyboardInterrupt, SystemExit) passes on untouched.
-        /// Ok(Err(e)) hands the handled exception back.
+        /// while `e` is the exception being handled. What does not match the
+        /// module's Exception (KeyboardInterrupt, SystemExit) passes on
+        /// untouched. Ok(Err(e)) hands the handled exception back.
         pub(crate) fn logged<T>(module: &Bound<'_, PyModule>, what: &str, result: PyResult<T>) -> PyResult<Result<T, PyErr>> {
             let py = module.py();
             match result {
                 Ok(value) => Ok(Ok(value)),
-                Err(e) if is_exception(py, &e) => {
-                    let _handling = Handling::new(py, &e);
+                Err(e) => except_exception(module, e, |e| {
                     log(module, "error", || {
-                        let text = global(module, "str")?.call1((e.value(py),))?;
+                        let text = name(module, "str")?.call1((e.value(py),))?;
                         let what = PyString::new(py, what);
                         Ok(join_str(py, &[what.as_any(), format_value(&text, "")?.as_any()])?.into_any())
                     })?;
-                    Ok(Err(e))
-                }
-                Err(e) => Err(e),
+                    Ok(Err(e.clone_ref(py)))
+                }),
             }
         }
 
@@ -1135,7 +1460,7 @@ pub mod ios {
         /// raised again when it fails: the _ensure_..._directory methods.
         pub(crate) fn make_dir(module: &Bound<'_, PyModule>, slf: &Bound<'_, PyAny>, attr: &str, what: &str) -> PyResult<()> {
             let made = (|| -> PyResult<()> {
-                let makedirs = global(module, "os")?.getattr("makedirs")?;
+                let makedirs = name(module, "os")?.getattr("makedirs")?;
                 let kwargs = PyDict::new(module.py());
                 kwargs.set_item("exist_ok", true)?;
                 makedirs.call((slf.getattr(attr)?,), Some(&kwargs))?;
@@ -1152,7 +1477,7 @@ pub mod ios {
             attr: &str,
             mode: &str,
         ) -> PyResult<Bound<'py, PyAny>> {
-            let open = global(module, "open")?;
+            let open = name(module, "open")?;
             let file = slf.getattr(attr)?;
             let kwargs = PyDict::new(module.py());
             kwargs.set_item("encoding", "utf-8")?;
@@ -1163,7 +1488,8 @@ pub mod ios {
         /// does, "TaskTrackerService.__init__()"). A call that gives more is
         /// turned down in the words Python has for a def of that shape, so
         /// the first keyword is named before the count of positional
-        /// arguments.
+        /// arguments. From 3.13 Python adds "Did you mean 'self'?" to a
+        /// keyword close enough to it (near_self).
         pub(crate) fn only_self(init: &str, args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> {
             let py = args.py();
             if let Some((keyword, _)) = kwargs.and_then(|kwargs| kwargs.iter().next()) {
@@ -1171,7 +1497,10 @@ pub mod ios {
                     PyString::new(py, &format!("{init} got multiple values for argument 'self'")).into_any()
                 } else {
                     let open = PyString::new(py, &format!("{init} got an unexpected keyword argument '"));
-                    let close = PyString::new(py, "'");
+                    // A keyword that is no UTF-8 gets no suggestion, as in Python.
+                    let near = py.version_info() >= (3, 13)
+                        && keyword.extract::<String>().map(|keyword| near_self(&keyword)).unwrap_or(false);
+                    let close = PyString::new(py, if near { "'. Did you mean 'self'?" } else { "'" });
                     join_str(py, &[open.as_any(), keyword.str()?.as_any(), close.as_any()])?.into_any()
                 };
                 return Err(PyTypeError::new_err((message.unbind(),)));
@@ -1183,6 +1512,95 @@ pub mod ios {
                 )));
             }
             Ok(())
+        }
+
+        /// Whether Python 3.13+ suggests 'self' for this unexpected keyword:
+        /// CPython's _Py_CalculateSuggestions with 'self' the one candidate,
+        /// over the UTF-8 bytes. No more than about a third of the
+        /// characters involved may need a change.
+        fn near_self(keyword: &str) -> bool {
+            const CANDIDATE: &str = "self";
+            const MOVE_COST: usize = 2;
+            if keyword == CANDIDATE {
+                return false;
+            }
+            let max_distance = (keyword.len() + CANDIDATE.len() + 3) * MOVE_COST / 6;
+            edit_distance(keyword.as_bytes(), CANDIDATE.as_bytes(), max_distance) <= max_distance
+        }
+
+        /// CPython's levenshtein_distance (Python/suggestions.c): a move
+        /// costs 2, a change of case alone 1, and once every way costs more
+        /// than `max_cost` the answer is max_cost + 1.
+        fn edit_distance(a: &[u8], b: &[u8], max_cost: usize) -> usize {
+            const MOVE_COST: usize = 2;
+            const CASE_COST: usize = 1;
+            const MAX_STRING_SIZE: usize = 40;
+            let substitution_cost = |x: u8, y: u8| -> usize {
+                if x & 31 != y & 31 {
+                    // Not the same, not a case flip.
+                    return MOVE_COST;
+                }
+                if x == y {
+                    return 0;
+                }
+                if x.to_ascii_lowercase() == y.to_ascii_lowercase() {
+                    CASE_COST
+                } else {
+                    MOVE_COST
+                }
+            };
+            let (mut a, mut b) = (a, b);
+            // Trim away common affixes.
+            while let (Some(x), Some(y)) = (a.first(), b.first()) {
+                if x != y {
+                    break;
+                }
+                a = &a[1..];
+                b = &b[1..];
+            }
+            while let (Some(x), Some(y)) = (a.last(), b.last()) {
+                if x != y {
+                    break;
+                }
+                a = &a[..a.len() - 1];
+                b = &b[..b.len() - 1];
+            }
+            if a.is_empty() || b.is_empty() {
+                return (a.len() + b.len()) * MOVE_COST;
+            }
+            if a.len() > MAX_STRING_SIZE || b.len() > MAX_STRING_SIZE {
+                return max_cost + 1;
+            }
+            // Prefer the shorter one in the row.
+            if b.len() < a.len() {
+                std::mem::swap(&mut a, &mut b);
+            }
+            // Quick fail when a match is impossible.
+            if (b.len() - a.len()) * MOVE_COST > max_cost {
+                return max_cost + 1;
+            }
+            // One row of the matrix, updated in place: the cost from b[..0]
+            // to a[..i + 1].
+            let mut row: Vec<usize> = (1..=a.len()).map(|i| i * MOVE_COST).collect();
+            let mut result = 0;
+            for (b_index, &code) in b.iter().enumerate() {
+                let mut distance = b_index * MOVE_COST;
+                result = distance;
+                let mut minimum = usize::MAX;
+                for (index, &item) in a.iter().enumerate() {
+                    let substitute = distance + substitution_cost(code, item);
+                    distance = row[index];
+                    let insert_delete = result.min(distance) + MOVE_COST;
+                    result = insert_delete.min(substitute);
+                    row[index] = result;
+                    minimum = minimum.min(result);
+                }
+                if minimum > max_cost {
+                    // Everything in this row is too expensive.
+                    return max_cost + 1;
+                }
+            }
+            result
         }
     }
 
@@ -1244,7 +1662,11 @@ pub mod ios {
         tool.add("open_app", &launcher)?;
         tool.add("shell", &shell)?;
         tool.add("videoplayer", &player)?;
+        let core = python_module(py, "controller.service", controller::service::register)?;
+        let router = python_module(py, "controller.view", controller::view::register)?;
         let controller = PyModule::new(py, &format!("{NATIVE}.controller"))?;
+        controller.add("service", &core)?;
+        controller.add("view", &router)?;
         controller.add("scratchpad", &scratchpad)?;
         controller.add("task_tracker", &task_tracker)?;
         controller.add("tool", &tool)?;
@@ -1257,6 +1679,8 @@ pub mod ios {
             ("agent.skills", &skills),
             ("agent.skills.service", &service),
             ("controller", &controller),
+            ("controller.service", &core),
+            ("controller.view", &router),
             ("controller.scratchpad", &scratchpad),
             ("controller.scratchpad.service", &notes),
             ("controller.task_tracker", &task_tracker),
