@@ -1,4 +1,4 @@
-//! The app launcher: the copy of ios/controller/tool/open_app.py. Lists the
+//! The app launcher: the copy of ios/controller/tool/open_app.rs. Lists the
 //! installed apps, matches a name to ONE of them, launches it and confirms
 //! it came to the front; and the home screen.
 //!

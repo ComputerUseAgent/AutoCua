@@ -13,7 +13,10 @@ working unchanged. What each .py did when it was imported is done here, at
 that same moment and in the same order (open_app, videoplayer, shell): its
 import lines bind their names on the module (the Rust reads them from there
 each time), then its logger is made, and for open_app its one launcher,
-app_launcher_service. Loading the extension imports none of them.
+app_launcher_service. Then the module becomes an attribute of this package,
+as the import system made it one. Loading the extension imports none of
+them. A module already in sys.modules under its old name is left as it is,
+as the import system never ran a .py a second time.
 """
 
 import sys as _sys
@@ -26,9 +29,9 @@ _ensure_built()
 
 try:
     from AutoCua.agent_native import ios as _native  # noqa: E402
-    open_app = _native.controller.tool.open_app
-    videoplayer = _native.controller.tool.videoplayer
-    shell = _native.controller.tool.shell
+    _open_app = _native.controller.tool.open_app
+    _videoplayer = _native.controller.tool.videoplayer
+    _shell = _native.controller.tool.shell
 except (ImportError, AttributeError) as _error:
     if "AutoCua.agent_native" not in _sys.modules:
         raise
@@ -43,14 +46,21 @@ except (ImportError, AttributeError) as _error:
 
 def _load(module, bind):
     """Put `module` in sys.modules under its old name, then do what its .py
-    did when it was imported (`bind`). A failure leaves it out of
-    sys.modules, as a failed import of the .py did."""
+    did when it was imported (`bind`), then make it an attribute of this
+    package, as the import system did once a .py had run. A failure leaves
+    it out of sys.modules, as a failed import of the .py did. A name already
+    in sys.modules (a reload of this package, or a retry after a later file
+    failed) is left as it is: nothing is run and nothing is set, as the
+    import system did not run the .py again."""
+    if module.__name__ in _sys.modules:
+        return
     _sys.modules[module.__name__] = module
     try:
         bind()
     except BaseException:
         _sys.modules.pop(module.__name__, None)
         raise
+    globals()[module.__name__.rpartition(".")[2]] = module
 
 
 def _bind_open_app():
@@ -66,10 +76,10 @@ def _bind_open_app():
     import logging
     from pathlib import Path
     for name, value in list(locals().items()):
-        setattr(open_app, name, value)
-    open_app.logger = logging.getLogger(open_app.__name__)
+        setattr(_open_app, name, value)
+    _open_app.logger = logging.getLogger(_open_app.__name__)
     # Create global instance
-    open_app.app_launcher_service = open_app.AppLauncherService()
+    _open_app.app_launcher_service = _open_app.AppLauncherService()
 
 
 def _bind_videoplayer():
@@ -81,8 +91,8 @@ def _bind_videoplayer():
     import re
     import xml.etree.ElementTree as ET
     for name, value in list(locals().items()):
-        setattr(videoplayer, name, value)
-    videoplayer.logger = logging.getLogger(videoplayer.__name__)
+        setattr(_videoplayer, name, value)
+    _videoplayer.logger = logging.getLogger(_videoplayer.__name__)
 
 
 def _bind_shell():
@@ -91,16 +101,16 @@ def _bind_shell():
     import logging
     from AutoCua.coder import Sandbox
     for name, value in list(locals().items()):
-        setattr(shell, name, value)
-    shell.logger = logging.getLogger(shell.__name__)
+        setattr(_shell, name, value)
+    _shell.logger = logging.getLogger(_shell.__name__)
 
 
-_load(open_app, _bind_open_app)
+_load(_open_app, _bind_open_app)
 from .open_app import app_launcher_service  # noqa: E402
-_load(videoplayer, _bind_videoplayer)
+_load(_videoplayer, _bind_videoplayer)
 from .videoplayer import VideoPlayerService  # noqa: E402
-_load(shell, _bind_shell)
+_load(_shell, _bind_shell)
 from .shell import ShellService  # noqa: E402
-del _load, _bind_open_app, _bind_videoplayer, _bind_shell
+del _load, _bind_open_app, _bind_videoplayer, _bind_shell, _open_app, _videoplayer, _shell
 
 __all__ = ['app_launcher_service', 'VideoPlayerService', 'ShellService']

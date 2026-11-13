@@ -25,12 +25,11 @@ use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyAttributeError;
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
-use pyo3::types::{PyBool, PyDict, PyList, PySet, PyString, PyTuple};
+use pyo3::types::{PyBool, PyDict, PyList, PySet, PyTuple};
 
 use crate::computer::as_python_class;
-use crate::ios::controller::{dict, fstring, log, log_failure, text};
+use crate::ios::controller::{self, dict, except_exception, fstring, log, log_failure, text};
 use crate::ios::NATIVE;
-use crate::memory_compression::{global, is_exception};
 
 type Obj<'py> = Bound<'py, PyAny>;
 
@@ -66,9 +65,6 @@ const PROGRESS_PATTERN: &str = r"(\d{1,2}:\d{2}(?::\d{2})?)";
 /// Sky Go's watched label; see _scan_state.
 const WATCHED_PATTERN: &str = r"you\W{0,2}ve watched|you have watched";
 
-/// The fallback tap of _reveal_controls: a touch on the left of the screen.
-const TAP_ACTIONS: &str = r#"{"actions": [{"type": "pointer", "id": "finger1", "parameters": {"pointerType": "touch"}, "actions": [{"type": "pointerMove", "duration": 0, "x": 100, "y": 195}, {"type": "pointerDown", "button": 0}, {"type": "pause", "duration": 10}, {"type": "pointerUp", "button": 0}]}]}"#;
-
 /// This module, as registered: its globals are read from it at run time.
 static MODULE: PyOnceLock<Py<PyModule>> = PyOnceLock::new();
 
@@ -78,9 +74,18 @@ fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
         .map(|m| m.bind(py).clone())
 }
 
-/// One of this module's globals (or a builtin), read now.
-fn name<'py>(py: Python<'py>, name: &str) -> PyResult<Obj<'py>> {
-    global(&module(py)?, name)
+/// One of this module's globals (or a builtin), read now (lib.rs's
+/// controller::name: a missing one is NameError, naming the name).
+fn name<'py>(py: Python<'py>, wanted: &str) -> PyResult<Obj<'py>> {
+    controller::name(&module(py)?, wanted)
+}
+
+/// `isinstance(value, <kind>)`: isinstance and the class, both read from
+/// the module now (lib.rs's controller::isinstance). So an object whose
+/// __class__ says dict or str (Mock(spec=dict), a weakref.proxy) counts, as
+/// in the .py.
+fn isinstance<'py>(value: &Obj<'py>, kind: &str) -> PyResult<bool> {
+    controller::isinstance(&module(value.py())?, value, kind)
 }
 
 fn none(py: Python<'_>) -> Obj<'_> {
@@ -89,6 +94,38 @@ fn none(py: Python<'_>) -> Obj<'_> {
 
 fn boolean(py: Python<'_>, value: bool) -> Obj<'_> {
     PyBool::new(py, value).to_owned().into_any()
+}
+
+fn int(py: Python<'_>, value: i64) -> PyResult<Obj<'_>> {
+    Ok(value.into_pyobject(py)?.into_any())
+}
+
+/// The fallback tap of _reveal_controls, a touch on the left of the screen,
+/// built as the .py's dict display built it.
+fn tap_actions(py: Python<'_>) -> PyResult<Obj<'_>> {
+    let steps = PyList::new(
+        py,
+        [
+            dict(
+                py,
+                &[("type", &text(py, "pointerMove")), ("duration", &int(py, 0)?), ("x", &int(py, 100)?), ("y", &int(py, 195)?)],
+            )?,
+            dict(py, &[("type", &text(py, "pointerDown")), ("button", &int(py, 0)?)])?,
+            dict(py, &[("type", &text(py, "pause")), ("duration", &int(py, 10)?)])?,
+            dict(py, &[("type", &text(py, "pointerUp")), ("button", &int(py, 0)?)])?,
+        ],
+    )?;
+    let parameters = dict(py, &[("pointerType", &text(py, "touch"))])?;
+    let finger = dict(
+        py,
+        &[
+            ("type", &text(py, "pointer")),
+            ("id", &text(py, "finger1")),
+            ("parameters", parameters.as_any()),
+            ("actions", steps.as_any()),
+        ],
+    )?;
+    Ok(dict(py, &[("actions", PyList::new(py, [finger])?.as_any())])?.into_any())
 }
 
 /// `logger.<level>(f"...")`, the parts given in order.
@@ -175,10 +212,11 @@ impl VideoPlayerService {
                 return Ok(none(py));
             }
             let value = response.call_method0("json")?.call_method1("get", ("value",))?;
-            if value.is_instance_of::<PyDict>() && !value.call_method1("get", ("error",))?.is_truthy()? {
+            if isinstance(&value, "dict")? && !value.call_method1("get", ("error",))?.is_truthy()? {
                 for element_id in value.call_method0("values")?.try_iter()? {
                     let element_id = element_id?;
-                    if element_id.is_instance_of::<PyString>() && element_id.is_truthy()? {
+                    // str is read again for each element, as Python reads it.
+                    if isinstance(&element_id, "str")? && element_id.is_truthy()? {
                         return Ok(element_id);
                     }
                 }
@@ -208,7 +246,7 @@ impl VideoPlayerService {
                 return Ok(false);
             }
             let value = response.call_method0("json")?.call_method1("get", ("value",))?;
-            Ok(!(value.is_instance_of::<PyDict>() && value.call_method1("get", ("error",))?.is_truthy()?))
+            Ok(!(isinstance(&value, "dict")? && value.call_method1("get", ("error",))?.is_truthy()?))
         })();
         match clicked {
             Ok(done) => Ok(done),
@@ -247,13 +285,13 @@ impl VideoPlayerService {
         // Fallback: raw tap on the left of the screen (pre-toggle players)
         let tapped = (|| -> PyResult<()> {
             let url = || fstring(py, &[&slf.getattr("wda_url")?, &text(py, "/session/"), &session, &text(py, "/actions")]);
-            let actions = py.import("json")?.call_method1("loads", (TAP_ACTIONS,))?;
-            post(py, url, &actions, 5)?;
+            post(py, url, &tap_actions(py)?, 5)?;
             Ok(())
         })();
         match tapped {
-            Err(e) if !is_exception(py, &e) => Err(e),
-            _ => Ok(()),
+            Ok(()) => Ok(()),
+            // except Exception: pass
+            Err(e) => except_exception(&m, e, |_| Ok(())),
         }
     }
 
@@ -268,8 +306,11 @@ impl VideoPlayerService {
             let url = fstring(py, &[&slf.getattr("wda_url")?, &text(py, "/source")])?;
             let response = get.call((url,), Some(&dict(py, &[("timeout", &name(py, "WDA_SOURCE_TIMEOUT")?)])?))?;
             if response.getattr("status_code")?.ne(200)? {
-                let status = response.getattr("status_code")?;
-                log(&m, "error", || fstring(py, &[&text(py, "❌ Failed to get source: "), &status]))?;
+                // logger.error is looked up before status_code is read again.
+                log(&m, "error", || {
+                    let status = response.getattr("status_code")?;
+                    fstring(py, &[&text(py, "❌ Failed to get source: "), &status])
+                })?;
                 return Ok(none(py));
             }
 
@@ -364,7 +405,9 @@ impl VideoPlayerService {
             Ok(state.is_truthy()? && state.get_item("playing")?.is(want_playing))
         };
 
-        for _attempt in 0..2 {
+        // for attempt in range(2): range read and called, as Python does.
+        for attempt in name(py, "range")?.call1((2,))?.try_iter()? {
+            attempt?;
             // full pass + one retry
             let mut state = slf.getattr("_scan_state")?.call0()?;
             if confirmed(&state)? {
@@ -379,7 +422,8 @@ impl VideoPlayerService {
             // click 2 actuates. Never insert a toggle-click before this: the
             // eaten click already toggled, and toggling again just re-hides
             // the controls (measured live - that ordering fails every time).
-            for click_round in 0..2_i64 {
+            for click_round in name(py, "range")?.call1((2,))?.try_iter()? {
+                let click_round = click_round?;
                 let session = slf.getattr("get_session")?.call0()?; // one session per round,
                 if !session.is_truthy()? {
                     // shared by find AND click
@@ -389,7 +433,7 @@ impl VideoPlayerService {
                 if !element_id.is_truthy()? || !slf.getattr("_click")?.call1((&session, &element_id))?.is_truthy()? {
                     break;
                 }
-                let round = (click_round + 1).into_pyobject(py)?.into_any();
+                let round = click_round.add(1)?;
                 say(py, "info", &[&text(py, "🎬 Clicked "), &verb, &text(py, " button (round "), &round, &text(py, ")")])?;
                 sleep(py, "CLICK_SETTLE_SECONDS")?;
                 state = slf.getattr("_scan_state")?.call0()?;
@@ -403,10 +447,21 @@ impl VideoPlayerService {
             // around once more. Blind coordinate taps only when the tree
             // proved a player is up.
             say(py, "debug", &[&text(py, "🎬 "), &verb, &text(py, " not confirmed, revealing controls")])?;
-            let player_seen = state.is_truthy()?
-                && (!state.get_item("playing")?.is_none() || state.get_item("progress")?.is_truthy()?);
+            // player_seen = bool(state and (state['playing'] is not None
+            //                               or state['progress'])):
+            // bool read first, then the `and` / `or` as Python takes them,
+            // and whatever bool gives is what the call passes on.
+            let to_bool = name(py, "bool")?;
+            let seen = if !state.is_truthy()? {
+                state.clone()
+            } else if !state.get_item("playing")?.is_none() {
+                boolean(py, true)
+            } else {
+                state.get_item("progress")?
+            };
+            let player_seen = to_bool.call1((seen,))?;
             let reveal = slf.getattr("_reveal_controls")?;
-            reveal.call((), Some(&dict(py, &[("allow_blind_tap", &boolean(py, player_seen))])?))?;
+            reveal.call((), Some(&dict(py, &[("allow_blind_tap", &player_seen)])?))?;
             sleep(py, "REVEAL_SETTLE_SECONDS")?;
         }
 
@@ -455,9 +510,11 @@ impl VideoPlayerService {
 
             let state2 = slf.getattr("_scan_state")?.call0()?;
             if !state2.is_truthy()? || !state2.get_item("progress")?.is_truthy()? {
-                // bool(state2) and state2['playing'] is True
-                if !state2.is_truthy()? {
-                    return Ok(boolean(py, false));
+                // bool(state2) and state2['playing'] is True: bool read and
+                // called, and what it gave is the answer when it is falsy.
+                let truth = name(py, "bool")?.call1((&state2,))?;
+                if !truth.is_truthy()? {
+                    return Ok(truth);
                 }
                 return Ok(boolean(py, state2.get_item("playing")?.is(&yes)));
             }
@@ -502,7 +559,9 @@ impl VideoPlayerService {
         let no = boolean(py, false);
         let yes = boolean(py, true);
         let closed = (|| -> PyResult<bool> {
-            for attempt in 0..3_i64 {
+            // for attempt in range(3): range read and called, as Python does.
+            for attempt in name(py, "range")?.call1((3,))?.try_iter()? {
+                let attempt = attempt?;
                 let present = slf.getattr("_player_present")?.call0()?;
                 if present.is(&no) {
                     log(&m, "info", || Ok(text(py, "✅ Video player closed")))?;
@@ -522,7 +581,7 @@ impl VideoPlayerService {
                     }
                 }
                 if clicked {
-                    let round = (attempt + 1).into_pyobject(py)?.into_any();
+                    let round = attempt.add(1)?;
                     say(py, "info", &[&text(py, "🎬 Clicked close button (attempt "), &round, &text(py, ")")])?;
                     sleep(py, "CLICK_SETTLE_SECONDS")?;
                     // the loop re-verifies; an eaten click revealed the
@@ -590,6 +649,12 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let class = py.get_type::<VideoPlayerService>();
     as_python_class(&class, &python_name)?;
     class.setattr("__doc__", CLASS_DOC)?;
+    // What Python 3.13 gave the class statement: its line in videoplayer.py
+    // and the attributes its methods set through self.
+    if py.version_info() >= (3, 13) {
+        class.setattr("__firstlineno__", 83)?;
+        class.setattr("__static_attributes__", ("controller_service",))?;
+    }
     let _ = MODULE.set(py, m.clone().unbind());
     Ok(())
 }

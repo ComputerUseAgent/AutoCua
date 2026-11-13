@@ -19,10 +19,9 @@ use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyDict, PyTuple};
 
-use crate::computer::{as_python_class, Handling};
-use crate::ios::controller::{dict, fstring, log, only_self, text};
+use crate::computer::as_python_class;
+use crate::ios::controller::{self, dict, except_exception, fstring, log, only_self, text};
 use crate::ios::NATIVE;
-use crate::memory_compression::{global, is_exception};
 
 type Obj<'py> = Bound<'py, PyAny>;
 
@@ -46,9 +45,10 @@ fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
         .map(|m| m.bind(py).clone())
 }
 
-/// One of this module's globals (or a builtin), read now.
-fn name<'py>(py: Python<'py>, name: &str) -> PyResult<Obj<'py>> {
-    global(&module(py)?, name)
+/// One of this module's globals (or a builtin), read now (lib.rs's
+/// controller::name: a missing one is NameError, naming the name).
+fn name<'py>(py: Python<'py>, wanted: &str) -> PyResult<Obj<'py>> {
+    controller::name(&module(py)?, wanted)
 }
 
 /// `result.get(key)`.
@@ -187,8 +187,8 @@ impl ShellService {
         })();
         match replied {
             Ok(response) => Ok(response),
-            Err(e) if is_exception(py, &e) => {
-                let _handling = Handling::new(py, &e);
+            // except Exception as e:
+            Err(e) => except_exception(&module(py)?, e, |e| {
                 log(&module(py)?, "error", || {
                     let words = name(py, "str")?.call1((e.value(py),))?;
                     fstring(py, &[&text(py, "ShellService error: "), &words])
@@ -203,8 +203,7 @@ impl ShellService {
                     ("error", &error),
                 ];
                 Ok(dict(py, &row)?.into_any())
-            }
-            Err(e) => Err(e),
+            }),
         }
     }
 }
@@ -224,6 +223,12 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let class = py.get_type::<ShellService>();
     as_python_class(&class, &python_name)?;
     class.setattr("__doc__", CLASS_DOC)?;
+    // What Python 3.13 gave the class statement: its line in shell.py and the
+    // attributes its methods set through self.
+    if py.version_info() >= (3, 13) {
+        class.setattr("__firstlineno__", 17)?;
+        class.setattr("__static_attributes__", ("sandbox",))?;
+    }
     let _ = MODULE.set(py, m.clone().unbind());
     Ok(())
 }

@@ -1,4 +1,4 @@
-//! The host shell tool: the copy of ios/controller/tool/shell.py for the
+//! The host shell tool: the copy of ios/controller/tool/shell.rs for the
 //! Android agent. One `shell` call runs a command on the computer the agent
 //! runs on (not the phone), in the sandbox workspace on the Desktop the
 //! agent makes at start, through the host's own shell: sh on macOS and

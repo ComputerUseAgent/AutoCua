@@ -1,4 +1,4 @@
-//! The video player: the Android side of ios/controller/tool/videoplayer.py,
+//! The video player: the Android side of ios/controller/tool/videoplayer.rs,
 //! for content that is not DRM-blocked (a DRM player is black in the
 //! phone's screenshots). Closing a player is `back` here.
 //!

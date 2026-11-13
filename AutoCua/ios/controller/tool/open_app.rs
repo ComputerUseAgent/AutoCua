@@ -24,16 +24,17 @@
 //! __dict__, as a Python instance does, and its methods reach them and each
 //! other through the instance, so a subclass that replaces one is obeyed.
 
-use pyo3::exceptions::{PyAttributeError, PyImportError, PyUnboundLocalError};
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
-use pyo3::types::{PyBool, PyCFunction, PyDict, PyInt, PyList, PyTuple};
+use pyo3::types::{PyBool, PyCFunction, PyDict, PyList, PyTuple};
 
 use crate::computer::{as_python_class, unpack2, Handling};
 use crate::ios::agent::iphone_use::service::with;
-use crate::ios::controller::{dict, fstring, log, log_failure, only_self, text};
+use crate::ios::controller::{
+    self, caught, dict, except_exception, fstring, import_from, log, log_failure, only_self, text, unbound_local,
+};
 use crate::ios::NATIVE;
-use crate::memory_compression::{global, is_exception};
+use crate::memory_compression::{format_value, join_str};
 
 type Obj<'py> = Bound<'py, PyAny>;
 
@@ -56,9 +57,16 @@ fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
         .map(|m| m.bind(py).clone())
 }
 
-/// One of this module's globals (or a builtin), read now.
-fn name<'py>(py: Python<'py>, name: &str) -> PyResult<Obj<'py>> {
-    global(&module(py)?, name)
+/// One of this module's globals (or a builtin), read now (lib.rs's
+/// controller::name: a missing one is NameError, naming the name).
+fn name<'py>(py: Python<'py>, wanted: &str) -> PyResult<Obj<'py>> {
+    controller::name(&module(py)?, wanted)
+}
+
+/// `isinstance(value, <kind>)`, isinstance and the class read from this
+/// module now (lib.rs's controller::isinstance).
+fn isinstance<'py>(value: &Obj<'py>, kind: &str) -> PyResult<bool> {
+    controller::isinstance(&module(value.py())?, value, kind)
 }
 
 fn none(py: Python<'_>) -> Obj<'_> {
@@ -102,26 +110,11 @@ fn or<'py>(a: Obj<'py>, b: impl FnOnce() -> PyResult<Obj<'py>>) -> PyResult<Obj<
 }
 
 /// `from AutoCua.ios_connector.session import <names>`, run when the line
-/// ran: __import__ with this module's globals, then each name in turn.
+/// ran: __import__ with this module's globals, then each name in turn, and
+/// Python's ImportError for one that is missing (lib.rs's
+/// controller::import_from).
 fn from_session<'py>(py: Python<'py>, names: &[&str]) -> PyResult<Vec<Obj<'py>>> {
-    let import = py.import("builtins")?.getattr("__import__")?;
-    let fromlist = PyTuple::new(py, names)?;
-    let session = import.call1((SESSION, module(py)?.dict(), py.None(), fromlist, 0))?;
-    let mut found = Vec::with_capacity(names.len());
-    for name in names {
-        match session.getattr(*name) {
-            Ok(value) => found.push(value),
-            Err(e) if e.is_instance_of::<PyAttributeError>(py) => {
-                let file = session
-                    .getattr("__file__")
-                    .and_then(|file| file.extract::<String>())
-                    .unwrap_or_else(|_| "unknown location".to_string());
-                return Err(PyImportError::new_err(format!("cannot import name '{name}' from '{SESSION}' ({file})")));
-            }
-            Err(e) => return Err(e),
-        }
-    }
-    Ok(found)
+    import_from(&module(py)?, SESSION, names)
 }
 
 /// `subprocess.run(argv, **kwargs)`, both looked up now.
@@ -181,19 +174,21 @@ fn ok_status(response: &Obj<'_>) -> PyResult<bool> {
 }
 
 /// `except subprocess.TimeoutExpired:` then `except Exception as e:` of the
-/// scans, both logging and giving False; anything else passes on.
+/// scans, both logging and giving False; anything else passes on. Each
+/// clause's class is read and checked while `e` is being handled, so one
+/// that is not an exception class is Python's TypeError.
 fn scan_failed<'py>(py: Python<'py>, e: PyErr) -> PyResult<Obj<'py>> {
     let m = module(py)?;
-    let _handling = Handling::new(py, &e);
-    if e.matches(py, name(py, "subprocess")?.getattr("TimeoutExpired")?)? {
+    let handling = Handling::new(py, &e);
+    if caught(py, &e, &name(py, "subprocess")?.getattr("TimeoutExpired")?)? {
         log(&m, "error", || Ok(text(py, "❌ Timeout while scanning apps")))?;
         return Ok(boolean(py, false));
     }
-    if is_exception(py, &e) {
+    drop(handling);
+    except_exception(&m, e, |e| {
         log(&m, "error", || fstring(py, &[&text(py, "❌ Error scanning apps: "), e.value(py)]))?;
-        return Ok(boolean(py, false));
-    }
-    Err(e)
+        Ok(boolean(py, false))
+    })
 }
 
 /// What the scans log when they found the apps.
@@ -221,12 +216,6 @@ fn log_tail<'py>(py: Python<'py>, tail: &Obj<'py>, strip: bool, fallback: &str) 
         };
         fstring(py, &[&text(py, "❌ App scan failed: "), &last])
     })
-}
-
-fn unbound(variable: &str) -> PyErr {
-    PyUnboundLocalError::new_err(format!(
-        "cannot access local variable '{variable}' where it is not associated with a value"
-    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -311,7 +300,7 @@ impl AppLauncherService {
             Ok(value) => Ok(value),
             Err(e) => {
                 let handling = Handling::new(py, &e);
-                if e.matches(py, name(py, "FileNotFoundError")?)? {
+                if caught(py, &e, &name(py, "FileNotFoundError")?)? {
                     log(&m, "error", || Ok(text(py, "❌ Error: pymobiledevice3 not found.")))?;
                     log(&m, "error", || Ok(text(py, "💡 Install it with: pip install pymobiledevice3")))?;
                     return Ok(boolean(py, false));
@@ -397,18 +386,18 @@ impl AppLauncherService {
                 });
                 Ok(())
             })?;
-            let listed = listed.ok_or_else(|| unbound("listed"))?;
+            let listed = listed.ok_or_else(|| unbound_local(py, "listed"))?;
             let failed = listed.getattr("returncode")?.ne(0)?
                 || match &apps {
                     Some(apps) => apps.is_none(),
-                    None => return Err(unbound("apps")),
+                    None => return Err(unbound_local(py, "apps")),
                 };
             if failed {
                 let tail = tail_of(py, listed.getattr("stderr")?)?;
                 log_tail(py, &tail, true, "devicectl error")?;
                 return Ok(boolean(py, false));
             }
-            let apps = apps.ok_or_else(|| unbound("apps"))?;
+            let apps = apps.ok_or_else(|| unbound_local(py, "apps"))?;
             let parse_apps = slf.getattr("parse_apps")?;
             let dumps = name(py, "json")?.getattr("dumps")?;
             let shaped = PyDict::new(py);
@@ -735,7 +724,7 @@ impl AppLauncherService {
             let response = get_.call((url()?,), Some(&dict(py, &[("timeout", &int(py, 5)?)])?))?;
             if ok_status(&response)? {
                 let value = or(get(&response.call_method0("json")?, "value")?, || Ok(PyDict::new(py).into_any()))?;
-                if value.is_instance_of::<PyDict>() && get(&value, "bundleId")?.is_truthy()? {
+                if isinstance(&value, "dict")? && get(&value, "bundleId")?.is_truthy()? {
                     return Ok(Some(value));
                 }
             }
@@ -763,7 +752,8 @@ impl AppLauncherService {
             let response = post.call((url,), Some(&dict(py, &[("json", &payload), ("timeout", &int(py, 5)?)])?))?;
             if ok_status(&response)? {
                 let value = get(&response.call_method0("json")?, "value")?;
-                if value.is_instance_of::<PyInt>() && !value.is_instance_of::<PyBool>() {
+                // isinstance is read again for the second check, as Python does.
+                if isinstance(&value, "int")? && !isinstance(&value, "bool")? {
                     return Ok(Some(value));
                 }
             }
@@ -829,16 +819,16 @@ impl AppLauncherService {
                 }
                 Ok(false) => {}
                 Err(e) => {
-                    let _handling = Handling::new(py, &e);
-                    if e.matches(py, name(py, "requests")?.getattr("Timeout")?)? {
+                    let handling = Handling::new(py, &e);
+                    if caught(py, &e, &name(py, "requests")?.getattr("Timeout")?)? {
                         // The launch is still in flight inside WDA; further endpoints
                         // would only queue behind it. Let the verification poll decide.
                         timed_out = true;
                         break;
                     }
-                    if !is_exception(py, &e) {
-                        return Err(e);
-                    }
+                    drop(handling);
+                    // except Exception: continue
+                    except_exception(&m, e, |_| Ok(()))?;
                 }
             }
         }
@@ -884,18 +874,21 @@ impl AppLauncherService {
 
         if !state.is_none() {
             say("error", &[&text(py, "Launch of "), app_name, &text(py, " accepted but its state is "), &state])?;
+            // The f-string's parts in turn: app_name and bundle_id are
+            // formatted before self._STATE is read.
+            let shown_name = format_value(app_name, "")?.into_any();
+            let shown_bundle = format_value(bundle_id, "")?.into_any();
             let described = slf.getattr("_STATE")?.call_method1("get", (&state, "in an unknown state"))?;
-            let message = fstring(
-                py,
-                &[
-                    app_name,
-                    &text(py, " ("),
-                    bundle_id,
-                    &text(py, ") did not come to the foreground - it is "),
-                    &described,
-                    &text(py, ". Tap its icon on the home screen instead."),
-                ],
-            )?;
+            let shown_state = format_value(&described, "")?.into_any();
+            let pieces = [
+                &shown_name,
+                &text(py, " ("),
+                &shown_bundle,
+                &text(py, ") did not come to the foreground - it is "),
+                &shown_state,
+                &text(py, ". Tap its icon on the home screen instead."),
+            ];
+            let message = join_str(py, &pieces)?.into_any();
             return Ok(dict(py, &[("ok", &boolean(py, false)), ("message", &message)])?.into_any());
         }
         if fg.is_none() {
@@ -957,9 +950,13 @@ impl AppLauncherService {
             }
 
             if slf.getattr("session_id")?.is_truthy()? {
+                // f"{self.wda_url}/session/{self.session_id}/wda/pressButton":
+                // each part read and formatted in turn, wda_url first.
                 let press = || {
-                    let session_id = slf.getattr("session_id")?;
-                    wda(slf.as_any(), &[&text(py, "/session/"), &session_id, &text(py, "/wda/pressButton")])
+                    let base = format_value(&slf.getattr("wda_url")?, "")?.into_any();
+                    let session_id = format_value(&slf.getattr("session_id")?, "")?.into_any();
+                    let pieces = [&base, &text(py, "/session/"), &session_id, &text(py, "/wda/pressButton")];
+                    Ok(join_str(py, &pieces)?.into_any())
                 };
                 let payload = dict(py, &[("name", &text(py, "home"))])?.into_any();
                 let response = http(py, "post", press, Some(&payload), 5)?;
@@ -1027,6 +1024,12 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     }
     class.setattr("_STATE", states)?;
     class.setattr("_FOREGROUND", 4)?;
+    // What Python 3.13 gave the class statement: its line in open_app.py and
+    // the attributes its methods set through self, sorted.
+    if py.version_info() >= (3, 13) {
+        class.setattr("__firstlineno__", 21)?;
+        class.setattr("__static_attributes__", ("apps_dict", "session_id", "wda_url"))?;
+    }
     let _ = MODULE.set(py, m.clone().unbind());
     Ok(())
 }

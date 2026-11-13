@@ -19,16 +19,16 @@
 //! open, str, int, enumerate, ValueError, TypeError) is read from this
 //! module each time it is used (the helpers in lib.rs's ios::controller).
 
-use pyo3::exceptions::PyUnboundLocalError;
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyDict, PyList, PyString, PyTuple};
 
 use crate::computer::{as_python_class, unpack2, Handling};
 use crate::ios::agent::iphone_use::service::with;
-use crate::ios::controller::{fstring, log, logged, make_dir, only_self, open_utf8, os_path, session_dir, text};
+use crate::ios::controller::{
+    caught, fstring, log, logged, make_dir, name, only_self, open_utf8, os_path, session_dir, text, unbound_local,
+};
 use crate::ios::NATIVE;
-use crate::memory_compression::global;
 
 /// This module, as registered: its globals are read from it at run time.
 static MODULE: PyOnceLock<Py<PyModule>> = PyOnceLock::new();
@@ -142,32 +142,34 @@ impl TaskTrackerService {
 
             let f = open_utf8(&module, slf.as_any(), "todo_file", "r")?;
             // None when __exit__ swallowed an error: Python goes on after the
-            // block with `content` never set.
-            let Some(content) = with(&f, |f| f.call_method0("read"))? else {
-                return Err(PyUnboundLocalError::new_err(
-                    "cannot access local variable 'content' where it is not associated with a value",
-                ));
-            };
+            // block with `content` never set, runs int() and its except first,
+            // and fails only where it reads content, at content.split below.
+            let content = with(&f, |f| f.call_method0("read"))?;
 
             // Convert task_number to int if it's a string
-            let task_num = match global(&module, "int")?.call1((task_number,)) {
+            let task_num = match name(&module, "int").and_then(|int| int.call1((task_number,))) {
                 Ok(task_num) => task_num,
                 Err(e) => {
-                    let caught = (global(&module, "ValueError")?, global(&module, "TypeError")?);
-                    if !e.matches(py, caught)? {
+                    // except (ValueError, TypeError): the two names are read
+                    // and checked while the error is being handled.
+                    let _handling = Handling::new(py, &e);
+                    let kinds = PyTuple::new(py, [name(&module, "ValueError")?, name(&module, "TypeError")?])?;
+                    if !caught(py, &e, kinds.as_any())? {
                         return Err(e);
                     }
-                    let _handling = Handling::new(py, &e);
                     log(&module, "warning", || fstring(py, &[&text(py, "Invalid task number: "), task_number]))?;
                     return Ok(false);
                 }
             };
 
             // Find and update the line with matching #number
+            let Some(content) = content else {
+                return Err(unbound_local(py, "content"));
+            };
             let lines = content.call_method1("split", ("\n",))?;
             let mut updated = false;
 
-            for item in global(&module, "enumerate")?.call1((&lines,))?.try_iter()? {
+            for item in name(&module, "enumerate")?.call1((&lines,))?.try_iter()? {
                 let (i, line) = unpack2(&item?)?;
                 // Check if line starts with the task number (e.g., "#1. - [ ]")
                 let startswith = line.call_method0("strip")?.getattr("startswith")?;
@@ -233,6 +235,12 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     as_python_class(&class, &python_name)?;
     // The Python class had no docstring: None, where the extension gives "".
     class.setattr("__doc__", py.None())?;
+    // What Python 3.13 gave the class statement: its line in service.py and
+    // the attributes its methods set through self, sorted.
+    if py.version_info() >= (3, 13) {
+        class.setattr("__firstlineno__", 7)?;
+        class.setattr("__static_attributes__", ("todo_dir", "todo_file"))?;
+    }
     let _ = MODULE.set(py, m.clone().unbind());
     Ok(())
 }
