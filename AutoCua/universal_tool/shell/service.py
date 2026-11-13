@@ -1,4 +1,5 @@
 import logging
+import sys
 from pathlib import Path
 
 from AutoCua.coder import Sandbox
@@ -7,18 +8,25 @@ logger = logging.getLogger(__name__)
 
 
 class ShellService:
-    """Lightweight shell for main agent - quick commands via sandboxed Desktop environment"""
+    """Lightweight shell for main agent - quick commands via sandboxed Desktop environment
+    (zsh on macOS, bash on Linux, PowerShell on Windows)"""
     
     def __init__(self):
-        """Initialize ShellService with Sandbox pointing to existing sandbox_workspace"""
-        self.sandbox = Sandbox()
+        """Initialize ShellService. macOS and Linux: the Sandbox pointing to the
+        existing sandbox_workspace. Windows: its own Sandbox instance, CWD = Desktop."""
+        if sys.platform == "win32":
+            self.sandbox = Sandbox(workspace_name=".", session_id=None)
+            # Override working_dir to Desktop directly (not a subfolder)
+            self.sandbox.working_dir = str(Path.home() / "Desktop")
+        else:
+            self.sandbox = Sandbox()
     
     def run(self, command: str, input_text: str = None) -> dict:
         """
-        Execute a shell command and return formatted result.
+        Execute a shell command (PowerShell on Windows) and return formatted result.
         
         Args:
-            command: shell command to execute
+            command: shell command to execute (a PowerShell command on Windows)
             input_text: Optional stdin input for interactive commands
             
         Returns:

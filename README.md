@@ -1435,11 +1435,13 @@ AutoCua/
   coder/                   the coding agent, Rust, one copy for every OS; subagent/ holds its read-only scouts
   computer/                computer use, Rust: the one desktop loop for macOS, Windows and Linux, and its skills; mac/, windows/, linux/ hold each system's prompts
   mac/  windows/  linux/   computer use, each system's own parts: controller, tree, sandbox, tool_registry
-    controller/tool/         shell, open_app, screenshot, applescript, kernel_input
+    controller/tool/         open_app, screenshot, applescript, kernel_input
     tree/                    accessibility scanner and OCR
   browser/                 the Rust browser agent; connector/AutoCuaBridge/ is the AutoCua Chrome extension
   universal_tool/          the tools every OS shares
     web/                     the web search tool, Rust, one copy shared by every agent
+    shell/                   computer use's shell tool, one copy for macOS, Windows and Linux
+    browser_agent/  android_agent/   computer use's browser and Android sub-agents, each with a *_child/ run by path
   ios/                     the iPhone and iPad agent
   ios_connector/           WebDriverAgent transport: cable, Wi-Fi (through Xcode) and simulator sessions
   android/                 the Rust Android agent: loop, controller, tool registry, screen reader

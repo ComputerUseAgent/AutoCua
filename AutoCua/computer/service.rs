@@ -1348,14 +1348,18 @@ fn stop_requested(me: &Obj<'_>) -> PyResult<bool> {
     me.getattr("stop_event")?.call_method0("is_set")?.is_truthy()
 }
 
-/// `from ...controller.tool import android_agent, ios_agent`, run by Python
+/// `from AutoCua.universal_tool.android_agent import service as android_agent`
+/// (and, on a host with the iPhone sub-agent,
+/// `from AutoCua.<host>.controller.tool import ios_agent`), run by Python
 /// itself, so the modules are found through sys.modules now and a missing
 /// one fails with Python's own error. The iPhone's module is asked for only
 /// on a host that has the iPhone sub-agent.
 fn import_phone_tools<'py>(py: Python<'py>) -> PyResult<(Obj<'py>, Option<Obj<'py>>)> {
     let host = platform();
-    let names = if host.ios_agent { "android_agent, ios_agent" } else { "android_agent" };
-    let line = format!("from AutoCua.{}.controller.tool import {names}", host.package);
+    let mut line = String::from("from AutoCua.universal_tool.android_agent import service as android_agent");
+    if host.ios_agent {
+        line.push_str(&format!("\nfrom AutoCua.{}.controller.tool import ios_agent", host.package));
+    }
     let code = CString::new(line).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let scope = PyDict::new(py);
     py.run(&code, Some(&scope), None)?;

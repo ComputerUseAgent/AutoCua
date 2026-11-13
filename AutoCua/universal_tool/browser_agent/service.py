@@ -9,8 +9,8 @@ which is a blocking, headless, read-only research call. This one ACTS: it
 navigates, clicks and fills forms, in the person's own Chrome, through the
 AutoCua extension.
 
-It runs the way parallel `web use` does (see browser_agent_child.py): each
-agent works in a background tab of its own and never in another's, so up to
+It runs the way parallel `web use` does (see browser_agent_child/service.py):
+each agent works in a background tab of its own and never in another's, so up to
 MAX_RUNS run at once. Chrome comes up as it does there (in front on macOS; on
 Windows and Linux the system places the new window, and nothing here pulls it
 forward). Nothing here starts the browser; the child's own constructor starts
@@ -19,7 +19,7 @@ until it has (_wait_for_chrome): started together, each would open Chrome over
 the others. With 2 or more at work, the cover parallel web use shows is in
 front, through a line of our own (_cover_send).
 
-One text serves macOS, Windows and Linux: keep the three copies identical.
+One file serves macOS, Windows and Linux (AutoCua/universal_tool).
 
 Each run is a subprocess because the web AgentService constructor deletes
 CWD-relative conversation/, debug/ and raw_reasoning/ (the main agent's LIVE
@@ -40,9 +40,9 @@ from pathlib import Path
 
 from AutoCua import data_root, IS_COMPILED
 
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 _WEB_SCRATCHPAD = _REPO_ROOT / "AutoCua" / "browser" / "scratchpad"
-_CHILD = Path(__file__).resolve().parent / "browser_agent_child.py"
+_CHILD = Path(__file__).resolve().parent.parent / "browser_agent_child" / "service.py"
 
 # The child has its own 100-step cap; this bounds wall-clock.
 TIMEOUT_SEC = int(os.environ.get("AutoCua_BROWSER_AGENT_TIMEOUT", "900"))
@@ -186,7 +186,7 @@ def start(task: str, provider: str, model: str, api_key: str = None, speed: str 
     from AutoCua.utils.chrome import MISSING as CHROME_MISSING, find_chrome
     if find_chrome() is None:
         raise BrowserAgentError(CHROME_MISSING)
-    # Each one works in a tab of its own (browser_agent_child.py), up to MAX_RUNS
+    # Each one works in a tab of its own (browser_agent_child/service.py), up to MAX_RUNS
     if sum(r["subprocess"].poll() is None for r in _runs) >= MAX_RUNS:
         raise BrowserAgentError(f"all {MAX_RUNS} browser agents are at work: wait for one of them to "
                                 "finish (agent_wait), then start this one")

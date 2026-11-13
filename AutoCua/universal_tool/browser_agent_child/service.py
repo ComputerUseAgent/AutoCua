@@ -1,7 +1,7 @@
 """Browser Agent Child Runner
 ==========================
 Subprocess entry for one browser agent started by the main agent
-(tool/browser_agent.py spawns it; it is run BY PATH, never imported).
+(../browser_agent/service.py spawns it; it is run BY PATH, never imported).
 
 It runs the browser agent the way parallel `browser` runs do
 (AutoCua/browser/agent/__main__.py): the agent starts Chrome itself (or attaches
@@ -10,7 +10,7 @@ to the one already up) and is pinned to one background tab of its own
 each other's tabs. The first one opens Chrome: browser_agent.start holds the
 next ones until it has (its run_start event in events.jsonl).
 
-One text serves macOS, Windows and Linux: keep the three copies identical.
+One file serves macOS, Windows and Linux (AutoCua/universal_tool).
 
     --session-id scopes the web scratchpad to scratchpad/{sid}/, so the
       launcher can read this run's notes and clear them afterwards.
@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 # Run by path, so Python put THIS folder first on the import path. Its files
-# (shell.py, plan.py, web/ ...) must never shadow a real module.
+# (service.py ...) must never shadow a real module.
 _HERE = Path(__file__).resolve().parent
 sys.path[:] = [p for p in sys.path if Path(p or ".").resolve() != _HERE]
 
@@ -92,7 +92,8 @@ class _LiveView:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="One browser agent run (spawned by tool/browser_agent.py)")
+    parser = argparse.ArgumentParser(prog="browser_agent_child",
+                                     description="One browser agent run (spawned by browser_agent/service.py)")
     parser.add_argument("--task", type=str, required=True, help="The task to run")
     parser.add_argument("--provider", type=str, required=True, help="LLM provider")
     parser.add_argument("--model", type=str, required=True, help="LLM model name")

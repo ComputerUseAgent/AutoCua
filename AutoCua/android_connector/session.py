@@ -53,7 +53,7 @@ from AutoCua.utils.errors import error_text
 # USB phone.
 SERIAL_ENV = "AutoCua_ANDROID_SERIAL"
 # The desktop app's Wireless / Wired toggle, for computer use's android_agent
-# (controller/tool/android_agent.py): ui/service.py sets it on every flip.
+# (universal_tool/android_agent): ui/service.py sets it on every flip.
 # True is the Wi-Fi only (a remembered phone with Wireless debugging on),
 # False the cable only. Off by default, and a terminal run never turns it on,
 # so a script reaches a phone over Wi-Fi never (owner, 2026-10-30).

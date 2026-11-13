@@ -3,7 +3,7 @@ Android phone plugged into this computer by USB (USB debugging on), or, when
 the desktop app's Wireless / Wired toggle says Wireless, one Settings
 connected that is on the same Wi-Fi (Wireless debugging on).
 
-Two halves, as tool/ios_agent.py has:
+Two halves, as mac/controller/tool/ios_agent.py has:
 
 AndroidLink: the request's phone check. The moment the main agent starts a
 request, it looks for an Android phone on USB (the newest one Settings →
@@ -20,8 +20,8 @@ from the Wi-Fi) takes it offline.
 
 The runs: `sub_agent {"agent_type": "android_agent"}` starts the Android agent
 on a task and returns at once; the controller polls `outcome` until the run is
-over. Each run is a subprocess (android_agent_child.py), because the Android
-AgentService constructor deletes CWD-relative conversation/, debug/ and
+over. Each run is a subprocess (android_agent_child/service.py), because the
+Android AgentService constructor deletes CWD-relative conversation/, debug/ and
 raw_reasoning/ (the main agent's LIVE folders), so the child gets a working
 directory of its own. The child starts the phone's helper itself: a phone has
 one, and this process holds none while a run works.
@@ -46,11 +46,11 @@ import uuid
 from pathlib import Path
 
 from AutoCua import data_root, IS_COMPILED
-from .browser_agent import _PROVIDER_ENV_KEY
+from ..browser_agent.service import _PROVIDER_ENV_KEY
 
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 _ANDROID_SCRATCHPAD = _REPO_ROOT / "AutoCua" / "android" / "scratchpad"
-_CHILD = Path(__file__).resolve().parent / "android_agent_child.py"
+_CHILD = Path(__file__).resolve().parent.parent / "android_agent_child" / "service.py"
 
 # How often an online phone is looked at again (a pulled cable).
 WATCH_SEC = 5
@@ -290,7 +290,7 @@ class AndroidLink:
     def _start_standby(self, android_session):
         """Start the request's android_agent child now, built (the phone
         connected, as its scanner does) and waiting for its task
-        (android_agent_child.py --standby): when the main agent sends one,
+        (android_agent_child/service.py --standby): when the main agent sends one,
         nothing loads first (a busy Mac took 43 s to). Not while this process
         holds the phone's one helper itself (the app's Mobile use → Android
         pick): start() lets that go only when a task really comes."""
@@ -438,14 +438,14 @@ def _spawn(serial: str, provider: str, model: str, api_key: str = None, speed: s
     # the watch follows: its USB serial, or "ip:port" on Wi-Fi.
     env["AutoCua_ANDROID_SERIAL"] = serial
     # This process: the child ends itself (and the phone helper) if it dies
-    # without stopping the run (android_agent_child.py _watch_parent).
+    # without stopping the run (android_agent_child/service.py _watch_parent).
     env["AutoCua_ANDROID_PARENT"] = str(os.getpid())
     env.pop("AutoCua_ANDROID_SESSION", None)
     if api_key and provider in _PROVIDER_ENV_KEY:
         env[_PROVIDER_ENV_KEY[provider]] = api_key
 
     # Hidden on Windows when the app has no console of its own, so no console
-    # window pops up (as browser_agent.py starts its child)
+    # window pops up (as browser_agent/service.py starts its child)
     creationflags = 0
     if sys.platform == "win32" and not ctypes.windll.kernel32.GetConsoleWindow():
         creationflags = subprocess.CREATE_NO_WINDOW
