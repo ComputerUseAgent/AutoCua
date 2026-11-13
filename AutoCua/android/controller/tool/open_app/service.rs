@@ -111,8 +111,8 @@ fn norm(text: &str) -> String {
 
 /// A name for a package the phone cannot name: its most telling segment,
 /// with a capital letter as the home screen would show it ("Calculator"
-/// for com.oneplus.calculator).
-fn label_of(package: &str) -> String {
+/// for com.oneplus.calculator). The vault finds a login saved under it too.
+pub fn label_of(package: &str) -> String {
     if let Some((_, label)) = KNOWN_LABELS.iter().find(|(p, _)| *p == package) {
         return label.to_string();
     }

@@ -3,8 +3,10 @@
 //! AutoCua_data/vault/credentials.json (one file, a section per device),
 //! keyed by the app's package, the name the Android tree gives the app in
 //! front: "android": {"com.bskyb.skygo": {"username": "...", "password":
-//! "...", "pin": "1234"}}. The file is read fresh each time, so an entry
-//! saved during a run is used at once. Unlike iOS, the phone's own
+//! "...", "pin": "1234"}}, or by the app's name as the iPhone keys them
+//! ("Sky Go", "Instagram"), which is open_app's name for the package (its
+//! label_of). The package wins when both are saved. The file is read fresh
+//! each time, so an entry saved during a run is used at once. Unlike iOS, the phone's own
 //! lock-screen PIN is not entered: the home screen and System UI also show
 //! widgets and notifications, which can draw ten digit keys and a press count
 //! of their own, and Android's real lock screen shows no count to check
@@ -41,6 +43,7 @@ use serde_json::{json, Map, Value};
 
 use crate::android::agent::android_use::view::{py_str_of, truthy};
 use crate::android::controller::service::{controller_service, py_int};
+use crate::android::controller::tool::open_app::service::label_of;
 use crate::android::tree::element::{fill_focused, is_input, read_tree, FillError};
 
 /// One digit, optionally with its phone letters ("2 ABC", "2, A B C", "0 +").
@@ -320,18 +323,29 @@ impl VaultService {
         (app_name, device)
     }
 
-    /// (entry name, its keys) saved for `app_name`: its exact name, case and
-    /// spaces ignored. Never a device entry: those hold the lock-screen PIN,
-    /// which only get_pin reads.
+    /// (entry name, its keys) saved for `app_name`, the package in front: the
+    /// entry named after the package, else the one named after the app
+    /// ("Instagram" for com.instagram.android), case and spaces ignored.
+    /// Never a device entry: those hold the lock-screen PIN, which only
+    /// get_pin reads.
     fn app_entry(&self, app_name: &str) -> Option<(String, Map<String, Value>)> {
-        let wanted = norm(app_name);
-        if wanted.is_empty() || DEVICE_ENTRIES.contains(&wanted.as_str()) {
+        let package = norm(app_name);
+        if package.is_empty() || DEVICE_ENTRIES.contains(&package.as_str()) {
             return None;
         }
         let creds = self.credentials.lock().unwrap();
-        creds.iter().find_map(|(key, entry)| match entry {
-            Value::Object(entry) if norm(key) == wanted => Some((key.clone(), entry.clone())),
-            _ => None,
+        let entry_named = |wanted: &str| {
+            creds.iter().find_map(|(key, entry)| match entry {
+                Value::Object(entry) if norm(key) == wanted => Some((key.clone(), entry.clone())),
+                _ => None,
+            })
+        };
+        entry_named(&package).or_else(|| {
+            let name = norm(&label_of(app_name));
+            if name.is_empty() || DEVICE_ENTRIES.contains(&name.as_str()) {
+                return None;
+            }
+            entry_named(&name)
         })
     }
 
@@ -462,7 +476,8 @@ impl VaultService {
     ///
     /// Careful, because a PIN pad locks after a few wrong tries:
     ///   * re-reads credentials.json, so a PIN added while the app runs is used
-    ///   * matches the app's package EXACTLY (case and spaces ignored), like `fill`
+    ///   * finds the app's entry as `fill` does: its package, else its name
+    ///     (case and spaces ignored)
     ///   * reads only "pin", never "code", and only if it is all digits
     /// Screens with no app in front (home screen, lock screen) name the entry
     /// after the device, "Android", which the controller refuses (the phone's
@@ -471,20 +486,26 @@ impl VaultService {
     pub fn get_pin(&self, py: Python<'_>) -> (String, Option<String>) {
         self.load_credentials(py, true);
         let (app_name, device) = self.scanned_app();
+        let saved = if app_name.is_empty() {
+            let wanted = norm(&device);
+            let creds = self.credentials.lock().unwrap();
+            creds.iter().find_map(|(key, entry)| match entry {
+                Value::Object(entry) if norm(key) == wanted => Some(entry.clone()),
+                _ => None,
+            })
+        } else {
+            self.app_entry(&app_name).map(|(_, entry)| entry)
+        };
         let name = if app_name.is_empty() { device } else { app_name };
-        let wanted = norm(&name);
-        let creds = self.credentials.lock().unwrap();
-        for (app_key, app_creds) in creds.iter() {
-            if let (true, Value::Object(app_creds)) = (norm(app_key) == wanted, app_creds) {
-                let pin = match app_creds.get("pin") {
-                    Some(v) if truthy(v) => py_str_of(v),
-                    _ => String::new(),
-                };
-                let digits = !pin.is_empty() && pin.chars().all(|c| c.is_ascii_digit());
-                return (name, digits.then_some(pin));
-            }
-        }
-        (name, None)
+        let Some(app_creds) = saved else {
+            return (name, None);
+        };
+        let pin = match app_creds.get("pin") {
+            Some(v) if truthy(v) => py_str_of(v),
+            _ => String::new(),
+        };
+        let digits = !pin.is_empty() && pin.chars().all(|c| c.is_ascii_digit());
+        (name, digits.then_some(pin))
     }
 
     /// {digit: (x, y)} for a full on-screen digit keypad, or None.
