@@ -35,12 +35,14 @@ from pathlib import Path
 
 _PACKAGE = Path(__file__).resolve().parent.parent
 # The folders lib.rs declares, one per agent (computer holds the
-# computer-use agent, ios the iPhone agent, mac the Mac controller's
-# scratchpad and todo list), then web, the web tool, and
+# computer-use agent, ios the iPhone agent, mac the scratchpad and todo
+# list of the Mac, Windows and Linux controllers and the Mac's tool registry,
+# windows the Windows tool registry), then web, the web tool, and
 # memory_compression, which every agent shares (Python's included), and
 # agent_conversation, the desktop app's saved chats.
 _AGENT_DIRS = (_PACKAGE / "browser", _PACKAGE / "android", _PACKAGE / "coder",
-               _PACKAGE / "computer", _PACKAGE / "ios", _PACKAGE / "mac", _PACKAGE / "web",
+               _PACKAGE / "computer", _PACKAGE / "ios", _PACKAGE / "mac", _PACKAGE / "windows",
+               _PACKAGE / "web",
                _PACKAGE / "memory_compression", _PACKAGE / "agent_conversation")
 
 # Two different naming schemes have to line up here, and neither is portable:

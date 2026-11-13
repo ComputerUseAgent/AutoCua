@@ -119,6 +119,7 @@ exclude = [
     { path = "AutoCua/computer/**/*.rs", format = "wheel" },
     { path = "AutoCua/ios/**/*.rs", format = "wheel" },
     { path = "AutoCua/mac/**/*.rs", format = "wheel" },
+    { path = "AutoCua/windows/**/*.rs", format = "wheel" },
     { path = "AutoCua/memory_compression/**/*.rs", format = "wheel" },
     { path = "AutoCua/agent_conversation/**/*.rs", format = "wheel" },
     { path = "AutoCua/Cargo.toml", format = "wheel" },
