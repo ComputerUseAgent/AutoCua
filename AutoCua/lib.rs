@@ -1750,6 +1750,12 @@ pub mod mac {
         }
     }
 
+    /// The Mac's own tool registry (mac/tool_registry): every tool the
+    /// computer-use agent can call on the Mac, and its LLMManager.
+    pub mod tool_registry {
+        pub mod service;
+    }
+
     /// A module that takes a .py's place (see ios::python_module): made under
     /// the name Python has always known it by, AutoCua.<system>.<path>.
     fn python_module<'py>(
@@ -1806,10 +1812,20 @@ pub mod mac {
         Ok(())
     }
 
-    /// The mac part.
+    /// The mac part: the scratchpad and the todo list, and the Mac's own
+    /// tool registry (tool_registry/__init__.py is its loader).
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         use controller::{scratchpad::service as notes, task_tracker::service as todo};
-        register_system(m, "mac", notes::mac::register, todo::mac::register)
+        register_system(m, "mac", notes::mac::register, todo::mac::register)?;
+        let py = m.py();
+        let modules = py.import("sys")?.getattr("modules")?;
+        let registry = python_module(py, "mac", "tool_registry.service", tool_registry::service::register)?;
+        let package = PyModule::new(py, "AutoCua.agent_native.mac.tool_registry")?;
+        package.add("service", &registry)?;
+        m.add("tool_registry", &package)?;
+        modules.set_item("AutoCua.agent_native.mac.tool_registry", &package)?;
+        modules.set_item("AutoCua.agent_native.mac.tool_registry.service", &registry)?;
+        Ok(())
     }
 
     /// The windows part: the same two files, Windows' own classes.
