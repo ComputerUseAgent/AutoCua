@@ -71,6 +71,22 @@ MODEL_MAPPINGS = {
         "effort": "low",
         "coder_effort": "medium"
     },
+    # Carbon only on Vertex here too; Hydrogen also has google/, but vertex/
+    # keeps the three alike.
+    "gemini-4-carbon": {
+        "api_name": "vertex/gemini-4-carbon",
+        "vision": True,
+        "display_name": "Gemini 4 Carbon",
+        "effort": "low",
+        "coder_effort": "medium"
+    },
+    "gemini-4-hydrogen": {
+        "api_name": "vertex/gemini-4-hydrogen",
+        "vision": True,
+        "display_name": "Gemini 4 Hydrogen",
+        "effort": "low",
+        "coder_effort": "medium"
+    },
     "gpt-5.4": {
         "api_name": "openai/gpt-5.4",
         "vision": True,

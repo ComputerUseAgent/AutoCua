@@ -56,6 +56,22 @@ MODEL_MAPPINGS = {
         "effort": "low",
         "coder_effort": "medium"
     },
+    # Carbon and Hydrogen publish low/medium/high (no `minimal`), probed
+    # 2026-11-14. Plain routes, not `:batch`, as for Argon.
+    "gemini-4-carbon": {
+        "api_name": "google/gemini-4-carbon",
+        "vision": True,
+        "display_name": "Gemini 4 Carbon",
+        "effort": "low",
+        "coder_effort": "medium"
+    },
+    "gemini-4-hydrogen": {
+        "api_name": "google/gemini-4-hydrogen",
+        "vision": True,
+        "display_name": "Gemini 4 Hydrogen",
+        "effort": "low",
+        "coder_effort": "medium"
+    },
     # OpenAI is GPT-6 Astra at `medium`, the same entry the direct openai
     # provider carries, so switching a model between the two providers is a
     # routing change and not a capability change.
