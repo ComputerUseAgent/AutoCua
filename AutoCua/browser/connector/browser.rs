@@ -1808,7 +1808,6 @@ pub(crate) fn profile_locked_by_live_chrome(profile: &PathBuf) -> bool {
 /// by now, so the command is looked at too. A subprocess rather than a libc
 /// call so the crate keeps its dependency list; this runs once per launch,
 /// never in a loop.
-#[cfg(unix)]
 pub(crate) fn live_browser_pid(pid: u32) -> bool {
     Command::new("ps")
         .args(["-o", "stat=,command=", "-p", &pid.to_string()])
@@ -1824,7 +1823,6 @@ pub(crate) fn live_browser_pid(pid: u32) -> bool {
 
 /// Whether a command line is a Chromium browser's: Chrome, Chromium or Edge, by
 /// any path (find_chrome's candidates, a Linux launcher, a copy elsewhere).
-#[cfg(unix)]
 fn looks_like_browser(command: &str) -> bool {
     let lower = command.to_lowercase();
     ["chrome", "chromium", "msedge", "microsoft edge"].iter().any(|b| lower.contains(b))
@@ -1838,7 +1836,6 @@ fn looks_like_browser(command: &str) -> bool {
 /// --type=), is not a zombie, and names `dir` in --user-data-dir, or names no
 /// folder when `dir` is the default user data folder. ps joins the arguments
 /// with spaces, so the folder is matched as text followed by a space or the end.
-#[cfg(unix)]
 pub(crate) fn chrome_main_pid_on(dir: &Path) -> Option<u32> {
     let out = Command::new("ps")
         .args(["-axo", "pid=,stat=,command="])
