@@ -42,6 +42,20 @@ MODEL_MAPPINGS = {
         "effort": "low",
         "coder_effort": "medium"
     },
+    "gemini-4-carbon": {
+        "api_name": "google/gemini-4-carbon",
+        "vision": True,
+        "display_name": "Gemini 4 Carbon",
+        "effort": "low",
+        "coder_effort": "medium"
+    },
+    "gemini-4-hydrogen": {
+        "api_name": "google/gemini-4-hydrogen",
+        "vision": True,
+        "display_name": "Gemini 4 Hydrogen",
+        "effort": "low",
+        "coder_effort": "medium"
+    },
     "gemini-3.6-flash": {
         "api_name": "google/gemini-3.6-flash",
         "vision": True,
