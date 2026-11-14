@@ -36,6 +36,30 @@ MODEL_MAPPINGS = {
         "reasoning_effort": "medium",
         "coder_reasoning_effort": "high",
         "coder_max_tokens": 16000
+    },
+    # GPT-6.1 Sol and GPT-6.1 Terra (added 2026-11-14): like Astra they
+    # batch only on the Responses route with async tools. Same levels as
+    # OpenRouter's GPT-6 Sol and GPT-6.1 Terra entries: `low`, and `medium`
+    # for the coder.
+    "gpt-6.1-sol": {
+        "api_name": "gpt-6.1-sol",
+        "async_tools": True,
+        "vision": True,
+        "display_name": "GPT-6.1 Sol",
+        "json_mode": True,
+        "reasoning_effort": "low",
+        "coder_reasoning_effort": "medium",
+        "coder_max_tokens": 16000
+    },
+    "gpt-6.1-terra": {
+        "api_name": "gpt-6.1-terra",
+        "async_tools": True,
+        "vision": True,
+        "display_name": "GPT-6.1 Terra",
+        "json_mode": True,
+        "reasoning_effort": "low",
+        "coder_reasoning_effort": "medium",
+        "coder_max_tokens": 16000
     }
 }
 
