@@ -10,6 +10,8 @@
 # Every model is pinned to `low`, but it means a different thing on each,
 # because their ladders and defaults differ:
 #   gemini-4-argon          `low` accepted (probed 2026-11-04)
+#   gemini-4-carbon         low/medium/high (no `minimal` - it errors,
+#   gemini-4-hydrogen       probed 2026-11-14) -> floor
 #   gemini-3.6-flash        minimal/low/medium/high  default medium  -> one
 #                                                                      above
 #                                                                      floor
@@ -29,6 +31,22 @@ MODEL_MAPPINGS = {
         "api_name": "gemini-4-argon",
         "vision": True,
         "display_name": "Gemini 4 Argon",
+        "vertex": False,
+        "thinking_level": "low",
+        "coder_thinking_level": "medium"
+    },
+    "gemini-4-carbon": {
+        "api_name": "gemini-4-carbon",
+        "vision": True,
+        "display_name": "Gemini 4 Carbon",
+        "vertex": False,
+        "thinking_level": "low",
+        "coder_thinking_level": "medium"
+    },
+    "gemini-4-hydrogen": {
+        "api_name": "gemini-4-hydrogen",
+        "vision": True,
+        "display_name": "Gemini 4 Hydrogen",
         "vertex": False,
         "thinking_level": "low",
         "coder_thinking_level": "medium"
@@ -53,6 +71,22 @@ MODEL_MAPPINGS = {
         "api_name": "gemini-4-argon",
         "vision": True,
         "display_name": "Gemini 4 Argon (Vertex)",
+        "vertex": True,
+        "thinking_level": "low",
+        "coder_thinking_level": "medium"
+    },
+    "gemini-4-carbon-vertex": {
+        "api_name": "gemini-4-carbon",
+        "vision": True,
+        "display_name": "Gemini 4 Carbon (Vertex)",
+        "vertex": True,
+        "thinking_level": "low",
+        "coder_thinking_level": "medium"
+    },
+    "gemini-4-hydrogen-vertex": {
+        "api_name": "gemini-4-hydrogen",
+        "vision": True,
+        "display_name": "Gemini 4 Hydrogen (Vertex)",
         "vertex": True,
         "thinking_level": "low",
         "coder_thinking_level": "medium"
