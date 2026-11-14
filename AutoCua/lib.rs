@@ -1937,6 +1937,35 @@ pub mod vault {
     }
 }
 
+/// The LLM manager (AutoCua/llm_provider/llm_manager.rs): the one manager
+/// every agent sends its requests through, its provider builder and its
+/// tool-call parser; and the Responses endpoint the providers share
+/// (AutoCua/llm_provider/responses.rs). The providers beside them stay
+/// Python. llm_provider/__init__.py is their loader.
+pub mod llm_provider {
+    use pyo3::prelude::*;
+
+    pub mod llm_manager;
+    pub mod responses;
+
+    /// This part's name in sys.modules (AutoCua.agent_native.llm_provider.llm_manager).
+    pub const NATIVE: &str = "AutoCua.agent_native.llm_provider";
+
+    /// Fills the llm_provider part: its llm_manager and responses modules,
+    /// made under the names Python has always known them by,
+    /// AutoCua.llm_provider.llm_manager and AutoCua.llm_provider.responses.
+    pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        let py = m.py();
+        let manager = crate::system_part::python_module(py, "llm_provider", "llm_manager", llm_manager::register)?;
+        m.add("llm_manager", &manager)?;
+        py.import("sys")?.getattr("modules")?.set_item(format!("{NATIVE}.llm_manager"), &manager)?;
+        let responses = crate::system_part::python_module(py, "llm_provider", "responses", responses::register)?;
+        m.add("responses", &responses)?;
+        py.import("sys")?.getattr("modules")?.set_item(format!("{NATIVE}.responses"), &responses)?;
+        Ok(())
+    }
+}
+
 /// The tools every agent shares, on every OS (AutoCua/universal_tool).
 pub mod universal_tool {
     use pyo3::prelude::*;
@@ -2150,7 +2179,7 @@ pub mod agent_conversation {
 fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     let modules = py.import("sys")?.getattr("modules")?;
-    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 13] = [
+    let parts: [(&str, fn(&Bound<'_, PyModule>) -> PyResult<()>); 14] = [
         ("browser", browser::register),
         ("android", android::register),
         ("coder", coder::register),
@@ -2160,6 +2189,7 @@ fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ("windows", windows::register),
         ("linux", linux::register),
         ("vault", vault::register),
+        ("llm_provider", llm_provider::register),
         ("web", universal_tool::web::register),
         ("universal_tool", universal_tool::register),
         ("memory_compression", memory_compression::register),
