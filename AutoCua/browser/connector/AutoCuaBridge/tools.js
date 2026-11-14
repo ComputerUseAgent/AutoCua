@@ -896,19 +896,31 @@ async function toolsHistory(tabId, delta) {
 /// "current window", and a Chrome left running with every window closed (macOS) has none
 /// (measured: "No current window", which ended a run on its first tab). Right after a
 /// launch the window can take a moment, so it is waited for before one is made.
-async function toolsWindowId() {
+///
+/// A window made here opens on `url` and comes with that one tab, handed back as `tab`:
+/// it is the caller's new tab. A second tab opened beside it left the window showing its
+/// own empty tab with the agent's tab behind it, where an agent with a tab of its own
+/// (single_tab) never puts it on show: two tabs, and an empty page to look at (measured
+/// on Windows, Chrome 157, which stayed running with no window after its last one was
+/// closed, so closing the window between two runs was enough).
+async function toolsWindow(url) {
   for (let i = 0; i < 12; i++) {
     const all = await chrome.windows.getAll({ windowTypes: ["normal"] }).catch(() => []);
     const front = all.find((w) => w.focused) || all[0];
     if (front) {
       await toolsNotWholeScreen(front);
-      return front.id;
+      return { id: front.id, tab: null };
     }
     await toolsSleep(250);
   }
-  const made = await chrome.windows.create({ url: "about:blank", focused: true, type: "normal" });
+  const made = await chrome.windows.create({ url: url || "about:blank", focused: true, type: "normal" });
   await toolsNotWholeScreen(made);
-  return made.id;
+  return { id: made.id, tab: (made.tabs || [])[0] || null };
+}
+
+/// That window's id alone, for the cover (toolsCoverNow), which finds the empty tab itself.
+async function toolsWindowId() {
+  return (await toolsWindow()).id;
 }
 
 /// The browser the agent works in is a window, never the whole screen (the owner,
@@ -954,10 +966,11 @@ async function toolsNotWholeScreen(win) {
 }
 
 /// browser.rs open_tab_impl(): a tab in the background, so the browser stays where the
-/// person left it. The caller shows it (activate) and navigates it.
+/// person left it. The caller shows it (activate) and navigates it. In a browser with no
+/// window, the tab is the one its new window comes with (toolsWindow).
 async function toolsNewTab(url, line) {
-  const windowId = await toolsWindowId();
-  const tab = await chrome.tabs.create({ url: url || "about:blank", active: false, windowId });
+  const win = await toolsWindow(url);
+  const tab = win.tab || await chrome.tabs.create({ url: url || "about:blank", active: false, windowId: win.id });
   toolsOurs.set(tab.id, line || null);
   if (!toolsUnreachable(tab.url || tab.pendingUrl || url)) await toolsAttach(tab.id).catch(() => {});
   return { id: tab.id, windowId: tab.windowId, index: tab.index };
@@ -1616,7 +1629,11 @@ async function toolsCoverNow(count) {
   }
   // The empty tab the browser started on (about:blank, the New Tab page) takes the
   // cover, rather than an extra tab opening beside it (owner: "use the existing one").
-  const blank = tabs.find((t) => /^(about:blank)?$/.test(t.url || t.pendingUrl || "") || toolsNewTabPage(t.url || t.pendingUrl));
+  // Never an agent's own tab: a new one stays on about:blank (the logo page) until the
+  // agent's first move, and computer use puts the cover up after its first browser
+  // agent has started, so the cover took that agent's tab from it (measured).
+  const blank = tabs.find((t) => !toolsOurs.has(t.id) &&
+    (/^(about:blank)?$/.test(t.url || t.pendingUrl || "") || toolsNewTabPage(t.url || t.pendingUrl)));
   if (blank) {
     await chrome.tabs.update(blank.id, { url, active: true });
     return { shown: true, id: blank.id };
