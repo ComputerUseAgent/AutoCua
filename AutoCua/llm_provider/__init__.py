@@ -237,21 +237,24 @@ def _probe_tls(probe: str) -> bool:
     return True
 
 
-# llm_manager is Rust (llm_manager.rs, in place of llm_manager.py), in the
-# llm_provider part of the one Rust extension, AutoCua.agent_native (the
-# crate is AutoCua/Cargo.toml, and AutoCua/utils/rust.py builds it). The
-# providers beside it stay Python.
+# llm_manager and responses are Rust (llm_manager.rs and responses.rs, in
+# place of llm_manager.py and responses.py), in the llm_provider part of the
+# one Rust extension, AutoCua.agent_native (the crate is AutoCua/Cargo.toml,
+# and AutoCua/utils/rust.py builds it). The providers beside them stay Python.
 #
-# This block is its loader, like AutoCua/vault/__init__.py, and sits at the
+# This block is their loader, like AutoCua/vault/__init__.py, and sits at the
 # end of this file because llm_manager imports _ensure_tls_works and
-# RefusalError from it. The Rust module is put in sys.modules under its old
-# dotted name, AutoCua.llm_provider.llm_manager, so every import of that name
-# keeps working unchanged (the tool registries, the Ollama provider and the
-# Rust agents). What llm_manager.py did when it was imported is done here, in
-# the same order: its import lines bind their names on the module, then the
-# Rust runs the rest of its lines (the provider table, load_dotenv(), the
-# constants, the functions and the class). Loading the extension imports none
-# of them.
+# RefusalError from it, and responses LLM_HTTP_TIMEOUT, http_timeout, out_cap
+# and screenshots. Each Rust module is put in sys.modules under its old
+# dotted name, AutoCua.llm_provider.llm_manager and
+# AutoCua.llm_provider.responses, so every import of those names keeps
+# working unchanged (the tool registries, the Ollama provider and the Rust
+# agents; the OpenRouter, OpenAI and Perplexity providers). What each .py did
+# when it was imported is done here, in the same order: its import lines bind
+# their names on the module, then the Rust runs the rest of its lines
+# (llm_manager's provider table, load_dotenv(), the constants, the functions
+# and the class; responses' constants and functions). Loading the extension
+# imports none of them.
 
 from AutoCua.utils.rust import ensure_built as _ensure_built  # noqa: E402
 
@@ -262,6 +265,7 @@ _ensure_built()
 try:
     from AutoCua.agent_native import llm_provider as _native  # noqa: E402
     _llm_manager = _native.llm_manager
+    _responses = _native.responses
 except (ImportError, AttributeError) as _error:
     if "AutoCua.agent_native" not in sys.modules:
         raise
@@ -304,4 +308,30 @@ if _llm_manager.__name__ not in sys.modules:
         sys.modules.pop(_llm_manager.__name__, None)
         raise
     llm_manager = _llm_manager
-del _bind_llm_manager, _llm_manager, _native, _ensure_built
+
+
+def _bind_responses():
+    """What responses.py's lines did: its import lines bound on the module,
+    then everything it made, made by the Rust in the same order."""
+    import json
+    from typing import Optional
+
+    import requests
+
+    from . import LLM_HTTP_TIMEOUT, http_timeout, out_cap, screenshots
+    for name, value in list(locals().items()):
+        setattr(_responses, name, value)
+    _responses._build()
+    del _responses._build
+
+
+# The same for responses.
+if _responses.__name__ not in sys.modules:
+    sys.modules[_responses.__name__] = _responses
+    try:
+        _bind_responses()
+    except BaseException:
+        sys.modules.pop(_responses.__name__, None)
+        raise
+    responses = _responses
+del _bind_llm_manager, _llm_manager, _bind_responses, _responses, _native, _ensure_built
