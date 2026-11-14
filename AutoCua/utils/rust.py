@@ -43,7 +43,8 @@ _PACKAGE = Path(__file__).resolve().parent.parent
 # saved chats.
 _AGENT_DIRS = (_PACKAGE / "browser", _PACKAGE / "android", _PACKAGE / "coder",
                _PACKAGE / "computer", _PACKAGE / "ios", _PACKAGE / "mac", _PACKAGE / "windows",
-               _PACKAGE / "linux", _PACKAGE / "vault", _PACKAGE / "universal_tool",
+               _PACKAGE / "linux", _PACKAGE / "vault", _PACKAGE / "llm_provider",
+               _PACKAGE / "universal_tool",
                _PACKAGE / "memory_compression", _PACKAGE / "agent_conversation")
 
 # Two different naming schemes have to line up here, and neither is portable:

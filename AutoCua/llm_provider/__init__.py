@@ -235,3 +235,73 @@ def _probe_tls(probe: str) -> bool:
     except Exception:
         pass
     return True
+
+
+# llm_manager is Rust (llm_manager.rs, in place of llm_manager.py), in the
+# llm_provider part of the one Rust extension, AutoCua.agent_native (the
+# crate is AutoCua/Cargo.toml, and AutoCua/utils/rust.py builds it). The
+# providers beside it stay Python.
+#
+# This block is its loader, like AutoCua/vault/__init__.py, and sits at the
+# end of this file because llm_manager imports _ensure_tls_works and
+# RefusalError from it. The Rust module is put in sys.modules under its old
+# dotted name, AutoCua.llm_provider.llm_manager, so every import of that name
+# keeps working unchanged (the tool registries, the Ollama provider and the
+# Rust agents). What llm_manager.py did when it was imported is done here, in
+# the same order: its import lines bind their names on the module, then the
+# Rust runs the rest of its lines (the provider table, load_dotenv(), the
+# constants, the functions and the class). Loading the extension imports none
+# of them.
+
+from AutoCua.utils.rust import ensure_built as _ensure_built  # noqa: E402
+
+# A checkout builds or refreshes the extension with cargo. A pip wheel ships
+# it prebuilt (no Cargo.toml in it), so cargo is never touched from a wheel.
+_ensure_built()
+
+try:
+    from AutoCua.agent_native import llm_provider as _native  # noqa: E402
+    _llm_manager = _native.llm_manager
+except (ImportError, AttributeError) as _error:
+    if "AutoCua.agent_native" not in sys.modules:
+        raise
+    # The extension is loaded but has no llm_provider part: it was built
+    # before this code. An app that was open during an update keeps the one
+    # it loaded when it started.
+    raise ImportError(
+        "AutoCua/agent_native is an older build than this code: it has no "
+        "'llm_provider' part (the LLM manager every agent sends its requests "
+        "through). Close every AutoCua window and start again.") from _error
+
+
+def _bind_llm_manager():
+    """What llm_manager.py's lines did: its import lines bound on the module,
+    then everything it made, made by the Rust in the same order. load_dotenv()
+    finds its .env from this file, in the folder llm_manager.py was in."""
+    import copy
+    import importlib
+    import os
+    import sys
+    import time
+    from typing import Optional
+
+    from dotenv import load_dotenv
+
+    from . import _ensure_tls_works, RefusalError
+    for name, value in list(locals().items()):
+        setattr(_llm_manager, name, value)
+    _llm_manager._build()
+    del _llm_manager._build
+
+
+# As the import system did: a name already in sys.modules (a reload of this
+# package) is left as it is, and a failure leaves it out.
+if _llm_manager.__name__ not in sys.modules:
+    sys.modules[_llm_manager.__name__] = _llm_manager
+    try:
+        _bind_llm_manager()
+    except BaseException:
+        sys.modules.pop(_llm_manager.__name__, None)
+        raise
+    llm_manager = _llm_manager
+del _bind_llm_manager, _llm_manager, _native, _ensure_built
