@@ -1939,21 +1939,32 @@ pub mod vault {
 
 /// The LLM manager (AutoCua/llm_provider/llm_manager.rs): the one manager
 /// every agent sends its requests through, its provider builder and its
-/// tool-call parser; and the Responses endpoint the providers share
-/// (AutoCua/llm_provider/responses.rs). The providers beside them stay
-/// Python. llm_provider/__init__.py is their loader.
+/// tool-call parser; the Responses endpoint the providers share
+/// (AutoCua/llm_provider/responses.rs); and the Anthropic provider
+/// (AutoCua/llm_provider/anthropic). The other providers stay Python.
+/// llm_provider/__init__.py is the loader of the first two,
+/// llm_provider/anthropic/__init__.py of the Anthropic provider's.
 pub mod llm_provider {
     use pyo3::prelude::*;
 
     pub mod llm_manager;
     pub mod responses;
+    /// The Anthropic provider: its models' table (view.rs) and the provider
+    /// class that sends the requests (service.rs).
+    pub mod anthropic {
+        pub mod service;
+        pub mod view;
+    }
 
     /// This part's name in sys.modules (AutoCua.agent_native.llm_provider.llm_manager).
     pub const NATIVE: &str = "AutoCua.agent_native.llm_provider";
 
     /// Fills the llm_provider part: its llm_manager and responses modules,
-    /// made under the names Python has always known them by,
-    /// AutoCua.llm_provider.llm_manager and AutoCua.llm_provider.responses.
+    /// and the anthropic provider's view and service modules (on a submodule
+    /// `anthropic`, as the folder is), made under the names Python has always
+    /// known them by, AutoCua.llm_provider.llm_manager,
+    /// AutoCua.llm_provider.responses and
+    /// AutoCua.llm_provider.anthropic.view / .service.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         let py = m.py();
         let manager = crate::system_part::python_module(py, "llm_provider", "llm_manager", llm_manager::register)?;
@@ -1962,6 +1973,16 @@ pub mod llm_provider {
         let responses = crate::system_part::python_module(py, "llm_provider", "responses", responses::register)?;
         m.add("responses", &responses)?;
         py.import("sys")?.getattr("modules")?.set_item(format!("{NATIVE}.responses"), &responses)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "anthropic.view", anthropic::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "anthropic.service", anthropic::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.anthropic"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("anthropic", &package)?;
+        let modules = py.import("sys")?.getattr("modules")?;
+        modules.set_item(format!("{NATIVE}.anthropic"), &package)?;
+        modules.set_item(format!("{NATIVE}.anthropic.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.anthropic.service"), &service)?;
         Ok(())
     }
 }
