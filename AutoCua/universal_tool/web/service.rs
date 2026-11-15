@@ -29,7 +29,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use pyo3::call::PyCallArgs;
-use pyo3::exceptions::{PyAttributeError, PyException, PyImportError};
+use pyo3::exceptions::{PyAttributeError, PyException, PyImportError, PyUnicodeEncodeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyString};
 use serde_json::Value;
@@ -120,11 +120,35 @@ pub(super) fn str_of<'py>(value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAn
 /// `print(text, flush=True)` with Python's print: the line goes to
 /// sys.stdout wherever it points, in its place among the agent's own prints,
 /// whether the agent is Python or Rust.
+///
+/// A stdout that cannot write one of the line's characters must not cost the
+/// search. On Windows a pipe or a log file is cp1252, where the emoji in
+/// these lines raise UnicodeEncodeError (the app's coder, a sub-agent's
+/// log). The line then goes out again with "?" in place of what that stdout
+/// cannot write.
 pub(super) fn print_line(py: Python<'_>, text: &Bound<'_, PyAny>) -> PyResult<()> {
     let flush = PyDict::new(py);
     flush.set_item("flush", true)?;
-    py.import("builtins")?.getattr("print")?.call((text,), Some(&flush))?;
-    Ok(())
+    let print = py.import("builtins")?.getattr("print")?;
+    match print.call((text,), Some(&flush)) {
+        Ok(_) => Ok(()),
+        Err(e) if e.is_instance_of::<PyUnicodeEncodeError>(py) => {
+            let encoding = py
+                .import("sys")?
+                .getattr("stdout")?
+                .getattr("encoding")
+                .ok()
+                .filter(|name| name.is_truthy().unwrap_or(false))
+                .unwrap_or_else(|| PyString::new(py, "ascii").into_any());
+            let plain = text
+                .str()?
+                .call_method1("encode", (&encoding, "replace"))?
+                .call_method1("decode", (&encoding,))?;
+            print.call((plain,), Some(&flush))?;
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// `from package import name`, as Python runs it: __import__ with the name
