@@ -1941,10 +1941,11 @@ pub mod vault {
 /// every agent sends its requests through, its provider builder and its
 /// tool-call parser; the Responses endpoint the providers share
 /// (AutoCua/llm_provider/responses.rs); and the providers anthropic, aws
-/// (Amazon Bedrock), cerebras, google, groq, ollama and openai, each in its
-/// own folder (AutoCua/llm_provider/<provider>: view.rs, service.rs). The
-/// other providers stay Python. llm_provider/__init__.py is the loader of
-/// the first two, and each provider's own __init__.py of its two modules.
+/// (Amazon Bedrock), cerebras, google, groq, ollama, openai and openrouter,
+/// each in its own folder (AutoCua/llm_provider/<provider>: view.rs,
+/// service.rs). The other providers stay Python. llm_provider/__init__.py
+/// is the loader of the first two, and each provider's own __init__.py of
+/// its two modules.
 pub mod llm_provider {
     use pyo3::prelude::*;
 
@@ -1993,6 +1994,12 @@ pub mod llm_provider {
         pub mod service;
         pub mod view;
     }
+    /// The OpenRouter provider: its models' table (view.rs) and the provider
+    /// class that sends the requests (service.rs).
+    pub mod openrouter {
+        pub mod service;
+        pub mod view;
+    }
 
     /// This part's name in sys.modules (AutoCua.agent_native.llm_provider.llm_manager).
     pub const NATIVE: &str = "AutoCua.agent_native.llm_provider";
@@ -2003,7 +2010,7 @@ pub mod llm_provider {
     /// Python has always known them by: AutoCua.llm_provider.llm_manager,
     /// AutoCua.llm_provider.responses and
     /// AutoCua.llm_provider.<provider>.view / .service for anthropic, aws,
-    /// cerebras, google, groq, ollama and openai.
+    /// cerebras, google, groq, ollama, openai and openrouter.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         let py = m.py();
         let manager = crate::system_part::python_module(py, "llm_provider", "llm_manager", llm_manager::register)?;
@@ -2076,6 +2083,15 @@ pub mod llm_provider {
         modules.set_item(format!("{NATIVE}.openai"), &package)?;
         modules.set_item(format!("{NATIVE}.openai.view"), &view)?;
         modules.set_item(format!("{NATIVE}.openai.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "openrouter.view", openrouter::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "openrouter.service", openrouter::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.openrouter"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("openrouter", &package)?;
+        modules.set_item(format!("{NATIVE}.openrouter"), &package)?;
+        modules.set_item(format!("{NATIVE}.openrouter.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.openrouter.service"), &service)?;
         Ok(())
     }
 }
