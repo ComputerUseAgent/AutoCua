@@ -1982,6 +1982,12 @@ pub mod llm_provider {
         pub mod service;
         pub mod view;
     }
+    /// The Ollama provider: its models' table (view.rs) and the provider
+    /// class that sends the requests (service.rs).
+    pub mod ollama {
+        pub mod service;
+        pub mod view;
+    }
 
     /// This part's name in sys.modules (AutoCua.agent_native.llm_provider.llm_manager).
     pub const NATIVE: &str = "AutoCua.agent_native.llm_provider";
@@ -2047,6 +2053,15 @@ pub mod llm_provider {
         modules.set_item(format!("{NATIVE}.groq"), &package)?;
         modules.set_item(format!("{NATIVE}.groq.view"), &view)?;
         modules.set_item(format!("{NATIVE}.groq.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "ollama.view", ollama::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "ollama.service", ollama::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.ollama"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("ollama", &package)?;
+        modules.set_item(format!("{NATIVE}.ollama"), &package)?;
+        modules.set_item(format!("{NATIVE}.ollama.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.ollama.service"), &service)?;
         Ok(())
     }
 }
