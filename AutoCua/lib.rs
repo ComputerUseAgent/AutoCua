@@ -1939,21 +1939,99 @@ pub mod vault {
 
 /// The LLM manager (AutoCua/llm_provider/llm_manager.rs): the one manager
 /// every agent sends its requests through, its provider builder and its
-/// tool-call parser; and the Responses endpoint the providers share
-/// (AutoCua/llm_provider/responses.rs). The providers beside them stay
-/// Python. llm_provider/__init__.py is their loader.
+/// tool-call parser; the Responses endpoint the providers share
+/// (AutoCua/llm_provider/responses.rs); and the providers anthropic, aws
+/// (Amazon Bedrock), cerebras, google, groq, ollama, openai, openrouter,
+/// perplexity, requesty and together, each in its own folder
+/// (AutoCua/llm_provider/<provider>: view.rs, service.rs). The other
+/// providers stay Python. llm_provider/__init__.py
+/// is the loader of the first two, and each provider's own __init__.py of
+/// its two modules.
 pub mod llm_provider {
     use pyo3::prelude::*;
 
     pub mod llm_manager;
     pub mod responses;
+    /// The Anthropic provider: its models' table (view.rs) and the provider
+    /// class that sends the requests (service.rs).
+    pub mod anthropic {
+        pub mod service;
+        pub mod view;
+    }
+    /// The AWS provider (Amazon Bedrock): its models' table (view.rs) and
+    /// the provider class that sends the requests (service.rs).
+    pub mod aws {
+        pub mod service;
+        pub mod view;
+    }
+    /// The Cerebras provider: its models' table (view.rs) and the provider
+    /// class that sends the requests (service.rs).
+    pub mod cerebras {
+        pub mod service;
+        pub mod view;
+    }
+    /// The Google provider (Gemini, through AI Studio or Vertex AI): its
+    /// models' table (view.rs) and the provider class that sends the
+    /// requests (service.rs).
+    pub mod google {
+        pub mod service;
+        pub mod view;
+    }
+    /// The Groq provider: its models' table (view.rs) and the provider class
+    /// that sends the requests (service.rs).
+    pub mod groq {
+        pub mod service;
+        pub mod view;
+    }
+    /// The Ollama provider: its models' table (view.rs) and the provider
+    /// class that sends the requests (service.rs).
+    pub mod ollama {
+        pub mod service;
+        pub mod view;
+    }
+    /// The OpenAI provider: its models' table (view.rs) and the provider
+    /// class that sends the requests (service.rs).
+    pub mod openai {
+        pub mod service;
+        pub mod view;
+    }
+    /// The OpenRouter provider: its models' table (view.rs) and the provider
+    /// class that sends the requests (service.rs).
+    pub mod openrouter {
+        pub mod service;
+        pub mod view;
+    }
+    /// The Perplexity provider (its Agent API): its models' table (view.rs)
+    /// and the provider class that sends the requests (service.rs).
+    pub mod perplexity {
+        pub mod service;
+        pub mod view;
+    }
+    /// The Requesty provider (an OpenAI-compatible router): its models'
+    /// table (view.rs) and the provider class that sends the requests
+    /// (service.rs).
+    pub mod requesty {
+        pub mod service;
+        pub mod view;
+    }
+    /// The Together AI provider: its models' table (view.rs) and the
+    /// provider class that sends the requests (service.rs).
+    pub mod together {
+        pub mod service;
+        pub mod view;
+    }
 
     /// This part's name in sys.modules (AutoCua.agent_native.llm_provider.llm_manager).
     pub const NATIVE: &str = "AutoCua.agent_native.llm_provider";
 
     /// Fills the llm_provider part: its llm_manager and responses modules,
-    /// made under the names Python has always known them by,
-    /// AutoCua.llm_provider.llm_manager and AutoCua.llm_provider.responses.
+    /// and each Rust provider's view and service modules (on a submodule
+    /// named after the provider, as the folders are), made under the names
+    /// Python has always known them by: AutoCua.llm_provider.llm_manager,
+    /// AutoCua.llm_provider.responses and
+    /// AutoCua.llm_provider.<provider>.view / .service for anthropic, aws,
+    /// cerebras, google, groq, ollama, openai, openrouter, perplexity,
+    /// requesty and together.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         let py = m.py();
         let manager = crate::system_part::python_module(py, "llm_provider", "llm_manager", llm_manager::register)?;
@@ -1962,6 +2040,106 @@ pub mod llm_provider {
         let responses = crate::system_part::python_module(py, "llm_provider", "responses", responses::register)?;
         m.add("responses", &responses)?;
         py.import("sys")?.getattr("modules")?.set_item(format!("{NATIVE}.responses"), &responses)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "anthropic.view", anthropic::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "anthropic.service", anthropic::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.anthropic"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("anthropic", &package)?;
+        let modules = py.import("sys")?.getattr("modules")?;
+        modules.set_item(format!("{NATIVE}.anthropic"), &package)?;
+        modules.set_item(format!("{NATIVE}.anthropic.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.anthropic.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "aws.view", aws::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "aws.service", aws::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.aws"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("aws", &package)?;
+        modules.set_item(format!("{NATIVE}.aws"), &package)?;
+        modules.set_item(format!("{NATIVE}.aws.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.aws.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "cerebras.view", cerebras::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "cerebras.service", cerebras::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.cerebras"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("cerebras", &package)?;
+        modules.set_item(format!("{NATIVE}.cerebras"), &package)?;
+        modules.set_item(format!("{NATIVE}.cerebras.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.cerebras.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "google.view", google::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "google.service", google::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.google"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("google", &package)?;
+        modules.set_item(format!("{NATIVE}.google"), &package)?;
+        modules.set_item(format!("{NATIVE}.google.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.google.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "groq.view", groq::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "groq.service", groq::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.groq"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("groq", &package)?;
+        modules.set_item(format!("{NATIVE}.groq"), &package)?;
+        modules.set_item(format!("{NATIVE}.groq.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.groq.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "ollama.view", ollama::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "ollama.service", ollama::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.ollama"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("ollama", &package)?;
+        modules.set_item(format!("{NATIVE}.ollama"), &package)?;
+        modules.set_item(format!("{NATIVE}.ollama.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.ollama.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "openai.view", openai::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "openai.service", openai::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.openai"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("openai", &package)?;
+        modules.set_item(format!("{NATIVE}.openai"), &package)?;
+        modules.set_item(format!("{NATIVE}.openai.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.openai.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "openrouter.view", openrouter::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "openrouter.service", openrouter::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.openrouter"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("openrouter", &package)?;
+        modules.set_item(format!("{NATIVE}.openrouter"), &package)?;
+        modules.set_item(format!("{NATIVE}.openrouter.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.openrouter.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "perplexity.view", perplexity::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "perplexity.service", perplexity::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.perplexity"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("perplexity", &package)?;
+        modules.set_item(format!("{NATIVE}.perplexity"), &package)?;
+        modules.set_item(format!("{NATIVE}.perplexity.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.perplexity.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "requesty.view", requesty::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "requesty.service", requesty::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.requesty"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("requesty", &package)?;
+        modules.set_item(format!("{NATIVE}.requesty"), &package)?;
+        modules.set_item(format!("{NATIVE}.requesty.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.requesty.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "together.view", together::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "together.service", together::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.together"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("together", &package)?;
+        modules.set_item(format!("{NATIVE}.together"), &package)?;
+        modules.set_item(format!("{NATIVE}.together.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.together.service"), &service)?;
         Ok(())
     }
 }
