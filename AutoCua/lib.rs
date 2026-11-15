@@ -1969,6 +1969,13 @@ pub mod llm_provider {
         pub mod service;
         pub mod view;
     }
+    /// The Google provider (Gemini, through AI Studio or Vertex AI): its
+    /// models' table (view.rs) and the provider class that sends the
+    /// requests (service.rs).
+    pub mod google {
+        pub mod service;
+        pub mod view;
+    }
 
     /// This part's name in sys.modules (AutoCua.agent_native.llm_provider.llm_manager).
     pub const NATIVE: &str = "AutoCua.agent_native.llm_provider";
@@ -2016,6 +2023,15 @@ pub mod llm_provider {
         modules.set_item(format!("{NATIVE}.cerebras"), &package)?;
         modules.set_item(format!("{NATIVE}.cerebras.view"), &view)?;
         modules.set_item(format!("{NATIVE}.cerebras.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "google.view", google::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "google.service", google::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.google"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("google", &package)?;
+        modules.set_item(format!("{NATIVE}.google"), &package)?;
+        modules.set_item(format!("{NATIVE}.google.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.google.service"), &service)?;
         Ok(())
     }
 }
