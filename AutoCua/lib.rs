@@ -1963,6 +1963,12 @@ pub mod llm_provider {
         pub mod service;
         pub mod view;
     }
+    /// The Cerebras provider: its models' table (view.rs) and the provider
+    /// class that sends the requests (service.rs).
+    pub mod cerebras {
+        pub mod service;
+        pub mod view;
+    }
 
     /// This part's name in sys.modules (AutoCua.agent_native.llm_provider.llm_manager).
     pub const NATIVE: &str = "AutoCua.agent_native.llm_provider";
@@ -2001,6 +2007,15 @@ pub mod llm_provider {
         modules.set_item(format!("{NATIVE}.aws"), &package)?;
         modules.set_item(format!("{NATIVE}.aws.view"), &view)?;
         modules.set_item(format!("{NATIVE}.aws.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "cerebras.view", cerebras::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "cerebras.service", cerebras::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.cerebras"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("cerebras", &package)?;
+        modules.set_item(format!("{NATIVE}.cerebras"), &package)?;
+        modules.set_item(format!("{NATIVE}.cerebras.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.cerebras.service"), &service)?;
         Ok(())
     }
 }
