@@ -1942,7 +1942,7 @@ pub mod vault {
 /// tool-call parser; the Responses endpoint the providers share
 /// (AutoCua/llm_provider/responses.rs); and the providers anthropic, aws
 /// (Amazon Bedrock), cerebras, google, groq, ollama, openai, openrouter,
-/// perplexity and requesty, each in its own folder
+/// perplexity, requesty and together, each in its own folder
 /// (AutoCua/llm_provider/<provider>: view.rs, service.rs). The other
 /// providers stay Python. llm_provider/__init__.py
 /// is the loader of the first two, and each provider's own __init__.py of
@@ -2014,6 +2014,12 @@ pub mod llm_provider {
         pub mod service;
         pub mod view;
     }
+    /// The Together AI provider: its models' table (view.rs) and the
+    /// provider class that sends the requests (service.rs).
+    pub mod together {
+        pub mod service;
+        pub mod view;
+    }
 
     /// This part's name in sys.modules (AutoCua.agent_native.llm_provider.llm_manager).
     pub const NATIVE: &str = "AutoCua.agent_native.llm_provider";
@@ -2024,8 +2030,8 @@ pub mod llm_provider {
     /// Python has always known them by: AutoCua.llm_provider.llm_manager,
     /// AutoCua.llm_provider.responses and
     /// AutoCua.llm_provider.<provider>.view / .service for anthropic, aws,
-    /// cerebras, google, groq, ollama, openai, openrouter, perplexity and
-    /// requesty.
+    /// cerebras, google, groq, ollama, openai, openrouter, perplexity,
+    /// requesty and together.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         let py = m.py();
         let manager = crate::system_part::python_module(py, "llm_provider", "llm_manager", llm_manager::register)?;
@@ -2125,6 +2131,15 @@ pub mod llm_provider {
         modules.set_item(format!("{NATIVE}.requesty"), &package)?;
         modules.set_item(format!("{NATIVE}.requesty.view"), &view)?;
         modules.set_item(format!("{NATIVE}.requesty.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "together.view", together::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "together.service", together::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.together"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("together", &package)?;
+        modules.set_item(format!("{NATIVE}.together"), &package)?;
+        modules.set_item(format!("{NATIVE}.together.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.together.service"), &service)?;
         Ok(())
     }
 }
