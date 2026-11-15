@@ -1940,10 +1940,12 @@ pub mod vault {
 /// The LLM manager (AutoCua/llm_provider/llm_manager.rs): the one manager
 /// every agent sends its requests through, its provider builder and its
 /// tool-call parser; the Responses endpoint the providers share
-/// (AutoCua/llm_provider/responses.rs); and the Anthropic provider
-/// (AutoCua/llm_provider/anthropic). The other providers stay Python.
+/// (AutoCua/llm_provider/responses.rs); the Anthropic provider
+/// (AutoCua/llm_provider/anthropic); and the AWS provider, Amazon Bedrock
+/// (AutoCua/llm_provider/aws). The other providers stay Python.
 /// llm_provider/__init__.py is the loader of the first two,
-/// llm_provider/anthropic/__init__.py of the Anthropic provider's.
+/// llm_provider/anthropic/__init__.py of the Anthropic provider's and
+/// llm_provider/aws/__init__.py of the AWS provider's.
 pub mod llm_provider {
     use pyo3::prelude::*;
 
@@ -1955,16 +1957,23 @@ pub mod llm_provider {
         pub mod service;
         pub mod view;
     }
+    /// The AWS provider (Amazon Bedrock): its models' table (view.rs) and
+    /// the provider class that sends the requests (service.rs).
+    pub mod aws {
+        pub mod service;
+        pub mod view;
+    }
 
     /// This part's name in sys.modules (AutoCua.agent_native.llm_provider.llm_manager).
     pub const NATIVE: &str = "AutoCua.agent_native.llm_provider";
 
     /// Fills the llm_provider part: its llm_manager and responses modules,
-    /// and the anthropic provider's view and service modules (on a submodule
-    /// `anthropic`, as the folder is), made under the names Python has always
-    /// known them by, AutoCua.llm_provider.llm_manager,
-    /// AutoCua.llm_provider.responses and
-    /// AutoCua.llm_provider.anthropic.view / .service.
+    /// and the anthropic and aws providers' view and service modules (on a
+    /// submodule `anthropic` and one `aws`, as the folders are), made under
+    /// the names Python has always known them by,
+    /// AutoCua.llm_provider.llm_manager, AutoCua.llm_provider.responses,
+    /// AutoCua.llm_provider.anthropic.view / .service and
+    /// AutoCua.llm_provider.aws.view / .service.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         let py = m.py();
         let manager = crate::system_part::python_module(py, "llm_provider", "llm_manager", llm_manager::register)?;
@@ -1983,6 +1992,15 @@ pub mod llm_provider {
         modules.set_item(format!("{NATIVE}.anthropic"), &package)?;
         modules.set_item(format!("{NATIVE}.anthropic.view"), &view)?;
         modules.set_item(format!("{NATIVE}.anthropic.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "aws.view", aws::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "aws.service", aws::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.aws"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("aws", &package)?;
+        modules.set_item(format!("{NATIVE}.aws"), &package)?;
+        modules.set_item(format!("{NATIVE}.aws.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.aws.service"), &service)?;
         Ok(())
     }
 }
