@@ -1940,12 +1940,11 @@ pub mod vault {
 /// The LLM manager (AutoCua/llm_provider/llm_manager.rs): the one manager
 /// every agent sends its requests through, its provider builder and its
 /// tool-call parser; the Responses endpoint the providers share
-/// (AutoCua/llm_provider/responses.rs); the Anthropic provider
-/// (AutoCua/llm_provider/anthropic); and the AWS provider, Amazon Bedrock
-/// (AutoCua/llm_provider/aws). The other providers stay Python.
-/// llm_provider/__init__.py is the loader of the first two,
-/// llm_provider/anthropic/__init__.py of the Anthropic provider's and
-/// llm_provider/aws/__init__.py of the AWS provider's.
+/// (AutoCua/llm_provider/responses.rs); and the providers anthropic, aws
+/// (Amazon Bedrock), cerebras, google, groq, ollama and openai, each in its
+/// own folder (AutoCua/llm_provider/<provider>: view.rs, service.rs). The
+/// other providers stay Python. llm_provider/__init__.py is the loader of
+/// the first two, and each provider's own __init__.py of its two modules.
 pub mod llm_provider {
     use pyo3::prelude::*;
 
@@ -1988,17 +1987,23 @@ pub mod llm_provider {
         pub mod service;
         pub mod view;
     }
+    /// The OpenAI provider: its models' table (view.rs) and the provider
+    /// class that sends the requests (service.rs).
+    pub mod openai {
+        pub mod service;
+        pub mod view;
+    }
 
     /// This part's name in sys.modules (AutoCua.agent_native.llm_provider.llm_manager).
     pub const NATIVE: &str = "AutoCua.agent_native.llm_provider";
 
     /// Fills the llm_provider part: its llm_manager and responses modules,
-    /// and the anthropic and aws providers' view and service modules (on a
-    /// submodule `anthropic` and one `aws`, as the folders are), made under
-    /// the names Python has always known them by,
-    /// AutoCua.llm_provider.llm_manager, AutoCua.llm_provider.responses,
-    /// AutoCua.llm_provider.anthropic.view / .service and
-    /// AutoCua.llm_provider.aws.view / .service.
+    /// and each Rust provider's view and service modules (on a submodule
+    /// named after the provider, as the folders are), made under the names
+    /// Python has always known them by: AutoCua.llm_provider.llm_manager,
+    /// AutoCua.llm_provider.responses and
+    /// AutoCua.llm_provider.<provider>.view / .service for anthropic, aws,
+    /// cerebras, google, groq, ollama and openai.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         let py = m.py();
         let manager = crate::system_part::python_module(py, "llm_provider", "llm_manager", llm_manager::register)?;
@@ -2062,6 +2067,15 @@ pub mod llm_provider {
         modules.set_item(format!("{NATIVE}.ollama"), &package)?;
         modules.set_item(format!("{NATIVE}.ollama.view"), &view)?;
         modules.set_item(format!("{NATIVE}.ollama.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "openai.view", openai::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "openai.service", openai::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.openai"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("openai", &package)?;
+        modules.set_item(format!("{NATIVE}.openai"), &package)?;
+        modules.set_item(format!("{NATIVE}.openai.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.openai.service"), &service)?;
         Ok(())
     }
 }
