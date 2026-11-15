@@ -1941,8 +1941,8 @@ pub mod vault {
 /// every agent sends its requests through, its provider builder and its
 /// tool-call parser; the Responses endpoint the providers share
 /// (AutoCua/llm_provider/responses.rs); and the providers anthropic, aws
-/// (Amazon Bedrock), cerebras, google, groq, ollama, openai and openrouter,
-/// each in its own folder (AutoCua/llm_provider/<provider>: view.rs,
+/// (Amazon Bedrock), cerebras, google, groq, ollama, openai, openrouter and
+/// perplexity, each in its own folder (AutoCua/llm_provider/<provider>: view.rs,
 /// service.rs). The other providers stay Python. llm_provider/__init__.py
 /// is the loader of the first two, and each provider's own __init__.py of
 /// its two modules.
@@ -2000,6 +2000,12 @@ pub mod llm_provider {
         pub mod service;
         pub mod view;
     }
+    /// The Perplexity provider (its Agent API): its models' table (view.rs)
+    /// and the provider class that sends the requests (service.rs).
+    pub mod perplexity {
+        pub mod service;
+        pub mod view;
+    }
 
     /// This part's name in sys.modules (AutoCua.agent_native.llm_provider.llm_manager).
     pub const NATIVE: &str = "AutoCua.agent_native.llm_provider";
@@ -2010,7 +2016,7 @@ pub mod llm_provider {
     /// Python has always known them by: AutoCua.llm_provider.llm_manager,
     /// AutoCua.llm_provider.responses and
     /// AutoCua.llm_provider.<provider>.view / .service for anthropic, aws,
-    /// cerebras, google, groq, ollama, openai and openrouter.
+    /// cerebras, google, groq, ollama, openai, openrouter and perplexity.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         let py = m.py();
         let manager = crate::system_part::python_module(py, "llm_provider", "llm_manager", llm_manager::register)?;
@@ -2092,6 +2098,15 @@ pub mod llm_provider {
         modules.set_item(format!("{NATIVE}.openrouter"), &package)?;
         modules.set_item(format!("{NATIVE}.openrouter.view"), &view)?;
         modules.set_item(format!("{NATIVE}.openrouter.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "perplexity.view", perplexity::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "perplexity.service", perplexity::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.perplexity"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("perplexity", &package)?;
+        modules.set_item(format!("{NATIVE}.perplexity"), &package)?;
+        modules.set_item(format!("{NATIVE}.perplexity.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.perplexity.service"), &service)?;
         Ok(())
     }
 }
