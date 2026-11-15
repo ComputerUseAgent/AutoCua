@@ -1976,6 +1976,12 @@ pub mod llm_provider {
         pub mod service;
         pub mod view;
     }
+    /// The Groq provider: its models' table (view.rs) and the provider class
+    /// that sends the requests (service.rs).
+    pub mod groq {
+        pub mod service;
+        pub mod view;
+    }
 
     /// This part's name in sys.modules (AutoCua.agent_native.llm_provider.llm_manager).
     pub const NATIVE: &str = "AutoCua.agent_native.llm_provider";
@@ -2032,6 +2038,15 @@ pub mod llm_provider {
         modules.set_item(format!("{NATIVE}.google"), &package)?;
         modules.set_item(format!("{NATIVE}.google.view"), &view)?;
         modules.set_item(format!("{NATIVE}.google.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "groq.view", groq::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "groq.service", groq::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.groq"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("groq", &package)?;
+        modules.set_item(format!("{NATIVE}.groq"), &package)?;
+        modules.set_item(format!("{NATIVE}.groq.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.groq.service"), &service)?;
         Ok(())
     }
 }
