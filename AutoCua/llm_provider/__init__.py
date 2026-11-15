@@ -240,7 +240,10 @@ def _probe_tls(probe: str) -> bool:
 # llm_manager and responses are Rust (llm_manager.rs and responses.rs, in
 # place of llm_manager.py and responses.py), in the llm_provider part of the
 # one Rust extension, AutoCua.agent_native (the crate is AutoCua/Cargo.toml,
-# and AutoCua/utils/rust.py builds it). The providers beside them stay Python.
+# and AutoCua/utils/rust.py builds it). The providers beside them stay Python,
+# except anthropic, aws, cerebras, google, groq, ollama, openai, openrouter,
+# perplexity, requesty and together, whose own __init__.py files load their
+# Rust (view.rs, service.rs).
 #
 # This block is their loader, like AutoCua/vault/__init__.py, and sits at the
 # end of this file because llm_manager imports _ensure_tls_works and
