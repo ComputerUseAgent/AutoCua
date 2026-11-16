@@ -195,14 +195,29 @@ pub(super) fn key_or_env<'py>(py: Python<'py>, api_key: &Bound<'py, PyAny>, var:
     }
 }
 
-/// Non-empty `SPECSTREAM_API_KEY` from the environment / `.env`, if set.
-fn has_specstream_key(py: Python<'_>) -> PyResult<bool> {
-    let val = py.import("os")?.call_method1("getenv", ("SPECSTREAM_API_KEY",))?;
-    if val.is_none() {
-        return Ok(false);
+/// The SpecStream key, trimmed, or None. Read in the order the LLM manager's
+/// _key reads a provider key: the environment, then the .env the app's
+/// Settings writes (AutoCua.read_env), read again now, so a key saved in
+/// Settings still counts after a restart. A .env that cannot be read counts
+/// as no key.
+fn find_specstream_key(py: Python<'_>) -> PyResult<Option<String>> {
+    let mut value = py.import("os")?.call_method1("getenv", ("SPECSTREAM_API_KEY",))?;
+    if !value.is_truthy()? {
+        let saved = import_from(py, "AutoCua", "read_env")
+            .and_then(|read_env| read_env.call0())
+            .and_then(|keys| keys.call_method1("get", ("SPECSTREAM_API_KEY",)));
+        value = match saved {
+            Ok(saved) => saved,
+            Err(e) if e.is_instance_of::<PyException>(py) => return Ok(None),
+            Err(e) => return Err(e),
+        };
     }
-    let text: String = val.extract()?;
-    Ok(!text.trim().is_empty())
+    if value.is_none() {
+        return Ok(None);
+    }
+    let text: String = value.extract()?;
+    let key = text.trim();
+    Ok(if key.is_empty() { None } else { Some(key.to_owned()) })
 }
 
 /// Keyword arguments from a JSON literal: the same Python values the Mac
@@ -351,10 +366,10 @@ impl WebService {
     fn answer<'py>(&self, py: Python<'py>, query: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let name = self.name.as_deref();
         let is_fallback_provider = name.is_some_and(|n| BROWSER_FALLBACK_PROVIDERS.contains(&n));
-        let use_specstream_fallback = is_fallback_provider && has_specstream_key(py)?;
+        let specstream_key = if is_fallback_provider { find_specstream_key(py)? } else { None };
         // Single attempt: a browse run is minutes long, and the browser
         // agent's own LLM manager already retries each call.
-        if is_fallback_provider && !use_specstream_fallback {
+        if is_fallback_provider && specstream_key.is_none() {
             return self.search_via_web_agent(py, query);
         }
 
@@ -363,8 +378,8 @@ impl WebService {
         let mut attempt = 0;
         loop {
             let tried = (|| {
-                let result = if use_specstream_fallback {
-                    specstream_web_search(py, query, &py.None().into_bound(py))?
+                let result = if let Some(specstream_key) = specstream_key.as_deref() {
+                    specstream_web_search(py, query, PyString::new(py, specstream_key).as_any())?
                 } else {
                     match name {
                         Some("openrouter") => openrouter_web_search(py, query, self.model.bind(py), key)?,
