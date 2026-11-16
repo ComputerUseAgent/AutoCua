@@ -506,11 +506,13 @@ Settings → API Keys is used too, after `.env`.
 
 ## How the `web` tool works on Together
 
-Together has no native web search. When an agent calls the `web` tool
-with `provider="together"`, the query is handed to the **browser agent**
-(`AutoCua/browser`) running **headless on the same model**, and its final
-`done` report comes back as the web result. Expect that step to take a few
-minutes rather than seconds.
+Together has no native web search. When `SPECSTREAM_API_KEY` is set in `.env` or
+Settings -> API Keys, the `web` tool queries SpecStream's Search API
+(`https://api.specstream.ai/v1/web-search`) directly (`AutoCua/universal_tool/web/specstream_search.rs`).
+Otherwise, when an agent calls the `web` tool with `provider="together"`, the
+query is handed to the **browser agent** (`AutoCua/browser`) running **headless on
+the same model**, and its final `done` report comes back as the web result. Expect
+that step to take a few minutes rather than seconds.
 
 - Runs in its own headless Chrome on port **9333** (`AutoCua_WEB_FALLBACK_PORT`)
   with its own profile **web_fallback** (`AutoCua_WEB_FALLBACK_PROFILE`), never

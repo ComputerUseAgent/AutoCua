@@ -5,8 +5,9 @@
 //! (crate::universal_tool::web::service::WebService). It routes a query to
 //! the agent's own provider. The searches sit beside this file, one file
 //! each (anthropic.rs, chatgpt.rs, google_search.rs, groq_search.rs,
-//! openrouter.rs, perplexity_search.rs), with web.md, their system prompt;
-//! the providers with no web-search API go to the headless browser agent
+//! openrouter.rs, perplexity_search.rs, specstream_search.rs), with web.md,
+//! their system prompt; the providers with no web-search API go to
+//! SpecStream when SPECSTREAM_API_KEY is set or to the headless browser agent
 //! instead (web_agent.rs). Either way the answer is the text
 //! `{\ntool: web,\nstatus: ...}`, which the controller reports as the tool's
 //! result.
@@ -40,11 +41,13 @@ use super::google_search::web_search as google_web_search;
 use super::groq_search::web_search as groq_web_search;
 use super::openrouter::web_search as openrouter_web_search;
 use super::perplexity_search::web_search as perplexity_web_search;
+use super::specstream_search::web_search as specstream_web_search;
 use super::web_agent::{web_search as web_agent_web_search, Failure};
 
-/// Providers with no native web-search API: the query goes to the browser
-/// agent on the same provider+model instead (see web_agent.rs). Explicit
-/// membership, not a catch-all: a typo'd provider must still fail fast below.
+/// Providers with no native web-search API: the query goes to SpecStream
+/// when SPECSTREAM_API_KEY is set, or to the browser agent on the same
+/// provider+model otherwise (see web_agent.rs). Explicit membership, not a
+/// catch-all: a typo'd provider must still fail fast below.
 const BROWSER_FALLBACK_PROVIDERS: [&str; 5] = ["together", "cerebras", "requesty", "aws", "ollama"];
 
 // The answers, filled in by Python's str.format: each {} is written as an
@@ -192,6 +195,16 @@ pub(super) fn key_or_env<'py>(py: Python<'py>, api_key: &Bound<'py, PyAny>, var:
     }
 }
 
+/// Non-empty `SPECSTREAM_API_KEY` from the environment / `.env`, if set.
+fn has_specstream_key(py: Python<'_>) -> PyResult<bool> {
+    let val = py.import("os")?.call_method1("getenv", ("SPECSTREAM_API_KEY",))?;
+    if val.is_none() {
+        return Ok(false);
+    }
+    let text: String = val.extract()?;
+    Ok(!text.trim().is_empty())
+}
+
 /// Keyword arguments from a JSON literal: the same Python values the Mac
 /// call's literals make (str, int, float, bool, None, list, dict), in the
 /// same order. A value the caller gave (the query, a key, the model) is a
@@ -337,9 +350,11 @@ impl WebService {
     /// the <tool> wrapper), a Python str.
     fn answer<'py>(&self, py: Python<'py>, query: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let name = self.name.as_deref();
+        let is_fallback_provider = name.is_some_and(|n| BROWSER_FALLBACK_PROVIDERS.contains(&n));
+        let use_specstream_fallback = is_fallback_provider && has_specstream_key(py)?;
         // Single attempt: a browse run is minutes long, and the browser
         // agent's own LLM manager already retries each call.
-        if name.is_some_and(|name| BROWSER_FALLBACK_PROVIDERS.contains(&name)) {
+        if is_fallback_provider && !use_specstream_fallback {
             return self.search_via_web_agent(py, query);
         }
 
@@ -348,22 +363,27 @@ impl WebService {
         let mut attempt = 0;
         loop {
             let tried = (|| {
-                let result = match name {
-                    Some("openrouter") => openrouter_web_search(py, query, self.model.bind(py), key)?,
-                    Some("groq") => groq_web_search(py, query, key)?, // Groq always uses compound
-                    Some("openai") => chatgpt_web_search(py, query, key)?, // OpenAI always uses gpt-5.6-terra
-                    Some("anthropic") => anthropic_web_search(py, query, key)?, // Anthropic uses Haiku 4.5 with native web_search
-                    // Google uses Gemini 3.6 Flash with grounding
-                    Some("google") => google_web_search(
-                        py,
-                        query,
-                        key,
-                        self.vertex.bind(py),
-                        self.vertex_project_id.bind(py),
-                        self.vertex_location.bind(py),
-                    )?,
-                    Some("perplexity") => perplexity_web_search(py, query, key)?, // Perplexity uses Sonar with native web search
-                    _ => fill(py, "Unsupported provider: {}", (self.provider.bind(py),))?,
+                let result = if use_specstream_fallback {
+                    specstream_web_search(py, query, &py.None().into_bound(py))?
+                } else {
+                    match name {
+                        Some("openrouter") => openrouter_web_search(py, query, self.model.bind(py), key)?,
+                        Some("groq") => groq_web_search(py, query, key)?, // Groq always uses compound
+                        Some("openai") => chatgpt_web_search(py, query, key)?, // OpenAI always uses gpt-5.6-terra
+                        Some("anthropic") => anthropic_web_search(py, query, key)?, // Anthropic uses Haiku 4.5 with native web_search
+                        // Google uses Gemini 3.6 Flash with grounding
+                        Some("google") => google_web_search(
+                            py,
+                            query,
+                            key,
+                            self.vertex.bind(py),
+                            self.vertex_project_id.bind(py),
+                            self.vertex_location.bind(py),
+                        )?,
+                        Some("perplexity") => perplexity_web_search(py, query, key)?, // Perplexity uses Sonar with native web search
+                        Some("specstream") => specstream_web_search(py, query, key)?,
+                        _ => fill(py, "Unsupported provider: {}", (self.provider.bind(py),))?,
+                    }
                 };
                 // Format as JSON object (no wrapper tags - agent adds <tool> wrapper)
                 fill(py, SUCCESS, (query, result))

@@ -2168,6 +2168,7 @@ pub mod universal_tool {
         pub mod groq_search;
         pub mod openrouter;
         pub mod perplexity_search;
+        pub mod specstream_search;
 
         /// Fills AutoCua.agent_native.web: the WebService class.
         pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
