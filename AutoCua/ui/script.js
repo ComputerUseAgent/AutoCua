@@ -35,7 +35,8 @@ document.addEventListener('DOMContentLoaded', () => {
         cerebras: null,
         requesty: null,
         aws: null,
-        ollama: null
+        ollama: null,
+        specstream: null
     };
 
 
@@ -724,8 +725,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Key exists => model selection should now be possible. If the user
                     // hadn't picked a provider yet, auto-select the one they just keyed so
                     // the chat model drop-up unlocks immediately (no separate provider step).
-                    if (!selectedProvider && savedProviders.length) {
-                        setProvider(savedProviders[0]);
+                    const firstLlm = savedProviders.find(id => providersData.some(p => p.id === id));
+                    if (!selectedProvider && firstLlm) {
+                        setProvider(firstLlm);
                     }
                     resetSettingsToMenu();
                     if (selectedProvider && selectedModel) {

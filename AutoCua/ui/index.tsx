@@ -88,6 +88,7 @@ const PROVIDERS: [string, string, string, string][] = [
     ['requesty', 'https://app.requesty.ai/api-keys', 'Requesty', 'Enter API key...'],
     ['aws', 'https://console.aws.amazon.com/bedrock/home#/api-keys', 'AWS', 'ABSK...'],
     ['google', 'https://aistudio.google.com/apikey', 'Google', 'AIza...'],
+    ['specstream', 'https://specstream.ai/workspace/keys', 'SpecStream', 'Enter API key...'],
 ];
 
 // Settings Panel Overlay (script.js, device_connect.js and left_bar.js drive it).

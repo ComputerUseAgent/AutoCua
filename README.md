@@ -1143,6 +1143,7 @@ agent: computer use on macOS, Windows and Linux, the iPhone and Android agents, 
 > Together AI, Cerebras, Requesty, AWS Bedrock and Ollama have no native web search. Under any of them the `web` tool hands the query to the
 > browser agent running headless on its own dedicated port and profile, capped at 15 minutes,
 > and returns its report. Expect that step to take minutes rather than seconds.
+> Set `SPECSTREAM_API_KEY` in `.env` or Settings to route those `web` calls through [SpecStream](https://specstream.ai) (`GET https://api.specstream.ai/v1/web-search`) instead.
 
 ---
 
