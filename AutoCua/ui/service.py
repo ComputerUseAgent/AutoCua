@@ -963,6 +963,8 @@ PROVIDER_KEY_MAP = {
     'cerebras': 'CEREBRAS_API_KEY',
     'requesty': 'REQUESTY_API_KEY',
     'aws': 'AWS_API_KEY',
+    # Web-search key for the `web` tool on providers without native search (not an LLM provider).
+    'specstream': 'SPECSTREAM_API_KEY',
 }
 
 # Providers that run without a key (a model on this machine), so the app
