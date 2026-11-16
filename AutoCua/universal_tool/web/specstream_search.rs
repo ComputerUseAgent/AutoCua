@@ -184,6 +184,15 @@ pub fn web_search<'py>(
         if key_trimmed.is_empty() {
             return Err(PyValueError::new_err("SPECSTREAM_API_KEY is not set"));
         }
+        // A key has no space or line break in it. One pasted with a line
+        // break inside makes requests refuse the header with an error that
+        // quotes the whole key, and that error goes back to the model, so it
+        // is refused here with words that do not show it.
+        if key_trimmed.chars().any(|c| c.is_whitespace() || c.is_control()) {
+            return Err(PyValueError::new_err(
+                "SPECSTREAM_API_KEY has a space or line break inside it: save the key again",
+            ));
+        }
 
         let raw_query: String = str_of(query)?.extract()?;
         let trimmed_query = raw_query.trim();
