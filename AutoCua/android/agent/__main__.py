@@ -1,15 +1,18 @@
 """
 Android Agent Child Runner
 ==========================
-Subprocess entry for one parallel Android-emulator task.
+Subprocess entry for one parallel Android task: on its own emulator
+(run_parallel_emulator_agents) or on its own phone (run_parallel_android_agents).
 
 Usage:
     python -m AutoCua.android.agent --task "..." --provider anthropic --model claude-sonnet-5 --serial emulator-5556
 
-When called from run_parallel_emulator_agents (agent_launcher.py):
-    - The parent booted this task's OWN emulator; this child starts the phone
-      helper on --serial (android_session) and stops it when it ends.
-    - The parent set cwd to ./parallel/task_N/, so every CWD-relative artifact
+When called from run_parallel_emulator_agents or run_parallel_android_agents (agent_launcher.py):
+    - The parent booted this task's OWN emulator (or picked its OWN phone);
+      this child starts the phone helper on --serial (android_session) and
+      stops it when it ends.
+    - The parent set cwd to ./parallel/task_N/ (for a phone, a folder named
+      after it, e.g. ./parallel/moto_g77/), so every CWD-relative artifact
       (conversation/, raw_reasoning/, debug/) is isolated per task.
     - --session-id scopes the package-level scratchpad to
       AutoCua/android/scratchpad/{sid}/ (AutoCua_ANDROID_SESSION), so parallel
@@ -28,7 +31,7 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(
-        description="One parallel Android-emulator task (spawned by run_parallel_emulator_agents)"
+        description="One parallel Android task (spawned by run_parallel_emulator_agents or run_parallel_android_agents)"
     )
     parser.add_argument("--task", type=str, required=True, help="The task to run")
     parser.add_argument("--provider", type=str, required=True, help="LLM provider")
@@ -37,16 +40,16 @@ def main():
     parser.add_argument("--save-conversation", action="store_true",
                         help="Write conversation logs under the task cwd")
     parser.add_argument("--serial", type=str, default=None,
-                        help="This task's emulator (adb serial, emulator-<port>)")
+                        help="This task's emulator (emulator-<port>) or phone (its USB serial)")
     parser.add_argument("--session-id", type=str, default=None,
                         help="Scopes AutoCua/android/scratchpad/{sid}/ for this agent")
     parser.add_argument("--result", type=str, default=None,
                         help="Path to write the result JSON when complete")
     args = parser.parse_args()
 
-    # Belt and braces for a hand-run child: run_parallel_emulator_agents puts
-    # both in the child's environment already. The serial also keeps the
-    # screen reader on this emulator when it starts the helper again, and the
+    # Belt and braces for a hand-run child: the parallel runners put both in
+    # the child's environment already. The serial also keeps the screen
+    # reader on this emulator or phone when it starts the helper again, and the
     # agent reads the session when it is built, below.
     if args.serial:
         os.environ.setdefault("AutoCua_ANDROID_SERIAL", args.serial)

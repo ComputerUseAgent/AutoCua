@@ -1,15 +1,19 @@
 """
 iOS Agent Child Runner
 ======================
-Subprocess entry for one parallel iOS-simulator task.
+Subprocess entry for one parallel iOS task: on its own simulator
+(run_parallel_sim_agents) or on its own paired iPhone or iPad
+(run_parallel_iphone_agents, --udid).
 
 Usage:
     python -m AutoCua.ios.agent --task "..." --provider anthropic --model claude-sonnet-5
 
-When called from run_parallel_sim_agents (agent_launcher.py):
-    - The parent booted this task's OWN simulator and started its OWN
-      WebDriverAgent; this child only attaches to --wda-port.
-    - The parent set cwd to ./parallel/task_N/, so every CWD-relative artifact
+When called from run_parallel_sim_agents or run_parallel_iphone_agents (agent_launcher.py):
+    - The parent booted this task's OWN simulator (or connected its OWN
+      device) and started its OWN WebDriverAgent; this child only attaches
+      to --wda-port.
+    - The parent set cwd to ./parallel/task_N/ (for a device, a folder named
+      after it, e.g. ./parallel/My_iPhone/), so every CWD-relative artifact
       (conversation/, raw_reasoning/, debug/) is isolated per task.
     - --session-id scopes the package-level scratchpad to
       AutoCua/ios/scratchpad/{sid}/, so parallel agents never overwrite each
@@ -28,7 +32,7 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(
-        description="One parallel iOS-simulator task (spawned by run_parallel_sim_agents)"
+        description="One parallel iOS task (spawned by run_parallel_sim_agents or run_parallel_iphone_agents)"
     )
     parser.add_argument("--task", type=str, required=True, help="The task to run")
     parser.add_argument("--provider", type=str, required=True, help="LLM provider")
@@ -40,6 +44,8 @@ def main():
                         help="WebDriverAgent port for this task's simulator")
     parser.add_argument("--sim-udid", type=str, default=None,
                         help="This task's simulator (used for simctl app scans)")
+    parser.add_argument("--udid", type=str, default=None,
+                        help="This task's paired iPhone or iPad (a device=\"hardware\" run)")
     parser.add_argument("--session-id", type=str, default=None,
                         help="Scopes AutoCua/ios/scratchpad/{sid}/ for this agent")
     parser.add_argument("--result", type=str, default=None,
@@ -61,10 +67,15 @@ def main():
     exit_code = 1
     try:
         from AutoCua.ios_connector.session import active_target
-        # The parent owns the simulator's lifecycle; this child only needs to
-        # know it IS a simulator (open_app scans apps with simctl, not
-        # pymobiledevice3) and which one.
-        active_target.update({"kind": "simulation", "udid": args.sim_udid})
+        # The parent owns the simulator's (or the device's) lifecycle; this
+        # child only needs to know which it is (open_app scans apps with
+        # simctl on a simulator, pymobiledevice3 on a device) and which one.
+        # Never wda_session.activate() here: in a fresh process it would kill
+        # the parent's forward.
+        if args.udid:
+            active_target.update({"kind": "hardware", "udid": args.udid})
+        else:
+            active_target.update({"kind": "simulation", "udid": args.sim_udid})
 
         from AutoCua.ios.agent.iphone_use.service import AgentService
 
