@@ -33,6 +33,8 @@ run_agent(
 | `task` | What the agent should do. |
 
 All four are required even with `ui=True`, where the app ignores them (Part 7).
+The one exception: a run on several real devices (paired iPhones and iPads, or
+Android phones) gives its tasks in `devices` instead of `task` (Part 2).
 
 ## Optional flags
 
@@ -46,6 +48,7 @@ All four are required even with `ui=True`, where the app ignores them (Part 7).
 | `browser_port` | `"browser"` | `9222` | 1 |
 | `browser_profile` | `"browser"`, single task | the `"default"` profile | 1 |
 | `extra_tasks` | `"browser"`; `"mobile use, ios"` and `"mobile use, android"` with `device="simulation"` | none (one task) | 2 |
+| `devices` | `"mobile use, ios"` or `"mobile use, android"` + `device="hardware"` | none | 2 |
 | `device` | `"mobile use, ios"`, `"mobile use, android"` | `"simulation"` | 6, 10 |
 | `ios_version` | `"mobile use, ios"` + simulation | newest installed runtime | 6 |
 | `android_version` | `"mobile use, android"` + simulation | newest one already here (Android Studio's images count), else `"17"` | 10 |
@@ -56,9 +59,11 @@ All four are required even with `ui=True`, where the app ignores them (Part 7).
 
 > A flag the chosen mode doesn't use is **silently ignored**, never an error, so
 > it is safe to leave in when you switch `mode`; it just does nothing there. The
-> exceptions raise `ValueError`: `extra_tasks` in any other mode, and
-> `extra_tasks` or `app_build` together with `device="hardware"`. With `ui=True`
-> every other argument is ignored (Part 7).
+> exceptions raise `ValueError`: `extra_tasks` in any other mode,
+> `extra_tasks` or `app_build` together with `device="hardware"`, and `devices`
+> anywhere but `"mobile use, ios"` or `"mobile use, android"` with
+> `device="hardware"`, or beside `task` or
+> `extra_tasks`. With `ui=True` every other argument is ignored (Part 7).
 
 ---
 
@@ -173,8 +178,9 @@ Works in three modes, with the same `extra_tasks` flag:
 | Ports | None with a window (each agent has a line of its own to the extension); one DevTools port headless | One WDA port per task (8100, 8101, 8102, …) | One emulator per task (`emulator-5554`, `emulator-5556`, …) |
 | Limit | Practical (tabs + RAM) | Practical (RAM): a simulator is created when every installed one is taken | 16 emulators (adb's ports), and RAM: 2 to 4 GB each |
 
-Not supported with `device="hardware"`: there is only one paired device (or
-one phone), so extras raise a `ValueError` telling you to use simulation.
+`extra_tasks` is not supported with `device="hardware"` and raises a
+`ValueError`. For several real devices at once (paired iPhones and iPads, or
+Android phones) use `devices` instead (see "Several real devices" below).
 
 ## How it works
 
@@ -258,6 +264,62 @@ Only some flags reach the parallel tasks. Browser: `save_conversation`, `speed`,
 `speed`, `android_version`, `sim_device` and `app_build`. Everything else
 (`external_terminal`, `api_key`, `browser_profile`) is dropped, and each task
 reads its API key from `.env`.
+
+## Several real devices (`devices`)
+
+With `device="hardware"`, `devices` runs one task on each paired iPhone or iPad,
+or each Android phone, all at the same time. Name each device as Settings →
+Connect Device saved it (case doesn't matter) and give it its task. The tasks go
+only in `devices`: leave `task` and `extra_tasks` out.
+
+```python
+run_agent(
+    mode="mobile use, ios",
+    provider="openrouter",
+    model="gemini-3.8-flash",
+    device="hardware",
+    devices={
+        "My iPhone": "open Settings and read the iOS version",
+        "Work iPad": "open Notes and write a note saying hello",
+    },
+)
+```
+
+On Android the same, with `mode="mobile use, android"`. A phone is saved under
+its model, so two phones of one model share a name: name those by their serial
+instead (the "not connected" error lists every phone with its serial).
+
+```python
+run_agent(
+    mode="mobile use, android",
+    provider="openrouter",
+    model="gemini-3.8-flash",
+    device="hardware",
+    devices={
+        "moto g77": "open Settings and read the Android version",
+        "R5CT12ABCDE": "open Chrome and search for the weather",   # a serial
+    },
+)
+```
+
+- Every device must be connected in Settings and plugged in by **cable**. A
+  name that matches no device, two plugged-in devices with the same name, or a
+  device that is not plugged in stops the run before anything starts, and says
+  what to do.
+- On iOS the parent connects every device first, all at once (each may ask for
+  its passcode), each on its own WebDriverAgent port (8100, 8101, …), then
+  starts one agent per device, and closes every device at the end: success,
+  error, or `Ctrl+C`. On Android each agent connects its own phone (adb and the
+  phone helper) and closes it when it ends.
+- Output is prefixed by device name (`[My iPhone] ...`), each device works in a
+  folder named after it, with spaces and signs made `_` (`./parallel/My_iPhone/`),
+  and each entry of `results` also has a `"device"` key.
+- `save_conversation` and `speed` reach the tasks. One entry works too: it
+  picks that device when several are plugged in.
+- Don't run it while the desktop app has a phone connected. On iOS the run
+  takes over port 8100, which the app's phone connection uses, as a single
+  terminal run does; on Android a phone the app holds can't take a second
+  helper.
 
 ## Where results and logs go
 
@@ -454,7 +516,8 @@ keep before the next one.
   with a `raw_reasoning/` folder inside it instead, one folder per run, and
   never clears old ones.
 - **Parallel runs** (Part 2) write each task's copy under
-  `./parallel/task_N/`.
+  `./parallel/task_N/` (a `devices` run: under each device's folder, e.g.
+  `./parallel/My_iPhone/`).
 
 ## How to turn it on in main.py
 
@@ -653,7 +716,7 @@ the `OLLAMA_CONTEXT_LENGTH` to restart Ollama with; on its MLX engine (Apple Sil
 
 | | `"simulation"` (default) | `"hardware"` |
 |---|---|---|
-| Runs on | An iOS Simulator on this Mac | The paired iPhone or iPad (the most recently paired one) |
+| Runs on | An iOS Simulator on this Mac | The paired iPhone or iPad (the most recently paired one, or each one `devices` names) |
 | iOS version | `ios_version` picks the runtime (e.g. `"26.5"`) | Whatever the device runs; `ios_version` is ignored |
 | Needs | Full Xcode plus its iOS simulator platform, a separate one-time download of about 8.5 GB (`bash setup_mac.sh --ios` offers it, or `xcodebuild -downloadPlatform iOS`): no signing, no Apple account, no pairing | One-time pairing in Settings → Connect Device (Team ID signing, WDA install) |
 | First start | Builds WebDriverAgent for the simulator once, a few minutes; later runs boot + attach in under a minute | Seconds (WDA is pre-installed at pairing) |
@@ -701,8 +764,9 @@ run_agent(
 These flags are ignored by every other mode, so they're safe to leave in place
 when you switch `mode`.
 
-`device="simulation"` is also what unlocks **parallel tasks** on iOS, since
-each task gets its own simulator. See Part 2.
+`device="simulation"` is also what unlocks **parallel tasks** on iOS with
+`extra_tasks`, since each task gets its own simulator. On real devices,
+`devices` runs one task per paired iPhone or iPad instead. See Part 2.
 
 ## Installing your own app (`app_build`), simulation only
 
@@ -784,7 +848,8 @@ the `.app` zipped inside a `Payload/` folder.
   the desk, or when you need a specific iOS version.
 - **`"hardware"`**: anything that needs the real device: real apps with your
   logins, camera, cellular, notifications, App Store apps not in the simulator.
-  With several devices paired, the most recently paired one is used.
+  With several devices paired, the most recently paired one is used, unless
+  `devices` names them (Part 2).
 
 ## Under the hood
 
@@ -1093,8 +1158,9 @@ run_agent(
 These flags are ignored by every other mode, so they're safe to leave in
 place when you switch `mode`.
 
-`device="simulation"` is also what unlocks **parallel tasks** on Android,
-since each task gets its own copy of the emulator. See Part 2.
+`device="simulation"` is also what unlocks **parallel tasks** on Android with
+`extra_tasks`, since each task gets its own copy of the emulator. On real
+phones, `devices` runs one task per phone instead. See Part 2.
 
 ## Installing your own app (`app_build`), simulation only
 

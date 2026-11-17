@@ -11,7 +11,9 @@
 #                                picks the runtime); pass device="hardware" to
 #                                drive the paired iPhone/iPad instead. Either way the
 #                                WDA connection is opened before the run and
-#                                closed after it (ios_connector).
+#                                closed after it (ios_connector). With
+#                                device="hardware", devices={name: task} runs
+#                                one agent per paired device, all at once.
 #   mode = "mobile use, android" -> Android agent (AutoCua/android, Rust like the
 #                                browser agent). By default it runs on an Android
 #                                EMULATOR (device="simulation", android_version
@@ -22,7 +24,9 @@
 #                                before the run and stopped after it
 #                                (android_connector/session.py).
 #                                AutoCua_ANDROID_SERIAL picks one phone when
-#                                several are plugged in.
+#                                several are plugged in. With device="hardware",
+#                                devices={name: task} runs one agent per
+#                                remembered phone, all at once.
 #   mode = "browser"          -> browser agent driving CDP-controlled Chrome
 #                                (AutoCua/browser). Host OS independent.
 import atexit
@@ -403,11 +407,11 @@ def _device_target(device):
     return target
 
 
-def run_agent(mode, provider, model, task, os=None,
+def run_agent(mode, provider, model, task=None, os=None,
               device=None, ios_version=None, sim_device=None, app_build=None,
               android_version=None,
               save_conversation=False, external_terminal=False,
-              extra_tasks=None, ui=False, **agent_kwargs):
+              extra_tasks=None, devices=None, ui=False, **agent_kwargs):
     """Create the AgentService for mode/os, run the task, return its response dict.
 
     ui: True opens the desktop app (AutoCua/ui) instead of running
@@ -446,10 +450,23 @@ def run_agent(mode, provider, model, task, os=None,
     sharing one Chrome, pinned to its own single tab; on iOS each on its own
     simulator; on Android each on its own copy of the emulator.
 
+    devices ("mobile use, ios" with device="hardware"): {name: task}, one task
+    per paired iPhone or iPad, by the name the pairing gave it (Settings →
+    Connect Device lists them). They all run at once, each device with its own
+    agent (run_parallel_iphone_agents); every device must be plugged in by
+    cable. The tasks go only here: no task, no extra_tasks.
+    "mobile use, android" with device="hardware" takes devices the same way:
+    one task per phone connected in Settings, by the name it was saved with
+    (its model) or its serial, since two phones of one model share a name
+    (run_parallel_android_agents).
+
     For "mobile use, ios" and "mobile use, android" the device connection is
     opened first and always closed when the agent terminates (success, error,
     or Ctrl+C), and so are a simulator or an emulator the run started.
     """
+    if task is None and devices is None:
+        # task has a default only so devices={...} can stand in for it.
+        raise TypeError("run_agent() missing required argument: 'task'")
     if ui:
         from AutoCua.ui.service import main as launch_ui
         launch_ui()
@@ -489,6 +506,31 @@ def run_agent(mode, provider, model, task, os=None,
                              'device="simulation" or set app_build=None')
         build = _android_app_build(app_build)
 
+    if devices is not None:
+        # One agent per paired iPhone or iPad, or per remembered Android phone, all at once.
+        if kind != "mobile" or mobile_os not in ("ios", "android") or _device_target(device) != "hardware":
+            raise ValueError('devices={"<device name>": "<task>", ...} drives paired phones and '
+                             'tablets: use mode="mobile use, ios" or "mobile use, android" with '
+                             'device="hardware"')
+        if task is not None or extra_tasks:
+            raise ValueError('with devices={...} every task goes in it (device name -> task): '
+                             'leave task and extra_tasks out')
+        if mobile_os == "android":
+            return run_parallel_android_agents(
+                _android_by_name(devices),
+                provider=provider,
+                model=model,
+                save_conversation=save_conversation,
+                speed=agent_kwargs.get("speed"),
+            )
+        return run_parallel_iphone_agents(
+            _paired_by_name(devices),
+            provider=provider,
+            model=model,
+            save_conversation=save_conversation,
+            speed=agent_kwargs.get("speed"),
+        )
+
     extra = [str(t).strip() for t in (extra_tasks or []) if t and str(t).strip()]
     if extra:
         if kind == "browser":
@@ -506,8 +548,9 @@ def run_agent(mode, provider, model, task, os=None,
             if _device_target(device) == "hardware":
                 raise ValueError(
                     'extra tasks (task_2, task_3, ...) need one device per task — '
-                    'you only have one paired device. Use device="simulation" (the '
-                    'default), which gives each task its own simulator.'
+                    'name each paired device with its task in devices={...} instead, '
+                    'or use device="simulation" (the default), which gives each task '
+                    'its own simulator.'
                 )
             return run_parallel_sim_agents(
                 [task] + extra,
@@ -523,8 +566,9 @@ def run_agent(mode, provider, model, task, os=None,
             if _device_target(device) == "hardware":
                 raise ValueError(
                     'extra tasks (task_2, task_3, ...) need one device per task — '
-                    'a run drives one phone. Use device="simulation" (the '
-                    'default), which gives each task its own emulator.'
+                    'name each remembered phone with its task in devices={...} instead, '
+                    'or use device="simulation" (the default), which gives each task '
+                    'its own emulator.'
                 )
             return run_parallel_emulator_agents(
                 [task] + extra,
@@ -897,6 +941,267 @@ def run_parallel_sim_agents(tasks, provider, model, save_conversation=False,
             print("📱 simulators closed")
 
 
+def _name_key(name):
+    """A device name as devices={...} compares it: case, spaces around it and
+    the apostrophe's form do not matter (iOS saves "Sam’s iPhone" with ’)."""
+    return str(name or "").strip().replace("’", "'").replace("‘", "'").casefold()
+
+
+def _paired_by_name(devices):
+    """[(name, udid, task)] for run_agent's devices={name: task}: each name is
+    a paired device's, as its pairing saved it (_name_key). Stops with what to
+    do when a name is not paired, two paired devices on the cable share it,
+    one device is named twice, a task is empty, or a device is not on the
+    cable. An old entry whose device is not plugged in does not count against
+    a name."""
+    from AutoCua.ios_connector.session import paired_devices, plugged_in_udids
+
+    if not isinstance(devices, dict) or not devices:
+        raise ValueError('devices names each paired device and its task, e.g. '
+                         '{"My iPhone": "Open Settings", "Work iPad": "Open Notes"}')
+    paired = paired_devices()
+    plugged = plugged_in_udids()    # None: usbmuxd did not answer; each connect then says what is wrong
+    names = ", ".join(sorted(str(d.get("name", "")) for d in paired)) or "none yet"
+    picked, seen = [], set()
+    for name, task in devices.items():
+        key = _name_key(name)
+        found = [d for d in paired if _name_key(d.get("name")) == key]
+        if len(found) > 1 and plugged is not None:
+            # The ones on the cable; none: the newest, which the cable check below reports.
+            found = [d for d in found if d["udid"] in plugged] or found[:1]
+        if not found:
+            raise ValueError(f'📱 "{name}" is not a paired device (paired: {names}). '
+                             'Pair it in the app: Settings → Connect Device.')
+        if len(found) > 1:
+            raise ValueError(f'📱 {len(found)} paired devices are named "{name}". In the app '
+                             '(Settings → Connect Device) remove the extra one with ✕; to keep '
+                             'both, rename one on the device first (Settings → General → '
+                             'About → Name) and pair it again.')
+        udid = found[0]["udid"]
+        if udid in seen:
+            raise ValueError(f'📱 "{name}" is named twice in devices')
+        if not str(task or "").strip():
+            raise ValueError(f'📱 "{name}" has no task')
+        seen.add(udid)
+        picked.append((str(found[0].get("name") or name), udid, str(task).strip()))
+    if plugged is not None:
+        away = [name for name, udid, _task in picked if udid not in plugged]
+        if away:
+            raise RuntimeError("📱 not plugged in by cable: " + ", ".join(away)
+                               + ". Plug them in, unlock them and run again.")
+    return picked
+
+
+def _device_folder(name, used):
+    """The device's folder under ./parallel/: its name with anything but
+    letters, digits, '.', '-' and '_' made '_', unique among `used` (the Mac's
+    disk ignores case, so case does not make two names differ)."""
+    base = "".join(c if c.isalnum() or c in "._-" else "_" for c in name).strip("._") or "device"
+    folder, n = base, 2
+    while folder.casefold() in used:
+        folder, n = f"{base}_{n}", n + 1
+    used.add(folder.casefold())
+    return folder
+
+
+def run_parallel_iphone_agents(picked, provider, model, save_conversation=False,
+                               speed=None, connect_deadline=180.0):
+    """Run one task per paired iPhone or iPad, all at once. picked:
+    [(name, udid, task)] from _paired_by_name (run_agent's devices={...}).
+
+    The device counterpart of run_parallel_sim_agents: every device gets its
+    own WebDriverAgent session on its own port (8100, 8101, ...) and its own
+    child process in ./parallel/<folder>/ (_device_folder: "My iPhone" ->
+    My_iPhone), pinned to that device (its udid and port), so its
+    conversation/, raw_reasoning/ and debug/ never touch another's. The parent connects every device before any agent runs
+    and always closes them all afterwards.
+
+    Returns {"status", "message", "results": [{"device", "task", "status", "message"}, ...]}.
+    """
+    from AutoCua.ios_connector.session import WDA_PORT, WDASession
+
+    n = len(picked)
+    print(f"Running {n} iOS task(s) in parallel — one paired device each")
+    sessions = []   # (name, udid, task, WDASession, folder)
+    threads = []
+    try:
+        used = set()
+        for i, (name, udid, task) in enumerate(picked):
+            session = WDASession(port=WDA_PORT + i)
+            sessions.append((name, udid, task, session, _device_folder(name, used)))
+            print(f"[{name}] port {session.port}")
+
+        # 1. Connect them ALL AT ONCE. Each activate() mounts the developer
+        #    disk image when its device needs it, then starts the runner and
+        #    the cable forward; each session has its own device and port.
+        print(f"📱 Connecting {n} device(s)... (each may ask for its passcode)")
+        outcomes = {}
+
+        def _activate(index, session, udid):
+            try:
+                outcomes[index] = session.activate(udid=udid)
+            except BaseException as e:            # never lose a thread's failure
+                outcomes[index] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+        threads[:] = [threading.Thread(target=_activate, args=(i, entry[3], entry[1]), daemon=True)
+                      for i, entry in enumerate(sessions)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()   # Ctrl+C lands here; the finally closes every session
+        for i, (name, *_rest) in enumerate(sessions):
+            res = outcomes.get(i) or {"ok": False, "error": "activate() returned nothing"}
+            if not res.get("ok"):
+                detail = " — ".join(p for p in (res.get("error"), res.get("hint")) if p) or res.get("code")
+                raise RuntimeError(f"📱 {name}: {detail}")
+
+        # 2. Wait until every device's WebDriverAgent answers.
+        pending = list(range(n))
+        end = time.time() + connect_deadline
+        while pending and time.time() < end:
+            time.sleep(2.0)
+            still = []
+            for i in pending:
+                name, _udid, _task, session, _folder = sessions[i]
+                try:
+                    st = session.status()
+                except Exception:
+                    still.append(i)
+                    continue
+                if st.get("state") == "connected":
+                    print(f"[{name}] connected")
+                elif st.get("state") in ("error", "disconnected"):
+                    detail = (" — ".join(p for p in (st.get("error"), st.get("hint")) if p)
+                              or st.get("code") or st.get("state"))
+                    raise RuntimeError(f"📱 {name} failed to connect: {detail}")
+                else:
+                    still.append(i)
+            pending = still
+        if pending:
+            raise RuntimeError(f"📱 not connected after {int(connect_deadline)}s: "
+                               + ", ".join(sessions[i][0] for i in pending))
+
+        # 3. One child process per device, each pinned to its own device.
+        run_root = Path.cwd() / "parallel"
+        shutil.rmtree(run_root, ignore_errors=True)
+
+        base_env = os.environ.copy()
+        base_env["PYTHONUNBUFFERED"] = "1"
+        base_env["PYTHONPATH"] = str(_REPO_ROOT) + os.pathsep + base_env.get("PYTHONPATH", "")
+
+        procs = []  # (name, task, Popen, result_file)
+        for name, udid, task, session, folder in sessions:
+            task_dir = run_root / folder
+            task_dir.mkdir(parents=True, exist_ok=True)
+            result_file = task_dir / "result.json"
+            cmd = [sys.executable, "-m", "AutoCua.ios.agent",
+                   "--task", task,
+                   "--provider", provider,
+                   "--model", model,
+                   "--session-id", folder,
+                   "--wda-port", str(session.port),
+                   "--udid", udid,
+                   "--result", str(result_file)]
+            if speed:
+                cmd += ["--speed", str(speed)]
+            if save_conversation:
+                cmd += ["--save-conversation"]
+            # As for the simulators, the port is in the child's environment
+            # before it starts (see run_parallel_sim_agents). PYMOBILEDEVICE3_UDID
+            # too: the agent's pymobiledevice3 calls (its app scan) name no
+            # device and would otherwise reach the first one on the cable.
+            env = dict(base_env)
+            env["AutoCua_WDA_PORT"] = str(session.port)
+            env["AutoCua_IOS_SESSION"] = folder
+            env["PYMOBILEDEVICE3_UDID"] = udid
+            # Deliberately NO start_new_session: children stay in this
+            # terminal's process group, so one Ctrl+C interrupts every agent.
+            proc = subprocess.Popen(cmd, cwd=str(task_dir), env=env, text=True,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            procs.append((name, task, proc, result_file))
+            head = " ".join(task.split())[:70]
+            print(f"[{name}] started: {head}")
+
+        def pump(name, stream):
+            for line in stream:
+                print(f"[{name}] {line}", end="", flush=True)
+
+        pumps = []
+        for name, _task, proc, _rf in procs:
+            t = threading.Thread(target=pump, args=(name, proc.stdout), daemon=True)
+            t.start()
+            pumps.append(t)
+
+        try:
+            for _name, _task, proc, _rf in procs:
+                proc.wait()
+        except KeyboardInterrupt:
+            # The terminal already delivered SIGINT to the whole group; give
+            # each child a grace period to write its result file, then escalate.
+            print("\nStopping all tasks...")
+            for _name, _task, proc, _rf in procs:
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+
+        for t in pumps:
+            t.join(timeout=2)
+
+        results = []
+        ok = 0
+        for name, task, proc, result_file in procs:
+            try:
+                result = json.loads(result_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                result = {"status": "error",
+                          "message": f"child exited with code {proc.returncode} "
+                                     f"without writing a result"}
+            if result.get("status") == "success":
+                ok += 1
+            results.append({"device": name, "task": task, **result})
+
+        print("=" * 60)
+        print(f"PARALLEL RUN SUMMARY — {ok}/{n} succeeded")
+        for r in results:
+            message = " ".join(str(r.get("message", "")).split())
+            print(f"[{r['device']}] {r.get('status', '?'):<10} {message[:80]}")
+        print("Artifacts: " + ", ".join(f"./parallel/{s[4]}/" for s in sessions)
+              + "  (result.json, conversation/, debug/, raw_reasoning/)")
+        print("=" * 60)
+
+        return {
+            "status": "success" if ok == n else "error",
+            "message": f"{ok}/{n} tasks succeeded",
+            "results": results,
+        }
+    finally:
+        # Every device's session is closed: success, error or Ctrl+C, the
+        # same guarantee the single-device path gives. A connect still running
+        # in its thread holds its session's lock, so deactivate() waits for it;
+        # once the threads are done, close again so a runner spawned in the
+        # last instant is reaped too.
+        def _close_all():
+            for _name, _udid, _task, session, _folder in sessions:
+                try:
+                    session.deactivate()
+                except Exception:
+                    pass
+        _close_all()
+        for t in threads:
+            if t.is_alive():
+                t.join(timeout=15)
+        if threads:
+            _close_all()
+        if sessions:
+            print("📱 devices closed")
+
+
 def run_parallel_emulator_agents(tasks, provider, model, save_conversation=False,
                                  speed=None, android_version=None, sim_device=None, build=None):
     """Run N Android tasks in parallel — one EMULATOR per task, one agent each.
@@ -1079,6 +1384,174 @@ def run_parallel_emulator_agents(tasks, provider, model, save_conversation=False
             except BaseException:
                 pass
         print("📱 emulators closed")
+
+
+def _android_by_name(devices):
+    """[(name, serial, task)] for run_agent's devices={name: task} on Android:
+    each key is a phone connected in Settings, by the name it was saved with
+    (its model; _name_key) or by its serial (any case), since two phones of
+    one model share a name. Stops with what to do when a key matches no remembered phone,
+    two plugged-in phones share it, one phone is named twice, a task is empty,
+    or a phone is not plugged in. A remembered phone that is not plugged in
+    does not count against a name."""
+    from AutoCua.android_connector.session import paired_devices, phones
+
+    if not isinstance(devices, dict) or not devices:
+        raise ValueError('devices names each phone and its task, e.g. '
+                         '{"Pixel 9": "Open Settings", "moto g77": "Open Chrome"}')
+    saved = paired_devices()
+    on_usb = {p["serial"] for p in phones()}    # USB phones, ready or not: a run is cable only
+    known = ", ".join(sorted(f'{d.get("name", "")} ({d.get("serial", "")})' for d in saved)) or "none yet"
+    picked, seen = [], set()
+    for key, task in devices.items():
+        by_serial = str(key).strip().casefold()     # typed by hand: any case
+        found = [d for d in saved
+                 if _name_key(d.get("name")) == _name_key(key)
+                 or str(d.get("serial", "")).casefold() == by_serial]
+        if len(found) > 1:
+            # The ones on the cable; none: the newest, which the cable check below reports.
+            found = [d for d in found if d["serial"] in on_usb] or found[:1]
+        if not found:
+            raise ValueError(f'📱 "{key}" is not a phone connected in Settings (connected: {known}). '
+                             'Connect it in the app: Settings → Connect Device.')
+        if len(found) > 1:
+            raise ValueError(f'📱 {len(found)} plugged-in phones are named "{key}": name each one by '
+                             'its serial instead (' + ", ".join(d["serial"] for d in found) + ').')
+        serial = found[0]["serial"]
+        if serial in seen:
+            raise ValueError(f'📱 "{key}" is named twice in devices')
+        if not str(task or "").strip():
+            raise ValueError(f'📱 "{key}" has no task')
+        seen.add(serial)
+        # Named by its serial: shown by it too, so two phones of one model differ.
+        label = serial if serial.casefold() == by_serial else str(found[0].get("name") or key)
+        picked.append((label, serial, str(task).strip()))
+    away = [name for name, serial, _task in picked if serial not in on_usb]
+    if away:
+        raise RuntimeError("📱 not plugged in by USB: " + ", ".join(away)
+                           + ". Plug them in, unlock them and run again.")
+    return picked
+
+
+def run_parallel_android_agents(picked, provider, model, save_conversation=False, speed=None):
+    """Run one task per Android phone, all at once. picked: [(name, serial,
+    task)] from _android_by_name (run_agent's devices={...}).
+
+    The phone counterpart of run_parallel_emulator_agents: each phone gets its
+    own child process in ./parallel/<folder>/ (_device_folder: "moto g77" ->
+    moto_g77), pinned to it by its USB serial (AutoCua_ANDROID_SERIAL). The
+    child starts the phone helper on its phone and stops it when it ends, as an
+    emulator task's child does, so there is nothing to start or stop here.
+
+    Returns {"status", "message", "results": [{"device", "task", "status", "message"}, ...]}.
+    """
+    # Importing the package builds the Rust extension ONCE here in the parent,
+    # before N children import it at the same time.
+    import AutoCua.android.agent  # noqa: F401
+
+    n = len(picked)
+    print(f"Running {n} Android task(s) in parallel — one phone each")
+
+    run_root = Path.cwd() / "parallel"
+    shutil.rmtree(run_root, ignore_errors=True)
+
+    base_env = os.environ.copy()
+    base_env["PYTHONUNBUFFERED"] = "1"
+    base_env["PYTHONPATH"] = str(_REPO_ROOT) + os.pathsep + base_env.get("PYTHONPATH", "")
+    # The agent's lines carry emoji: UTF-8 both ways, never Windows' cp1252,
+    # which can't print them in the child or read them here.
+    base_env["PYTHONIOENCODING"] = "utf-8"
+
+    used = set()
+    procs = []  # (name, task, Popen, result_file, folder)
+    for name, serial, task in picked:
+        folder = _device_folder(name, used)
+        task_dir = run_root / folder
+        task_dir.mkdir(parents=True, exist_ok=True)
+        result_file = task_dir / "result.json"
+        cmd = [sys.executable, "-m", "AutoCua.android.agent",
+               "--task", task,
+               "--provider", provider,
+               "--model", model,
+               "--session-id", folder,
+               "--serial", serial,
+               "--result", str(result_file)]
+        if speed:
+            cmd += ["--speed", str(speed)]
+        if save_conversation:
+            cmd += ["--save-conversation"]
+        # The serial pins the child's phone helper to its own phone, also when
+        # the screen reader starts it again mid-run; the session scopes its
+        # scratchpad to scratchpad/<folder>/.
+        env = dict(base_env)
+        env["AutoCua_ANDROID_SERIAL"] = serial
+        env["AutoCua_ANDROID_SESSION"] = folder
+        # Deliberately NO start_new_session: children stay in this
+        # terminal's process group, so one Ctrl+C interrupts every agent.
+        proc = subprocess.Popen(cmd, cwd=str(task_dir), env=env, encoding="utf-8", errors="replace",
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        procs.append((name, task, proc, result_file, folder))
+        head = " ".join(task.split())[:70]
+        print(f"[{name}] started: {head}")
+
+    def pump(name, stream):
+        for line in stream:
+            print(f"[{name}] {line}", end="", flush=True)
+
+    pumps = []
+    for name, _task, proc, _rf, _folder in procs:
+        t = threading.Thread(target=pump, args=(name, proc.stdout), daemon=True)
+        t.start()
+        pumps.append(t)
+
+    try:
+        for _name, _task, proc, _rf, _folder in procs:
+            proc.wait()
+    except KeyboardInterrupt:
+        # The terminal already delivered SIGINT to the whole group; give
+        # each child a grace period to write its result file, then escalate.
+        print("\nStopping all tasks...")
+        for _name, _task, proc, _rf, _folder in procs:
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+
+    for t in pumps:
+        t.join(timeout=2)
+
+    results = []
+    ok = 0
+    for name, task, proc, result_file, _folder in procs:
+        try:
+            result = json.loads(result_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            result = {"status": "error",
+                      "message": f"child exited with code {proc.returncode} "
+                                 f"without writing a result"}
+        if result.get("status") == "success":
+            ok += 1
+        results.append({"device": name, "task": task, **result})
+
+    print("=" * 60)
+    print(f"PARALLEL RUN SUMMARY — {ok}/{n} succeeded")
+    for r in results:
+        message = " ".join(str(r.get("message", "")).split())
+        print(f"[{r['device']}] {r.get('status', '?'):<10} {message[:80]}")
+    print("Artifacts: " + ", ".join(f"./parallel/{p[4]}/" for p in procs)
+          + "  (result.json, conversation/, debug/, raw_reasoning/)")
+    print("=" * 60)
+
+    return {
+        "status": "success" if ok == n else "error",
+        "message": f"{ok}/{n} tasks succeeded",
+        "results": results,
+    }
 
 
 def run_parallel_web_agents(tasks, provider, model, save_conversation=False,

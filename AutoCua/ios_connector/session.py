@@ -11,7 +11,7 @@ REGISTRY (AutoCua_data/ios_paired/paired_devices.json)
 SESSION (the Apple-logo toggle)
     activate()  -> fresh WDA session over the cable:
                      the developer disk image, Xcode's copy (ddi.py; lost on reboot)
-                     pymobiledevice3 usbmux forward 8100 8100
+                     pymobiledevice3 usbmux forward --serial <udid> 8100 8100
                      pymobiledevice3 developer dvt xcuitest --userspace <bundle>
                    then the phone answers on http://127.0.0.1:8100.
     status()    -> disconnected / connecting / connected / error (checks the
@@ -571,8 +571,32 @@ def _port_answers(port):
         return False
 
 
-def _forward_pids():
-    """[(pid, ppid)] of every pymobiledevice3 cable forward for WDA_PORT. One ps
+def _forward_ports(cmd):
+    """[SRC, DST] of a `pymobiledevice3 usbmux forward [options] SRC DST`
+    command line (the local port, then the phone's), [] when it has no two."""
+    words = cmd.split()
+    if "forward" not in words:
+        return []
+    ports, skip = [], False
+    for word in words[words.index("forward") + 1:]:
+        if skip:
+            skip = False                      # an option's value (a UDID), not a port
+        elif word in ("--serial", "--udid", "--usbmux", "--host"):
+            skip = True
+        elif word.isdigit():
+            ports.append(int(word))
+    return ports[:2] if len(ports) >= 2 else []
+
+
+def _forward_local_port(cmd):
+    """The local port of a forward's command line (_forward_ports), or None."""
+    ports = _forward_ports(cmd)
+    return ports[0] if ports else None
+
+
+def _forward_pids(port=WDA_PORT):
+    """[(pid, ppid)] of every pymobiledevice3 cable forward whose LOCAL port is
+    `port` (WDA_PORT, or another device's session port in a parallel run). One ps
     over the process list, never lsof: lsof walks every open file of every
     process and took up to its timeout on a busy Mac, twice per connect, which
     alone used up most of a computer-use request's connect budget."""
@@ -588,8 +612,31 @@ def _forward_pids():
             continue
         pid, ppid, cmd = parts
         if ("pymobiledevice3" in cmd and "forward" in cmd
-                and f" {WDA_PORT} " in cmd + " " and pid.isdigit() and ppid.isdigit()):
+                and _forward_local_port(cmd) == port and pid.isdigit() and ppid.isdigit()):
             found.append((int(pid), int(ppid)))
+    return found
+
+
+def _orphan_forward_pids():
+    """[pid] of every WDA cable forward (to the phone's WDA_PORT, on any local
+    port) whose run is gone: parented to launchd (ppid 1) after the run was
+    killed hard, a parallel device run's on 8101, 8102, ... too. A forward
+    with a live parent belongs to a run that is still going and is never
+    listed."""
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="],
+                             capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return []
+    found = []
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid, ppid, cmd = parts
+        ports = _forward_ports(cmd) if "pymobiledevice3" in cmd else []
+        if ppid == "1" and pid.isdigit() and ports and ports[1] == WDA_PORT:
+            found.append(int(pid))
     return found
 
 
@@ -656,7 +703,11 @@ def _pmd3_base():
 
 # ─────────────────────────────── session toggle ───────────────────────────────
 class WDASession:
-    def __init__(self):
+    def __init__(self, port=WDA_PORT):
+        # The local port this session's WDA answers on. WDA_PORT for the one
+        # session the app and a single run use (wda_session); a parallel
+        # hardware run (agent_launcher) gives each device its own.
+        self.port = port
         self._lock = threading.Lock()
         self._forward = None
         self._xctest = None
@@ -690,7 +741,7 @@ class WDASession:
     # -- helpers --
     def _wda_up(self):
         try:
-            with urllib.request.urlopen(WDA_STATUS_URL, timeout=3) as r:
+            with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/status", timeout=3) as r:
                 body = json.loads(r.read().decode("utf-8"))
                 return r.status == 200 and bool(body.get("value", {}).get("state"))
         except Exception:
@@ -702,8 +753,10 @@ class WDASession:
 
     def _free_port(self):
         """Kill only a LEFTOVER pymobiledevice3 forward squatting on the port,
-        and the orphaned runners an app that died left behind."""
-        for pid in [pid for pid, _ppid in _forward_pids()] + _orphan_runner_pids():
+        and the orphaned forwards and runners a run that died left behind, on
+        any port (a parallel device run killed hard leaves them on 8101, ...)."""
+        for pid in ([pid for pid, _ppid in _forward_pids(self.port)] + _orphan_forward_pids()
+                    + _orphan_runner_pids()):
             try:
                 os.kill(pid, signal.SIGTERM)
             except Exception:
@@ -876,7 +929,7 @@ class WDASession:
                 # Something else already serves WDA on the port (a leftover
                 # simulator session) — refuse rather than silently drive it.
                 return {"ok": False, "state": "error", "code": "port_busy",
-                        "error": f"Port {WDA_PORT} is already serving another WDA "
+                        "error": f"Port {self.port} is already serving another WDA "
                                  "(a simulator session?)",
                         "hint": "Close it (quit Simulator / kill xcodebuild), then retry."}
             mark("port_check")
@@ -934,8 +987,11 @@ class WDASession:
                     # image must not stop a session that would start.
                     ddi.mount(base, udid, run, say)
                     mark("mount")
+                # --serial: usbmux forward does not read PYMOBILEDEVICE3_UDID
+                # and, without it, takes the first phone on the cable, which
+                # with two plugged in may not be this one.
                 self._forward = subprocess.Popen(
-                    base + ["usbmux", "forward", str(WDA_PORT), str(WDA_PORT)],
+                    base + ["usbmux", "forward", "--serial", udid, str(self.port), str(WDA_PORT)],
                     stdout=subprocess.DEVNULL, stderr=log, env=env)
                 self._xctest = subprocess.Popen(
                     base + ["developer", "dvt", "xcuitest", "--userspace", wda_bundle_id()],
@@ -991,14 +1047,13 @@ class WDASession:
                 return False
             return self._port_held_by_live_process()
 
-    @staticmethod
-    def _port_held_by_live_process():
-        forwards = _forward_pids()
+    def _port_held_by_live_process(self):
+        forwards = _forward_pids(self.port)
         if any(ppid != 1 for _pid, ppid in forwards):
             return True                   # a live run's cable forward
         if forwards:
             return False                  # leftovers only: activate() clears them
-        return _port_answers(WDA_PORT)    # anything else serving the port (a simulator's WDA)
+        return _port_answers(self.port)   # anything else serving the port (a simulator's WDA)
 
     def screen_stream(self):
         """Local port where the live phone screen can be read (WDA's MJPEG
@@ -1101,7 +1156,7 @@ class WDASession:
         if self._udid is not None and tell_phone:
             try:
                 urllib.request.urlopen(
-                    f"http://127.0.0.1:{WDA_PORT}/wda/shutdown", timeout=2)
+                    f"http://127.0.0.1:{self.port}/wda/shutdown", timeout=2)
             except Exception:
                 pass
         self._stop_locked()
@@ -1141,7 +1196,7 @@ class WDASession:
         try:
             log = tempfile.NamedTemporaryFile("w", prefix="AutoCua_wda_", suffix=".log", delete=False)
             self._log_path = log.name
-            self._forward = _TcpForward(WDA_PORT, WDA_PORT)
+            self._forward = _TcpForward(self.port, WDA_PORT)
             self._xctest = _XcodeRun(udid, log, self._forward.set_target)
         except Exception as e:  # noqa: BLE001 - reported, like the cable start
             self._stop_locked()
@@ -1233,7 +1288,7 @@ class WDASession:
             log = tempfile.NamedTemporaryFile(prefix="AutoCua_wda_", suffix=".log", delete=False)
             self._log_path = log.name
             self._forward = subprocess.Popen(
-                base + ["usbmux", "forward", str(WDA_PORT), str(WDA_PORT)],
+                base + ["usbmux", "forward", "--serial", self._udid, str(self.port), str(WDA_PORT)],
                 stdout=subprocess.DEVNULL, stderr=log, env=env)
             # The old runner on the phone can still answer for ~20-30 s after a
             # re-plug (iOS ends it when testmanagerd notices). A second launch
@@ -1241,12 +1296,12 @@ class WDASession:
             # first, the way deactivate() does, and wait until the port is
             # silent, bounded.
             for _ in range(8):                   # the new forward needs a moment to listen
-                if _port_answers(WDA_PORT):
+                if _port_answers(self.port):
                     break
                 time.sleep(0.25)
             if self._wda_up():
                 try:
-                    urllib.request.urlopen(f"http://127.0.0.1:{WDA_PORT}/wda/shutdown", timeout=2)
+                    urllib.request.urlopen(f"http://127.0.0.1:{self.port}/wda/shutdown", timeout=2)
                 except Exception:
                     pass
                 deadline = time.monotonic() + 10
