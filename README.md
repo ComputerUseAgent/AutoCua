@@ -301,7 +301,7 @@ run_agent(
 
 Every optional flag goes straight into that call (`ui=True`, `speed="fast"`, …). All of them,
 `ui`, `save_conversation`, `speed`, `external_terminal`, `headless`, `browser_port`,
-`browser_profile`, `extra_tasks`, `device`, `ios_version`, `android_version`, `sim_device`,
+`browser_profile`, `extra_tasks`, `devices`, `device`, `ios_version`, `android_version`, `sim_device`,
 `app_build`, `api_key` and `os`, are documented in
 **[agent_capabilities.md](https://github.com/ComputerUseAgent/AutoCua/blob/main/agent_capabilities.md)**.
 
@@ -710,7 +710,8 @@ use, one device in the middle or several side by side. Details in **[agent_capab
 
 With `device="hardware"` a script uses USB only. With several phones plugged in it takes the newest
 one you connected in Settings, or `AutoCua_ANDROID_SERIAL` names the one to use; an emulator is
-never taken for a phone. In the app, Mobile use
+never taken for a phone. `devices={...}` runs one task on each of several phones at once (see
+[Running tasks in parallel](#running-tasks-in-parallel)). In the app, Mobile use
 follows its Wireless / Wired toggle: Wired, the default, is USB only, and Wireless, picked on
 purpose, reaches the phone over Wi-Fi only, also with its cable in. Over Wi-Fi the phone must report the serial it
 was saved with once it connects, or it is dropped again. Android is tested on a Mac host with
@@ -910,6 +911,21 @@ results land in `./parallel/task_N/`. On iOS every simulator the run booted is s
 end, whether it succeeded, failed or was interrupted, and on Android every emulator copy. With
 `app_build`, every simulator or emulator installs your app at the same time, each as soon as it
 has booted. Emulator copies show side by side in the same window as the iOS simulators do.
+
+**Several real phones and tablets.** With `device="hardware"`, name each device connected in
+Settings with its task in `devices`, and they all run at once, one agent per device: iPhones and
+iPads each on their own WebDriverAgent port, Android phones (with `mode="mobile use, android"`)
+each pinned by their serial. An Android phone is saved under its model, so name two of one
+model by their serials. Every device must be plugged in by cable, and each one's results land
+in a folder named after it, with spaces and signs made `_` (`./parallel/My_iPhone/`).
+
+```python
+run_agent(
+    mode="mobile use, ios", provider="anthropic", model="claude-sonnet-5", device="hardware",
+    devices={"My iPhone": "open Settings and read the iOS version",
+             "Work iPad": "open Notes and write a note saying hello"},
+)
+```
 
 > `./parallel/` is deleted and recreated on every parallel run. Copy out anything you want to
 > keep.
