@@ -29,6 +29,10 @@
 //!     AutoCua\CUA_Sandbox\Win_CUA.exe --run APP --scan scan.png
 //!         Start APP on it and save the agent's scan: what UI Automation finds
 //!         to click or type in, numbered on a picture, and print the list.
+//!     AutoCua\CUA_Sandbox\Win_CUA.exe --serve
+//!         For another program, the page of test.py for one. No Character Map
+//!         and no window: every new picture of it goes out on stdout, and a
+//!         line "run CMD" on stdin starts CMD on it. It ends when stdin closes.
 //!
 //!     --no-shell   no Explorer on it (no wallpaper or icons, least RAM)
 //!     --run CMD    start CMD on it instead of Character Map (can repeat)
@@ -42,6 +46,7 @@
 
 use std::collections::HashSet;
 use std::ffi::c_void;
+use std::io::Write;
 use std::mem::{size_of, zeroed};
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
@@ -55,7 +60,7 @@ const FRAME_INTERVAL: Duration = Duration::from_millis(250); // between two pict
 
 const USAGE: &str = "Second Windows: a second desktop for the agent.
 
-Win_CUA.exe [--shot PNG] [--computer-use] [--no-shell] [--run CMD] [--scan PNG] [--wait SEC]
+Win_CUA.exe [--shot PNG] [--computer-use] [--no-shell] [--run CMD] [--scan PNG] [--wait SEC] [--serve]
 
   --shot PNG       save one screenshot and exit
   --computer-use   scan and act on Character Map there
@@ -63,6 +68,7 @@ Win_CUA.exe [--shot PNG] [--computer-use] [--no-shell] [--run CMD] [--scan PNG] 
   --run CMD        program to start on it (can repeat)
   --scan PNG       save the agent's scan of it and exit
   --wait SEC       seconds before --shot or --scan (default 6)
+  --serve          for test.py's page: pictures out on stdout, \"run CMD\" lines in on stdin
 
 Every picture is saved in the debug folder at the root, under the file name given.";
 
@@ -508,9 +514,16 @@ unsafe fn fresh_environment() -> *mut c_void {
     if ok != 0 { block } else { null_mut() }
 }
 
+/// Jobs made for the programs that could not join the main one (Store apps).
+/// Windows closes them when this program is gone, which ends what is in them.
+static EXTRA_JOBS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
 /// Start `command` with its windows on `desktop`. It starts suspended and
 /// joins the job first, so whatever it starts in turn is in the job too.
-/// Gives back its process id.
+/// A Store app cannot join: Windows has put it in a job of its own by then.
+/// A new job made just for it can sit inside that one, and ends the app the
+/// same way. Without it, Paint and ChatGPT stayed running on the second
+/// desktop after this program had gone (seen). Gives back its process id.
 unsafe fn start_on_desktop(command: &str, desktop: &str, job: Handle) -> Res<u32> {
     let mut on_desktop = wide(&format!("WinSta0\\{desktop}"));
     let mut si: StartupInfoW = zeroed();
@@ -530,7 +543,17 @@ unsafe fn start_on_desktop(command: &str, desktop: &str, job: Handle) -> Res<u32
     if ok == 0 {
         return Err(error.to_string());
     }
-    AssignProcessToJobObject(job, pi.process);
+    if AssignProcessToJobObject(job, pi.process) == 0 {
+        let own = kill_on_close_job().unwrap_or(null_mut());
+        if !own.is_null() && AssignProcessToJobObject(own, pi.process) != 0 {
+            EXTRA_JOBS.lock().unwrap().push(own as usize);
+        } else {
+            eprintln!("{command} could not be put in a job: it will not end with this program");
+            if !own.is_null() {
+                CloseHandle(own);
+            }
+        }
+    }
     ResumeThread(pi.thread);
     CloseHandle(pi.thread);
     CloseHandle(pi.process);
@@ -657,26 +680,32 @@ unsafe fn child_windows(hwnd: Handle) -> Vec<usize> {
     found
 }
 
-/// (name, private MB) for every process running in the job.
+/// (name, private MB) for every process running in the job, and in the jobs
+/// made for the programs that could not join it.
 unsafe fn job_memory(job: Handle) -> Vec<(String, f64)> {
-    let mut ids: JobProcessIds = zeroed();
-    if QueryInformationJobObject(job, JOB_PROCESS_ID_LIST, &mut ids as *mut JobProcessIds as *mut c_void,
-                                 size_of::<JobProcessIds>() as u32, null_mut()) == 0
-    {
-        return Vec::new();
-    }
+    let mut jobs = vec![job as usize];
+    jobs.extend(EXTRA_JOBS.lock().unwrap().iter());
     let mut rows = Vec::new();
-    for &pid in &ids.list[..(ids.in_list as usize).min(ids.list.len())] {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid as u32);
-        if handle.is_null() {
+    for job in jobs {
+        let mut ids: JobProcessIds = zeroed();
+        if QueryInformationJobObject(job as Handle, JOB_PROCESS_ID_LIST,
+                                     &mut ids as *mut JobProcessIds as *mut c_void,
+                                     size_of::<JobProcessIds>() as u32, null_mut()) == 0
+        {
             continue;
         }
-        let mut mem: ProcessMemoryCountersEx = zeroed();
-        mem.cb = size_of::<ProcessMemoryCountersEx>() as u32;
-        if K32GetProcessMemoryInfo(handle, &mut mem, mem.cb) != 0 {
-            rows.push((process_name(pid as u32), mem.private_usage as f64 / 1048576.0));
+        for &pid in &ids.list[..(ids.in_list as usize).min(ids.list.len())] {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid as u32);
+            if handle.is_null() {
+                continue;
+            }
+            let mut mem: ProcessMemoryCountersEx = zeroed();
+            mem.cb = size_of::<ProcessMemoryCountersEx>() as u32;
+            if K32GetProcessMemoryInfo(handle, &mut mem, mem.cb) != 0 {
+                rows.push((process_name(pid as u32), mem.private_usage as f64 / 1048576.0));
+            }
+            CloseHandle(handle);
         }
-        CloseHandle(handle);
     }
     rows
 }
@@ -992,6 +1021,34 @@ fn write_png(path: &Path, width: i32, height: i32, bgra: &[u8]) -> Res<()> {
         png.extend_from_slice(&check.to_be_bytes());
     }
     std::fs::write(path, png).map_err(|e| format!("could not save {}: {e}", path.display()))
+}
+
+/// Top-down BGRA pixels as a BMP file, 24 bits a pixel and not packed: the
+/// picture a web page takes that costs no time to make.
+fn bmp(width: i32, height: i32, bgra: &[u8]) -> Vec<u8> {
+    let (w, h) = (width.max(0) as usize, height.max(0) as usize);
+    if w == 0 || h == 0 || bgra.len() < w * h * 4 {
+        return Vec::new();
+    }
+    let row = (w * 3 + 3) & !3; // every row is filled up to a multiple of four bytes
+    let mut file = Vec::with_capacity(54 + row * h);
+    file.extend_from_slice(b"BM");
+    file.extend_from_slice(&((54 + row * h) as u32).to_le_bytes());
+    file.extend_from_slice(&[0; 4]);
+    file.extend_from_slice(&54u32.to_le_bytes()); // where the pixels start
+    file.extend_from_slice(&40u32.to_le_bytes());
+    file.extend_from_slice(&(w as i32).to_le_bytes());
+    file.extend_from_slice(&(h as i32).to_le_bytes()); // rows from the bottom up
+    file.extend_from_slice(&1u16.to_le_bytes());
+    file.extend_from_slice(&24u16.to_le_bytes());
+    file.extend_from_slice(&[0; 24]);
+    for line in bgra.chunks_exact(w * 4).take(h).rev() {
+        for pixel in line.chunks_exact(4) {
+            file.extend_from_slice(&pixel[..3]);
+        }
+        file.resize(file.len() + row - w * 3, 0);
+    }
+    file
 }
 
 // ---------------------------------------------------------------- input without mouse or keyboard
@@ -1726,6 +1783,58 @@ unsafe fn show_viewer(frames: &Arc<Frames>, job: Handle) -> Res<()> {
     Ok(())
 }
 
+// ---------------------------------------------------------------- serving another program
+
+/// One message to the program that reads this one's stdout: a line
+/// "<kind> <bytes>", then that many bytes. False when nobody reads any more.
+fn send(kind: &str, data: &[u8]) -> bool {
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "{kind} {}", data.len()).is_ok() && out.write_all(data).is_ok() && out.flush().is_ok()
+}
+
+/// The second desktop for another program, the page of test.py for one,
+/// over this program's own pipes. Out on stdout, as messages: "frame", every
+/// new picture as a BMP file, and "note", words about an order that failed.
+/// In on stdin, one order a line: "run <command line>" starts a program on
+/// the second desktop. It ends when stdin closes, so when the other program
+/// ends, and every app on the second desktop ends with it.
+unsafe fn serve(frames: &Arc<Frames>, job: Handle) -> Res<()> {
+    let frames = frames.clone();
+    thread::spawn(move || {
+        let (mut seen, mut shown) = (0u64, None::<Arc<Vec<u8>>>);
+        loop {
+            let (count, pixels, error) = {
+                let latest = frames.latest.lock().unwrap();
+                (latest.count, latest.pixels.clone(), latest.error.clone())
+            };
+            if let Some(e) = error {
+                send("note", format!("no picture: {e}").as_bytes());
+                return;
+            }
+            if let (true, Some(pixels)) = (count != seen, pixels) {
+                seen = count;
+                // a desktop where nothing moved is not sent again
+                if shown.as_ref().map_or(true, |old| **old != *pixels) {
+                    if !send("frame", &bmp(frames.width, frames.height, &pixels)) {
+                        return;
+                    }
+                    shown = Some(pixels);
+                }
+            }
+            thread::sleep(Duration::from_millis(30));
+        }
+    });
+    for line in std::io::stdin().lines() {
+        let Ok(line) = line else { break };
+        if let Some(command) = line.strip_prefix("run ") {
+            if let Err(e) = start_on_desktop(command.trim(), DESKTOP, job) {
+                send("note", format!("could not start on the second desktop: {command}: {e}").as_bytes());
+            }
+        }
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------- main
 
 struct Args {
@@ -1735,10 +1844,19 @@ struct Args {
     run: Vec<String>,
     scan: Option<String>,
     wait: f64,
+    serve: bool,
 }
 
 fn parse_args() -> Res<Args> {
-    let mut args = Args { shot: None, computer_use: false, no_shell: false, run: Vec::new(), scan: None, wait: 6.0 };
+    let mut args = Args {
+        shot: None,
+        computer_use: false,
+        no_shell: false,
+        run: Vec::new(),
+        scan: None,
+        wait: 6.0,
+        serve: false,
+    };
     let mut rest = std::env::args().skip(1);
     while let Some(arg) = rest.next() {
         // "--name value" and "--name=value" both work
@@ -1754,6 +1872,7 @@ fn parse_args() -> Res<Args> {
             "--wait" => args.wait = value()?.parse().map_err(|_| "--wait needs a number of seconds".to_string())?,
             "--computer-use" => args.computer_use = true,
             "--no-shell" => args.no_shell = true,
+            "--serve" => args.serve = true,
             "-h" | "--help" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -1769,19 +1888,24 @@ unsafe fn go(args: &Args, frames: &Arc<Frames>, desk: Handle, job: Handle, befor
              capture_thread: &mut Option<thread::JoinHandle<()>>) -> Res<()> {
     let windir = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
     let mut commands = if args.no_shell { Vec::new() } else { vec![format!("{windir}\\explorer.exe")] };
-    if args.computer_use || args.run.is_empty() {
+    if args.computer_use || (args.run.is_empty() && !args.serve) {
         commands.push(format!("{windir}\\System32\\charmap.exe"));
     } else {
         commands.extend(args.run.iter().cloned());
     }
     let mut started = Vec::new();
     for command in commands {
-        match start_on_desktop(&command, DESKTOP, job) {
+        let said = match start_on_desktop(&command, DESKTOP, job) {
             Ok(pid) => {
-                println!("started on the second desktop: {command} (pid {pid})");
-                started.push((command, pid));
+                started.push((command.clone(), pid));
+                format!("started on the second desktop: {command} (pid {pid})")
             }
-            Err(e) => println!("could not start on the second desktop: {command}: {e}"),
+            Err(e) => format!("could not start on the second desktop: {command}: {e}"),
+        };
+        if args.serve {
+            eprintln!("{said}"); // stdout carries the pictures then
+        } else {
+            println!("{said}");
         }
     }
 
@@ -1812,6 +1936,9 @@ unsafe fn go(args: &Args, frames: &Arc<Frames>, desk: Handle, job: Handle, befor
 
     let for_thread = frames.clone();
     *capture_thread = Some(thread::spawn(move || unsafe { capture_loop(desk, &for_thread) }));
+    if args.serve {
+        return serve(frames, job);
+    }
     match &args.shot {
         Some(path) => take_shot(path, args.wait, frames, job, before, &started),
         None => show_viewer(frames, job),
@@ -1866,6 +1993,10 @@ unsafe fn run(args: &Args) -> i32 {
         while !capture.is_finished() && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(20));
         }
+    }
+    for extra in EXTRA_JOBS.lock().unwrap().drain(..) {
+        TerminateJobObject(extra as Handle, 0);
+        CloseHandle(extra as Handle);
     }
     TerminateJobObject(job, 0);
     CloseHandle(job);
