@@ -10,6 +10,45 @@
 import { AgentMode } from '../agent_mode/agent_mode.tsx';
 import { MemoryBar } from '../memory_bar/memory_bar.tsx';
 
+// The marks of the strip's picker (the strip above the chat box), drawn once
+// each. AutoCua SB / Full control: a box (the sandbox) and the mode picker's
+// This PC monitor. Coder's Auto / Manual: a round face made of a prompt, a
+// > over a smile, and the keyboard. One part of each takes a soft fill in
+// its colour (chat_input.css).
+const SB_BOX = (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path className="sb-box-top" d="M12 3l8 4.5-8 4.5-8-4.5z" />
+        <path d="M4 7.5v9l8 4.5 8-4.5v-9" /><path d="M12 12v9" />
+    </svg>
+);
+const SB_PC = (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect className="sb-pc-screen" x="3" y="4" width="18" height="12" rx="1" />
+        <path d="M7 20h10" /><path d="M9 16v4" /><path d="M15 16v4" />
+    </svg>
+);
+const SB_AUTO = (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle className="sb-auto-face" cx="12" cy="12" r="9" />
+        <path d="M10.5 7.5l3.5 2.5-3.5 2.5" /><path d="M8 14.8c2 2.6 6 2.6 8 0" />
+    </svg>
+);
+const SB_MANUAL = (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect className="sb-keys-body" x="2" y="4" width="20" height="16" rx="2" />
+        <path d="M6 8h.01" /><path d="M10 8h.01" /><path d="M14 8h.01" /><path d="M18 8h.01" />
+        <path d="M8 12h.01" /><path d="M12 12h.01" /><path d="M16 12h.01" /><path d="M7 16h10" />
+    </svg>
+);
+// At a row's right, in one place: the pickers' caret while the strip is
+// closed, the tick on the side that is on while it is open.
+const SB_MARK = (
+    <span className="sb-mark" aria-hidden="true">
+        <svg className="chat-dropdown-chevron sb-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6" /></svg>
+        <svg className="sb-tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 7" /></svg>
+    </span>
+);
+
 export function ChatInput() {
     return (
         <div className="chat-container-content">
@@ -28,14 +67,35 @@ export function ChatInput() {
                 <div className="cli-stream-list" id="cliStreamList"></div>
             </div>
 
-            {/* Agent Response Strip (hidden by default): the thinking orb
+            {/* The strip above the chat box: always there, in every mode, as wide as
+                the chat box, round on top, its bottom behind the chat box
+                (chat_input.css). In its row, from the left: the picker, and right of
+                it, only while a run goes (.active): the thinking orb
                 (thinking_orb/thinking_orb.js, mounted by chat_input.js), "Agent
                 running…" shimmering (thinking_orb/shimmer.css), then the agent's
-                live text. */}
-            <div className="agent-response-strip" id="agentResponseStrip">
-                <canvas className="agent-orb" width="40" height="40" aria-hidden="true"></canvas>
-                <span className="agent-label t-shimmer" data-text="Agent running…">Agent running…</span>
-                <span className="agent-text" id="agentText"></span>
+                live text.
+
+                The picker is two rows, of which the strip shows the one that is on,
+                with the caret of the model and mode pickers. A click turns the caret
+                over and the whole strip comes up a little: the other row stands with
+                it, one under the other, the tick on the one that is on. Picking one
+                brings the strip back down (sb_toggle.js). Which two rows: Coder's
+                Auto / Manual in Coder, AutoCua SB / Full control in the other modes
+                (data-group, set by sb_toggle.js). */}
+            <div className="agent-response-strip" id="agentResponseStrip" data-group="control" data-control="full">
+                <div className="sb-row">
+                    <div className="sb-options" id="sbPick" role="menu">
+                        <button className="sb-option selected" data-group="control" data-value="full" role="menuitemradio" aria-checked="true" type="button">{SB_PC}<span>Full control</span>{SB_MARK}</button>
+                        <button className="sb-option" data-group="control" data-value="sandbox" role="menuitemradio" aria-checked="false" type="button">{SB_BOX}<span>AutoCua SB</span>{SB_MARK}</button>
+                        <button className="sb-option selected" data-group="input" data-value="auto" role="menuitemradio" aria-checked="true" type="button">{SB_AUTO}<span>Auto</span>{SB_MARK}</button>
+                        <button className="sb-option" data-group="input" data-value="manual" role="menuitemradio" aria-checked="false" type="button">{SB_MANUAL}<span>Manual</span>{SB_MARK}</button>
+                    </div>
+                    <div className="sb-run">
+                        <canvas className="agent-orb" width="40" height="40" aria-hidden="true"></canvas>
+                        <span className="agent-label t-shimmer" data-text="Agent running…">Agent running…</span>
+                        <span className="agent-text" id="agentText"></span>
+                    </div>
+                </div>
             </div>
 
             {/* Composer that collapses on send. IDLE: a ONE-line textarea on top (grows

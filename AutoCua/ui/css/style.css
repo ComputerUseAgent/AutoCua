@@ -1300,11 +1300,15 @@ body.settings-open #chatWrapper {
     /* Same top as the left bar (left_bar.css), so the content starts on the
        bar's top line and gets the full height. */
     top: clamp(5px, 0.7vw, 9px);
-    /* Down to the chat input (the agent-start text box): one gap (the
-       frame's inner one) above its top while idle, the tallest it is without
-       a long draft. Running, it is a slim line with the "Agent activated"
-       strip, both lower. The hero sits in this box. */
-    bottom: clamp(118px, calc(30px + 10.2vw), 159px);
+    /* Down to the chat input (the agent-start text box) and the strip that
+       stands on it: one gap (the frame's inner one) above the strip's top
+       while idle, the tallest the box is without a long draft. Running, the
+       box is a slim line, lower. The first clamp is the chat box's part, the
+       second the strip's row and its line (chat_input.css: --row of
+       .agent-response-strip). Without the strip's part this box lay over the
+       strip and took its clicks (seen: the picker could not be clicked). The
+       hero sits in this box. */
+    bottom: calc(clamp(118px, calc(30px + 10.2vw), 159px) + clamp(26px, 2.6vw, 30px) + 1px);
     z-index: 13;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -1322,7 +1326,7 @@ body.settings-open #chatWrapper {
     left: calc(var(--left-bar-w) + clamp(10px, 2vw, 30px));
     right: clamp(10px, 2vw, 30px);
     top: clamp(5px, 0.7vw, 9px);
-    bottom: clamp(118px, calc(30px + 10.2vw), 159px);
+    bottom: calc(clamp(118px, calc(30px + 10.2vw), 159px) + clamp(26px, 2.6vw, 30px) + 1px);   /* == .main-grid */
     z-index: 12;                /* just under the grid zones; pointer-transparent */
     display: flex;
     flex-direction: column;
