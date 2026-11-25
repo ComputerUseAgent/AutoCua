@@ -509,9 +509,9 @@ impl ControllerView {
                     }
                 }
             }
-            // One ToDo line re-worded (or removed, with an empty value) when the
-            // site shows its proof cannot work as written. The reason is
-            // required: it is kept beside the line.
+            // One ToDo line replaced by its number (or removed, with an empty
+            // value) when the site shows its proof cannot work as written. The
+            // reason is required: it is kept beside the line.
             "rewrite_todo" => {
                 let raw = py_str_of_or_empty(&get("line")).trim().to_string();
                 let value = py_str_of_or_empty(&get("value"));
@@ -545,7 +545,7 @@ impl ControllerView {
                     Ok(match self.todo_tracker.rewrite_task(num, &value, &reason) {
                         Ok(todo_tracker::service::Rewritten::Reworded) => json!({
                             "status": "success", "action": "todo_rewritten", "tool": "rewrite_todo",
-                            "message": format!("task #{num} re-worded and open again"),
+                            "message": format!("task #{num} replaced and open again"),
                         }),
                         Ok(todo_tracker::service::Rewritten::Removed) => json!({
                             "status": "success", "action": "todo_rewritten", "tool": "rewrite_todo",

@@ -99,15 +99,15 @@ impl TodoTrackerService {
         }
     }
 
-    /// Re-word task #number (`rewrite_todo`): what comes after its colon
-    /// becomes the new proof, the line is open again, and `reason` stays
-    /// beside it as "(why: ...)" so the lesson is in front of the agent every
-    /// step. An empty `value` removes the line. The other lines keep their
-    /// numbers: the model may tick or re-word more lines in the same turn by
-    /// the numbers it saw, so numbers change only when `todo_list` writes the
-    /// whole list again. Unlike update_task, which lets a missing line pass,
-    /// a missing line, a changed part, a value on more than one line or a
-    /// value with no words is an error the model is told about.
+    /// Replace task #number with `value` (`rewrite_todo`), found by its
+    /// number. The new line keeps that number, is open again ("- [ ]"), and
+    /// `reason` stays beside it as "(why: ...)" so the lesson is in front of
+    /// the agent every step. An empty `value` removes the line. The other
+    /// lines keep their numbers: the model may tick or replace more lines in
+    /// the same turn by the numbers it saw, so numbers change only when
+    /// `todo_list` writes the whole list again. Unlike update_task, which lets
+    /// a missing line pass, a missing line or a value on more than one line
+    /// is an error the model is told about.
     pub fn rewrite_task(&self, task_number: i64, value: &str, reason: &str) -> Result<Rewritten, String> {
         let content = std::fs::read_to_string(&self.todo_file)
             .map_err(|_| "no todo list exists yet - call `todo_list` first".to_string())?;
@@ -123,41 +123,22 @@ impl TodoTrackerService {
         else {
             return Err(format!("there is no task #{task_number} in the todo list"));
         };
-        // The new text without a "#n. " or "- [ ]" the model may have put in
-        // front of it, or a "(why: ...)" it copied from the old line.
+        // The new line's text, written the way the list writes it: a "#n. " or
+        // "- [ ]" the model put in front (the list's own format) and a
+        // "(why: ...)" copied from the old line are taken off, so the number,
+        // the box and the reason are never doubled.
         let flat = value.split_whitespace().collect::<Vec<_>>().join(" ");
         let flat = Self::without_number(&flat).to_string();
-        let mut text = match Self::task_body(&flat) {
+        let text = match Self::task_body(&flat) {
             Some(body) => body[5..].trim().to_string(),
             None => flat,
         };
-        text = Self::without_why(&text);
-        let outcome = if value.trim().is_empty() {
+        let text = Self::without_why(&text);
+        // An empty new line ("" or a bare "- [ ]") removes the line.
+        let outcome = if text.is_empty() {
             lines.remove(at);
             Rewritten::Removed
-        } else if text.is_empty() {
-            // Only a box or a number ("- [ ]", "#3."): no new line in it. Only a
-            // truly empty value removes a line.
-            return Err("`value` has no words - give the new line, or an empty value to remove the line".to_string());
         } else {
-            // The part before ": " keeps the request's words: only what proves
-            // it may change. ": " and not ":" alone, so a time, a ratio or a
-            // url in the part ("before 23:00") stays in the part. A value with
-            // no ": " is the new proof alone.
-            let old = Self::task_body(&lines[at]).map(|body| Self::without_why(body[5..].trim())).unwrap_or_default();
-            if let Some((old_part, _)) = old.split_once(": ") {
-                match text.split_once(": ") {
-                    None if text.to_lowercase().starts_with(&old_part.trim().to_lowercase()) => {}
-                    None => text = format!("{}: {}", old_part.trim(), text),
-                    Some((new_part, _)) if Self::same_words(new_part, old_part) => {}
-                    Some(_) => {
-                        return Err(format!(
-                            "the part before the colon stays \"{}\" - re-word only what proves it",
-                            old_part.trim()
-                        ));
-                    }
-                }
-            }
             lines[at] = format!("#{task_number}. - [ ] {text} (why: {reason})");
             Rewritten::Reworded
         };
@@ -185,12 +166,6 @@ impl TodoTrackerService {
             }
         }
         text.to_string()
-    }
-
-    /// The same words, whatever the case and spacing.
-    fn same_words(a: &str, b: &str) -> bool {
-        let words = |s: &str| s.split_whitespace().map(str::to_lowercase).collect::<Vec<_>>();
-        words(a) == words(b)
     }
 }
 
