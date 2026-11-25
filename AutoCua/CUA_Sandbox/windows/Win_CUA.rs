@@ -12,24 +12,29 @@
 //! Standalone: this one file, the Rust standard library and Windows' own DLLs.
 //! No crates, no cargo, no Python, no AutoCua code. Windows only.
 //!
-//! Build, from D:\AutoCua:
-//!     rustc --edition 2021 -O AutoCua\CUA_Sandbox\Win_CUA.rs -o AutoCua\CUA_Sandbox\Win_CUA.exe
+//! Run it through test.py beside this file, from D:\AutoCua:
+//!     venv\Scripts\python.exe AutoCua\CUA_Sandbox\windows\test.py [OPTIONS]
+//! test.py builds this file with rustc alone (no cargo) into the system temp
+//! folder, %TEMP%\AutoCua\Win_CUA.exe, never beside the code, and again
+//! whenever the file changes. It runs it from D:\AutoCua with the OPTIONS.
+//! With none, test.py shows the second desktop in a page of its own, through
+//! --serve below.
 //!
-//! Run:
-//!     AutoCua\CUA_Sandbox\Win_CUA.exe
+//! The program's modes:
+//!     (no option)
 //!         Make the second desktop, start Explorer (wallpaper, icons) and
 //!         Character Map on it, and show it live in a window on your screen.
 //!         Closing the window ends everything that runs on it.
-//!     AutoCua\CUA_Sandbox\Win_CUA.exe --shot shot.png
+//!     --shot shot.png
 //!         The same, but save one screenshot of it, print a report and exit.
-//!     AutoCua\CUA_Sandbox\Win_CUA.exe --computer-use
+//!     --computer-use
 //!         Computer use on it with no mouse and no keyboard: scan Character Map
 //!         with UI Automation, type, click, scroll, scan again. Its pictures
 //!         are cu_1_scan.png and cu_2_after.png.
-//!     AutoCua\CUA_Sandbox\Win_CUA.exe --run APP --scan scan.png
+//!     --run APP --scan scan.png
 //!         Start APP on it and save the agent's scan: what UI Automation finds
 //!         to click or type in, numbered on a picture, and print the list.
-//!     AutoCua\CUA_Sandbox\Win_CUA.exe --serve
+//!     --serve
 //!         For another program, the page of test.py for one. No Character Map
 //!         and no window: every new picture of it goes out on stdout, and a
 //!         line "run CMD" on stdin starts CMD on it. It ends when stdin closes.
@@ -38,9 +43,9 @@
 //!     --run CMD    start CMD on it instead of Character Map (can repeat)
 //!     --wait SEC   seconds the apps get to start before --shot or --scan (default 6)
 //!
-//! Every picture it saves goes, for now, to the debug folder at the root of the
-//! checkout, two folders above the program (D:\AutoCua\debug), under the file
-//! name given: --shot shot.png saves D:\AutoCua\debug\shot.png.
+//! Every picture it saves goes, for now, to the debug folder of the folder it
+//! runs in, under the file name given. test.py runs it from D:\AutoCua, so
+//! --shot shot.png saves D:\AutoCua\debug\shot.png.
 
 #![allow(non_snake_case)] // the file keeps the name of the Python script it came from
 
@@ -453,14 +458,14 @@ fn base_name(path: &str) -> String {
     path.rsplit(['\\', '/']).next().unwrap_or(path).to_string()
 }
 
-/// Where a picture is saved, for now: the debug folder at the root of the
-/// checkout, two folders above this program (D:\AutoCua\debug), under the
-/// file name of `name`. A folder in `name` is dropped, and the debug folder
-/// is made when it is not there yet.
+/// Where a picture is saved, for now: the debug folder of the folder this
+/// program runs in (test.py runs it from the root, so D:\AutoCua\debug),
+/// under the file name of `name`. A folder in `name` is dropped, and the
+/// debug folder is made when it is not there yet.
 fn debug_path(name: &str) -> Res<PathBuf> {
-    let exe = std::env::current_exe().map_err(|e| format!("could not find this program's folder: {e}"))?;
-    let folder = exe.parent().unwrap_or(Path::new("."));
-    let debug = folder.parent().and_then(Path::parent).unwrap_or(folder).join("debug");
+    let debug = std::env::current_dir()
+        .map_err(|e| format!("could not find the folder this program runs in: {e}"))?
+        .join("debug");
     std::fs::create_dir_all(&debug).map_err(|e| format!("could not make {}: {e}", debug.display()))?;
     let file = base_name(name);
     if file.is_empty() {

@@ -1,21 +1,22 @@
 """Build Win_CUA.rs, the second desktop for the agent, and show it live.
 
 From D:\\AutoCua:
-    venv\\Scripts\\python.exe AutoCua\\CUA_Sandbox\\test.py
+    venv\\Scripts\\python.exe AutoCua\\CUA_Sandbox\\windows\\test.py
         A window with the second desktop in it, live, and a field under it.
         Type an app's name there and press Enter: the agent's own open_app
         tool for Windows (AutoCua\\windows\\controller\\tool\\open_app.py)
         opens that app on the second desktop, and a line under the field says
         how it went and how long it took. Closing the window ends everything
         that runs on the second desktop.
-    venv\\Scripts\\python.exe AutoCua\\CUA_Sandbox\\test.py --computer-use
-    venv\\Scripts\\python.exe AutoCua\\CUA_Sandbox\\test.py --run APP --scan scan.png
+    venv\\Scripts\\python.exe AutoCua\\CUA_Sandbox\\windows\\test.py --computer-use
+    venv\\Scripts\\python.exe AutoCua\\CUA_Sandbox\\windows\\test.py --run APP --scan scan.png
         With options, they go to the program as they are: the top of
         Win_CUA.rs says what it takes.
 
 The program is built with rustc on the first run, and again whenever
-Win_CUA.rs changes, as Win_CUA.exe beside it. Every picture it saves goes to
-the debug folder at the root, D:\\AutoCua\\debug.
+Win_CUA.rs changes, into the system temp folder (%TEMP%\\AutoCua\\Win_CUA.exe),
+never beside the code. It runs from the root, D:\\AutoCua, so every picture it
+saves goes to the debug folder there, D:\\AutoCua\\debug.
 
 The window is pywebview, showing the one page in this file (PAGE). The page
 talks to a small web server in this file, on this PC only, which gets the
@@ -30,15 +31,19 @@ import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent                # AutoCua\CUA_Sandbox\windows
+ROOT = HERE.parents[2]                                # D:\AutoCua: the program runs here
 SOURCE = HERE / "Win_CUA.rs"
-PROGRAM = HERE / "Win_CUA.exe"
-OPEN_APP = HERE.parent / "windows" / "controller" / "tool" / "open_app.py"
+# The built program is a cache outside the code, made again when it is
+# missing or older than the source.
+PROGRAM = Path(tempfile.gettempdir()) / "AutoCua" / "Win_CUA.exe"
+OPEN_APP = HERE.parents[1] / "windows" / "controller" / "tool" / "open_app.py"
 # Python with no console window, for the half of this file that runs on the second desktop.
 PYTHONW = Path(sys.executable).with_name("pythonw.exe")
 
@@ -116,7 +121,9 @@ def build():
     if not Path(rustc).exists():
         raise SystemExit("rustc not found: run setup_windows.bat, or install Rust from https://rustup.rs")
     print("Building Win_CUA.rs...", flush=True)
-    if subprocess.call([rustc, "--edition", "2021", "-O", str(SOURCE), "-o", str(PROGRAM)], cwd=HERE) != 0:
+    PROGRAM.parent.mkdir(parents=True, exist_ok=True)
+    # run in the build folder: whatever rustc writes on the way lands there too
+    if subprocess.call([rustc, "--edition", "2021", "-O", str(SOURCE), "-o", str(PROGRAM)], cwd=PROGRAM.parent) != 0:
         raise SystemExit("Win_CUA.rs did not build")
 
 
@@ -125,7 +132,8 @@ class Desktop:
     picture of the second desktop, and the lines the page shows."""
 
     def __init__(self):
-        self.program = subprocess.Popen([str(PROGRAM), "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        self.program = subprocess.Popen([str(PROGRAM), "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                        cwd=ROOT)
         self.fresh = threading.Condition()   # told of every new picture
         self.frame, self.number = b"", 0
         self.lock = threading.Lock()
@@ -357,7 +365,7 @@ def main():
     if not args:
         return show()
     try:
-        return subprocess.call([str(PROGRAM), *args])
+        return subprocess.call([str(PROGRAM), *args], cwd=ROOT)
     except KeyboardInterrupt:   # Ctrl+C ended the program too, and with it every app on the second desktop
         return 130
 
