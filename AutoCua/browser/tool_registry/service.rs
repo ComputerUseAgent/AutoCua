@@ -320,14 +320,21 @@ fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
   8. Write `value` in Markdown - inline only (`**bold**`, backticks, links), never a line break."#, track),
 
         tool("todo_list", &[("value", json!({"type": "string"}))],
-             r#"Create or re-capture the ToDo. Follow <todo_capability>.
-  1. Format: todo_list {"value": "Objective: <goal>\n- [ ] <task_1>\n- [ ] <task_2>"}
-  2. Example: todo_list {"value": "Objective: buy an iPhone 16 on amazon\n- [ ] open amazon.com\n- [ ] search for iphone 16\n- [ ] place the order"}"#, track),
+             r#"Write the ToDo: the parts of <user_request>, one line each, never the steps to reach them. Follow <todo_capability>.
+  1. Format: todo_list {"value": "Objective: <goal>\n- [ ] <part>: <what the page will show when it holds>\n- [ ] <part>: <what the page will show when it holds>"}
+  2. Example: todo_list {"value": "Objective: the cheapest iPhone 16 128GB on amazon.com, in the cart\n- [ ] an iPhone 16, not a Plus or Pro: the item's title says so\n- [ ] 128GB: the item's own page says 128GB\n- [ ] cheapest: prices rise from the first result\n- [ ] in the cart: the cart lists it"}
+  3. Write it again only when the request changes or a part it implies comes to light; to re-word one line, use `rewrite_todo`."#, track),
 
         tool("update_todo", &[("value", json!({"type": "string"}))],
-             r#"Mark ONE task complete - only after its effect is visually confirmed in the current input.
+             r#"Mark ONE line met - only when the current page shows the proof the line names, never because a control was set.
   1. Format: update_todo {"value": "<task_number>"}
   2. Example: update_todo {"value": "1"}"#, track),
+
+        tool("rewrite_todo", &[("line", json!({"type": "string"})), ("value", json!({"type": "string"})), ("reason", json!({"type": "string"}))],
+             r#"Re-word ONE ToDo line whose proof cannot work on this site - the last option, only after the line could not be proved as written (see <todo_capability>). The line is open again, with your reason shown beside it.
+  1. Format: rewrite_todo {"line": "<task_number>", "value": "<the new line>", "reason": "<in a few words: what the page showed that the line does not say>"}
+  2. Keep the part before the colon in the request's words and change what proves it - never to make the line easier to tick; a changed part is refused. An empty `value` removes the line: only for a line the request never asked for. The other lines keep their numbers until the list is written again.
+  3. Example: rewrite_todo {"line": "3", "value": "cheapest: the lowest price across all 3 pages of results", "reason": "sponsored cards break the price order"}"#, track),
 
         tool("skills", &[("type", json!({"type": "string", "enum": ["load", "remove"]})), ("id", json!({"type": "integer"}))],
              r#"Load a skill into <skills>, or remove it. <skills> lists the skill files by [id] with their size; a loaded skill shows its content there every step until you remove it.
@@ -383,11 +390,13 @@ pub fn scraping_tools() -> &'static Vec<Value> {
 
 /// The whole schema of scrape mode (`LLMManager::set_scrape_step`): the three
 /// tools above plus scratchpad, update_todo and skills, and nothing else - no
-/// notes tool, no page tool.
+/// notes tool, no page tool. They come from the fast list on purpose: scrape
+/// mode serves every speed, so its update_todo keeps the earlier wording (see
+/// with_earlier_todo_tools) and the list stays as it was.
 pub fn scrape_mode_tools() -> &'static Vec<Value> {
     static T: OnceLock<Vec<Value>> = OnceLock::new();
     T.get_or_init(|| {
-        let keep: Vec<Value> = main_tools_quality()
+        let keep: Vec<Value> = main_tools_fast()
             .iter()
             .filter(|t| matches!(t.get("name").and_then(Value::as_str), Some("scratchpad" | "update_todo" | "skills")))
             .cloned()
@@ -480,7 +489,29 @@ pub fn main_tools_quality() -> &'static Vec<Value> {
 
 pub fn main_tools_fast() -> &'static Vec<Value> {
     static T: OnceLock<Vec<Value>> = OnceLock::new();
-    T.get_or_init(|| main_tools(&[], Some(main_memory_tool_fast())))
+    T.get_or_init(|| with_earlier_todo_tools(main_tools(&[], Some(main_memory_tool_fast()))))
+}
+
+/// The ToDo tools as they were before `rewrite_todo`, word for word. Fast
+/// mode keeps them, with no `rewrite_todo`, because its own prompt
+/// (fast_system_prompt.md) still describes that ToDo; scrape mode keeps them
+/// too, since it serves every speed.
+fn with_earlier_todo_tools(tools: Vec<Value>) -> Vec<Value> {
+    tools
+        .into_iter()
+        .filter(|t| t.get("name").and_then(Value::as_str) != Some("rewrite_todo"))
+        .map(|t| match t.get("name").and_then(Value::as_str) {
+            Some("todo_list") => tool("todo_list", &[("value", json!({"type": "string"}))],
+             r#"Create or re-capture the ToDo. Follow <todo_capability>.
+  1. Format: todo_list {"value": "Objective: <goal>\n- [ ] <task_1>\n- [ ] <task_2>"}
+  2. Example: todo_list {"value": "Objective: buy an iPhone 16 on amazon\n- [ ] open amazon.com\n- [ ] search for iphone 16\n- [ ] place the order"}"#, &[]),
+            Some("update_todo") => tool("update_todo", &[("value", json!({"type": "string"}))],
+             r#"Mark ONE task complete - only after its effect is visually confirmed in the current input.
+  1. Format: update_todo {"value": "<task_number>"}
+  2. Example: update_todo {"value": "1"}"#, &[]),
+            _ => t,
+        })
+        .collect()
 }
 
 /// Quality mode on any Claude model: the same tools with `agent_memory` first.
@@ -555,6 +586,7 @@ pub fn main_action_defaults() -> &'static Value {
             "scratchpad": {"value": ""},
             "todo_list": {"value": ""},
             "update_todo": {"value": ""},
+            "rewrite_todo": {"line": "", "value": "", "reason": ""},
             "skills": {"type": "load", "id": 0},
             "done": {"value": ""},
         })
@@ -1555,14 +1587,15 @@ pub fn _tool_calls_to_steps_debug<'py>(
 }
 
 /// The registry a speed mode sends (quality unless "fast"; "scrape" for the
-/// scraping mode's own list), for tests; with `strict`, as the OpenAI strict
-/// dialect rewrites it.
+/// scraping mode's own list; "claude" for quality mode on a Claude model), for
+/// tests; with `strict`, as the OpenAI strict dialect rewrites it.
 #[pyfunction]
 #[pyo3(signature = (speed=None, strict=false))]
 pub fn _main_tools_debug<'py>(py: Python<'py>, speed: Option<String>, strict: bool) -> PyResult<Bound<'py, PyAny>> {
     let registry = match speed.as_deref() {
         Some("fast") => main_tools_fast(),
         Some("scrape") => scrape_mode_tools(),
+        Some("claude") => main_tools_claude(),
         _ => main_tools_quality(),
     };
     let out = if strict { tools_openai_strict(registry) } else { registry.clone() };

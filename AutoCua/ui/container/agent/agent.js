@@ -1739,6 +1739,7 @@
         applescript:  { shape: 'script',   label: 'executing applescript' },
         todo_list:    { shape: 'todo',     label: 'created todo' },
         update_todo:  { shape: 'todoUpd',  label: 'updated todo' },
+        rewrite_todo: { shape: 'todoUpd',  label: 'rewrote a todo line' },
         scratchpad:   { shape: 'book',     label: 'saving to agent memory' },
         done:         { shape: 'loader',   label: 'done', tick: true },  // reuse the packet tick
         vault:        { shape: 'vault',    label: 'unlocking the vault' },
@@ -1750,7 +1751,7 @@
         back:         { shape: 'tap',      label: 'going back' },
         // browser agent tool names — the browser driver's own set, from
         // AutoCua/browser/controller/view.rs. `input`, `scroll`, `wait`,
-        // `scratchpad`, `todo_list`, `update_todo` and `done` are already above
+        // `scratchpad`, `todo_list`, `update_todo`, `rewrite_todo` and `done` are already above
         // and resolve correctly for a browser run; `click` and `scroll` collide with
         // names another agent owns and are re-pointed in toolSpec below.
         keyboard:     { shape: 'keyboard',    label: 'pressing hotkeys' },

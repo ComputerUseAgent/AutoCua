@@ -2186,6 +2186,7 @@ impl AgentService {
                 match action_result.get("action").and_then(Value::as_str) {
                     Some("todo_created") => println!("Todo list created"),
                     Some("todo_updated") => println!("Todo task marked complete"),
+                    Some("todo_rewritten") => println!("Todo line re-worded or removed"),
                     _ => {}
                 }
             } else {
