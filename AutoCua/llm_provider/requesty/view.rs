@@ -131,6 +131,15 @@ const MODEL_MAPPINGS: &[(&str, &[(&str, Value)])] = &[
         ("effort", Text("low")),
         ("coder_effort", Text("medium")),
     ]),
+    // Neon only on Vertex here, like Argon and Carbon (listed 2026-11-25);
+    // at the top of its ladder, `high`.
+    ("gemini-4-neon", &[
+        ("api_name", Text("vertex/gemini-4-neon")),
+        ("vision", Flag(true)),
+        ("display_name", Text("Gemini 4 Neon")),
+        ("effort", Text("high")),
+        ("coder_effort", Text("high")),
+    ]),
     ("gpt-5.4", &[
         ("api_name", Text("openai/gpt-5.4")),
         ("vision", Flag(true)),
