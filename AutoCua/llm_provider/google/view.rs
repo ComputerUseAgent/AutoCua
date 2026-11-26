@@ -49,14 +49,18 @@ use Value::{Flag, Text};
 // case-insensitively, so "low" here is the same as the enum's LOW.
 //
 // Argon, Carbon and Hydrogen are set to `medium` (raised from `low` on
-// 2026-11-24, for the web agent), Neon to `high` and the Flash models to
-// `low`. A level means a different thing on each, because their ladders and
-// defaults differ:
+// 2026-11-24, for the web agent), Neon to `xhigh` (raised from `high` on
+// 2026-11-26) and the Flash models to `low`. A level means a different
+// thing on each, because their ladders and defaults differ:
 //   gemini-4-argon          `low` accepted (probed 2026-11-04)
 //   gemini-4-carbon         low/medium/high (no `minimal` - it errors,
 //   gemini-4-hydrogen       probed 2026-11-14) -> one above floor
-//   gemini-4-neon           low/medium/high (no `minimal`, probed
-//                           2026-11-25) -> top, set at `high`
+//   gemini-4-neon           low/medium/high/xhigh (no `minimal`, probed
+//                           2026-11-25; xhigh 2026-11-26) -> top, set
+//                           at `xhigh`. The SDK's enum has no XHIGH: it
+//                           warns once ("xhigh is not a valid
+//                           ThinkingLevel") and sends it as is, and
+//                           the API takes it (a made-up level gets 400)
 //   gemini-3.6-flash        minimal/low/medium/high  default medium  -> one
 //                                                                      above
 //                                                                      floor
@@ -106,7 +110,7 @@ const MODEL_MAPPINGS: &[(&str, &[(&str, Value)])] = &[
         ("vision", Flag(true)),
         ("display_name", Text("Gemini 4 Neon")),
         ("vertex", Flag(false)),
-        ("thinking_level", Text("high")),
+        ("thinking_level", Text("xhigh")),
         ("coder_thinking_level", Text("high")),
     ]),
     ("gemini-3.6-flash", &[
@@ -154,7 +158,7 @@ const MODEL_MAPPINGS: &[(&str, &[(&str, Value)])] = &[
         ("vision", Flag(true)),
         ("display_name", Text("Gemini 4 Neon (Vertex)")),
         ("vertex", Flag(true)),
-        ("thinking_level", Text("high")),
+        ("thinking_level", Text("xhigh")),
         ("coder_thinking_level", Text("high")),
     ]),
     ("gemini-3.6-flash-vertex", &[

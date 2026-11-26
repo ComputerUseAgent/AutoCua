@@ -105,7 +105,7 @@ const MODEL_MAPPINGS: &[(&str, &[(&str, Value)])] = &[
         ("api_name", Text("google/gemini-4-neon")),
         ("vision", Flag(true)),
         ("display_name", Text("Gemini 4 Neon")),
-        ("effort", Text("high")),
+        ("effort", Text("xhigh")),
         ("coder_effort", Text("high")),
     ]),
     ("gemini-3.6-flash", &[

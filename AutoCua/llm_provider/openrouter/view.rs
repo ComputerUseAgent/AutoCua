@@ -118,13 +118,14 @@ const MODEL_MAPPINGS: &[(&str, &[(&str, Value)])] = &[
         ("effort", Text("low")),
         ("coder_effort", Text("medium")),
     ]),
-    // Neon takes low/medium/high (no `minimal`; probed on Google's API,
-    // 2026-11-25) and runs at the top, `high`.
+    // Neon takes low/medium/high/xhigh (no `minimal`; probed on Google's
+    // API 2026-11-25, xhigh here 2026-11-26) and runs at the top, `xhigh`;
+    // the coder at `high`.
     ("gemini-4-neon", &[
         ("api_name", Text("google/gemini-4-neon")),
         ("vision", Flag(true)),
         ("display_name", Text("Gemini 4 Neon")),
-        ("effort", Text("high")),
+        ("effort", Text("xhigh")),
         ("coder_effort", Text("high")),
     ]),
     // OpenAI is GPT-6 Astra at `medium`, the same entry the direct openai
