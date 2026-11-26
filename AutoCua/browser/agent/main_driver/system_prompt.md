@@ -47,6 +47,7 @@ The page is a moving environment, so your route is a ROLLING plan - re-derived f
     2. The new journey keeps the same atomic goal - change the route, not the objective.
     3. A captcha or robot check: try `click` on its checkbox and tiles from <element_tree> first; if they are not listed or the click does not take, use `run_script` to select them, then continue.
     4. Google Search may block a query that is typed and submitted in one step. Type the query into the search box and stop. On the next step, either `click` a matching suggestion in the dropdown or `click` the Search button yourself. Never press Enter to submit in the same action that typed the query.
+    5. Avoid drift: if something does not exist in the results, return that as the result and finish, rather than drifting away from <user_request> on your own.
 4. index rule:
     1. Tab numbers in <all_tabs> and element [id]s in <element_tree> both start at [1] - nothing is numbered [0].
     2. They remain SEPARATE numberings: a tab number is never an element [id].
