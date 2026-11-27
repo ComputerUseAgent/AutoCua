@@ -132,6 +132,14 @@ function toolsErr(e) {
   return String((e && e.message) || e);
 }
 
+/// How long the setup after an attach (Page.enable, focus emulation) may hold up the call
+/// that asked for it. Both wait for the page's main thread: on a page busy with a long
+/// loop they stayed unanswered for as long as it was busy, and then while the alert it
+/// opened was up (measured: activate unanswered after 30 s; 0-13 ms on other pages), and
+/// the call that attached waited with them: activate, new_tab, or the scan's picture
+/// through the debugger.
+const TOOLS_ATTACH_MS = 2000;
+
 /// Attach the debugger to a tab once, and turn on what browser.rs turns on per session
 /// (Cdp::attach): Page events, so navigations and dialogs are heard, and focus emulation,
 /// so a tab driven in the background believes it is focused.
@@ -157,8 +165,15 @@ async function toolsAttach(tabId) {
       }
     }
     toolsAttached.add(tabId);
-    await chrome.debugger.sendCommand({ tabId }, "Page.enable").catch(() => {});
-    await chrome.debugger.sendCommand({ tabId }, "Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => {});
+    // Past TOOLS_ATTACH_MS both stay on their way and the call goes on: Chrome carries
+    // them out once the page is free, and dialogs are heard meanwhile (measured: an alert
+    // opened at the end of an 8 s loop reached the agent side with Page.enable still
+    // unanswered).
+    const setup = (async () => {
+      await chrome.debugger.sendCommand({ tabId }, "Page.enable").catch(() => {});
+      await chrome.debugger.sendCommand({ tabId }, "Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => {});
+    })();
+    await elementWithin(setup, TOOLS_ATTACH_MS, () => {});
   })();
   toolsAttaching.set(tabId, p);
   try {
@@ -1318,9 +1333,12 @@ function toolsWatchScan(tabId) {
   };
   arm(TOOLS_SCAN_STUCK_MS);
   return {
+    // Once stopped (the scan answered), a read still running asks nothing and opens
+    // nothing again.
     ahead() {
+      if (stopped) return;
       toolsAnswers(tabId, TOOLS_FROZEN_MS + TOOLS_PROBE_MS).then((answered) => {
-        if (!answered && !toolsDialogs.has(tabId)) toolsReopen(tabId, "froze").catch(() => {});
+        if (!answered && !stopped && !toolsDialogs.has(tabId)) toolsReopen(tabId, "froze").catch(() => {});
       });
     },
     back: () => arm(TOOLS_FROZEN_MS),
@@ -1339,6 +1357,22 @@ const TOOLS_SCAN_BUDGET_MS = 30000;
 /// How long a scan waits for one page to load before it reads what is there anyway.
 const TOOLS_SCAN_LOAD_MS = 10000;
 const TOOLS_PAGE_LEFT = Symbol("page left");
+/// How long a scan may take in all before it answers with what it was still waiting for
+/// (background.js), under the agent side's 40 s. The agent side then gets a named error
+/// instead of "no answer from AutoCuaBridge in 40s" (measured before: a picture and a
+/// frame that never came back), and the run still ends on it unless browser.rs takes one
+/// more try. One read of a web page ends by about 30.2 s at worst: its load 11.1 s,
+/// settle 3.06 s, then the longer of the frames' 10 s plus the page alone's 5 s, and the
+/// picture's 4 s plus the debugger's 12 s. This deadline answers for what can run longer:
+/// a page change during the read (a fresh load wait), the debugger's read after a late
+/// "Cannot access" (up to 22 s more), chrome.debugger.attach itself (no limit of its
+/// own), a tab in the background whose picture failed, which background.js puts on show
+/// and reads again (0.3 s, then a second read of up to 30.2 s), and a read that ran out
+/// of time, after which background.js asks for up to 5 s whether the page answers and
+/// then opens it again, so the "reopened" notice can come after this answer.
+const TOOLS_SCAN_DEADLINE_MS = 35000;
+/// How the error of a scan that ran out of that time begins.
+const TOOLS_SCAN_LATE = "scan ran out of time";
 
 /// The owner's rule for a scan: read the page once it has loaded, never across a page
 /// change. A tab with a new page on its way (a click that submitted a form) is waited
@@ -1348,13 +1382,20 @@ const TOOLS_PAGE_LEFT = Symbol("page left");
 /// mid-read (a cross-site ad frame still waiting for its parent) never answers, so the
 /// read never came back and the agent gave up after 40 s (measured: 4 of 8 such scans
 /// hung, 0 of 12 with that cache off, 0 of 12 with no cross-site frames). A page that
-/// stops answering is toolsWatchScan's (5 s, then opened again).
-async function toolsScanLoaded(tabId, scan) {
+/// stops answering is toolsWatchScan's (5 s, then opened again). `stage.at` is kept on
+/// what the scan is waiting for, and once `stage.late` is set (background.js answered at
+/// its deadline) no new read is started.
+async function toolsScanLoaded(tabId, scan, stage = {}) {
   const until = Date.now() + TOOLS_SCAN_BUDGET_MS;
   for (;;) {
+    if (stage.late) throw new Error("the scan was answered already");
+    stage.at = "the page to load";
     await toolsPageLoaded(tabId, until);
     const left = toolsPageLeaves(tabId);
-    const read = scan(await chrome.tabs.get(tabId));
+    // Asked inside the race below, so the page-change listeners come off even when the
+    // tab is gone. A page that left while the tab was asked for is not read: that read
+    // would start already let go, and set what the scan waits for.
+    const read = chrome.tabs.get(tabId).then((tab) => (left.happened ? TOOLS_PAGE_LEFT : scan(tab)));
     let outcome;
     try {
       outcome = await Promise.race([read, left.promise]);
@@ -1366,6 +1407,8 @@ async function toolsScanLoaded(tabId, scan) {
     }
     if (outcome !== TOOLS_PAGE_LEFT) return outcome;
     read.catch(() => {}); // it ends, if ever, only when that page comes back
+    // That read stops at its next step (element.js elementScan).
+    stage.turn = (stage.turn || 0) + 1;
     if (Date.now() >= until) throw new Error("scan failed: the page kept moving on to new pages");
   }
 }

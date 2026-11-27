@@ -139,6 +139,20 @@ async function handle(msg, line) {
     else p.resolve(msg.result);
     return;
   }
+  // A scan answers before the agent side's 40 s run out (browser.rs), whatever it is
+  // still waiting on: past TOOLS_SCAN_DEADLINE_MS with an error naming that part
+  // (`stage.at`). From then on the scan starts no new read or picture (`stage.late`:
+  // tools.js toolsScanLoaded, element.js elementScan), and its own answer, should it come
+  // later, is dropped. What was already on its way goes on: a picture can still turn to
+  // the debugger (element.js elementShot), and a scan that then fails as timed out still
+  // has its page asked whether it answers, and opened again when it does not (below).
+  const stage = { at: "the tab" };
+  let watch = null;
+  const deadline = msg.type !== "scan" ? null : setTimeout(() => {
+    stage.late = true;
+    if (watch) watch.stop();
+    send(line, { id: msg.id, error: `${TOOLS_SCAN_LATE} (${TOOLS_SCAN_DEADLINE_MS / 1000} s), still waiting for ${stage.at}` });
+  }, TOOLS_SCAN_DEADLINE_MS);
   let reply;
   try {
     let result;
@@ -162,23 +176,26 @@ async function handle(msg, line) {
         // A page that froze is closed and opened again, which ends the read here with an
         // error (tools.js toolsWatchScan: a question just ahead of the read, 5 s for the
         // picture once the read is back, and a backstop for a read that never comes back).
-        const watch = toolsWatchScan(tab.id);
+        watch = toolsWatchScan(tab.id);
         try {
           try {
             // Read once the page has loaded, and again when the tab moves on to a new
             // page during the read (tools.js toolsScanLoaded). A tab in the background
             // (the person is looking at another one) is read where it is and
             // photographed through the debugger, like element.rs does.
-            const read = (now) => elementScan(now, { ...msg, fallback: toolsScanFallback, watch });
-            result = await toolsUnlessDialog(tab.id, toolsScanLoaded(tab.id, read), held);
+            const read = (now) => elementScan(now, { ...msg, fallback: toolsScanFallback, watch, stage });
+            result = await toolsUnlessDialog(tab.id, toolsScanLoaded(tab.id, read, stage), held);
           } catch (e) {
             // When that picture cannot be taken, the tab is put on show for Chrome's own
-            // capture; not after the person took the browser back.
-            if (tab.active || toolsStoppedByPerson || !/^screenshot failed/.test(String((e && e.message) || e))) throw e;
+            // capture; not after the person took the browser back, nor once the scan
+            // was answered at its deadline.
+            if (tab.active || toolsStoppedByPerson || stage.late ||
+                !/^screenshot failed/.test(String((e && e.message) || e))) throw e;
+            stage.at = "the tab to come to the front";
             await chrome.tabs.update(tab.id, { active: true });
             await new Promise((r) => setTimeout(r, 300));
             result = await toolsScanLoaded(tab.id, (now) =>
-              elementScan({ ...now, active: true }, { ...msg, fallback: toolsScanFallback, watch }));
+              elementScan({ ...now, active: true }, { ...msg, fallback: toolsScanFallback, watch, stage }), stage);
           }
         } catch (e) {
           // The tab moved on during the read to a page no extension may read (a redirect
@@ -192,12 +209,14 @@ async function handle(msg, line) {
           // A read that ran out of time (the screenshot, a frame): a page that does not
           // answer a cheap question within TOOLS_FROZEN_MS either froze during the read,
           // and is opened again (browser.rs page_froze).
+          stage.at = "the page to answer after a failed read";
           if (/timed out/i.test(String((e && e.message) || e)) && toolsOurs.has(tab.id) &&
               !toolsDialogs.has(tab.id) && !(await toolsAnswers(tab.id, TOOLS_FROZEN_MS))) {
             toolsReopen(tab.id, "froze").catch(() => {});
           }
           // The page crashed or froze under the read and is being opened again: the agent
           // side hears which tab took its place before it hears of this failure.
+          stage.at = "the tab opened again in place of a frozen or crashed one";
           await toolsAwaitReopen(tab.id);
           throw e;
         } finally {
@@ -216,6 +235,8 @@ async function handle(msg, line) {
   } catch (e) {
     reply = { id: msg.id, error: String((e && e.message) || e) };
   }
+  clearTimeout(deadline);
+  if (stage.late) return; // answered at the deadline: this late answer is dropped
   // One beat, so what the request set off and the debugger has already reported (a
   // dialog the page opened on this click) is sent as a notice BEFORE the reply, and
   // lands on this action's result rather than the next one's.

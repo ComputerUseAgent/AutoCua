@@ -74,6 +74,10 @@ const PROBE_FOR: Duration = Duration::from_secs(1);
 /// What a call into a page that froze answers (`Cdp::rpc`).
 const PAGE_FROZE: &str = "the page stopped answering (it froze)";
 
+/// How the extension's answer to a scan that ran out of its own time begins
+/// (AutoCuaBridge tools.js TOOLS_SCAN_LATE, sent before this side's 40 s run out).
+const SCAN_LATE: &str = "scan ran out of time";
+
 // The only CDP events anything in this crate ever waits on:
 //   Page.loadEventFired        - navigation, reload and history waits
 //   Network.requestWillBeSent  - settle()'s in-flight set
@@ -3488,6 +3492,7 @@ impl ScannerInner {
         // again, a few times at most: a failed scan ends the run (the agent loop), and a
         // page that freezes or crashes a second time gets a blank tab, which does neither.
         let mut tries = 0;
+        let mut late_again = false;
         loop {
             let scanned = self.scan_once();
             let tid = self.tab_id.clone().unwrap_or_default();
@@ -3521,6 +3526,13 @@ impl ScannerInner {
             // A popup opened while the page was being read: show it instead.
             if let Some(d) = self.open_dialog() {
                 return Ok(self.dialog_scan(&d));
+            }
+            // Extension mode: the extension's scan ran out of its own time on a part
+            // that never answered (the error names it). Taken once more, since that part
+            // may answer now; the same error again ends the run as before.
+            if self.bridged() && !late_again && matches!(&e, ScanErr::Scanner(m) if m.starts_with(SCAN_LATE)) {
+                late_again = true;
+                continue;
             }
             // Debug mode: a call the scan waited on ran out its time. A page that
             // does not answer a cheap question either froze during the read.
