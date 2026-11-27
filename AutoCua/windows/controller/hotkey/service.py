@@ -21,7 +21,10 @@ class HotkeyService:
     
     def __init__(self, stop_event=None):
         self.stop_event = stop_event
-    
+        # True in AutoCua SB (ControllerView.control): a shortcut is pressed
+        # on the agent's own desktop, never on the user's keyboard.
+        self.sandbox = False
+
     def _uac_accept(self) -> dict:
         """Accept UAC prompt by sending Alt+Y via Interception kernel driver"""
         try:
@@ -145,6 +148,17 @@ class HotkeyService:
             dict: Result of shortcut execution
         """
         try:
+            if self.sandbox:
+                # AutoCua SB: the same shortcut, pressed in the app in front
+                # on the agent's own desktop (CUA_Sandbox/windows). The key
+                # limit is checked there too. Refused there, in words: a
+                # Windows-key shortcut and the ones Windows itself handles
+                # (they act on the user's own desktop), and copy, cut and
+                # paste (the clipboard is the user's own).
+                from ....CUA_Sandbox.windows.service import sandbox
+                sandbox().hotkey(str(shortcut or ""))
+                return {"status": "success", "action": "hotkey", "shortcut": shortcut}
+
             # Check for UAC shortcuts — route to kernel driver
             normalized = shortcut.lower().replace(" ", "")
             if normalized == "alt+y":

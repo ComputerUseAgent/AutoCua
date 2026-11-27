@@ -192,14 +192,15 @@ class ControllerService:
         self.elements_mapping = {}  # Will store {index: element_info}
         self.application_name = ""  # Current application name for typing mode detection
         self.stop_event = stop_event
-        # False in AutoCua SB (ControllerView.control): the agent works on a
-        # desktop of its own and never touches the user's keys or buttons.
-        self.real_input = True
-    
+        # True in AutoCua SB (ControllerView.control): the agent works on a
+        # desktop of its own (CUA_Sandbox/windows), the tools below act there,
+        # and the user's keys and buttons are never touched.
+        self.sandbox = False
+
     def release_all_inputs(self):
         """Emergency release all hardware inputs (keyboard + mouse) via both Interception and pyautogui.
         Not in AutoCua SB: the keys held down then are the user's."""
-        if not self.real_input:
+        if self.sandbox:
             return
         kernel_release()
         try:
@@ -1295,6 +1296,29 @@ class ControllerService:
         Returns:
             dict: Result of canvas input operation
         """
+        if self.sandbox:
+            # AutoCua SB: the same typing, into the app in front on the
+            # agent's own desktop. The user's keyboard is not used. The app
+            # there reads each character before the next goes, so a long text
+            # takes the time the app needs: it goes in pieces, and Stop is
+            # looked at between them (the loop below looks at every character).
+            from ...CUA_Sandbox.windows.service import sandbox, SandboxError
+            if not text:
+                return {"status": "error", "action": "typewrite", "message": "typewrite needs the text to type"}
+            typed = str(text).replace("\r\n", "\n")
+            for start in range(0, len(typed), 200):
+                if self.stop_event and self.stop_event.is_set():
+                    return {"status": "stopped", "action": "typewrite", "message": "Stopped by user"}
+                try:
+                    sandbox().typewrite(typed[start:start + 200])
+                except SandboxError as e:
+                    before = f" ({start} characters of the text were typed before that)" if start else ""
+                    return {"status": "error", "action": "typewrite", "text": text, "message": f"{e}{before}"}
+            # The same rest as after the typing below. The app needs it: with none, a "ctrl+s" in
+            # the same turn after 12,000 characters was not saved by Notepad; 0.1 s was enough (measured).
+            time.sleep(0.22)
+            return {"status": "success", "action": "typewrite", "text": text, "message": "verify yourself using visual"}
+
         from .tool.kernel_input import typewrite as kernel_typewrite
 
         if any(app.lower() in self.application_name.lower() for app in KERNEL_INPUT_APPS):

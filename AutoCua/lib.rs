@@ -2365,6 +2365,17 @@ pub mod agent_conversation {
     }
 }
 
+/// AutoCua SB's second desktop on Windows
+/// (AutoCua/CUA_Sandbox/windows/Win_CUA.rs): the desktop itself, its picture,
+/// its scan and a program started on it, called from
+/// CUA_Sandbox/windows/service.py. It runs inside the app: no program of its
+/// own is built or started for it. Windows only: the file is Windows' own
+/// calls, and the other systems' builds leave it out. The #[path] lets the
+/// file keep its name and its folder.
+#[cfg(windows)]
+#[path = "CUA_Sandbox/windows/Win_CUA.rs"]
+pub mod cua_sandbox;
+
 /// The module: one part per agent, one for the web tool, one for memory
 /// compression and one for the chat memory, each also put in sys.modules
 /// under its full name, so `from AutoCua.agent_native.browser import
@@ -2394,6 +2405,14 @@ fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         register(&part)?;
         m.add_submodule(&part)?;
         modules.set_item(format!("AutoCua.agent_native.{name}"), &part)?;
+    }
+    // AutoCua SB's second desktop, on Windows only (cua_sandbox above).
+    #[cfg(windows)]
+    {
+        let part = PyModule::new(py, "cua_sandbox")?;
+        cua_sandbox::register(&part)?;
+        m.add_submodule(&part)?;
+        modules.set_item("AutoCua.agent_native.cua_sandbox", &part)?;
     }
     Ok(())
 }

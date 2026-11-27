@@ -12,7 +12,7 @@ from pathlib import Path
 from .service import ControllerService
 from .task_tracker.service import TaskTrackerService
 from .scratchpad.service import ScratchpadService
-from .tool import open_on_windows, ShellService
+from .tool import open_on_windows, open_in_sandbox, ShellService
 from .hotkey.service import HotkeyService
 from AutoCua.universal_tool.web import WebService
 from .tool.screenshot import ScreenshotService
@@ -140,15 +140,37 @@ class ControllerView:
     def control(self):
         """Where the agent works: 'sandbox' (AutoCua SB, a desktop of its own,
         CUA_Sandbox/windows/service.py) or 'full' (the user's own screen). The
-        main driver sets it. In AutoCua SB the screen tools act there, and the
-        user's keys and buttons are never touched, on Stop either."""
+        main driver sets it. In AutoCua SB each screen tool does its work
+        there, by the sandbox branch in the tool itself (typewrite, hotkey,
+        open_app so far), and the user's keys and buttons are never touched,
+        on Stop either."""
         return self._control
 
     @control.setter
     def control(self, value):
         self._control = 'sandbox' if value == 'sandbox' else 'full'
-        self.controller_service.real_input = self._control == 'full'
-    
+        self.controller_service.sandbox = self.hotkey_service.sandbox = self._control == 'sandbox'
+
+    def _not_in_sandbox(self, action_item):
+        """AutoCua SB: the refusal for a tool that does not work on the
+        agent's own desktop yet, or None for one that does. Such a tool never
+        falls back to the user's screen, mouse or keys. The programs the
+        shell starts open on the user's screen (seen: `Start-Process charmap`
+        from an AutoCua SB run opened Character Map there), and so do the
+        coder's shell and the browser agent's browser."""
+        kind = action_item.get("type")
+        if kind in ("left_click", "right_click", "input", "scroll", "screenshot"):
+            message = f"{kind} does not work in AutoCua SB yet. open_app, typewrite and hotkey work there so far."
+        elif kind == "shell":
+            message = ("shell does not work in AutoCua SB yet: the programs it starts would open on the user's "
+                       "own screen. Use open_app to open an app.")
+        elif kind == "sub_agent" and action_item.get("agent_type", "coder_agent") in ("coder_agent", "browser_agent"):
+            message = (f"The {action_item.get('agent_type', 'coder_agent')} sub-agent does not work in AutoCua SB "
+                       "yet: it would work on the user's own screen.")
+        else:
+            return None
+        return {"status": "error", "action": kind, "message": message}
+
     def _web_loading_animation(self):
         """Display animated loading indicator for web search.
 
@@ -544,18 +566,14 @@ class ControllerView:
                     logger.warning(f"Action item missing 'type' field: {action_item}")
                     continue
 
-                # AutoCua SB: the screen tools act on the agent's own desktop
-                # (CUA_Sandbox/windows/service.py), and the tools that would
-                # start programs on the user's screen wait there: never on it.
+                # AutoCua SB: a tool that does not work on the agent's own
+                # desktop yet says so. The ones that do (typewrite, hotkey,
+                # open_app) have their sandbox branch where the tool is.
                 if self._control == 'sandbox':
-                    from ...CUA_Sandbox.windows.service import handles, sandbox_action
-                    if handles(action_item):
-                        result = sandbox_action(action_item)
-                        results.append(result)
-                        if result.get("status") == "error":
-                            return result
-                        continue
-                
+                    refused = self._not_in_sandbox(action_item)
+                    if refused:
+                        return refused
+
                 if action_type == "left_click":
                     element_id = action_item.get("id")
                     clicks = action_item.get("clicks", 1)
@@ -641,6 +659,14 @@ class ControllerView:
                 elif action_type == "open_app":
                     app_name = action_item.get("value")
                     logger.info(f"Opening application: {app_name}")
+
+                    if self._control == 'sandbox':
+                        # AutoCua SB: the same app, opened on the agent's own desktop
+                        result = open_in_sandbox(app_name or "")
+                        results.append(result)
+                        if result.get("status") == "error":
+                            return result
+                        continue
 
                     mode = open_on_windows(app_name)
 

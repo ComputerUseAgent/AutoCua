@@ -46,6 +46,13 @@ _AGENT_DIRS = (_PACKAGE / "browser", _PACKAGE / "android", _PACKAGE / "coder",
                _PACKAGE / "linux", _PACKAGE / "vault", _PACKAGE / "llm_provider",
                _PACKAGE / "universal_tool",
                _PACKAGE / "memory_compression", _PACKAGE / "agent_conversation")
+# AutoCua SB's second desktop (CUA_Sandbox/windows/Win_CUA.rs, which lib.rs
+# names by its path) is compiled on Windows only, so it counts on Windows
+# only: on macOS or Linux a newer Win_CUA.rs would call the module stale on
+# every start, and no build there would ever bring it up to date. Only that
+# folder: Mac_CUA.rs beside it is not a source of the crate.
+if sys.platform == "win32":
+    _AGENT_DIRS += (_PACKAGE / "CUA_Sandbox" / "windows",)
 
 # Two different naming schemes have to line up here, and neither is portable:
 # Python only imports an extension named .pyd on Windows and .so elsewhere,

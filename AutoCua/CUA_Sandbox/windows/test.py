@@ -1,51 +1,55 @@
-"""Build Win_CUA.rs, the second desktop for the agent, and show it live.
+"""Show the agent's second desktop (AutoCua SB) live, and call the agent's
+tools on it.
 
 From D:\\AutoCua:
     venv\\Scripts\\python.exe AutoCua\\CUA_Sandbox\\windows\\test.py
-        A window with the second desktop in it, live, and a field under it.
-        Type an app's name there and press Enter: the agent's own open_app
-        tool for Windows (AutoCua\\windows\\controller\\tool\\open_app.py)
-        opens that app on the second desktop, and a line under the field says
-        how it went and how long it took. Closing the window ends everything
-        that runs on the second desktop.
-    venv\\Scripts\\python.exe AutoCua\\CUA_Sandbox\\windows\\test.py --computer-use
-    venv\\Scripts\\python.exe AutoCua\\CUA_Sandbox\\windows\\test.py --run APP --scan scan.png
-        With options, they go to the program as they are: the top of
-        Win_CUA.rs says what it takes.
+        A window with the second desktop in it, live, and a tool call under
+        it: pick the tool (open_app, typewrite, hotkey), type what it takes
+        (an app's name, the text, the keys) and press Enter. A line under the
+        field says how it went and how long it took. Closing the window ends
+        everything that runs on the second desktop.
+    venv\\Scripts\\python.exe AutoCua\\CUA_Sandbox\\windows\\test.py --shot shot.png
+        Save one picture of it and exit.
+    venv\\Scripts\\python.exe AutoCua\\CUA_Sandbox\\windows\\test.py --open notepad --type "hello" --key ctrl+a --scan scan.png
+        Make tool calls there first, in the order given (--open, --type and
+        --key can repeat), then save the agent's scan of it: the picture with
+        the numbered boxes, as the model gets it, and the list of what can be
+        clicked or typed in on the terminal.
+    --wait SEC   seconds the apps get before --shot or --scan (default 3)
 
-The program is built with rustc on the first run, and again whenever
-Win_CUA.rs changes, into the system temp folder (%TEMP%\\AutoCua\\Win_CUA.exe),
-never beside the code. It runs from the root, D:\\AutoCua, so every picture it
-saves goes to the debug folder there, D:\\AutoCua\\debug.
+No tool is written here. This file starts the sandbox and makes each call
+through the agent's own controller (windows/controller/view.py), set to
+AutoCua SB as an AutoCua SB run sets it: the same tools, called the same way.
+
+Nothing is built and no program is started for it. The second desktop is a
+part of the app's own Rust module (Win_CUA.rs beside this file, loaded as
+AutoCua.agent_native.cua_sandbox), reached through service.py, as the agent
+reaches it. Every picture it saves goes to the debug folder at the root,
+D:\\AutoCua\\debug, under the file name given.
 
 The window is pywebview, showing the one page in this file (PAGE). The page
-talks to a small web server in this file, on this PC only, which gets the
-pictures from the program (Win_CUA.exe --serve). The pictures go to the page
-down a WebSocket: as a plain web reply, security software that watches web
-traffic (seen on this PC) cut the end off every picture.
+talks to a small web server in this file, on this PC only. The pictures go to
+the page down a WebSocket: as a plain web reply, security software that
+watches web traffic (seen on this PC) cut the end off every picture.
 """
 import base64
 import hashlib
+import io
 import secrets
-import shutil
 import struct
-import subprocess
 import sys
-import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent                # AutoCua\CUA_Sandbox\windows
-ROOT = HERE.parents[2]                                # D:\AutoCua: the program runs here
-SOURCE = HERE / "Win_CUA.rs"
-# The built program is a cache outside the code, made again when it is
-# missing or older than the source.
-PROGRAM = Path(tempfile.gettempdir()) / "AutoCua" / "Win_CUA.exe"
-OPEN_APP = HERE.parents[1] / "windows" / "controller" / "tool" / "open_app.py"
-# Python with no console window, for the half of this file that runs on the second desktop.
-PYTHONW = Path(sys.executable).with_name("pythonw.exe")
+ROOT = HERE.parents[2]                                # D:\AutoCua
+DEBUG = ROOT / "debug"                                # where every saved picture goes
+FRAME_INTERVAL = 0.25                                 # seconds between two pictures for the page
+# The agent's tools that work in AutoCua SB so far, and the name each gives
+# what it takes (windows/tool_registry/service.rs).
+TOOLS = {"open_app": "value", "typewrite": "text", "hotkey": "value"}
 
 PAGE = """<!doctype html>
 <html>
@@ -58,29 +62,36 @@ PAGE = """<!doctype html>
   #screen { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: #000; }
   #screen img { max-width: 100%; max-height: 100%; }
   form { display: flex; gap: 8px; padding: 10px 10px 6px; }
-  input { flex: 1; padding: 8px 10px; font: inherit; color: #eee; background: #222; border: 1px solid #444; border-radius: 6px; }
+  input, select { padding: 8px 10px; font: inherit; color: #eee; background: #222; border: 1px solid #444; border-radius: 6px; }
+  input { flex: 1; }
   button { padding: 8px 18px; font: inherit; color: #eee; background: #2d6cdf; border: 0; border-radius: 6px; }
   pre { margin: 0; padding: 0 12px 10px; height: 4.6em; overflow: auto; color: #9c9; font: 12px Consolas, monospace; white-space: pre-wrap; }
 </style>
 </head>
 <body>
 <div id="screen"><img id="desktop" alt="the second desktop"></div>
-<form id="open">
-  <input id="app" placeholder="Type an app's name and press Enter" autocomplete="off" autofocus>
-  <button>Open</button>
+<form id="call">
+  <select id="tool">
+    <option value="open_app" data-takes="an app's name">open_app</option>
+    <option value="typewrite" data-takes="the text to type">typewrite</option>
+    <option value="hotkey" data-takes="the keys, like ctrl+s">hotkey</option>
+  </select>
+  <input id="value" autocomplete="off" autofocus>
+  <button>Call</button>
 </form>
 <pre id="log"></pre>
 <script>
   const desktop = document.getElementById("desktop");
-  const app = document.getElementById("app");
+  const tool = document.getElementById("tool");
+  const value = document.getElementById("value");
   const log = document.getElementById("log");
 
-  // The picture: every new one comes down a WebSocket the moment the desktop changes.
+  // The picture: every new one comes down a WebSocket.
   function live() {
     const socket = new WebSocket(location.href.replace(/^http/, "ws") + "live");
     socket.onmessage = event => {
       const old = desktop.src;
-      desktop.src = URL.createObjectURL(new Blob([event.data], { type: "image/bmp" }));
+      desktop.src = URL.createObjectURL(new Blob([event.data], { type: "image/jpeg" }));
       if (old) URL.revokeObjectURL(old);
     };
     socket.onclose = () => setTimeout(live, 1000);
@@ -98,13 +109,20 @@ PAGE = """<!doctype html>
     setTimeout(lines, 400);
   }
 
-  document.getElementById("open").addEventListener("submit", event => {
+  // The field says what the picked tool takes.
+  function takes() {
+    value.placeholder = "Type " + tool.selectedOptions[0].dataset.takes + " and press Enter";
+    value.focus();
+  }
+  tool.addEventListener("change", takes);
+
+  document.getElementById("call").addEventListener("submit", event => {
     event.preventDefault();
-    const name = app.value.trim();
-    if (name) fetch("open", { method: "POST", body: name });
-    app.select();
+    if (value.value.trim()) fetch("call/" + tool.value, { method: "POST", body: value.value });
+    value.select();
   });
 
+  takes();
   live();
   lines();
 </script>
@@ -113,69 +131,75 @@ PAGE = """<!doctype html>
 """
 
 
-def build():
-    """Compile Win_CUA.rs when there is no program yet or the source is newer."""
-    if PROGRAM.exists() and PROGRAM.stat().st_mtime >= SOURCE.stat().st_mtime:
-        return
-    rustc = shutil.which("rustc") or str(Path.home() / ".cargo" / "bin" / "rustc.exe")
-    if not Path(rustc).exists():
-        raise SystemExit("rustc not found: run setup_windows.bat, or install Rust from https://rustup.rs")
-    print("Building Win_CUA.rs...", flush=True)
-    PROGRAM.parent.mkdir(parents=True, exist_ok=True)
-    # run in the build folder: whatever rustc writes on the way lands there too
-    if subprocess.call([rustc, "--edition", "2021", "-O", str(SOURCE), "-o", str(PROGRAM)], cwd=PROGRAM.parent) != 0:
-        raise SystemExit("Win_CUA.rs did not build")
+def sandbox_service():
+    """AutoCua SB's service (service.py beside this file), with the app's Rust
+    module built first, as the app does on its own start."""
+    sys.path.insert(0, str(ROOT))
+    from AutoCua.utils.rust import ensure_built
+    ensure_built()
+    from AutoCua.CUA_Sandbox.windows import service
+    return service
+
+
+def agent_controller():
+    """The agent's own controller (windows/controller/view.py), set to AutoCua
+    SB as an AutoCua SB run sets it: its tools are the ones called here."""
+    from AutoCua.windows.controller.view import ControllerView
+    controller = ControllerView()
+    controller.control = "sandbox"
+    return controller
+
+
+def call(controller, tool, value):
+    """One tool call, made as the agent makes it. Gives a line on how it went."""
+    began = time.monotonic()
+    result = controller.route_action([{"type": tool, TOOLS[tool]: value}])
+    return f"{tool} {value!r}: {result.get('message') or result.get('status')} ({time.monotonic() - began:.1f} s)"
 
 
 class Desktop:
-    """The running program (Win_CUA.exe --serve) and what it sent last: the
-    picture of the second desktop, and the lines the page shows."""
+    """The second desktop for the page: its latest picture, taken every
+    FRAME_INTERVAL, and the lines the page shows."""
 
-    def __init__(self):
-        self.program = subprocess.Popen([str(PROGRAM), "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        cwd=ROOT)
+    def __init__(self, service):
+        self.service = service
+        self.sandbox = service.sandbox()
+        self.controller = agent_controller()
         self.fresh = threading.Condition()   # told of every new picture
         self.frame, self.number = b"", 0
         self.lock = threading.Lock()
         self.lines = []
-        threading.Thread(target=self.read, daemon=True).start()
+        self.closed = False
+        threading.Thread(target=self.watch, daemon=True).start()
 
-    def read(self):
-        """Every message of the program: a line "<kind> <bytes>", then that many bytes."""
-        out = self.program.stdout
-        while True:
-            head = out.readline().split()
-            if len(head) != 2:
-                break
-            data = out.read(int(head[1]))
-            if head[0] == b"frame":
-                with self.fresh:
-                    self.frame, self.number = data, self.number + 1
-                    self.fresh.notify_all()
-            else:
-                self.say(data.decode("utf-8", "replace"))
+    def watch(self):
+        """A picture of the second desktop every FRAME_INTERVAL, as a JPEG the page can show."""
+        while not self.closed:
+            try:
+                packed = io.BytesIO()
+                self.sandbox.shot().save(packed, format="JPEG", quality=85)
+            except Exception as e:
+                self.say(f"no picture: {e}")
+                return
+            with self.fresh:
+                self.frame, self.number = packed.getvalue(), self.number + 1
+                self.fresh.notify_all()
+            time.sleep(FRAME_INTERVAL)
 
     def say(self, text):
         with self.lock:
             self.lines.append(text)
             del self.lines[:-50]
 
-    def run(self, command):
-        """Start a command line on the second desktop."""
-        try:
-            with self.lock:
-                self.program.stdin.write(b"run " + command.encode("utf-8") + b"\n")
-                self.program.stdin.flush()
-        except OSError:
-            self.say("the program is not running any more")
+    def call(self, tool, value):
+        """A tool call from the page, and a line on how it went."""
+        self.say(f"{tool} {value!r} ...")
+        self.say(call(self.controller, tool, value))
 
     def close(self):
-        """The program ends when its stdin closes, and every app on the second desktop with it."""
-        try:
-            self.program.stdin.close()
-            self.program.wait(timeout=10)
-        except Exception:
-            self.program.kill()
+        """Every app on the second desktop ends with it."""
+        self.closed = True
+        self.service.stop()
 
 
 def page_server(desktop, token):
@@ -198,7 +222,7 @@ def page_server(desktop, token):
 
         def live(self):
             """The pictures, each sent to the page as one WebSocket message the
-            moment it comes from the program."""
+            moment it is taken."""
             key = self.headers["Sec-WebSocket-Key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
             self.send_response(101, "Switching Protocols")
             self.send_header("Upgrade", "websocket")
@@ -216,7 +240,15 @@ def page_server(desktop, token):
                     if number == sent:
                         self.wfile.write(b"\x89\x00")   # nothing new: a ping, which fails once the page is gone
                     else:
-                        self.wfile.write(b"\x82\x7f" + struct.pack(">Q", len(frame)) + frame)
+                        # The length in its shortest form: a browser closes the connection on any other.
+                        size = len(frame)
+                        if size < 126:
+                            length = bytes([size])
+                        elif size < 65536:
+                            length = b"\x7e" + struct.pack(">H", size)
+                        else:
+                            length = b"\x7f" + struct.pack(">Q", size)
+                        self.wfile.write(b"\x82" + length + frame)
                         sent = number
             except OSError:
                 pass   # the page closed
@@ -235,21 +267,12 @@ def page_server(desktop, token):
 
         def do_POST(self):
             body = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8", "replace")
-            if self.path == f"/{token}/run" and body.strip():
-                # From this file's other half: a Store app's program file, for the sandbox's program to start.
-                desktop.run(" ".join(body.splitlines()).strip())
-                self.reply(204)
-                return
-            text = " ".join(body.split())[:300]
-            if self.path == f"/{token}/open" and text:
-                # This file's other half, started on the second desktop, opens the app there.
-                tell = f"http://127.0.0.1:{self.server.server_address[1]}/{token}/said"
-                desktop.say(f"opening {text!r} ...")
-                desktop.run(subprocess.list2cmdline(
-                    [str(PYTHONW), str(Path(__file__).resolve()), "--open", text, "--tell", tell]))
-                self.reply(204)
-            elif self.path == f"/{token}/said" and text:
-                desktop.say(text)
+            tool = self.path.rpartition("/")[2]
+            # Text to type goes as it is; a name or keys with their spaces tidied.
+            text = body[:300] if tool == "typewrite" else " ".join(body.split())[:300]
+            if self.path == f"/{token}/call/{tool}" and tool in TOOLS and text.strip():
+                # On a thread of its own: the page gets its answer at once, and the line when the call is done.
+                threading.Thread(target=desktop.call, args=(tool, text), daemon=True).start()
                 self.reply(204)
             else:
                 self.reply(404)
@@ -257,11 +280,11 @@ def page_server(desktop, token):
     return ThreadingHTTPServer(("127.0.0.1", 0), Handler)
 
 
-def show():
-    """The window: the second desktop live, and the field that opens an app on it."""
+def show(service):
+    """The window: the second desktop live, and the tool call under it."""
     import webview   # pywebview
 
-    desktop = Desktop()
+    desktop = Desktop(service)
     token = secrets.token_urlsafe(8)
     server = page_server(desktop, token)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -275,99 +298,67 @@ def show():
     return 0
 
 
-def store_app_program(app_id):
-    """The program file of a Store app, from its Start menu id (family!app).
-    None when the app is not an ordinary Windows program in a package: that
-    kind only runs on the main desktop."""
-    import ctypes
-    import xml.etree.ElementTree as ET
-
-    family, _, app = app_id.partition("!")
-    kernel32 = ctypes.WinDLL("kernel32")
-    count, length = ctypes.c_uint32(0), ctypes.c_uint32(0)
-    kernel32.GetPackagesByPackageFamily(family, ctypes.byref(count), None, ctypes.byref(length), None)
-    if not count.value:
-        return None
-    names = (ctypes.c_wchar_p * count.value)()
-    text = ctypes.create_unicode_buffer(length.value)
-    if kernel32.GetPackagesByPackageFamily(family, ctypes.byref(count), names, ctypes.byref(length), text):
-        return None
-    for full_name in names:
-        size = ctypes.c_uint32(0)
-        kernel32.GetPackagePathByFullName(full_name, ctypes.byref(size), None)
-        folder = ctypes.create_unicode_buffer(size.value)
-        if kernel32.GetPackagePathByFullName(full_name, ctypes.byref(size), folder):
-            continue
-        try:
-            root = ET.parse(Path(folder.value) / "AppxManifest.xml").getroot()
-        except (OSError, ET.ParseError):
-            continue
-        for entry in root.iter():
-            if entry.tag.endswith("}Application") and entry.get("Id") == app:
-                ordinary = entry.get("EntryPoint") == "Windows.FullTrustApplication" or any(
-                    key.endswith("}RuntimeBehavior") and value in ("packagedClassicApp", "win32App")
-                    for key, value in entry.attrib.items())
-                program = entry.get("Executable")
-                return str(Path(folder.value) / program) if ordinary and program else None
-    return None
+def debug_file(name):
+    """Where a picture is saved: the debug folder at the root, under the file
+    name given (a folder in it is dropped)."""
+    DEBUG.mkdir(exist_ok=True)
+    return DEBUG / Path(name).name
 
 
-def open_there(name, tell):
-    """Runs on the second desktop, started there by the page: the agent's own
-    open_app tool for Windows opens `name`, and the page is told how it went.
-
-    One step of the tool is replaced here. A Store app it starts by its Start
-    menu id, and then it is Windows that starts the app, on the main desktop
-    (seen: Notepad and ChatGPT came up on the owner's screen). Here the app's
-    own program file is started instead, by the sandbox's program: that puts
-    it on the second desktop, and ends it when the window closes."""
-    import importlib.util
-    import urllib.request
-
-    # straight to this PC, whatever proxy Windows is set to use
-    direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    began = time.monotonic()
-    on_main = []
+def once(service, calls, shot, scan, wait):
+    """Make the tool calls in order, a second apart, give the apps `wait`
+    seconds, then save a picture or the agent's scan."""
     try:
-        spec = importlib.util.spec_from_file_location("open_app", OPEN_APP)
-        tool = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(tool)
-        tool_launch = tool.launch_windows_target
-
-        def launch(app, target):
-            program = store_app_program(target[5:]) if target.startswith("appx:") else None
-            if program:
-                command = subprocess.list2cmdline([program])
-                direct.open(tell.rsplit("/", 1)[0] + "/run", data=command.encode("utf-8"), timeout=5).close()
-                return True
-            if target.startswith("appx:"):
-                on_main.append(app)
-            return tool_launch(app, target)
-
-        tool.launch_windows_target = launch
-        result = tool.open_on_windows(name) or "no app of that name, or it did not start"
-        if on_main and result == "launched":
-            result = "launched on your main desktop (this kind of Store app cannot run on the second one)"
-    except Exception as e:
-        result = f"failed: {e!r}"
-    text = f"open_app {name!r}: {result} ({time.monotonic() - began:.1f} s)"
-    direct.open(tell, data=text.encode("utf-8"), timeout=5).close()
+        sandbox = service.sandbox()
+        controller = agent_controller()
+        for tool, value in calls:
+            print(call(controller, tool, value), flush=True)
+            time.sleep(1)
+        time.sleep(wait)
+        if shot:
+            path = debug_file(shot)
+            sandbox.shot().save(path)
+            print(f"picture of the second desktop: {path}")
+        if scan:
+            scanner = service.SandboxScanner()
+            scanner.scan_elements()
+            tree, picture, _ = scanner.get_scan_data()
+            path = debug_file(scan)
+            with io.BytesIO(base64.b64decode(picture)) as packed:
+                from PIL import Image
+                Image.open(packed).save(path)
+            print(tree)
+            print(f"the agent's scan, {len(scanner.get_elements_mapping())} elements numbered on {path}")
+    finally:
+        service.stop()
     return 0
 
 
 def main():
     if sys.platform != "win32":
-        raise SystemExit("Win_CUA is for Windows only")
+        raise SystemExit("this second desktop is for Windows only")
+    sys.stdout.reconfigure(errors="replace")    # cp1252 when piped on Windows: a scanned name or a typed text can hold any character
     args = sys.argv[1:]
-    if len(args) == 4 and args[0] == "--open" and args[2] == "--tell":
-        return open_there(args[1], args[3])
-    build()
-    if not args:
-        return show()
-    try:
-        return subprocess.call([str(PROGRAM), *args], cwd=ROOT)
-    except KeyboardInterrupt:   # Ctrl+C ended the program too, and with it every app on the second desktop
-        return 130
+    tools = {"--open": "open_app", "--type": "typewrite", "--key": "hotkey"}
+    calls, shot, scan, wait = [], None, None, 3.0
+    while args:
+        option = args.pop(0)
+        if option in (*tools, "--shot", "--scan", "--wait") and args:
+            value = args.pop(0)
+            if option in tools:
+                calls.append((tools[option], value))
+            elif option == "--shot":
+                shot = value
+            elif option == "--scan":
+                scan = value
+            else:
+                wait = float(value)
+        else:
+            raise SystemExit(f"unknown option, or one with no value: {option}\n\n{__doc__}")
+    service = sandbox_service()
+    if not (calls or shot or scan):
+        return show(service)
+    return once(service, calls, shot, scan, wait)
 
 
 if __name__ == "__main__":
