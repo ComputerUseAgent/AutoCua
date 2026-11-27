@@ -17,7 +17,7 @@ build-backend = "maturin"
 
 [project]
 name = "AutoCua"
-version = "3.0.0"
+version = "3.1.0"
 description = "AutoCua: an AI agent that operates your computer, shell, browser and iPhone"
 readme = "README.md"
 requires-python = ">=3.10"
