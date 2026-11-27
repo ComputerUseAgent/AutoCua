@@ -90,7 +90,7 @@ const TOOL_LISTS: [&str; 7] = [
 ];
 
 /// _PROVIDER_CLASSES: each provider and the class its service.py holds.
-const PROVIDER_CLASSES: [(&str, &str); 11] = [
+const PROVIDER_CLASSES: [(&str, &str); 12] = [
     ("openrouter", "OpenRouterProvider"),
     ("groq", "GroqProvider"),
     ("openai", "OpenAIProvider"),
@@ -101,6 +101,7 @@ const PROVIDER_CLASSES: [(&str, &str); 11] = [
     ("cerebras", "CerebrasProvider"),
     ("requesty", "RequestyProvider"),
     ("aws", "AWSProvider"),
+    ("hcompany", "HCompanyProvider"),
     ("ollama", "OllamaProvider"),
 ];
 
@@ -1193,6 +1194,10 @@ fn build_provider<'py>(args: &Bound<'py, PyTuple>, kwargs: Option<&Bound<'py, Py
     if is("aws")? {
         let missing = "AWS API key not provided, not in .env, and not saved in the app's Settings";
         return keyed(py, "aws", "AWS_API_KEY", missing, &api_key, positional);
+    }
+    if is("hcompany")? {
+        let missing = "H Company API key not provided, not in .env, and not saved in the app's Settings";
+        return keyed(py, "hcompany", "HCOMPANY_API_KEY", missing, &api_key, positional);
     }
     if is("ollama")? {
         // A model on this machine (or the Ollama at OLLAMA_HOST) needs no

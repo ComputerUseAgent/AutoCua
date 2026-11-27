@@ -87,6 +87,7 @@ const PROVIDERS: [string, string, string, string][] = [
     ['cerebras', 'https://cloud.cerebras.ai', 'Cerebras', 'csk-...'],
     ['requesty', 'https://app.requesty.ai/api-keys', 'Requesty', 'Enter API key...'],
     ['aws', 'https://console.aws.amazon.com/bedrock/home#/api-keys', 'AWS', 'ABSK...'],
+    ['hcompany', 'https://platform.hcompany.ai/settings/api-keys', 'H Company', 'hk-...'],
     ['google', 'https://aistudio.google.com/apikey', 'Google', 'AIza...'],
     ['specstream', 'https://specstream.ai/workspace/keys', 'SpecStream', 'Enter API key...'],
 ];

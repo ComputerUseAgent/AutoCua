@@ -913,6 +913,10 @@ def get_llm_providers():
             aws_models = importlib.import_module(f"{base}.aws.view").MODEL_MAPPINGS
         except ModuleNotFoundError:
             aws_models = None
+        try:
+            hcompany_models = importlib.import_module(f"{base}.hcompany.view").MODEL_MAPPINGS
+        except ModuleNotFoundError:
+            hcompany_models = None
         # Ollama lists the models pulled on this machine (listed_models asks
         # it), so any failure there, not only a missing module, must drop
         # just this provider.
@@ -944,6 +948,8 @@ def get_llm_providers():
             providers.append({'id': 'requesty', 'name': 'requesty', 'models': format_models(requesty_models)})
         if aws_models:
             providers.append({'id': 'aws', 'name': 'aws', 'models': format_models(aws_models)})
+        if hcompany_models:
+            providers.append({'id': 'hcompany', 'name': 'hcompany', 'models': format_models(hcompany_models)})
         if ollama_models:
             providers.append({'id': 'ollama', 'name': 'ollama', 'models': format_models(ollama_models)})
         return providers
@@ -963,6 +969,7 @@ PROVIDER_KEY_MAP = {
     'cerebras': 'CEREBRAS_API_KEY',
     'requesty': 'REQUESTY_API_KEY',
     'aws': 'AWS_API_KEY',
+    'hcompany': 'HCOMPANY_API_KEY',
     # Web-search key for the `web` tool on providers without native search (not an LLM provider).
     'specstream': 'SPECSTREAM_API_KEY',
 }

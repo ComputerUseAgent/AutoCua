@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
         cerebras: null,
         requesty: null,
         aws: null,
+        hcompany: null,
         ollama: null,
         specstream: null
     };
@@ -440,7 +441,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const input = row.querySelector('.settings-provider-input');
         const deleteBtn = row.querySelector('.settings-delete-btn');
         const provider = row.dataset.provider;
-        const placeholders = { openrouter: 'sk-or-...', groq: 'gsk_...', openai: 'sk-...', anthropic: 'sk-ant-...', google: 'AIza...', cerebras: 'csk-...', aws: 'ABSK...' };
+        const placeholders = { openrouter: 'sk-or-...', groq: 'gsk_...', openai: 'sk-...', anthropic: 'sk-ant-...', google: 'AIza...', cerebras: 'csk-...', aws: 'ABSK...', hcompany: 'hk-...' };
         input.value = '';
         input.placeholder = placeholders[provider] || 'Enter API key...';
         input.disabled = false;

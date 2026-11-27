@@ -150,6 +150,16 @@ claude-sonnet-4.6         low       medium    yes
 
 
 --------------------------------------------------------------
+provider="hcompany"
+--------------------------------------------------------------
+model name                thinking  coder     vision
+--------------------------------------------------------------
+holo4-27b                 default   default   yes
+holo4-35b-a3b             default   default   yes
+holo3-1-35b-a3b           default   default   yes
+
+
+--------------------------------------------------------------
 provider="ollama"   (on this machine: no API key; OLLAMA_HOST to point
                      elsewhere. Any model `ollama list` shows works if it
                      has tools and vision in `ollama show <model>`)
@@ -162,5 +172,5 @@ ornith-1.5:35b            none      medium    yes
 
 
 --------------------------------------------------------------
-63 models across 11 providers.
+66 models across 12 providers.
 --------------------------------------------------------------
