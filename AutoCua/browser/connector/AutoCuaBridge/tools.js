@@ -132,6 +132,14 @@ function toolsErr(e) {
   return String((e && e.message) || e);
 }
 
+/// How long the setup after an attach (Page.enable, focus emulation) may hold up the call
+/// that asked for it. Both wait for the page's main thread: on a page busy with a long
+/// loop they stayed unanswered for as long as it was busy, and then while the alert it
+/// opened was up (measured: activate unanswered after 30 s; 0-13 ms on other pages), and
+/// the call that attached waited with them: activate, new_tab, or the scan's picture
+/// through the debugger.
+const TOOLS_ATTACH_MS = 2000;
+
 /// Attach the debugger to a tab once, and turn on what browser.rs turns on per session
 /// (Cdp::attach): Page events, so navigations and dialogs are heard, and focus emulation,
 /// so a tab driven in the background believes it is focused.
@@ -157,8 +165,15 @@ async function toolsAttach(tabId) {
       }
     }
     toolsAttached.add(tabId);
-    await chrome.debugger.sendCommand({ tabId }, "Page.enable").catch(() => {});
-    await chrome.debugger.sendCommand({ tabId }, "Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => {});
+    // Past TOOLS_ATTACH_MS both stay on their way and the call goes on: Chrome carries
+    // them out once the page is free, and dialogs are heard meanwhile (measured: an alert
+    // opened at the end of an 8 s loop reached the agent side with Page.enable still
+    // unanswered).
+    const setup = (async () => {
+      await chrome.debugger.sendCommand({ tabId }, "Page.enable").catch(() => {});
+      await chrome.debugger.sendCommand({ tabId }, "Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => {});
+    })();
+    await elementWithin(setup, TOOLS_ATTACH_MS, () => {});
   })();
   toolsAttaching.set(tabId, p);
   try {
@@ -903,18 +918,18 @@ async function toolsHistory(tabId, delta) {
 /// (single_tab) never puts it on show: two tabs, and an empty page to look at (measured
 /// on Windows, Chrome 157, which stayed running with no window after its last one was
 /// closed, so closing the window between two runs was enough).
-async function toolsWindow(url) {
+async function toolsWindow(url, full) {
   for (let i = 0; i < 12; i++) {
     const all = await chrome.windows.getAll({ windowTypes: ["normal"] }).catch(() => []);
     const front = all.find((w) => w.focused) || all[0];
     if (front) {
-      await toolsNotWholeScreen(front);
+      await toolsNotWholeScreen(front, full);
       return { id: front.id, tab: null };
     }
     await toolsSleep(250);
   }
   const made = await chrome.windows.create({ url: url || "about:blank", focused: true, type: "normal" });
-  await toolsNotWholeScreen(made);
+  await toolsNotWholeScreen(made, full);
   return { id: made.id, tab: (made.tabs || [])[0] || null };
 }
 
@@ -930,9 +945,23 @@ async function toolsWindowId() {
 /// (the person's), or at TOOLS_WINDOW_SHARE of the screen, centred, when that is the
 /// whole screen too. A window the person sized is left as it is. Once per worker, so a
 /// person who maximises it during a run keeps it. Best-effort: it never fails a tool.
+///
+/// `full` is the run's own word (run_agent(fullscreen=True): browser.rs `fullscreen`, on
+/// every new_tab and on the tab put on show). It asks the other way: the system's own
+/// full screen, on whatever display the window is on, so no size is named. The window
+/// has it for as long as that run is on: nothing here places it meanwhile (the cover, an
+/// agent beside it without the flag), and it goes back to a window when the last agent
+/// lets go (toolsWindowBack), so the next run, and Chrome's next start, find a window.
 const TOOLS_WINDOW_SHARE = { width: 0.76, height: 0.96 };
 let toolsWindowPlaced = false;
-async function toolsNotWholeScreen(win) {
+let toolsWindowFull = null; // the id of the window a run put in full screen
+async function toolsNotWholeScreen(win, full) {
+  if (full === true && win) {
+    toolsWindowFull = win.id;
+    if (win.state !== "fullscreen") await chrome.windows.update(win.id, { state: "fullscreen" }).catch(() => {});
+    return;
+  }
+  if (toolsWindowFull !== null) return;
   if (toolsWindowPlaced || !win) return;
   toolsWindowPlaced = true;
   if (win.state !== "maximized" && win.state !== "fullscreen") return;
@@ -965,11 +994,19 @@ async function toolsNotWholeScreen(win) {
   }
 }
 
+/// toolsLetGo, the last agent to go: the window a run put in full screen is a window again.
+async function toolsWindowBack() {
+  const id = toolsWindowFull;
+  if (id === null) return;
+  toolsWindowFull = null;
+  await chrome.windows.update(id, { state: "normal" }).catch(() => {});
+}
+
 /// browser.rs open_tab_impl(): a tab in the background, so the browser stays where the
 /// person left it. The caller shows it (activate) and navigates it. In a browser with no
 /// window, the tab is the one its new window comes with (toolsWindow).
-async function toolsNewTab(url, line) {
-  const win = await toolsWindow(url);
+async function toolsNewTab(url, line, full) {
+  const win = await toolsWindow(url, full);
   const tab = win.tab || await chrome.tabs.create({ url: url || "about:blank", active: false, windowId: win.id });
   toolsOurs.set(tab.id, line || null);
   if (!toolsUnreachable(tab.url || tab.pendingUrl || url)) await toolsAttach(tab.id).catch(() => {});
@@ -978,8 +1015,13 @@ async function toolsNewTab(url, line) {
 
 /// browser.rs show_tab(): put the tab on show in its window, without bringing the window
 /// forward; the debugger goes on it now, so dialogs are heard from the start.
-async function toolsActivate(tabId, waitLoad, line) {
+async function toolsActivate(tabId, waitLoad, line, full) {
   const tab = await chrome.tabs.update(tabId, { active: true });
+  // run_agent(fullscreen=True): a blank tab taken over never passed new_tab, so the tab
+  // put on show asks too (toolsNotWholeScreen). Without the flag nothing is asked here.
+  if (full === true) {
+    await toolsNotWholeScreen(await chrome.windows.get(tab.windowId).catch(() => null), true);
+  }
   toolsOurs.set(tabId, line || toolsOurs.get(tabId) || null);
   if (!toolsUnreachable(tab.url || tab.pendingUrl)) await toolsAttach(tabId).catch(() => {});
   if (waitLoad && tab.status === "loading") await toolsWaitStatus(tabId);
@@ -1318,9 +1360,12 @@ function toolsWatchScan(tabId) {
   };
   arm(TOOLS_SCAN_STUCK_MS);
   return {
+    // Once stopped (the scan answered), a read still running asks nothing and opens
+    // nothing again.
     ahead() {
+      if (stopped) return;
       toolsAnswers(tabId, TOOLS_FROZEN_MS + TOOLS_PROBE_MS).then((answered) => {
-        if (!answered && !toolsDialogs.has(tabId)) toolsReopen(tabId, "froze").catch(() => {});
+        if (!answered && !stopped && !toolsDialogs.has(tabId)) toolsReopen(tabId, "froze").catch(() => {});
       });
     },
     back: () => arm(TOOLS_FROZEN_MS),
@@ -1339,6 +1384,22 @@ const TOOLS_SCAN_BUDGET_MS = 30000;
 /// How long a scan waits for one page to load before it reads what is there anyway.
 const TOOLS_SCAN_LOAD_MS = 10000;
 const TOOLS_PAGE_LEFT = Symbol("page left");
+/// How long a scan may take in all before it answers with what it was still waiting for
+/// (background.js), under the agent side's 40 s. The agent side then gets a named error
+/// instead of "no answer from AutoCuaBridge in 40s" (measured before: a picture and a
+/// frame that never came back), and the run still ends on it unless browser.rs takes one
+/// more try. One read of a web page ends by about 30.2 s at worst: its load 11.1 s,
+/// settle 3.06 s, then the longer of the frames' 10 s plus the page alone's 5 s, and the
+/// picture's 4 s plus the debugger's 12 s. This deadline answers for what can run longer:
+/// a page change during the read (a fresh load wait), the debugger's read after a late
+/// "Cannot access" (up to 22 s more), chrome.debugger.attach itself (no limit of its
+/// own), a tab in the background whose picture failed, which background.js puts on show
+/// and reads again (0.3 s, then a second read of up to 30.2 s), and a read that ran out
+/// of time, after which background.js asks for up to 5 s whether the page answers and
+/// then opens it again, so the "reopened" notice can come after this answer.
+const TOOLS_SCAN_DEADLINE_MS = 35000;
+/// How the error of a scan that ran out of that time begins.
+const TOOLS_SCAN_LATE = "scan ran out of time";
 
 /// The owner's rule for a scan: read the page once it has loaded, never across a page
 /// change. A tab with a new page on its way (a click that submitted a form) is waited
@@ -1348,13 +1409,20 @@ const TOOLS_PAGE_LEFT = Symbol("page left");
 /// mid-read (a cross-site ad frame still waiting for its parent) never answers, so the
 /// read never came back and the agent gave up after 40 s (measured: 4 of 8 such scans
 /// hung, 0 of 12 with that cache off, 0 of 12 with no cross-site frames). A page that
-/// stops answering is toolsWatchScan's (5 s, then opened again).
-async function toolsScanLoaded(tabId, scan) {
+/// stops answering is toolsWatchScan's (5 s, then opened again). `stage.at` is kept on
+/// what the scan is waiting for, and once `stage.late` is set (background.js answered at
+/// its deadline) no new read is started.
+async function toolsScanLoaded(tabId, scan, stage = {}) {
   const until = Date.now() + TOOLS_SCAN_BUDGET_MS;
   for (;;) {
+    if (stage.late) throw new Error("the scan was answered already");
+    stage.at = "the page to load";
     await toolsPageLoaded(tabId, until);
     const left = toolsPageLeaves(tabId);
-    const read = scan(await chrome.tabs.get(tabId));
+    // Asked inside the race below, so the page-change listeners come off even when the
+    // tab is gone. A page that left while the tab was asked for is not read: that read
+    // would start already let go, and set what the scan waits for.
+    const read = chrome.tabs.get(tabId).then((tab) => (left.happened ? TOOLS_PAGE_LEFT : scan(tab)));
     let outcome;
     try {
       outcome = await Promise.race([read, left.promise]);
@@ -1366,6 +1434,8 @@ async function toolsScanLoaded(tabId, scan) {
     }
     if (outcome !== TOOLS_PAGE_LEFT) return outcome;
     read.catch(() => {}); // it ends, if ever, only when that page comes back
+    // That read stops at its next step (element.js elementScan).
+    stage.turn = (stage.turn || 0) + 1;
     if (Date.now() >= until) throw new Error("scan failed: the page kept moving on to new pages");
   }
 }
@@ -1557,6 +1627,7 @@ async function toolsLetGo(line, last = true) {
   try {
     await toolsLetGoNow(line, last);
   } finally {
+    if (last) await toolsWindowBack();
     for (const [id, l] of [...toolsOurs]) {
       if (l === line || last) toolsOurs.delete(id);
     }
@@ -1773,10 +1844,10 @@ async function toolsHandle(msg, line) {
       return { status: (await chrome.tabs.get(tab.id)).status };
     }
     case "new_tab":
-      return toolsNewTab(msg.url ? String(msg.url) : "", line);
+      return toolsNewTab(msg.url ? String(msg.url) : "", line, msg.fullscreen);
     case "activate": {
       const tab = await toolsTab(msg);
-      return toolsActivate(tab.id, !!msg.wait_load, line);
+      return toolsActivate(tab.id, !!msg.wait_load, line, msg.fullscreen);
     }
     case "close_tab": {
       const tab = await toolsTab(msg);

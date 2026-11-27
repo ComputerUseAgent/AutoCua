@@ -84,6 +84,44 @@ const ELEMENT_NEVER_WAIT_FOR = new Set(["main_frame", "sub_frame", "media", "pin
 // could not be injected. On an ordinary page it is answered within a few ms, even
 // while that ancestor is still reading a long page.
 const ELEMENT_FRAME_WAIT_MS = 2000;
+// How long the read of every frame at once may take. That one call ends only when the
+// last frame has run the script, and a frame whose page is busy (a cross-site ad in a
+// loop, or a frame that shares its process with a busy one in another tab) held it for
+// as long as it stayed busy, past the agent side's 40 s (measured: a 60 s busy
+// cross-site frame, a hidden 1x1 one, and on allrecipes.com an ad's user-sync frame that
+// stopped answering: no answer in 45 s). A healthy read took 3.7 s at most (measured
+// on weather.com, 194-240 frames). Past this the page is read alone instead, which costs
+// two things: every frame of another origin is counted as skipped, the ones that had
+// answered too, and a page whose frame stays busy pays this wait on every scan (measured:
+// 10.1 s each, three scans in a row). Before, such a scan never answered at all.
+const ELEMENT_READ_MS = 10000;
+// How long the page alone then gets: a page silent for 5 s froze by the owner's rule
+// (tools.js TOOLS_FROZEN_MS), and its own read is far shorter (measured: 0-6 ms on the
+// test pages, 10-27 ms on allrecipes.com, 378 ms on a table of 20000 rows).
+const ELEMENT_PAGE_READ_MS = 5000;
+// How long Chrome's own picture of the tab on show may take before it is taken another
+// way (tools.js: through the debugger). It comes back in 6-58 ms (measured, 227
+// captures), but never when the tab had just moved to a PDF in a window fully covered by
+// another (Chrome 158 on macOS, 9 of 9), while a debugger capture took 25-58 ms then and
+// let the stuck one go. 4 s is far past any healthy capture and still leaves the debugger
+// its own 10 s alongside the read.
+const ELEMENT_SHOT_MS = 4000;
+
+// `work`, or what `late()` gives once `ms` have passed without it. The timer is cleared
+// either way, and a late answer from `work` is dropped.
+function elementWithin(work, ms, late) {
+  let timer = null;
+  const timeUp = new Promise((resolve, reject) => {
+    timer = setTimeout(() => {
+      try {
+        resolve(late());
+      } catch (e) {
+        reject(e);
+      }
+    }, ms);
+  });
+  return Promise.race([work, timeUp]).finally(() => clearTimeout(timer));
+}
 
 // ============================================================ config
 
@@ -1267,31 +1305,62 @@ async function elementDrawMarks(jpegB64, marks) {
 
 // ============================================================ one scan
 
+// The picture of the tab on show: Chrome's own capture or, when that fails or has not
+// come back within ELEMENT_SHOT_MS, the caller's other way. Resolves with the data URL,
+// or with the error when there is no picture.
+function elementShot(tab, fallback) {
+  const own = chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 75 });
+  return elementWithin(own, ELEMENT_SHOT_MS, () => {
+    throw new Error(`Chrome's capture did not answer in ${ELEMENT_SHOT_MS / 1000} s`);
+  })
+    .catch((e) => e)
+    .then((shot) => (typeof shot === "string" || !fallback ? shot : fallback.capture(tab).catch((e) => e)));
+}
+
 // Settle, read every frame of the tab while photographing it, then assemble.
 // `opts.overlay` is merged over the defaults the way element.config.json is;
 // `opts.marks` false skips the marks; `opts.screenshot` false skips the picture.
+// `opts.stage.at`, when given, is kept on what the scan is waiting for (background.js
+// names it when a scan runs out of time), and only the scan's latest read sets it. A
+// read that tools.js toolsScanLoaded let go when its page left, and a read still going
+// once background.js has answered at its deadline (`opts.stage.late`), stop at their
+// next step and start no new read or picture. A read sent into the page then takes the
+// top frame's hello listener from the scan's current read (measured: a let-go read went
+// page alone inside the new page at 10 s, and the current read then skipped its
+// cross-site frames and answered partial, 2 s later). A picture already on its way can
+// still turn to the debugger (elementShot).
 async function elementScan(tab, opts = {}) {
+  const turn = opts.stage ? (opts.stage.turn = (opts.stage.turn || 0) + 1) : 0;
+  const at = (what) => {
+    if (opts.stage && opts.stage.late) throw new Error("the scan was answered already");
+    if (opts.stage && opts.stage.turn !== turn) throw new Error("the read was let go");
+    if (opts.stage) opts.stage.at = what;
+  };
   const t0 = performance.now();
+  at("the page to settle");
   const settled = await elementSettle(tab.id);
   const base = elementMerge(structuredClone(ELEMENT_DEFAULT_CONFIG), opts.overlay || {});
   const cfg = elementConfigFor(base, tab.url || "");
   const a = performance.now();
+  at("the read of the page");
   // The picture is taken while the frames are read, so pixels and geometry are from
   // one moment (element.rs captures right behind the root document's snapshot). The tab
   // on show is Chrome's own capture; a tab in the background is photographed another way
   // when the caller has one (tools.js: through the debugger, as element.rs photographs
   // any tab), so the scan never has to bring it to the front.
-  const shotP = opts.screenshot === false ? null
-    : tab.active ? chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 75 }).catch((e) => e)
+  const photo = () => (tab.active ? elementShot(tab, opts.fallback)
     : opts.fallback ? opts.fallback.capture(tab).catch((e) => e)
-    : null;
+    : null);
+  const shotP = opts.screenshot === false ? null : photo();
+  let again = null;
+  let partial = false;
   let results = null;
   let failure = null;
   const scan = { nonce: `${Date.now()}.${Math.random()}`, wait_ms: ELEMENT_FRAME_WAIT_MS };
   // tools.js toolsWatchScan: told just ahead of the read, and when the read is back.
   if (opts.watch) opts.watch.ahead();
   try {
-    results = await chrome.scripting.executeScript({
+    const all = chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
       // Into every frame as it is now. Without this Chrome runs the script in a frame
       // only once its document goes idle, and one that never does (an ad slot's
@@ -1301,6 +1370,36 @@ async function elementScan(tab, opts = {}) {
       func: elementScanPage,
       args: [cfg, scan],
     });
+    // A frame that never runs the script holds that call, and the freeze watch cannot
+    // see it (it asks the top frame). Past ELEMENT_READ_MS the page is read alone: its
+    // own records and the frames of its origin it reads inline, every other frame
+    // counted as skipped, as one Chrome could not inject into is.
+    results = await elementWithin(all, ELEMENT_READ_MS, () => null);
+    if (!results) {
+      at("the read of the page alone");
+      partial = true;
+      const page = chrome.scripting.executeScript({
+        target: { tabId: tab.id }, injectImmediately: true, func: elementScanPage, args: [cfg, scan],
+      });
+      // The picture again, beside this read: the first one is ELEMENT_READ_MS older, and
+      // a page that moved meanwhile put the marks on the wrong pixels (measured: a banner
+      // that came in 5 s into the read put a button's mark 300 px below the button, on
+      // white). Chrome's capture takes whatever tab the window shows, so the tab on show
+      // is taken again only while it still is: a tab that came to the front over it
+      // meanwhile (the person's, another agent's, one a page opened) was sent with this
+      // page's marks on it (measured: all of the picture was that tab). The first is used
+      // then, and when this one has not come back as a picture within ELEMENT_PAGE_READ_MS.
+      const retake = async () => {
+        const now = await chrome.tabs.get(tab.id);
+        if (opts.stage && opts.stage.late) return null;
+        if (tab.active && !(now.active && now.windowId === tab.windowId)) return null;
+        return photo();
+      };
+      if (shotP) again = elementWithin(retake().catch(() => null), ELEMENT_PAGE_READ_MS, () => null);
+      results = await elementWithin(page, ELEMENT_PAGE_READ_MS, () => {
+        throw new Error(`the read of the page timed out after ${(ELEMENT_READ_MS + ELEMENT_PAGE_READ_MS) / 1000} s`);
+      });
+    }
   } catch (e) {
     failure = e;
   }
@@ -1308,15 +1407,17 @@ async function elementScan(tab, opts = {}) {
   // the logo painted in) is read another way when the caller has one (tools.js:
   // through the debugger, top frame only).
   if (failure && opts.fallback && /Cannot access|error page/i.test(String((failure && failure.message) || failure))) {
+    at("the debugger's read of the page");
     results = await opts.fallback.read(tab, cfg, scan);
     failure = null;
   }
+  // Before the watch hears the read is back: a read that was let go stops here, so it
+  // cannot set the freeze timer of the scan's current read.
+  at("the picture of the tab");
   if (opts.watch) opts.watch.back();
   const scanMs = performance.now() - a;
-  let captured = shotP ? await shotP : null;
-  if (shotP && tab.active && typeof captured !== "string" && opts.fallback) {
-    captured = await opts.fallback.capture(tab).catch((e) => e);
-  }
+  const later = again ? await again : null;
+  const captured = typeof later === "string" ? later : shotP ? await shotP : null;
   if (failure) throw new Error(`scan failed: ${(failure && failure.message) || failure}`);
 
   // One result per frame Chrome could inject into; same-origin children answered
@@ -1355,11 +1456,20 @@ async function elementScan(tab, opts = {}) {
   let shotMs = 0;
   if (shotP) {
     const b = performance.now();
-    if (typeof captured !== "string") {
+    if (typeof captured === "string") {
+      plain = captured.slice(captured.indexOf(",") + 1);
+      at("the marks on the picture");
+      shot = opts.marks === false ? plain : await elementDrawMarks(plain, out.marks);
+    } else if (!tab.active || !opts.fallback || !(await chrome.tabs.get(tab.id).then(() => true, () => false))) {
+      // A tab in the background is put on show for Chrome's own capture (background.js),
+      // and a tab closed under the scan (a frozen one opened again) is followed by the
+      // agent side on this error (browser.rs scan_core).
       throw new Error(`screenshot failed: ${captured && captured.message ? captured.message : captured}`);
     }
-    plain = captured.slice(captured.indexOf(",") + 1);
-    shot = opts.marks === false ? plain : await elementDrawMarks(plain, out.marks);
+    // Otherwise neither way gave a picture of the tab on show: the read goes back
+    // without one, as the scan of one of Chrome's own pages does, and the agent side
+    // gives the model the tree alone for this step (browser.rs takes a scan with no
+    // picture; an error here would end the run).
     shotMs = performance.now() - b;
   }
   return {
@@ -1378,10 +1488,11 @@ async function elementScan(tab, opts = {}) {
     screenshot: shot,
     screenshot_plain: plain,
     // shot_ms is what the picture still cost once the frames were read: the capture
-    // ran alongside them, so this is mostly the marks.
+    // ran alongside them, so this is mostly the marks. `partial`: the page was read
+    // alone, past ELEMENT_READ_MS, so its frames of another origin count as skipped.
     timings: {
       settle_ms: settled, scan_ms: scanMs, page_ms: top.ms, frames: frames.length, shot_ms: shotMs,
-      total_ms: performance.now() - t0,
+      total_ms: performance.now() - t0, partial,
     },
   };
 }

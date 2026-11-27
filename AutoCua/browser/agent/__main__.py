@@ -43,6 +43,8 @@ def main():
                         help="Path to write the result JSON when complete")
     parser.add_argument("--browser-profile", type=str, default=None,
                         help="Named Chrome profile dir (default profile when omitted)")
+    parser.add_argument("--fullscreen", action="store_true",
+                        help="The browser window in the system's full screen")
     args = parser.parse_args()
 
     result = {"status": "error", "message": "child crashed before the agent returned"}
@@ -60,6 +62,7 @@ def main():
             session_id=args.session_id,
             single_tab=True,
             browser_profile=args.browser_profile,
+            fullscreen=args.fullscreen,
         )
         result = agent.process_request(args.task)
         exit_code = 0

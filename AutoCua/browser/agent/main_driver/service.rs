@@ -710,7 +710,7 @@ impl AgentService {
         text_callback=None, web_callback=None, shell_callback=None, cli_callback=None,
         tool_callback=None, token_callback=None, api_key=None, stop_event=None,
         prior_history=None, speed=None, headless=false, browser_port=None,
-        session_id=None, single_tab=false, browser_profile=None, **_extra))]
+        session_id=None, single_tab=false, browser_profile=None, fullscreen=false, **_extra))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         py: Python<'_>,
@@ -733,6 +733,7 @@ impl AgentService {
         session_id: Option<String>,
         single_tab: bool,
         browser_profile: Option<String>,
+        fullscreen: bool,
         _extra: Option<Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
         let _ = cli_callback;
@@ -819,6 +820,9 @@ impl AgentService {
             let scanner = BrowserScanner::create(&connector_dir, 0, frontend_callback, None, single_tab);
             if let Ok(mut inner) = scanner.inner.lock() {
                 inner.set_bridge(bridge);
+                // run_agent(fullscreen=True): the window in the system's full screen.
+                // Headless (below) has no screen, so the flag does nothing there.
+                inner.set_fullscreen(fullscreen);
             }
             Py::new(py, scanner)?
         } else {
@@ -2186,6 +2190,7 @@ impl AgentService {
                 match action_result.get("action").and_then(Value::as_str) {
                     Some("todo_created") => println!("Todo list created"),
                     Some("todo_updated") => println!("Todo task marked complete"),
+                    Some("todo_rewritten") => println!("Todo line replaced or removed"),
                     _ => {}
                 }
             } else {

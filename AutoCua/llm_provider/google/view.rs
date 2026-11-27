@@ -48,11 +48,19 @@ use Value::{Flag, Text};
 // in service.py so this table stays plain data; the value is coerced
 // case-insensitively, so "low" here is the same as the enum's LOW.
 //
-// Every model is pinned to `low`, but it means a different thing on each,
-// because their ladders and defaults differ:
+// Argon, Carbon and Hydrogen are set to `medium` (raised from `low` on
+// 2026-11-24, for the web agent), Neon to `xhigh` (raised from `high` on
+// 2026-11-26) and the Flash models to `low`. A level means a different
+// thing on each, because their ladders and defaults differ:
 //   gemini-4-argon          `low` accepted (probed 2026-11-04)
 //   gemini-4-carbon         low/medium/high (no `minimal` - it errors,
-//   gemini-4-hydrogen       probed 2026-11-14) -> floor
+//   gemini-4-hydrogen       probed 2026-11-14) -> one above floor
+//   gemini-4-neon           low/medium/high/xhigh (no `minimal`, probed
+//                           2026-11-25; xhigh 2026-11-26) -> top, set
+//                           at `xhigh`. The SDK's enum has no XHIGH: it
+//                           warns once ("xhigh is not a valid
+//                           ThinkingLevel") and sends it as is, and
+//                           the API takes it (a made-up level gets 400)
 //   gemini-3.6-flash        minimal/low/medium/high  default medium  -> one
 //                                                                      above
 //                                                                      floor
@@ -78,7 +86,7 @@ const MODEL_MAPPINGS: &[(&str, &[(&str, Value)])] = &[
         ("vision", Flag(true)),
         ("display_name", Text("Gemini 4 Argon")),
         ("vertex", Flag(false)),
-        ("thinking_level", Text("low")),
+        ("thinking_level", Text("medium")),
         ("coder_thinking_level", Text("medium")),
     ]),
     ("gemini-4-carbon", &[
@@ -86,7 +94,7 @@ const MODEL_MAPPINGS: &[(&str, &[(&str, Value)])] = &[
         ("vision", Flag(true)),
         ("display_name", Text("Gemini 4 Carbon")),
         ("vertex", Flag(false)),
-        ("thinking_level", Text("low")),
+        ("thinking_level", Text("medium")),
         ("coder_thinking_level", Text("medium")),
     ]),
     ("gemini-4-hydrogen", &[
@@ -94,8 +102,16 @@ const MODEL_MAPPINGS: &[(&str, &[(&str, Value)])] = &[
         ("vision", Flag(true)),
         ("display_name", Text("Gemini 4 Hydrogen")),
         ("vertex", Flag(false)),
-        ("thinking_level", Text("low")),
+        ("thinking_level", Text("medium")),
         ("coder_thinking_level", Text("medium")),
+    ]),
+    ("gemini-4-neon", &[
+        ("api_name", Text("gemini-4-neon")),
+        ("vision", Flag(true)),
+        ("display_name", Text("Gemini 4 Neon")),
+        ("vertex", Flag(false)),
+        ("thinking_level", Text("xhigh")),
+        ("coder_thinking_level", Text("high")),
     ]),
     ("gemini-3.6-flash", &[
         ("api_name", Text("gemini-3.6-flash")),
@@ -118,7 +134,7 @@ const MODEL_MAPPINGS: &[(&str, &[(&str, Value)])] = &[
         ("vision", Flag(true)),
         ("display_name", Text("Gemini 4 Argon (Vertex)")),
         ("vertex", Flag(true)),
-        ("thinking_level", Text("low")),
+        ("thinking_level", Text("medium")),
         ("coder_thinking_level", Text("medium")),
     ]),
     ("gemini-4-carbon-vertex", &[
@@ -126,7 +142,7 @@ const MODEL_MAPPINGS: &[(&str, &[(&str, Value)])] = &[
         ("vision", Flag(true)),
         ("display_name", Text("Gemini 4 Carbon (Vertex)")),
         ("vertex", Flag(true)),
-        ("thinking_level", Text("low")),
+        ("thinking_level", Text("medium")),
         ("coder_thinking_level", Text("medium")),
     ]),
     ("gemini-4-hydrogen-vertex", &[
@@ -134,8 +150,16 @@ const MODEL_MAPPINGS: &[(&str, &[(&str, Value)])] = &[
         ("vision", Flag(true)),
         ("display_name", Text("Gemini 4 Hydrogen (Vertex)")),
         ("vertex", Flag(true)),
-        ("thinking_level", Text("low")),
+        ("thinking_level", Text("medium")),
         ("coder_thinking_level", Text("medium")),
+    ]),
+    ("gemini-4-neon-vertex", &[
+        ("api_name", Text("gemini-4-neon")),
+        ("vision", Flag(true)),
+        ("display_name", Text("Gemini 4 Neon (Vertex)")),
+        ("vertex", Flag(true)),
+        ("thinking_level", Text("xhigh")),
+        ("coder_thinking_level", Text("high")),
     ]),
     ("gemini-3.6-flash-vertex", &[
         ("api_name", Text("gemini-3.6-flash")),

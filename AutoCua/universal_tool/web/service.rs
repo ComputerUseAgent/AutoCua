@@ -48,7 +48,7 @@ use super::web_agent::{web_search as web_agent_web_search, Failure};
 /// when SPECSTREAM_API_KEY is set, or to the browser agent on the same
 /// provider+model otherwise (see web_agent.rs). Explicit membership, not a
 /// catch-all: a typo'd provider must still fail fast below.
-const BROWSER_FALLBACK_PROVIDERS: [&str; 5] = ["together", "cerebras", "requesty", "aws", "ollama"];
+const BROWSER_FALLBACK_PROVIDERS: [&str; 6] = ["together", "cerebras", "requesty", "aws", "hcompany", "ollama"];
 
 // The answers, filled in by Python's str.format: each {} is written as an
 // f-string writes it, and {{ }} are the braces themselves.

@@ -111,6 +111,8 @@ def _bind_windows():
                        snapshot_turn, compression_dump, compression_entry,
                        _looks_native, SKIPPED_THINKING, REASONING_RESULT)
     from ..windows.tree.element import UIElementScanner, ELEMENT_CONFIG
+    # AutoCua SB's scanner: init picks it when the run's control is 'sandbox'
+    from ..CUA_Sandbox.windows.service import SandboxScanner
     from ..windows.controller import ControllerView
     from .skills import DomainKnowledgeService
     from .. import data_extraction

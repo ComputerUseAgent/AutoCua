@@ -10,11 +10,13 @@
 // (detail {mode, sub?}) sets the selection SILENTLY — used by chat.js for New
 // chat and a reopened chat's lock.
 //
-// Coder also shows an Auto / Manual pill right of the picker. Each real change
-// dispatches 'shellinput:changed' (detail {mode:'auto'|'manual'}); cli_stage.js gives
-// the terminal's prompt to you (Manual) or the agent (Auto). 'shellinput:set'
-// ({mode}) asks for one (the terminal turns Manual on when you click into it). The
-// value is mirrored as data-shell-input on #agentModeWrap and the composer.
+// Coder also has Auto / Manual, kept here and picked in the strip above the
+// chat box (chat_input/sb_toggle.js). Each real change dispatches
+// 'shellinput:changed' (detail {mode:'auto'|'manual'}); cli_stage.js gives the
+// terminal's prompt to you (Manual) or the agent (Auto). 'shellinput:set'
+// ({mode}) asks for one (the strip's picker, and the terminal, which turns
+// Manual on when you click into it). The value is mirrored as
+// data-shell-input on #agentModeWrap and the composer.
 (function () {
     'use strict';
 
@@ -54,12 +56,6 @@
 
         // Coder's Auto / Manual (always Auto outside Coder).
         var shellInput = 'auto';
-        var SI_LABEL = { auto: 'Auto', manual: 'Manual' };
-        var siBtn = wrap.querySelector('#shellInputBtn');
-        var siMenu = wrap.querySelector('#shellInputMenu');
-        var siChev = wrap.querySelector('#shellInputChev');
-        var siLabel = wrap.querySelector('#shellInputLabel');
-        var siOpts = siMenu ? siMenu.querySelectorAll('.agent-opt') : [];
 
         function paint() {
             opts.forEach(function (o) {
@@ -82,12 +78,6 @@
             curLabel.textContent = MODE_LABEL[state.mode];
             wrap.dataset.shellInput = shellInput;
             if (wrap.parentElement) wrap.parentElement.dataset.shellInput = shellInput;
-            if (siLabel) siLabel.textContent = SI_LABEL[shellInput];
-            Array.prototype.forEach.call(siOpts, function (o) {
-                var on = (o.dataset.input === shellInput);
-                o.classList.toggle('selected', on);
-                o.setAttribute('aria-checked', on ? 'true' : 'false');
-            });
             Array.prototype.forEach.call(wrapRows, function (w) {
                 w.classList.toggle('mode-locked', !!lockedMode && w.dataset.mode !== lockedMode);
             });
@@ -162,34 +152,6 @@
             if (open && !e.target.closest('.agent-mode-wrap')) setOpen(false);
         });
 
-        // The pill's menu: one menu open at a time (the picker closes), a row sets
-        // the value; Auto hands the chat box back.
-        var siOpen = false;
-        function setSiOpen(v) {
-            siOpen = v;
-            if (!siBtn) return;
-            siBtn.setAttribute('aria-expanded', v ? 'true' : 'false');
-            siMenu.classList.toggle('open', v);
-            siChev.style.transform = v ? 'rotate(180deg)' : 'rotate(0deg)';
-        }
-        if (siBtn) siBtn.addEventListener('click', function () { setOpen(false); setSiOpen(!siOpen); });
-        btn.addEventListener('click', function () { setSiOpen(false); });
-        Array.prototype.forEach.call(siOpts, function (o) {
-            o.addEventListener('click', function () {
-                var ci = document.querySelector('.chat-input');
-                setShellInput(o.dataset.input);
-                if (shellInput === 'auto' && ci && !ci.disabled) ci.focus();
-                // Manual again: no change to announce, but the prompt takes the focus back
-                // from this row (cli_stage.js answers the event)
-                else if (shellInput === 'manual') document.dispatchEvent(new CustomEvent('shellinput:changed', { detail: { mode: 'manual' } }));
-                setTimeout(function () { setSiOpen(false); }, 180);
-            });
-        });
-        // capture: the model picker and the skills icon stop their clicks' bubbling
-        document.addEventListener('click', function (e) {
-            if (siOpen && !e.target.closest('#shellInputWrap')) setSiOpen(false);
-        }, true);
-
         // While a run is ACTIVE the collapsed bar shouldn't say "Type your
         // task..." — it shows what the agent is running as instead, e.g.
         // "Agent mode: Computer use on This PC" / "Agent mode: Mobile use on
@@ -204,7 +166,6 @@
                 if (now === running) return;
                 running = now;
                 if (now) {
-                    setSiOpen(false);
                     idlePlaceholder = chatInput.placeholder;
                     var sub = state.subs[state.mode];
                     chatInput.placeholder = 'Agent mode: ' + MODE_LABEL[state.mode] +

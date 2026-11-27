@@ -74,6 +74,10 @@ const PROBE_FOR: Duration = Duration::from_secs(1);
 /// What a call into a page that froze answers (`Cdp::rpc`).
 const PAGE_FROZE: &str = "the page stopped answering (it froze)";
 
+/// How the extension's answer to a scan that ran out of its own time begins
+/// (AutoCuaBridge tools.js TOOLS_SCAN_LATE, sent before this side's 40 s run out).
+const SCAN_LATE: &str = "scan ran out of time";
+
 // The only CDP events anything in this crate ever waits on:
 //   Page.loadEventFired        - navigation, reload and history waits
 //   Network.requestWillBeSent  - settle()'s in-flight set
@@ -2546,6 +2550,12 @@ pub struct ScannerInner {
     /// killed, quit): headless or not, and its profile. Set by AgentService;
     /// None means this scanner never relaunches it (see `revive`).
     relaunch: Option<(bool, Option<PathBuf>)>,
+    /// Extension mode, run_agent(fullscreen=True): every new_tab, and the
+    /// tab put on show (show_tab: a blank tab taken over never passes
+    /// new_tab), asks the extension for the system's own full screen
+    /// (tools.js toolsNotWholeScreen). Off, the window is placed as before.
+    /// Set by AgentService.
+    fullscreen: bool,
     /// This agent's tabs as of the last listing, left to right, as (target
     /// id, url), and which of them it was driving: what `revive` reopens.
     saved_tabs: Vec<(String, String)>,
@@ -2624,6 +2634,7 @@ impl ScannerInner {
             tab_order: Vec::new(),
             tab_id: None,
             relaunch: None,
+            fullscreen: false,
             saved_tabs: Vec::new(),
             saved_current: 0,
             sent: HashMap::new(),
@@ -2646,6 +2657,11 @@ impl ScannerInner {
     /// Relaunch the browser this way if it goes away mid-run (`revive`).
     pub fn set_relaunch(&mut self, headless: bool, profile: Option<PathBuf>) {
         self.relaunch = Some((headless, profile));
+    }
+
+    /// Extension mode: the window goes to full screen with the agent's tabs (`fullscreen`).
+    pub fn set_fullscreen(&mut self, on: bool) {
+        self.fullscreen = on;
     }
 
     // -- extension mode ------------------------------------------------------
@@ -2775,7 +2791,7 @@ impl ScannerInner {
     /// A fresh blank tab in the background, by id (create_tab_impl, either mode).
     fn create_tab_raw(&mut self) -> SResult<String> {
         if self.bridged() {
-            let r = self.bridge_request(json!({"type": "new_tab"}))?;
+            let r = self.bridge_request(json!({"type": "new_tab", "fullscreen": self.fullscreen}))?;
             return r
                 .get("id")
                 .and_then(Value::as_i64)
@@ -2788,7 +2804,7 @@ impl ScannerInner {
     /// A fresh tab on `url` in the background, by id (open_tab_impl, either mode).
     pub fn open_tab_raw(&mut self, url: &str) -> SResult<String> {
         if self.bridged() {
-            let r = self.bridge_request(json!({"type": "new_tab", "url": url}))?;
+            let r = self.bridge_request(json!({"type": "new_tab", "url": url, "fullscreen": self.fullscreen}))?;
             return r
                 .get("id")
                 .and_then(Value::as_i64)
@@ -3247,7 +3263,7 @@ impl ScannerInner {
             let id = match found.iter().position(|(_, u)| u == url) {
                 Some(i) => found.remove(i).0,
                 None => {
-                    let opened = self.bridge_request(json!({"type": "new_tab", "url": url}));
+                    let opened = self.bridge_request(json!({"type": "new_tab", "url": url, "fullscreen": self.fullscreen}));
                     match opened.ok().and_then(|r| r.get("id").and_then(Value::as_i64)) {
                         Some(id) => id.to_string(),
                         // A page that will not reopen by its url still gets its slot.
@@ -3488,6 +3504,7 @@ impl ScannerInner {
         // again, a few times at most: a failed scan ends the run (the agent loop), and a
         // page that freezes or crashes a second time gets a blank tab, which does neither.
         let mut tries = 0;
+        let mut late_again = false;
         loop {
             let scanned = self.scan_once();
             let tid = self.tab_id.clone().unwrap_or_default();
@@ -3521,6 +3538,13 @@ impl ScannerInner {
             // A popup opened while the page was being read: show it instead.
             if let Some(d) = self.open_dialog() {
                 return Ok(self.dialog_scan(&d));
+            }
+            // Extension mode: the extension's scan ran out of its own time on a part
+            // that never answered (the error names it). Taken once more, since that part
+            // may answer now; the same error again ends the run as before.
+            if self.bridged() && !late_again && matches!(&e, ScanErr::Scanner(m) if m.starts_with(SCAN_LATE)) {
+                late_again = true;
+                continue;
             }
             // Debug mode: a call the scan waited on ran out its time. A page that
             // does not answer a cheap question either froze during the read.
@@ -4738,7 +4762,7 @@ impl ScannerInner {
         if self.bridged() {
             // The extension activates the tab in its window, which never
             // brings the window forward (chrome.tabs.update).
-            let _ = self.bridge_call(json!({"type": "activate", "wait_load": false}));
+            let _ = self.bridge_call(json!({"type": "activate", "wait_load": false, "fullscreen": self.fullscreen}));
             return;
         }
         let Ok(targets) = page_targets_checked(self.port) else {

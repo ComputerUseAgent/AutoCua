@@ -5,6 +5,7 @@ import ctypes
 import subprocess
 import shutil
 import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from difflib import SequenceMatcher
 
@@ -26,6 +27,9 @@ _SKIP_WINDOW_CLASSES = {
 _SKIP_WINDOW_TITLES = {
     "program manager", "windows input experience",
 }
+# Given to every program started by its path, so Chromium-based apps show
+# their elements to UI Automation.
+ACCESSIBILITY_FLAG = "--force-renderer-accessibility"
 
 def _is_window_cloaked(hwnd) -> bool:
     """DWM-cloaked windows (hidden UWP apps, other virtual desktops).
@@ -141,8 +145,8 @@ def resolve_lnk_target(lnk_path: str) -> str | None:
 def launch_windows_target(name: str, target: str) -> bool:
     """Launch (maximized where possible) with accessibility flags."""
     # Universal accessibility flag for better UI automation
-    accessibility_flag = "--force-renderer-accessibility"
-    
+    accessibility_flag = ACCESSIBILITY_FLAG
+
     try:
         if target.startswith("appx:"):
             appid = target[5:]
@@ -370,11 +374,9 @@ def focus_window(hwnd) -> bool:
         pass
     return False
 
-def open_on_windows(app_name: str) -> str | None:
-    """Open an app, or focus it if it's already running.
-    Returns "focused" (existing window brought to the foreground),
-    "launched" (new instance started), or None (no matching app / launch
-    failed). Truthy on success, so boolean callers keep working."""
+def find_app(app_name: str):
+    """The app a name means: (display name, target) of the best match, or
+    (None, None). The target is a file path or 'appx:<AppID>'."""
     # Build candidate list from Start Menu + StartApps
     candidates = index_windows_start_menu() + index_windows_startapps()
 
@@ -393,7 +395,14 @@ def open_on_windows(app_name: str) -> str | None:
         dedup[(nn, target)] = (name, target, nn)
     candidates = list(dedup.values())
 
-    name, target = best_match(app_name, candidates)
+    return best_match(app_name, candidates)
+
+def open_on_windows(app_name: str) -> str | None:
+    """Open an app, or focus it if it's already running.
+    Returns "focused" (existing window brought to the foreground),
+    "launched" (new instance started), or None (no matching app / launch
+    failed). Truthy on success, so boolean callers keep working."""
+    name, target = find_app(app_name)
     if not target:
         return None
 
@@ -407,3 +416,99 @@ def open_on_windows(app_name: str) -> str | None:
         pass
 
     return "launched" if launch_windows_target(name, target) else None
+
+def store_app_program(app_id):
+    """The program file of a Store app, from its Start menu id (family!app).
+    None when the app is not an ordinary Windows program in a package: that
+    kind only runs on your own desktop."""
+    family, _, app = app_id.partition("!")
+    kernel32 = ctypes.WinDLL("kernel32")
+    count, length = ctypes.c_uint32(0), ctypes.c_uint32(0)
+    kernel32.GetPackagesByPackageFamily(family, ctypes.byref(count), None, ctypes.byref(length), None)
+    if not count.value:
+        return None
+    names = (ctypes.c_wchar_p * count.value)()
+    text = ctypes.create_unicode_buffer(length.value)
+    if kernel32.GetPackagesByPackageFamily(family, ctypes.byref(count), names, ctypes.byref(length), text):
+        return None
+    for full_name in names:
+        size = ctypes.c_uint32(0)
+        kernel32.GetPackagePathByFullName(full_name, ctypes.byref(size), None)
+        folder = ctypes.create_unicode_buffer(size.value)
+        if kernel32.GetPackagePathByFullName(full_name, ctypes.byref(size), folder):
+            continue
+        try:
+            root = ET.parse(Path(folder.value) / "AppxManifest.xml").getroot()
+        except (OSError, ET.ParseError):
+            continue
+        for entry in root.iter():
+            if entry.tag.endswith("}Application") and entry.get("Id") == app:
+                ordinary = entry.get("EntryPoint") == "Windows.FullTrustApplication" or any(
+                    key.endswith("}RuntimeBehavior") and value in ("packagedClassicApp", "win32App")
+                    for key, value in entry.attrib.items())
+                program = entry.get("Executable")
+                return str(Path(folder.value) / program) if ordinary and program else None
+    return None
+
+def is_console_program(path):
+    """Whether a program file is a console program (cmd, PowerShell, a CLI
+    tool). Started from the app it takes the app's own console, which has no
+    window, so it would never get one on the second desktop (review of
+    2026-11-25)."""
+    shell32 = ctypes.WinDLL("shell32")
+    shell32.SHGetFileInfoW.restype = ctypes.c_size_t
+    shell32.SHGetFileInfoW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32,
+                                       ctypes.c_uint32]
+    info = ctypes.create_string_buffer(1024)   # a SHFILEINFOW is 696 bytes; SHGFI_EXETYPE leaves it as it is
+    kind = shell32.SHGetFileInfoW(str(path), 0, info, len(info), 0x2000)   # SHGFI_EXETYPE
+    # The low word says PE or MZ; the high word is the Windows version a GUI
+    # program asks for, and 0 for a console one.
+    return kind != 0 and (kind >> 16) & 0xFFFF == 0 and kind & 0xFFFF in (0x4550, 0x5A4D)
+
+def open_in_sandbox(app_name: str) -> dict:
+    """open_app in AutoCua SB: the same app, found the same way (find_app),
+    started on the agent's own desktop (CUA_Sandbox/windows) by its program
+    file. A Store app started through its Start menu id would be started by
+    Windows on your desktop, so its program file is used too, and a Store app
+    that has none is refused. So are, for now, a shortcut with no program
+    file behind it (a web link, steam:): the shell hands it to whatever
+    program handles it, which may be one already open on the user's desktop;
+    and a console program, which gets no window there. Gives the tool's
+    result."""
+    from ....CUA_Sandbox.windows.service import sandbox, SandboxError
+
+    def failed(message):
+        return {"status": "error", "action": "tool", "tool": "open_app", "app": app_name, "message": message}
+
+    _, target = find_app(app_name)
+    if not target:
+        return failed("No application found. Verify by typing the application name in the taskbar search. "
+                      "If still not visible then download it or find an alternative.")
+
+    if target.startswith("appx:"):
+        program = store_app_program(target[5:])
+        if not program:
+            return failed(f"'{app_name}' is a kind of Store app that only runs on the user's own desktop, "
+                          "not in AutoCua SB.")
+        arguments = []
+    else:
+        program = resolve_lnk_target(target) if target.lower().endswith(".lnk") else target
+        if not program or program.lower().endswith((".lnk", ".url", ".appref-ms")):
+            return failed(f"'{app_name}' is a shortcut with no program file behind it (a web link, a game "
+                          "launcher's link): it cannot start in AutoCua SB yet.")
+        arguments = [ACCESSIBILITY_FLAG]
+    if is_console_program(program):
+        return failed(f"'{app_name}' is a console program: it cannot show a window in AutoCua SB yet.")
+
+    try:
+        opened = sandbox().launch(subprocess.list2cmdline([program] + arguments))
+    except SandboxError as e:
+        return failed(f"'{app_name}' could not be started in AutoCua SB: {e}")
+    if opened["window"]:
+        return {"status": "success", "action": "tool", "tool": "open_app", "app": app_name, "mode": "launched",
+                "message": f"'{app_name}' opened in AutoCua SB: window '{opened['window']}'."}
+    if opened["exited"]:
+        return failed(f"'{app_name}' started and closed with no window in AutoCua SB. It may have handed over "
+                      "to a copy that is open on the user's own desktop: ask the user to close it there.")
+    return {"status": "success", "action": "tool", "tool": "open_app", "app": app_name, "mode": "launched",
+            "message": f"'{app_name}' started in AutoCua SB, with no window yet: wait, then look again."}

@@ -74,6 +74,7 @@ PROVIDER_KEY_MAP = {
     "cerebras":   "CEREBRAS_API_KEY",
     "requesty":   "REQUESTY_API_KEY",
     "aws":        "AWS_API_KEY",
+    "hcompany":   "HCOMPANY_API_KEY",
 }
 
 # Providers that run without a key (a model on this machine), offered with

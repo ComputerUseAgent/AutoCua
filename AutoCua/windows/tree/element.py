@@ -3506,7 +3506,7 @@ class UIElementScanner:
         if SCREENSHOT:
             # Capture full screen - may fail if UAC secure desktop is active
             try:
-                screenshot = ImageGrab.grab()
+                screenshot = self._grab_screen()
             except OSError as e:
                 # UAC secure desktop detected - screen grab failed
                 print("🔒 UAC secure desktop detected - requesting agent decision")
@@ -3677,6 +3677,12 @@ class UIElementScanner:
         
         return element_tree_text, annotated_image_base64, False  # uac_detected = False
     
+    def _grab_screen(self):
+        """The picture the scan's boxes are drawn on: the whole primary
+        screen. AutoCua SB's scanner (CUA_Sandbox/windows/service.py) gives
+        the second desktop's instead."""
+        return ImageGrab.grab()
+
     def _get_tree_text_recursive(self, tree_list, depth):
         """Helper method to generate tree text recursively"""
         result = ""

@@ -127,6 +127,9 @@ exclude = [
     { path = "AutoCua/llm_provider/**/*.rs", format = "wheel" },
     { path = "AutoCua/memory_compression/**/*.rs", format = "wheel" },
     { path = "AutoCua/agent_conversation/**/*.rs", format = "wheel" },
+    # AutoCua SB's second desktop: Win_CUA.rs is a part of the crate (lib.rs
+    # names it), and Mac_CUA.rs beside it is not used by the app.
+    { path = "AutoCua/CUA_Sandbox/**/*.rs", format = "wheel" },
     { path = "AutoCua/Cargo.toml", format = "wheel" },
     { path = "AutoCua/Cargo.lock", format = "wheel" },
     # never shipped
