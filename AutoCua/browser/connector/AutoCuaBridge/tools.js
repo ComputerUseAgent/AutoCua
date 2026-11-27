@@ -918,18 +918,18 @@ async function toolsHistory(tabId, delta) {
 /// (single_tab) never puts it on show: two tabs, and an empty page to look at (measured
 /// on Windows, Chrome 157, which stayed running with no window after its last one was
 /// closed, so closing the window between two runs was enough).
-async function toolsWindow(url) {
+async function toolsWindow(url, full) {
   for (let i = 0; i < 12; i++) {
     const all = await chrome.windows.getAll({ windowTypes: ["normal"] }).catch(() => []);
     const front = all.find((w) => w.focused) || all[0];
     if (front) {
-      await toolsNotWholeScreen(front);
+      await toolsNotWholeScreen(front, full);
       return { id: front.id, tab: null };
     }
     await toolsSleep(250);
   }
   const made = await chrome.windows.create({ url: url || "about:blank", focused: true, type: "normal" });
-  await toolsNotWholeScreen(made);
+  await toolsNotWholeScreen(made, full);
   return { id: made.id, tab: (made.tabs || [])[0] || null };
 }
 
@@ -945,9 +945,23 @@ async function toolsWindowId() {
 /// (the person's), or at TOOLS_WINDOW_SHARE of the screen, centred, when that is the
 /// whole screen too. A window the person sized is left as it is. Once per worker, so a
 /// person who maximises it during a run keeps it. Best-effort: it never fails a tool.
+///
+/// `full` is the run's own word (run_agent(fullscreen=True): browser.rs `fullscreen`, on
+/// every new_tab and on the tab put on show). It asks the other way: the system's own
+/// full screen, on whatever display the window is on, so no size is named. The window
+/// has it for as long as that run is on: nothing here places it meanwhile (the cover, an
+/// agent beside it without the flag), and it goes back to a window when the last agent
+/// lets go (toolsWindowBack), so the next run, and Chrome's next start, find a window.
 const TOOLS_WINDOW_SHARE = { width: 0.76, height: 0.96 };
 let toolsWindowPlaced = false;
-async function toolsNotWholeScreen(win) {
+let toolsWindowFull = null; // the id of the window a run put in full screen
+async function toolsNotWholeScreen(win, full) {
+  if (full === true && win) {
+    toolsWindowFull = win.id;
+    if (win.state !== "fullscreen") await chrome.windows.update(win.id, { state: "fullscreen" }).catch(() => {});
+    return;
+  }
+  if (toolsWindowFull !== null) return;
   if (toolsWindowPlaced || !win) return;
   toolsWindowPlaced = true;
   if (win.state !== "maximized" && win.state !== "fullscreen") return;
@@ -980,11 +994,19 @@ async function toolsNotWholeScreen(win) {
   }
 }
 
+/// toolsLetGo, the last agent to go: the window a run put in full screen is a window again.
+async function toolsWindowBack() {
+  const id = toolsWindowFull;
+  if (id === null) return;
+  toolsWindowFull = null;
+  await chrome.windows.update(id, { state: "normal" }).catch(() => {});
+}
+
 /// browser.rs open_tab_impl(): a tab in the background, so the browser stays where the
 /// person left it. The caller shows it (activate) and navigates it. In a browser with no
 /// window, the tab is the one its new window comes with (toolsWindow).
-async function toolsNewTab(url, line) {
-  const win = await toolsWindow(url);
+async function toolsNewTab(url, line, full) {
+  const win = await toolsWindow(url, full);
   const tab = win.tab || await chrome.tabs.create({ url: url || "about:blank", active: false, windowId: win.id });
   toolsOurs.set(tab.id, line || null);
   if (!toolsUnreachable(tab.url || tab.pendingUrl || url)) await toolsAttach(tab.id).catch(() => {});
@@ -993,8 +1015,13 @@ async function toolsNewTab(url, line) {
 
 /// browser.rs show_tab(): put the tab on show in its window, without bringing the window
 /// forward; the debugger goes on it now, so dialogs are heard from the start.
-async function toolsActivate(tabId, waitLoad, line) {
+async function toolsActivate(tabId, waitLoad, line, full) {
   const tab = await chrome.tabs.update(tabId, { active: true });
+  // run_agent(fullscreen=True): a blank tab taken over never passed new_tab, so the tab
+  // put on show asks too (toolsNotWholeScreen). Without the flag nothing is asked here.
+  if (full === true) {
+    await toolsNotWholeScreen(await chrome.windows.get(tab.windowId).catch(() => null), true);
+  }
   toolsOurs.set(tabId, line || toolsOurs.get(tabId) || null);
   if (!toolsUnreachable(tab.url || tab.pendingUrl)) await toolsAttach(tabId).catch(() => {});
   if (waitLoad && tab.status === "loading") await toolsWaitStatus(tabId);
@@ -1600,6 +1627,7 @@ async function toolsLetGo(line, last = true) {
   try {
     await toolsLetGoNow(line, last);
   } finally {
+    if (last) await toolsWindowBack();
     for (const [id, l] of [...toolsOurs]) {
       if (l === line || last) toolsOurs.delete(id);
     }
@@ -1816,10 +1844,10 @@ async function toolsHandle(msg, line) {
       return { status: (await chrome.tabs.get(tab.id)).status };
     }
     case "new_tab":
-      return toolsNewTab(msg.url ? String(msg.url) : "", line);
+      return toolsNewTab(msg.url ? String(msg.url) : "", line, msg.fullscreen);
     case "activate": {
       const tab = await toolsTab(msg);
-      return toolsActivate(tab.id, !!msg.wait_load, line);
+      return toolsActivate(tab.id, !!msg.wait_load, line, msg.fullscreen);
     }
     case "close_tab": {
       const tab = await toolsTab(msg);

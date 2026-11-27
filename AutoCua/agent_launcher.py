@@ -543,6 +543,7 @@ def run_agent(mode, provider, model, task=None, os=None,
                 headless=bool(agent_kwargs.get("headless")),
                 browser_port=agent_kwargs.get("browser_port"),
                 browser_profile=agent_kwargs.get("browser_profile"),
+                fullscreen=bool(agent_kwargs.get("fullscreen")),
             )
         if (kind, mobile_os) == ("mobile", "ios"):
             if _device_target(device) == "hardware":
@@ -1556,7 +1557,7 @@ def run_parallel_android_agents(picked, provider, model, save_conversation=False
 
 def run_parallel_web_agents(tasks, provider, model, save_conversation=False,
                             speed=None, headless=False, browser_port=None,
-                            browser_profile=None):
+                            browser_profile=None, fullscreen=False):
     """Run N browser tasks in parallel — one child process per task, one shared Chrome.
 
     Each child gets its own working directory ./parallel/task_N/ (so its
@@ -1626,6 +1627,8 @@ def run_parallel_web_agents(tasks, provider, model, save_conversation=False,
             cmd += ["--headless", "--browser-port", str(port)]
         if browser_profile:
             cmd += ["--browser-profile", str(browser_profile)]
+        if fullscreen:
+            cmd += ["--fullscreen"]
         if save_conversation:
             cmd += ["--save-conversation"]
         # Deliberately NO start_new_session: children stay in this terminal's

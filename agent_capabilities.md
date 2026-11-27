@@ -45,6 +45,7 @@ Android phones) gives its tasks in `devices` instead of `task` (Part 2).
 | `speed` | `"computer use"`, `"browser"`, `"mobile use, ios"` | `"quality"` | 3 |
 | `external_terminal` | `"computer use"`, `"coder"` | `False` | 8 |
 | `headless` | `"browser"` | `False` (visible Chrome) | 1 |
+| `fullscreen` | `"browser"` | `False` (a normal window) | 1 |
 | `browser_port` | `"browser"` | `9222` | 1 |
 | `browser_profile` | `"browser"`, single task | the `"default"` profile | 1 |
 | `extra_tasks` | `"browser"`; `"mobile use, ios"` and `"mobile use, android"` with `device="simulation"` | none (one task) | 2 |
@@ -121,6 +122,25 @@ When to use which:
   the agent work.
 - **Headless**: long unattended runs, servers/CI, and **parallel tasks** (see
   Part 2), where N agents share one window, each in a background tab of its own.
+
+## Full screen (`fullscreen`)
+
+`fullscreen=True` puts the browser window in the system's own full screen when
+the agent starts on its tab, on macOS, Windows and Linux alike. No size is
+named, so it fills whatever display the window is on. When the run ends, the
+window is a normal window again. Without the flag nothing changes: the window
+stays a normal window, never the whole screen. Headless has no screen, so the
+flag does nothing there.
+
+```python
+run_agent(
+    mode="browser",
+    provider="openrouter",
+    model="gemini-3.8-flash",
+    task="check the weather in Tokyo",
+    fullscreen=True,        # "browser" only: the window in full screen
+)
+```
 
 ## DevTools port (`browser_port`)
 
