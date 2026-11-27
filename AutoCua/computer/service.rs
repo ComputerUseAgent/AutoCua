@@ -555,6 +555,7 @@ struct Args<'py> {
     prior_history: Obj<'py>,
     speed: Obj<'py>,
     daisy_chain: Obj<'py>,
+    control: Obj<'py>,
 }
 
 /// __init__, line by line, on the object `me`. A line that fails leaves
@@ -595,6 +596,13 @@ fn init<'py>(me: &Obj<'py>, args: &Args<'py>) -> PyResult<()> {
     // PC: they are listed offline, refused if called, and no phone is looked
     // for.
     me.setattr("daisy_chain", args.daisy_chain.is_truthy()?)?;
+    // AutoCua SB (the chat box's picker): the agent works on a second desktop
+    // of its own, through the sandbox's scanner (SandboxScanner) and the
+    // controller's sandbox tools (AutoCua/CUA_Sandbox/windows/service.py).
+    // "full", the default, is the user's own screen, as it always was. Only
+    // Windows binds a SandboxScanner, and the app asks for one only there.
+    let sandbox = args.control.extract::<String>().is_ok_and(|c| c.trim().eq_ignore_ascii_case("sandbox"));
+    me.setattr("control", if sandbox { "sandbox" } else { "full" })?;
 
     // Initialize LLM Manager with optional runtime API key. The driver speaks
     // NATIVE TOOL CALLING: its action tools ARE the output contract (no
@@ -643,7 +651,7 @@ fn init<'py>(me: &Obj<'py>, args: &Args<'py>) -> PyResult<()> {
     me.setattr("stop_event", &args.stop_event)?;
 
     // Initialize UI Element Scanner with optional frontend callback for image streaming
-    let scanner_cls = g(py, "UIElementScanner")?;
+    let scanner_cls = g(py, if sandbox { "SandboxScanner" } else { "UIElementScanner" })?;
     let config = g(py, "ELEMENT_CONFIG")?;
     let kwargs = keyword(py, "frontend_callback", &args.frontend_callback)?;
     me.setattr("scanner", scanner_cls.call((config,), Some(&kwargs))?)?;
@@ -678,6 +686,9 @@ fn init<'py>(me: &Obj<'py>, args: &Args<'py>) -> PyResult<()> {
     // This PC: the phone sub-agents are refused
     let daisy_chain = me.getattr("daisy_chain")?;
     me.getattr("controller")?.setattr("daisy_chain", daisy_chain)?;
+    // AutoCua SB: the screen tools act on the agent's own desktop
+    let control = me.getattr("control")?;
+    me.getattr("controller")?.setattr("control", control)?;
 
     // Initialize Domain Knowledge Service
     me.setattr("skills", g(py, "DomainKnowledgeService")?.call0()?)?;
@@ -2950,7 +2961,7 @@ impl AgentService {
     #[new]
     #[pyo3(
         signature = (*_args, **_kwargs),
-        text_signature = "(provider, model, save_conversation=False, frontend_callback=None, text_callback=None, web_callback=None, shell_callback=None, cli_callback=None, tool_callback=None, token_callback=None, api_key=None, stop_event=None, external_terminal=False, prior_history=None, speed='quality', daisy_chain=False, **_extra)"
+        text_signature = "(provider, model, save_conversation=False, frontend_callback=None, text_callback=None, web_callback=None, shell_callback=None, cli_callback=None, tool_callback=None, token_callback=None, api_key=None, stop_event=None, external_terminal=False, prior_history=None, speed='quality', daisy_chain=False, control='full', **_extra)"
     )]
     fn new(_args: &Bound<'_, PyTuple>, _kwargs: Option<&Bound<'_, PyDict>>) -> Self {
         AgentService
@@ -2963,7 +2974,7 @@ impl AgentService {
         text_callback=None, web_callback=None, shell_callback=None, cli_callback=None,
         tool_callback=None, token_callback=None, api_key=None, stop_event=None,
         external_terminal=Given::Missing, prior_history=None, speed=Given::Missing,
-        daisy_chain=Given::Missing, **_extra))]
+        daisy_chain=Given::Missing, control=Given::Missing, **_extra))]
     #[allow(clippy::too_many_arguments)]
     fn __init__<'py>(
         slf: &Bound<'py, Self>,
@@ -2983,6 +2994,7 @@ impl AgentService {
         prior_history: Option<Obj<'py>>,
         speed: Given<'py>,
         daisy_chain: Given<'py>,
+        control: Given<'py>,
         _extra: Option<Bound<'py, PyDict>>,
     ) -> PyResult<()> {
         let py = slf.py();
@@ -3004,6 +3016,7 @@ impl AgentService {
             prior_history: or_none(prior_history),
             speed: speed.or(|| txt(py, "quality")),
             daisy_chain: daisy_chain.or(|| boolean(py, false)),
+            control: control.or(|| txt(py, "full")),
         };
         init(slf.as_any(), &args)
     }

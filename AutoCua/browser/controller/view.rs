@@ -8,6 +8,7 @@
 //!     wait        -> {"tool": "wait", "duration": N}          sets the inter-step delay
 //!     todo_list   -> {"action": "todo_created"}
 //!     update_todo -> {"action": "todo_updated"}
+//!     rewrite_todo -> {"action": "todo_rewritten"}
 //!     a batch     -> {"action": "multiple", "results": [...]} one entry PER action,
 //!                                                             in order, so the loop can
 //!                                                             pair each result to the
@@ -473,7 +474,12 @@ impl ControllerView {
             }
             "update_todo" => {
                 let raw = py_str_of_or_empty(&get("value")).trim().to_string();
-                let digits: String = raw.chars().filter(|c| c.is_ascii_digit()).collect();
+                // The first number in it: "2 (128GB)" is task 2, not 2128.
+                let digits: String = raw
+                    .chars()
+                    .skip_while(|c| !c.is_ascii_digit())
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect();
                 if digits.is_empty() {
                     Ok(json!({"status": "error", "tool": "update_todo",
                               "message": format!("'{raw}' has no task number in it")}))
@@ -501,6 +507,53 @@ impl ControllerView {
                             },
                         }))
                     }
+                }
+            }
+            // One ToDo line replaced by its number (or removed, with an empty
+            // value) when the site shows its proof cannot work as written. The
+            // reason is required: it is kept beside the line.
+            "rewrite_todo" => {
+                let raw = py_str_of_or_empty(&get("line")).trim().to_string();
+                let value = py_str_of_or_empty(&get("value"));
+                // A few words: the reason sits on the line, shown every step. Its
+                // round brackets become square ones, so the "(why: ...)" around
+                // it always closes and a later rewrite can take it off cleanly.
+                let mut reason = py_str_of_or_empty(&get("reason"))
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .replace('(', "[")
+                    .replace(')', "]");
+                if reason.chars().count() > 160 {
+                    reason = reason.chars().take(157).collect::<String>() + "...";
+                }
+                // The first number in it: "#2. - [ ] 128GB: ..." is line 2, not 2128.
+                let digits: String = raw
+                    .chars()
+                    .skip_while(|c| !c.is_ascii_digit())
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect();
+                if digits.is_empty() {
+                    Ok(json!({"status": "error", "tool": "rewrite_todo",
+                              "message": format!("'{raw}' has no task number in it")}))
+                } else if reason.is_empty() {
+                    Ok(json!({"status": "error", "tool": "rewrite_todo",
+                              "message": "no reason given - say in `reason` what the page showed \
+                                          that the line does not say"}))
+                } else {
+                    let num: i64 = digits.parse().unwrap_or(i64::MAX);
+                    Ok(match self.todo_tracker.rewrite_task(num, &value, &reason) {
+                        Ok(todo_tracker::service::Rewritten::Reworded) => json!({
+                            "status": "success", "action": "todo_rewritten", "tool": "rewrite_todo",
+                            "message": format!("task #{num} replaced and open again"),
+                        }),
+                        Ok(todo_tracker::service::Rewritten::Removed) => json!({
+                            "status": "success", "action": "todo_rewritten", "tool": "rewrite_todo",
+                            "message": format!("task #{num} removed; the other lines keep their numbers \
+                                                until the list is written again"),
+                        }),
+                        Err(message) => json!({"status": "error", "tool": "rewrite_todo", "message": message}),
+                    })
                 }
             }
             // --------------------------------------------------- completion

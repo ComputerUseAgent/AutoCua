@@ -56,7 +56,7 @@ pub fn main_reasoning_fields() -> &'static Vec<(String, String)> {
     P.get_or_init(|| vec![
         ("thinking".to_string(), r#"Your reasoning, written for your future self, not for the user. Not every step: think in bursts. Follow <thinking>: "JUDGE: ... UNDERSTAND: ... DECIDE: ... ROUTE: 1. ... 2. ... 3. ..." (FULL) when there is no route, it is used up, or a new page appeared; a short freeform paragraph (RECOVERY) after a guard failed on the page; 1-3 judgment lines (BRIEF) on a surprise that leaves the route standing. Omit it (or pass "") on a route step: the previous "Next:" named this action, its visible-change guard holds on the current page, and every named target resolves to exactly one [id]."#.to_string()),
         ("memory".to_string(), r#"Follow <memory>. Open with the verdict on the previous step, judged on the CURRENT page (<element_tree> + screenshot), never on what a tool result claims: "Last step worked: <what the page shows>", "Last step failed: <what the page shows instead>" or "Last step unclear: <what is ambiguous, and what would settle it>". First step: "Task start." Then the key context (site/page state and the tab; a tool used, its purpose and important result) and, on any step that touches UI, the Targets line: "Targets: id N (tag/role/visible text), ..." resolved from the CURRENT <element_tree> before acting. 2-4 tight lines."#.to_string()),
-        ("next_goal".to_string(), r#"Follow <next_goal>: "Doing: <this step> (ToDo: <task_name>). If <visible change the next page must show> → Next: <action on a target named by NAME/ROLE | think: <decision to make>>." Never name a successor target by [id]: ids are re-assigned every scan. On a route step, "Doing" is the next line of the ROUTE and "Next:" the line after it."#.to_string()),
+        ("next_goal".to_string(), r#"Follow <next_goal>: "Doing: <this step> (ToDo: <the line's part>). If <visible change the next page must show> → Next: <action on a target named by NAME/ROLE | think: <decision to make>>." Never name a successor target by [id]: ids are re-assigned every scan. On a route step, "Doing" is the next line of the ROUTE and "Next:" the line after it."#.to_string()),
     ])
 }
 
@@ -309,10 +309,10 @@ fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
   2. Examples:
     1. Smaller milestone: scratchpad {"value": "**Milestone:** signed in to amazon.com - account menu shows the user name"}
     2. Smaller milestone: scratchpad {"value": "**Milestone:** filters applied - 128GB + Prime delivery + 4 stars and up"}
-    3. Greater milestone: scratchpad {"value": "**Done:** order placed on amazon.com - confirmation **#114-2698**"}
+    3. Greater milestone: scratchpad {"value": "**Done:** iPhone 16 128GB in the cart on amazon.com - the cart lists it at **$799**"}
     4. Key fact: scratchpad {"value": "Product page: https://www.amazon.com/dp/B0DGHYDZR9 - iPhone 16 128GB"}
     5. Answer: scratchpad {"value": "**Key metric:** Disney+ revenue (Q3 2025) = **$2.1B**"}
-  3. Write a milestone the moment one lands, at EVERY size. A smaller milestone (signed in, filters applied, the right product page reached, one form section filled, a cookie wall cleared) is recorded exactly like a greater one (order placed, booking confirmed, the answer to <user_request> found). The small ones are what tell a later step how far the route already got - without them a re-route restarts from zero.
+  3. Write a milestone the moment one lands, at EVERY size. A smaller milestone (signed in, filters applied, the right product page reached, one form section filled, a cookie wall cleared) is recorded exactly like a greater one (the item in the cart, a message sent, the answer to <user_request> found). The small ones are what tell a later step how far the route already got - without them a re-route restarts from zero.
   4. Only write after visual confirmation on the CURRENT page - never assume an action landed.
   5. One fact per call, one line. If several things are confirmed in the same step, emit one separate `scratchpad` call for each - never batch them into one entry.
   6. The live file is rendered in your input as <scratchpad> once any entries exist - check it before recording, so entries never duplicate.
@@ -320,14 +320,22 @@ fn main_tools(track: &[(String, String)], notes: Option<&Value>) -> Vec<Value> {
   8. Write `value` in Markdown - inline only (`**bold**`, backticks, links), never a line break."#, track),
 
         tool("todo_list", &[("value", json!({"type": "string"}))],
-             r#"Create or re-capture the ToDo. Follow <todo_capability>.
-  1. Format: todo_list {"value": "Objective: <goal>\n- [ ] <task_1>\n- [ ] <task_2>"}
-  2. Example: todo_list {"value": "Objective: buy an iPhone 16 on amazon\n- [ ] open amazon.com\n- [ ] search for iphone 16\n- [ ] place the order"}"#, track),
+             r#"Write the ToDo: the parts of <user_request>, one line each, never the steps to reach them. Follow <todo_capability>.
+  1. Format: todo_list {"value": "Objective: <goal>\n- [ ] <part>: <what the page will show when it holds>\n- [ ] <part>: <what the page will show when it holds>"}
+  2. Example: todo_list {"value": "Objective: the cheapest iPhone 16 128GB on amazon.com, in the cart\n- [ ] an iPhone 16, not a Plus or Pro: the item's title says so\n- [ ] 128GB: the item's own page says 128GB\n- [ ] cheapest: no result that meets the other lines is cheaper\n- [ ] in the cart: the cart lists it"}
+  3. Write it again only when the request changes or a part it implies comes to light; to re-word one line, use `rewrite_todo`."#, track),
 
         tool("update_todo", &[("value", json!({"type": "string"}))],
-             r#"Mark ONE task complete - only after its effect is visually confirmed in the current input.
+             r#"Mark ONE line met - on the step the current page shows the proof the line names. A control that was set is that proof only when neither the results nor the item can show the part (see <todo_capability>).
   1. Format: update_todo {"value": "<task_number>"}
   2. Example: update_todo {"value": "1"}"#, track),
+
+        tool("rewrite_todo", &[("line", json!({"type": "string"})), ("value", json!({"type": "string"})), ("reason", json!({"type": "string"}))],
+             r#"Replace ONE ToDo line, by its number, when the page shows its proof cannot work on this site - the last option, only after the line could not be proved as written (see <todo_capability>).
+  1. Format: rewrite_todo {"line": "<task_number>", "value": "- [ ] <part>: <what the page will show when it holds>", "reason": "<in a few words: what the page showed that the line does not say>"}
+  2. `value` is the new line in the ToDo's own format, and it must always point at <user_request>, never drift from it: the part stays in the request's words, only what proves it changes, never to make the line easier to tick.
+  3. The line keeps its number and is open again, with your reason shown beside it; the other lines keep their numbers. An empty `value` removes the line: only for a line the request never asked for.
+  4. Example: rewrite_todo {"line": "3", "value": "- [ ] cheapest: no item that meets the other lines shows a lower price on its own page", "reason": "the result cards show no prices"}"#, track),
 
         tool("skills", &[("type", json!({"type": "string", "enum": ["load", "remove"]})), ("id", json!({"type": "integer"}))],
              r#"Load a skill into <skills>, or remove it. <skills> lists the skill files by [id] with their size; a loaded skill shows its content there every step until you remove it.
@@ -383,11 +391,13 @@ pub fn scraping_tools() -> &'static Vec<Value> {
 
 /// The whole schema of scrape mode (`LLMManager::set_scrape_step`): the three
 /// tools above plus scratchpad, update_todo and skills, and nothing else - no
-/// notes tool, no page tool.
+/// notes tool, no page tool. They come from the fast list on purpose: scrape
+/// mode serves every speed, so its update_todo keeps the earlier wording (see
+/// with_earlier_todo_tools) and the list stays as it was.
 pub fn scrape_mode_tools() -> &'static Vec<Value> {
     static T: OnceLock<Vec<Value>> = OnceLock::new();
     T.get_or_init(|| {
-        let keep: Vec<Value> = main_tools_quality()
+        let keep: Vec<Value> = main_tools_fast()
             .iter()
             .filter(|t| matches!(t.get("name").and_then(Value::as_str), Some("scratchpad" | "update_todo" | "skills")))
             .cloned()
@@ -439,11 +449,11 @@ pub fn main_reasoning_tool() -> &'static Value {
 - Format: reasoning {"thinking": "", "memory": "...", "next_goal": "..."}
 - Examples:
   1. Route step (no thinking; "Doing" is the next route line):
-     reasoning {"memory": "Last step worked: amazon.com home page loaded in the current tab as predicted, the search box is empty. Targets: id 4 (searchbox 'Search Amazon').", "next_goal": "Doing: search 'iphone 16 128gb' and submit (ToDo: Find iPhone 16). If the results page lists iPhone 16 products → Next: think: pick the iPhone 16 128GB result."}
+     reasoning {"memory": "Last step worked: amazon.com home page loaded in the current tab as predicted, the search box is empty. Targets: id 4 (searchbox 'Search Amazon').", "next_goal": "Doing: search 'iphone 16 128gb' and submit (ToDo: an iPhone 16, not a Plus or Pro). If the results page lists iPhone 16 products → Next: think: pick the iPhone 16 128GB result."}
   2. New surface (FULL thinking, ends with the ROUTE):
-     reasoning {"thinking": "JUDGE: PASS, the Gmail compose dialog is open as predicted, the To field is empty. UNDERSTAND: known: To, Subject and the body are in the tree as textboxes inside the compose dialog; assumed: focus is in To, the tree does not say. DECIDE: fill the three fields in one batch with enter false and guard on the body showing the text, since a wrong focus would drop the typing into the wrong field; Send is the next surface change, so the route stops after it. ROUTE: 1. input To, Subject and body in one batch, if the body shows the flight text. 2. click Send, if the compose dialog closes and 'Message sent' appears → think: verify the mail in Sent, then mark the ToDo.", "memory": "Last step worked: compose dialog open, guard held. Targets: id 12 (textbox 'To'), id 14 (textbox 'Subject'), id 20 (textbox 'Message Body').", "next_goal": "Doing: fill To, Subject and body (ToDo: Send flight email). If the body shows the flight text → Next: click the Send button."}
+     reasoning {"thinking": "JUDGE: PASS, the Gmail compose dialog is open as predicted, the To field is empty. UNDERSTAND: known: To, Subject and the body are in the tree as textboxes inside the compose dialog; assumed: focus is in To, the tree does not say. DECIDE: fill the three fields in one batch with enter false and guard on the body showing the text, since a wrong focus would drop the typing into the wrong field; Send is the next surface change, so the route stops after it. ROUTE: 1. input To, Subject and body in one batch, if the body shows the flight text. 2. click Send, if the compose dialog closes and 'Message sent' appears → think: verify the mail in Sent, then mark the ToDo.", "memory": "Last step worked: compose dialog open, guard held. Targets: id 12 (textbox 'To'), id 14 (textbox 'Subject'), id 20 (textbox 'Message Body').", "next_goal": "Doing: fill To, Subject and body (ToDo: the flight mail sent). If the body shows the flight text → Next: click the Send button."}
   3. Recovery after a failed guard:
-     reasoning {"thinking": "Failed: the To field is still empty after input on id 74; the screenshot shows the caret in the Subject field. Wrong belief: that compose focuses To on open; it focused Subject. Narrowest fix: click the To field first, then input. Guard: the To field shows the address. Route holds after this.", "memory": "Last step failed: To field empty, focus was in Subject. Correction carried: click a field before typing into it in this compose dialog. Targets: id 74 (textbox 'To').", "next_goal": "Doing: click the To field and input abc@gmail.com (ToDo: Send flight email). If the To field shows abc@gmail.com → Next: input the subject."}"#,
+     reasoning {"thinking": "Failed: the To field is still empty after input on id 74; the screenshot shows the caret in the Subject field. Wrong belief: that compose focuses To on open; it focused Subject. Narrowest fix: click the To field first, then input. Guard: the To field shows the address. Route holds after this.", "memory": "Last step failed: To field empty, focus was in Subject. Correction carried: click a field before typing into it in this compose dialog. Targets: id 74 (textbox 'To').", "next_goal": "Doing: click the To field and input abc@gmail.com (ToDo: the flight mail sent). If the To field shows abc@gmail.com → Next: input the subject."}"#,
              main_reasoning_fields(), REASONING_OPTIONAL))
 }
 
@@ -480,7 +490,29 @@ pub fn main_tools_quality() -> &'static Vec<Value> {
 
 pub fn main_tools_fast() -> &'static Vec<Value> {
     static T: OnceLock<Vec<Value>> = OnceLock::new();
-    T.get_or_init(|| main_tools(&[], Some(main_memory_tool_fast())))
+    T.get_or_init(|| with_earlier_todo_tools(main_tools(&[], Some(main_memory_tool_fast()))))
+}
+
+/// The ToDo tools as they were before `rewrite_todo`, word for word. Fast
+/// mode keeps them, with no `rewrite_todo`, because its own prompt
+/// (fast_system_prompt.md) still describes that ToDo; scrape mode keeps them
+/// too, since it serves every speed.
+fn with_earlier_todo_tools(tools: Vec<Value>) -> Vec<Value> {
+    tools
+        .into_iter()
+        .filter(|t| t.get("name").and_then(Value::as_str) != Some("rewrite_todo"))
+        .map(|t| match t.get("name").and_then(Value::as_str) {
+            Some("todo_list") => tool("todo_list", &[("value", json!({"type": "string"}))],
+             r#"Create or re-capture the ToDo. Follow <todo_capability>.
+  1. Format: todo_list {"value": "Objective: <goal>\n- [ ] <task_1>\n- [ ] <task_2>"}
+  2. Example: todo_list {"value": "Objective: buy an iPhone 16 on amazon\n- [ ] open amazon.com\n- [ ] search for iphone 16\n- [ ] place the order"}"#, &[]),
+            Some("update_todo") => tool("update_todo", &[("value", json!({"type": "string"}))],
+             r#"Mark ONE task complete - only after its effect is visually confirmed in the current input.
+  1. Format: update_todo {"value": "<task_number>"}
+  2. Example: update_todo {"value": "1"}"#, &[]),
+            _ => t,
+        })
+        .collect()
 }
 
 /// Quality mode on any Claude model: the same tools with `agent_memory` first.
@@ -555,6 +587,7 @@ pub fn main_action_defaults() -> &'static Value {
             "scratchpad": {"value": ""},
             "todo_list": {"value": ""},
             "update_todo": {"value": ""},
+            "rewrite_todo": {"line": "", "value": "", "reason": ""},
             "skills": {"type": "load", "id": 0},
             "done": {"value": ""},
         })
@@ -1555,14 +1588,15 @@ pub fn _tool_calls_to_steps_debug<'py>(
 }
 
 /// The registry a speed mode sends (quality unless "fast"; "scrape" for the
-/// scraping mode's own list), for tests; with `strict`, as the OpenAI strict
-/// dialect rewrites it.
+/// scraping mode's own list; "claude" for quality mode on a Claude model), for
+/// tests; with `strict`, as the OpenAI strict dialect rewrites it.
 #[pyfunction]
 #[pyo3(signature = (speed=None, strict=false))]
 pub fn _main_tools_debug<'py>(py: Python<'py>, speed: Option<String>, strict: bool) -> PyResult<Bound<'py, PyAny>> {
     let registry = match speed.as_deref() {
         Some("fast") => main_tools_fast(),
         Some("scrape") => scrape_mode_tools(),
+        Some("claude") => main_tools_claude(),
         _ => main_tools_quality(),
     };
     let out = if strict { tools_openai_strict(registry) } else { registry.clone() };

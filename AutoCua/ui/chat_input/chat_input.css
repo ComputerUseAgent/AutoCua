@@ -517,6 +517,7 @@ body.left-bar-animating .chat-container-wrapper {
     .input-area-wrapper[data-agent-mode="computer"] .link-toggle { animation: none; }
 }
 
+
 /* Transparent trigger so it BLENDS into the box (one tone, not a 2nd pill). */
 .chat-model-dropdown .model-dropdown-trigger {
     width: 100%;
@@ -643,6 +644,7 @@ body.left-bar-animating .chat-container-wrapper {
    the wrapper, only took the focus out of the text box, and never reached what
    was under it — the "first click does nothing" bug. */
 .chat-container-wrapper:has(.chat-model-dropdown.open),
+.chat-container-wrapper:has(.agent-response-strip.open),   /* the strip, up: its upper row is in the main box's room */
 .chat-container-wrapper:has(.chat-input:focus) {
     z-index: 40;
 }
@@ -686,66 +688,176 @@ body.left-bar-animating .chat-container-wrapper {
     margin-right: 8px;
 }
 
-/* Agent Response Strip - Initially hidden; it opens in place as the composer below
-   collapses, filling exactly the room the composer gives up (.active below), so the
-   stack's top edge never moves on send or at the run's end. */
+/* The strip above the chat box (#agentResponseStrip, chat_input.tsx): always
+   there, in every mode, as wide as the chat box. Round on top only, with the
+   chat box's own radius; its sides run straight down in line with the chat
+   box's sides, and its bottom goes away behind the chat box, which stays
+   round on all four corners. --tuck is how far it goes behind: the chat box's
+   corner radius and a little more, so its square, unlined bottom end is under
+   the chat box everywhere, also beside the chat box's round top corners,
+   where a round bottom of its own would show.
+
+   In its row (.sb-row), from the left: the picker (.sb-options), then, only
+   while a run goes (.active, set by chat_input.js and script.js), the run's
+   words (.sb-run): the thinking orb, "Agent running…" and the agent's live
+   text. No opening and no closing: the strip stays, the words are there or
+   not.
+
+   The picker is two rows (.sb-option, each --row high), and the strip shows
+   the one that is on. A click brings the whole strip up a little (.open,
+   sb_toggle.js): the other row takes its room and stands with it, one under
+   the other. Picking one brings the strip back down. */
 .agent-response-strip {
-    /* Centered and shorter than text box */
-    width: 85%;
-    margin: 0 auto; /* Centers horizontally */
-    
-    /* Start with 0 height and no padding */
-    height: 0;
-    min-height: 0;
-    padding: 0;
-    margin-bottom: 0;
-    
+    --tuck: calc(clamp(16px, 1.8vw, 22px) + 2px);
+    --row: clamp(26px, 2.6vw, 30px);
+    position: relative;
+    /* The chat column around it lets clicks through; its boxes take their
+       own. Without this line a click on the picker went to the page behind
+       it (seen: the picker could not be clicked). */
+    pointer-events: auto;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0 0 calc(-1 * var(--tuck));
+    /* the chat box's own side padding (its --pad-x), so the picker stands
+       over the mode picker under it */
+    padding: 0 clamp(12px, 1.3vw, 16px) var(--tuck);
+    display: flex;
+    flex-direction: column;
+
     /* Same white as the composer below it (.input-area-wrapper), so the
-       strip reads as part of that stack rather than a grey band behind it —
+       strip reads as part of that stack rather than a grey band behind it:
        solid fill (no backdrop-filter; the blur flickered in WebView2 while the
        top-left animation ran). Opaque enough to read without the blur. */
     background: rgba(255, 255, 255, 0.9);
-    
-    /* Rounded corners all around */
-    border-radius: 16px;
-    
-    display: flex;
-    align-items: center;
-    
-    /* Animation handling. 0.34s on the composer's own curve: its collapse and this
-       strip's opening cancel out exactly, frame by frame. It fades in where it is (no
-       slide): nothing moves. */
-    opacity: 0;
-    pointer-events: none;
-    overflow: visible; /* Visible for pseudo-elements */
-    transition: all 0.34s cubic-bezier(0.25, 0.8, 0.25, 1);
-    position: relative; /* For pseudo-elements */
-
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: clamp(10px, 1vw, 11px); /* Reduced text size significantly */
-    color: rgba(50, 50, 50, 0.95);
-
     /* The thin grey line, like the chat box below it. */
     border: 1px solid rgba(0, 0, 0, 0.08);
+    border-bottom: none;
+    border-radius: clamp(16px, 1.8vw, 22px) clamp(16px, 1.8vw, 22px) 0 0;
+
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: clamp(10px, 1vw, 11px);
+    color: rgba(50, 50, 50, 0.95);
+}
+.sb-row {
+    display: flex;
+    align-items: flex-end;
+    min-width: 0;
 }
 
-/* Connectors removed as requested */
+/* The picker's rows: the mode picker's own trigger (.agent-btn, agent_mode.css)
+   with the side's mark and name in its colour. Closed, the row that is not on
+   has no height, so the strip is one row. Which two rows the strip has:
+   data-group (Coder's Auto / Manual, or AutoCua SB / Full control). */
+.sb-options {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    flex-shrink: 0;
+}
+.sb-option {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    /* --row in all: 2px clear above and below its hover tint */
+    height: calc(var(--row) - 4px);
+    margin: 2px 0;
+    padding: 0 6px 0 8px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    font-family: inherit;
+    font-size: clamp(11.5px, 1.15vw, 13px);
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden;
+    transition: height 0.25s cubic-bezier(0.25, 0.8, 0.25, 1), margin 0.25s cubic-bezier(0.25, 0.8, 0.25, 1),
+                opacity 0.2s ease, background-color 0.2s ease;
+}
+.agent-response-strip[data-group="control"] .sb-option[data-group="control"],
+.agent-response-strip[data-group="input"] .sb-option[data-group="input"] { display: flex; }
+.agent-response-strip:not(.open) .sb-option:not(.selected) {
+    height: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+.sb-option:hover { background-color: rgba(0, 0, 0, 0.05); }
+.sb-option:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(29, 158, 117, 0.3); }
+.sb-option > svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+/* Each side's colour: its mark and name, and a soft fill on one part of the mark. */
+.sb-option[data-value="full"] { color: #ea580c; }
+.sb-option[data-value="full"] .sb-pc-screen { fill: #ffedd5; }
+.sb-option[data-value="sandbox"] { color: #0d9488; }
+.sb-option[data-value="sandbox"] .sb-box-top { fill: #ccfbf1; }
+.sb-option[data-value="auto"] { color: #7c3aed; }
+.sb-option[data-value="auto"] .sb-auto-face { fill: #ede9fe; }
+.sb-option[data-value="manual"] { color: #2563eb; }
+.sb-option[data-value="manual"] .sb-keys-body { fill: #dbeafe; }
 
-.agent-response-strip.active {
-    opacity: 1;
-    pointer-events: auto;
-    /* Exactly the room the composer gives up as it collapses: its one idle text line
-       (.chat-input min-height) and the tools' gap (--tools-gap), so the stack's top,
-       where the Coder bot stands, stays where it was. Keep the two in step. */
-    height: calc(clamp(30px, 2.9vw, 36px) + clamp(4px, 0.5vw, 7px));
-    min-height: calc(clamp(30px, 2.9vw, 36px) + clamp(4px, 0.5vw, 7px));
-    margin-bottom: -18px; /* Only apply negative margin when active */
-    /* Adjusted padding to center text in reduced height */
-    padding: 0 clamp(16px, 1.5vw, 20px) 16px clamp(16px, 1.5vw, 20px);
+/* At a row's right, in one place: the pickers' caret while the strip is
+   closed; it turns over and goes as the strip comes up, and the tick springs
+   in on the side that is on. */
+.sb-mark {
+    position: relative;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+.sb-mark svg {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 14px;
+    height: 14px;
+}
+.sb-chev { transition: transform 0.25s ease, opacity 0.2s ease; }
+.sb-tick {
+    color: #1d9e75;
+    opacity: 0;
+    transform: scale(0.3);
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.15s ease;
+}
+.agent-response-strip.open .sb-chev { transform: rotate(180deg); opacity: 0; }
+.agent-response-strip.open .sb-option.selected .sb-tick { opacity: 1; transform: scale(1); }
+/* The side just picked: its mark springs once (sb_toggle.js sets .picked). */
+.sb-option.picked > svg { animation: sbPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes sbPop {
+    0% { transform: scale(0.7); }
+    100% { transform: scale(1); }
+}
+
+/* While a run goes the picker holds still, as the pills do. */
+.chat-container-content:has(.chat-input.agent-active) .sb-option { pointer-events: none; }
+.chat-container-content:has(.chat-input.agent-active) .sb-chev { opacity: 0.35; }
+
+/* The run's words, right of the picker: there only while a run goes. */
+.sb-run {
+    display: none;
+    align-items: center;
+    flex: 1 1 0;
+    min-width: 0;
+    height: var(--row);
+    margin-left: clamp(8px, 1vw, 12px);
+}
+.agent-response-strip.active .sb-run { display: flex; }
+
+@media (prefers-reduced-motion: reduce) {
+    .sb-option, .sb-chev, .sb-tick { transition: none; }
+    .sb-option.picked > svg { animation: none; }
 }
 
 /* "Agent running…", shimmering (thinking_orb/shimmer.css), in the orb
-   pill's type; its shimmer rests while the strip is hidden. */
+   pill's type; its shimmer rests while no run goes. */
 .agent-label {
     font-size: clamp(12px, 1.15vw, 13px);
     font-weight: 500;
@@ -886,10 +998,11 @@ body.left-bar-animating .chat-container-wrapper {
     opacity: 1;
 }
 
-/* When CLI mode is on, the existing milestone/welcome panel and the
-   agent strip step aside so the pills own the chat box. */
+/* When CLI mode is on, the existing milestone/welcome panel and the run's
+   words in the strip step aside so the pills own the chat box. The strip
+   itself stays, as in every mode. */
 .chat-container-wrapper.cli-mode .output-stream-area,
-.chat-container-wrapper.cli-mode .agent-response-strip {
+.chat-container-wrapper.cli-mode .sb-run {
     display: none;
 }
 

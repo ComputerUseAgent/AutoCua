@@ -82,7 +82,7 @@ How to finish:\n\
 - Your final `done` call's value is the report the main agent receives, and it is all it receives. State what you did, the result with the exact values, names and URLs that matter, and anything you could not do.\n";
 
 /// _PROVIDER_ENV_KEY, in its order: the env var each provider's key goes in.
-const PROVIDER_ENV_KEY: [(&str, &str); 11] = [
+const PROVIDER_ENV_KEY: [(&str, &str); 12] = [
     ("openrouter", "OPENROUTER_API_KEY"),
     ("groq", "GROQ_API_KEY"),
     ("openai", "OPENAI_API_KEY"),
@@ -93,6 +93,7 @@ const PROVIDER_ENV_KEY: [(&str, &str); 11] = [
     ("cerebras", "CEREBRAS_API_KEY"),
     ("requesty", "REQUESTY_API_KEY"),
     ("aws", "AWS_API_KEY"),
+    ("hcompany", "HCOMPANY_API_KEY"),
     ("ollama", "OLLAMA_API_KEY"),
 ];
 

@@ -9,6 +9,10 @@ argument that call takes.
 and pass that in. The only values worth a variable of their own are the task
 strings of a parallel run (Part 2), and `mode` if you switch it often.
 
+**Flag names take any letter case:** `Fullscreen=True` and `HEADLESS=True` are
+`fullscreen=True` and `headless=True`. Only the names: a value is used as you
+write it.
+
 ## The four required arguments
 
 ```python
@@ -28,7 +32,7 @@ run_agent(
 | Argument | What it is |
 |---|---|
 | `mode` | Which agent runs: `"computer use"` drives this desktop (Windows, macOS or Linux, detected automatically), `"computer use, daisy chain"` does the same and can also hand work to the phone sub-agents when a phone is connected (Android everywhere, iPhone on macOS; plain `"computer use"` lists them offline), `"coder"` runs the coding agent straight in your terminal, `"browser"` drives Chrome, `"mobile use, ios"` drives an iPhone/iPad or an iOS Simulator, `"mobile use, android"` an Android emulator or your Android phone. Case, underscores and commas don't matter; hyphens do: `"computer-use"` raises `ValueError`. |
-| `provider` | `"openrouter"`, `"groq"`, `"openai"`, `"anthropic"`, `"google"`, `"perplexity"`, `"together"`, `"cerebras"`, `"requesty"`, `"aws"` or `"ollama"`. The key comes from `<PROVIDER>_API_KEY` in the environment or `.env` (e.g. `OPENROUTER_API_KEY`, or `AWS_API_KEY` for a Bedrock API key), or from `api_key=` (Part 9). Google's `-vertex` models take no key: they use `VERTEX_PROJECT_ID` / `VERTEX_LOCATION` and your Google Cloud credentials. `"ollama"` takes none either: it runs a model on this machine (Part 5). |
+| `provider` | `"openrouter"`, `"groq"`, `"openai"`, `"anthropic"`, `"google"`, `"perplexity"`, `"together"`, `"cerebras"`, `"requesty"`, `"aws"`, `"hcompany"` or `"ollama"`. The key comes from `<PROVIDER>_API_KEY` in the environment or `.env` (e.g. `OPENROUTER_API_KEY`, or `AWS_API_KEY` for a Bedrock API key), or from `api_key=` (Part 9). Google's `-vertex` models take no key: they use `VERTEX_PROJECT_ID` / `VERTEX_LOCATION` and your Google Cloud credentials. `"ollama"` takes none either: it runs a model on this machine (Part 5). |
 | `model` | A model name from [model_list.txt](model_list.txt), copied exactly. It isn't checked up front: an unknown name is sent to the provider as-is and fails at the first request. |
 | `task` | What the agent should do. |
 
@@ -45,6 +49,7 @@ Android phones) gives its tasks in `devices` instead of `task` (Part 2).
 | `speed` | `"computer use"`, `"browser"`, `"mobile use, ios"` | `"quality"` | 3 |
 | `external_terminal` | `"computer use"`, `"coder"` | `False` | 8 |
 | `headless` | `"browser"` | `False` (visible Chrome) | 1 |
+| `fullscreen` | `"browser"` | `False` (a normal window) | 1 |
 | `browser_port` | `"browser"` | `9222` | 1 |
 | `browser_profile` | `"browser"`, single task | the `"default"` profile | 1 |
 | `extra_tasks` | `"browser"`; `"mobile use, ios"` and `"mobile use, android"` with `device="simulation"` | none (one task) | 2 |
@@ -122,6 +127,25 @@ When to use which:
 - **Headless**: long unattended runs, servers/CI, and **parallel tasks** (see
   Part 2), where N agents share one window, each in a background tab of its own.
 
+## Full screen (`fullscreen`)
+
+`fullscreen=True` puts the browser window in the system's own full screen when
+the agent starts on its tab, on macOS, Windows and Linux alike. No size is
+named, so it fills whatever display the window is on. When the run ends, the
+window is a normal window again. Without the flag nothing changes: the window
+stays a normal window, never the whole screen. Headless has no screen, so the
+flag does nothing there.
+
+```python
+run_agent(
+    mode="browser",
+    provider="openrouter",
+    model="gemini-3.8-flash",
+    task="check the weather in Tokyo",
+    fullscreen=True,        # "browser" only: the window in full screen
+)
+```
+
 ## DevTools port (`browser_port`)
 
 The port the agent launches Chrome on, or attaches to when a Chrome is already
@@ -138,7 +162,7 @@ run_agent(
 ```
 
 Use it when something else already owns `9222`. Avoid `9333`: that is the
-headless browser behind the `web` tool on Together, Cerebras, Requesty, AWS and Ollama (Part 5). A
+headless browser behind the `web` tool on Together, Cerebras, Requesty, AWS, H Company and Ollama (Part 5). A
 parallel run (Part 2) launches its one shared Chrome on this port too.
 
 ## Chrome profile (`browser_profile`)
@@ -653,6 +677,40 @@ whichever region has capacity.
 Claude gets `effort` `low` and prompt caching, with a 4000-token output cap. Kimi K3 and Grok 4.7
 get reasoning `low`, with a 10000-token cap. The memory-compression handoff gets 10000 on all five.
 No sampling parameter is sent.
+
+## H Company (`provider="hcompany"`)
+
+H Company's Models API serves the Holo models, vision models made for GUI and computer-use agents,
+through an OpenAI-compatible endpoint (`https://api.hcompany.ai/v1`), with native tool calling and
+image input on every platform. It has no native web search, so its `web` tool also goes to the
+headless browser agent described above. Set `HCOMPANY_API_KEY` in `.env` for a terminal run (keys
+at https://platform.hcompany.ai/settings/api-keys); a key saved in the app's Settings → API Keys is
+used too, after `.env`.
+
+| `model=` | H Company model id | Account | Context |
+|---|---|---|---|
+| `holo4-27b` | `holo4-27b` | paid | 262,144 |
+| `holo4-35b-a3b` | `holo4-35b-a3b` | paid | 262,144 |
+| `holo3-1-35b-a3b` | `holo3-1-35b-a3b` | free or paid | 65,537 |
+
+A free account may call only `holo3-1-35b-a3b`, at 10 requests a minute. The Holo4 models answer
+`402 insufficient_credit` until credits are added at https://platform.hcompany.ai/settings/billing.
+Over the requests a minute the API answers `429` with the seconds to wait: the request waits that
+long and is sent again, up to three times, so a run on a free account slows down instead of ending.
+`holo3-122b-a10b`, the fourth model the API serves, takes no tools, so no agent can run on it.
+
+Every request sends `temperature` 0.8 (0 for the memory-compression handoff: H Company's own
+figures for an agent loop and for a single call) and `max_tokens` 8192 (10000 for the
+memory-compression handoff on Holo4), or for the coder the model's own maximum (16384 on Holo4,
+8192 on Holo3.1). Thinking stays as the API has it, on. Each
+screenshot goes in `<observation>` tags, as Holo is trained to get one, and a request holds 5
+images at most.
+
+`holo3-1-35b-a3b` has a 65,537-token context, below the 110k tokens at which memory compression
+starts, so a long run on it ends at the API's context limit. `AutoCua_COMPRESS_THRESHOLD` (for
+example `45000`) in the environment makes compression start earlier for computer use, the phone
+agents and most browser and coder steps. It does not reach the browser agent's scrape mode or the
+coder's sub-agents, which never compress: long scrapes and long coding tasks need a Holo4 model.
 
 ## Ollama (`provider="ollama"`)
 

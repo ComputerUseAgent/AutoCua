@@ -1941,8 +1941,8 @@ pub mod vault {
 /// every agent sends its requests through, its provider builder and its
 /// tool-call parser; the Responses endpoint the providers share
 /// (AutoCua/llm_provider/responses.rs); and the providers anthropic, aws
-/// (Amazon Bedrock), cerebras, google, groq, ollama, openai, openrouter,
-/// perplexity, requesty and together, each in its own folder
+/// (Amazon Bedrock), cerebras, google, groq, hcompany, ollama, openai,
+/// openrouter, perplexity, requesty and together, each in its own folder
 /// (AutoCua/llm_provider/<provider>: view.rs, service.rs). The other
 /// providers stay Python. llm_provider/__init__.py
 /// is the loader of the first two, and each provider's own __init__.py of
@@ -1980,6 +1980,12 @@ pub mod llm_provider {
     /// The Groq provider: its models' table (view.rs) and the provider class
     /// that sends the requests (service.rs).
     pub mod groq {
+        pub mod service;
+        pub mod view;
+    }
+    /// The H Company provider: its models' table (view.rs) and the provider
+    /// class that sends the requests (service.rs).
+    pub mod hcompany {
         pub mod service;
         pub mod view;
     }
@@ -2030,8 +2036,8 @@ pub mod llm_provider {
     /// Python has always known them by: AutoCua.llm_provider.llm_manager,
     /// AutoCua.llm_provider.responses and
     /// AutoCua.llm_provider.<provider>.view / .service for anthropic, aws,
-    /// cerebras, google, groq, ollama, openai, openrouter, perplexity,
-    /// requesty and together.
+    /// cerebras, google, groq, hcompany, ollama, openai, openrouter,
+    /// perplexity, requesty and together.
     pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         let py = m.py();
         let manager = crate::system_part::python_module(py, "llm_provider", "llm_manager", llm_manager::register)?;
@@ -2086,6 +2092,15 @@ pub mod llm_provider {
         modules.set_item(format!("{NATIVE}.groq"), &package)?;
         modules.set_item(format!("{NATIVE}.groq.view"), &view)?;
         modules.set_item(format!("{NATIVE}.groq.service"), &service)?;
+        let view = crate::system_part::python_module(py, "llm_provider", "hcompany.view", hcompany::view::register)?;
+        let service = crate::system_part::python_module(py, "llm_provider", "hcompany.service", hcompany::service::register)?;
+        let package = PyModule::new(py, &format!("{NATIVE}.hcompany"))?;
+        package.add("view", &view)?;
+        package.add("service", &service)?;
+        m.add("hcompany", &package)?;
+        modules.set_item(format!("{NATIVE}.hcompany"), &package)?;
+        modules.set_item(format!("{NATIVE}.hcompany.view"), &view)?;
+        modules.set_item(format!("{NATIVE}.hcompany.service"), &service)?;
         let view = crate::system_part::python_module(py, "llm_provider", "ollama.view", ollama::view::register)?;
         let service = crate::system_part::python_module(py, "llm_provider", "ollama.service", ollama::service::register)?;
         let package = PyModule::new(py, &format!("{NATIVE}.ollama"))?;
@@ -2350,6 +2365,17 @@ pub mod agent_conversation {
     }
 }
 
+/// AutoCua SB's second desktop on Windows
+/// (AutoCua/CUA_Sandbox/windows/Win_CUA.rs): the desktop itself, its picture,
+/// its scan and a program started on it, called from
+/// CUA_Sandbox/windows/service.py. It runs inside the app: no program of its
+/// own is built or started for it. Windows only: the file is Windows' own
+/// calls, and the other systems' builds leave it out. The #[path] lets the
+/// file keep its name and its folder.
+#[cfg(windows)]
+#[path = "CUA_Sandbox/windows/Win_CUA.rs"]
+pub mod cua_sandbox;
+
 /// The module: one part per agent, one for the web tool, one for memory
 /// compression and one for the chat memory, each also put in sys.modules
 /// under its full name, so `from AutoCua.agent_native.browser import
@@ -2379,6 +2405,14 @@ fn agent_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         register(&part)?;
         m.add_submodule(&part)?;
         modules.set_item(format!("AutoCua.agent_native.{name}"), &part)?;
+    }
+    // AutoCua SB's second desktop, on Windows only (cua_sandbox above).
+    #[cfg(windows)]
+    {
+        let part = PyModule::new(py, "cua_sandbox")?;
+        cua_sandbox::register(&part)?;
+        m.add_submodule(&part)?;
+        modules.set_item("AutoCua.agent_native.cua_sandbox", &part)?;
     }
     Ok(())
 }
