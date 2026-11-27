@@ -2298,13 +2298,29 @@ def _start_agent_run(data, via=None, hooks=None):
         agent_mode = (data.get('mode') or 'computer').strip().lower()
         device_os = (data.get('os') or '').strip().lower()
         speed = (data.get('speed') or 'quality').strip().lower()   # ⚡/✨ toggle
+        # AutoCua SB (the chat box's picker, sb_toggle.js): Computer use works on
+        # a second desktop of its own (AutoCua/CUA_Sandbox/windows), so the
+        # user keeps their screen, mouse and keyboard. Only Windows has one
+        # so far: anywhere else the run is refused, never run on the screen.
+        sb_asked = (data.get('control') or '').strip().lower() == 'sandbox'
+        sb_run = agent_mode == 'computer' and sb_asked
+        if sb_run and not IS_WINDOWS:
+            return jsonify({'error': 'AutoCua SB runs on Windows only for now. '
+                                     'Pick Full control to run on this computer.'}), 400
+        # The strip shows the picker in Browser too, and the browser agent's
+        # window would take the user's screen: refused the same way.
+        if sb_asked and agent_mode == 'browser':
+            return jsonify({'error': 'AutoCua SB works with Computer use only for now. '
+                                     'Pick Full control to run Browser.'}), 400
         run_pkg = ('ios' if (agent_mode == 'mobile' and device_os == 'ios')
                    else 'android' if (agent_mode == 'mobile' and device_os == 'android')
                    else 'browser' if agent_mode == 'browser'
                    else PLATFORM_PKG)
         # Every Computer use run is recorded, on a machine that can (not Browser
         # or iOS: their screen box goes once the task is done).
-        record = agent_mode == 'computer' and run_recorder.supported()
+        # Not AutoCua SB yet: the recorder films the user's screen, where that
+        # agent does not work.
+        record = agent_mode == 'computer' and run_recorder.supported() and not sb_run
         # The run's package folder — the todo/milestone watchers and resets below
         # must follow the agent that actually runs, not the host desktop package.
         run_pkg_path = get_platform_path(run_pkg)
@@ -2479,7 +2495,8 @@ def _start_agent_run(data, via=None, hooks=None):
                 # Computer use only — browser and iOS runs don't drive this desktop.
                 # Inside the try, so the finally below always takes it back —
                 # on completion, on error, and on Stop.
-                if run_pkg == PLATFORM_PKG:
+                # Not AutoCua SB: that agent does not drive this desktop.
+                if run_pkg == PLATFORM_PKG and not sb_run:
                     agent_glow.start()
                 # The browser and Android agents are Rust extensions
                 # (AutoCua/browser/agent and AutoCua/android/agent hold .rs, not .py):
@@ -2528,7 +2545,9 @@ def _start_agent_run(data, via=None, hooks=None):
                 # sends its device): the phone sub-agents are reachable. This PC,
                 # and every Telegram task, lists them offline. Computer use only
                 # (run_pkg is the host's package): the other agents have no flag.
-                daisy = {"daisy_chain": device_os == "daisy"} if run_pkg == PLATFORM_PKG else {}
+                # AutoCua SB rides the same way (control: 'sandbox' or 'full').
+                daisy = ({"daisy_chain": device_os == "daisy", "control": "sandbox" if sb_run else "full"}
+                         if run_pkg == PLATFORM_PKG else {})
 
                 agent = AgentService(
                     provider=provider,

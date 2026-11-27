@@ -134,6 +134,20 @@ class ControllerView:
         self.daisy_chain = False      # Daisy chain mode: the phone sub-agent is reachable; set by the main driver (off = This PC)
         self.speed = None             # The main agent's speed, so a browser agent runs the same way
         self.scan_on = True           # The `scan` tool's switch; the main driver reads it each step
+        self._control = 'full'        # AutoCua SB or your own screen: the main driver sets `control`
+
+    @property
+    def control(self):
+        """Where the agent works: 'sandbox' (AutoCua SB, a desktop of its own,
+        CUA_Sandbox/windows/service.py) or 'full' (the user's own screen). The
+        main driver sets it. In AutoCua SB the screen tools act there, and the
+        user's keys and buttons are never touched, on Stop either."""
+        return self._control
+
+    @control.setter
+    def control(self, value):
+        self._control = 'sandbox' if value == 'sandbox' else 'full'
+        self.controller_service.real_input = self._control == 'full'
     
     def _web_loading_animation(self):
         """Display animated loading indicator for web search.
@@ -529,6 +543,18 @@ class ControllerView:
                 if not action_type:
                     logger.warning(f"Action item missing 'type' field: {action_item}")
                     continue
+
+                # AutoCua SB: the screen tools act on the agent's own desktop
+                # (CUA_Sandbox/windows/service.py), and the tools that would
+                # start programs on the user's screen wait there: never on it.
+                if self._control == 'sandbox':
+                    from ...CUA_Sandbox.windows.service import handles, sandbox_action
+                    if handles(action_item):
+                        result = sandbox_action(action_item)
+                        results.append(result)
+                        if result.get("status") == "error":
+                            return result
+                        continue
                 
                 if action_type == "left_click":
                     element_id = action_item.get("id")

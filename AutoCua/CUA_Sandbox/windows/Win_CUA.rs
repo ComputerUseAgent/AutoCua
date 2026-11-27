@@ -38,6 +38,11 @@
 //!         For another program, the page of test.py for one. No Character Map
 //!         and no window: every new picture of it goes out on stdout, and a
 //!         line "run CMD" on stdin starts CMD on it. It ends when stdin closes.
+//!     --device
+//!         For the app's agent, in an AutoCua SB run (service.py beside this
+//!         file starts it). No Character Map and no window: one request a
+//!         line on stdin, one reply each on stdout. It ends when stdin closes,
+//!         and every app on the second desktop with it. See device_loop.
 //!
 //!     --no-shell   no Explorer on it (no wallpaper or icons, least RAM)
 //!     --run CMD    start CMD on it instead of Character Map (can repeat)
@@ -56,6 +61,7 @@ use std::mem::{size_of, zeroed};
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -65,7 +71,7 @@ const FRAME_INTERVAL: Duration = Duration::from_millis(250); // between two pict
 
 const USAGE: &str = "Second Windows: a second desktop for the agent.
 
-Win_CUA.exe [--shot PNG] [--computer-use] [--no-shell] [--run CMD] [--scan PNG] [--wait SEC] [--serve]
+Win_CUA.exe [--shot PNG] [--computer-use] [--no-shell] [--run CMD] [--scan PNG] [--wait SEC] [--serve] [--device]
 
   --shot PNG       save one screenshot and exit
   --computer-use   scan and act on Character Map there
@@ -74,6 +80,7 @@ Win_CUA.exe [--shot PNG] [--computer-use] [--no-shell] [--run CMD] [--scan PNG] 
   --scan PNG       save the agent's scan of it and exit
   --wait SEC       seconds before --shot or --scan (default 6)
   --serve          for test.py's page: pictures out on stdout, \"run CMD\" lines in on stdin
+  --device         for the app's agent (AutoCua SB): one request a line on stdin, one reply each on stdout
 
 Every picture is saved in the debug folder at the root, under the file name given.";
 
@@ -90,6 +97,10 @@ const CREATE_UNICODE_ENVIRONMENT: u32 = 0x0000_0400;
 const TOKEN_DUPLICATE: u32 = 0x0002;
 const TOKEN_QUERY: u32 = 0x0008;
 const STARTF_FORCEOFFFEEDBACK: u32 = 0x0000_0080;
+const STARTF_USESHOWWINDOW: u32 = 0x0000_0001;
+const SW_SHOWMAXIMIZED: u16 = 3;
+const WM_NULL: u32 = 0x0000;
+const SMTO_ABORTIFHUNG: u32 = 0x0002;
 const STILL_ACTIVE: u32 = 259;
 const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x0000_2000;
 const JOB_PROCESS_ID_LIST: i32 = 3;
@@ -327,6 +338,8 @@ extern "system" {
     fn ClientToScreen(hwnd: Handle, point: *mut Point) -> i32;
     fn PostMessageW(hwnd: Handle, msg: u32, wparam: usize, lparam: isize) -> i32;
     fn PrintWindow(hwnd: Handle, dc: Handle, flags: u32) -> i32;
+    fn SendMessageTimeoutW(hwnd: Handle, msg: u32, wparam: usize, lparam: isize, flags: u32, timeout_ms: u32,
+                           result: *mut usize) -> isize;
     fn PaintDesktop(dc: Handle) -> i32;
     fn GetDC(hwnd: Handle) -> Handle;
     fn ReleaseDC(hwnd: Handle, dc: Handle) -> i32;
@@ -528,13 +541,19 @@ static EXTRA_JOBS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 /// A Store app cannot join: Windows has put it in a job of its own by then.
 /// A new job made just for it can sit inside that one, and ends the app the
 /// same way. Without it, Paint and ChatGPT stayed running on the second
-/// desktop after this program had gone (seen). Gives back its process id.
-unsafe fn start_on_desktop(command: &str, desktop: &str, job: Handle) -> Res<u32> {
+/// desktop after this program had gone (seen). `show`, when given, is how
+/// its first window shows (SW_SHOWMAXIMIZED), for the programs that follow
+/// it. Gives back its process id.
+unsafe fn start_on_desktop(command: &str, desktop: &str, job: Handle, show: Option<u16>) -> Res<u32> {
     let mut on_desktop = wide(&format!("WinSta0\\{desktop}"));
     let mut si: StartupInfoW = zeroed();
     si.cb = size_of::<StartupInfoW>() as u32;
     si.desktop = on_desktop.as_mut_ptr();
     si.flags = STARTF_FORCEOFFFEEDBACK; // no busy cursor on your screen
+    if let Some(show) = show {
+        si.flags |= STARTF_USESHOWWINDOW;
+        si.show_window = show;
+    }
     let mut pi: ProcessInformation = zeroed();
     let mut line = wide(command);
     let env = fresh_environment();
@@ -752,7 +771,19 @@ unsafe fn visible_windows() -> Vec<usize> {
 
 /// Ask Windows to paint one window into `canvas` at its place on screen.
 /// PrintWindow works for a window nobody can see, which is every window here.
+/// Whether a window's thread answers within 200 ms. One that does not (a
+/// hung app) is left out of the picture and the scan: PrintWindow waits
+/// for that thread to paint, for good, and UI Automation waits out its own
+/// timeouts on it (a scan took 114 s with one hung window there, measured).
+unsafe fn answers(hwnd: Handle) -> bool {
+    let mut answer = 0usize;
+    SendMessageTimeoutW(hwnd, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 200, &mut answer) != 0
+}
+
 unsafe fn paint_window(canvas: Handle, screen: Handle, hwnd: Handle) {
+    if !answers(hwnd) {
+        return;
+    }
     let mut r = Rect::default();
     if GetWindowRect(hwnd, &mut r) == 0 {
         return;
@@ -1510,6 +1541,67 @@ struct Found {
     kind: &'static str,
     name: String,
     place: [i32; 4],
+    /// The top-level window it is in.
+    window: usize,
+}
+
+/// The properties a scan reads, fetched with the elements in one call per
+/// window.
+unsafe fn scan_cache(uia: &Com) -> Res<Com> {
+    let cache = uia.object(UIA_CREATE_CACHE_REQUEST)?;
+    let add: unsafe extern "system" fn(*mut c_void, i32) -> i32 = cache.method(CACHE_ADD_PROPERTY);
+    for property in [UIA_RECT, UIA_TYPE, UIA_NAME, UIA_FOCUSABLE, UIA_OFFSCREEN] {
+        check(add(cache.0, property))?;
+    }
+    Ok(cache)
+}
+
+/// What UI Automation finds to click or type in, in `windows` (top first),
+/// read once. What a window covers is dropped from the ones below it, and
+/// one element is kept per place. Called from a thread on the second desktop.
+unsafe fn find_elements(uia: &Com, every: &Com, cache: &Com, windows: &[usize]) -> Res<Vec<Found>> {
+    let (mut items, mut places, mut above) = (Vec::new(), HashSet::new(), Vec::<Rect>::new());
+    for &window in windows {
+        let hwnd = window as Handle;
+        if !answers(hwnd) {
+            continue;
+        }
+        let mut w = Rect::default();
+        GetWindowRect(hwnd, &mut w);
+        let found = element_from_handle(uia, hwnd)
+            .and_then(|element| find_all(&element, TREE_SCOPE_DESCENDANTS, every, Some(cache)));
+        let found = match found {
+            Ok(found) => found,
+            Err(e) => {
+                eprintln!("  could not read {}: {e}", quote(&class_of(hwnd)));
+                Vec::new()
+            }
+        };
+        for e in &found {
+            let kind: i32 = e.get(EL_CACHED_CONTROL_TYPE)?;
+            if e.get::<i32>(EL_CACHED_IS_OFFSCREEN)? != 0 || WHOLE_AREAS.contains(&kind) {
+                continue;
+            }
+            if !CLICKABLE.contains(&kind) && e.get::<i32>(EL_CACHED_IS_KEYBOARD_FOCUSABLE)? == 0 {
+                continue;
+            }
+            let r: Rect = e.get(EL_CACHED_BOUNDING_RECTANGLE)?;
+            let place = [r.left.max(w.left), r.top.max(w.top), r.right.min(w.right), r.bottom.min(w.bottom)];
+            let (cx, cy) = ((place[0] + place[2]).div_euclid(2), (place[1] + place[3]).div_euclid(2));
+            if place[2] - place[0] < 4
+                || place[3] - place[1] < 4
+                || above.iter().any(|a| a.left <= cx && cx < a.right && a.top <= cy && cy < a.bottom)
+            {
+                continue;
+            }
+            if places.insert(place) {
+                // one per place
+                items.push(Found { kind: control_type(kind), name: e.text(EL_CACHED_NAME)?, place, window });
+            }
+        }
+        above.push(w);
+    }
+    Ok(items)
 }
 
 /// The agent's scan of the second desktop: what UI Automation finds to
@@ -1521,55 +1613,9 @@ unsafe fn scan_desktop(desk: usize, frames: &Frames, png: &str) -> Res<Vec<Windo
     }
     let uia = uia_client()?;
     let every = uia.object(UIA_CREATE_TRUE_CONDITION)?;
-    let cache = uia.object(UIA_CREATE_CACHE_REQUEST)?; // these come back with the elements, in one call per window
-    let add: unsafe extern "system" fn(*mut c_void, i32) -> i32 = cache.method(CACHE_ADD_PROPERTY);
-    for property in [UIA_RECT, UIA_TYPE, UIA_NAME, UIA_FOCUSABLE, UIA_OFFSCREEN] {
-        check(add(cache.0, property))?;
-    }
+    let cache = scan_cache(&uia)?;
     let windows = visible_windows();
-
-    let read = || -> Res<Vec<Found>> {
-        let (mut items, mut places, mut above) = (Vec::new(), HashSet::new(), Vec::<Rect>::new());
-        for &hwnd in &windows {
-            // top first: what a window covers is dropped from the ones below
-            let hwnd = hwnd as Handle;
-            let mut w = Rect::default();
-            GetWindowRect(hwnd, &mut w);
-            let found = element_from_handle(&uia, hwnd)
-                .and_then(|window| find_all(&window, TREE_SCOPE_DESCENDANTS, &every, Some(&cache)));
-            let found = match found {
-                Ok(found) => found,
-                Err(e) => {
-                    println!("  could not read {}: {e}", quote(&class_of(hwnd)));
-                    Vec::new()
-                }
-            };
-            for e in &found {
-                let kind: i32 = e.get(EL_CACHED_CONTROL_TYPE)?;
-                if e.get::<i32>(EL_CACHED_IS_OFFSCREEN)? != 0 || WHOLE_AREAS.contains(&kind) {
-                    continue;
-                }
-                if !CLICKABLE.contains(&kind) && e.get::<i32>(EL_CACHED_IS_KEYBOARD_FOCUSABLE)? == 0 {
-                    continue;
-                }
-                let r: Rect = e.get(EL_CACHED_BOUNDING_RECTANGLE)?;
-                let place = [r.left.max(w.left), r.top.max(w.top), r.right.min(w.right), r.bottom.min(w.bottom)];
-                let (cx, cy) = ((place[0] + place[2]).div_euclid(2), (place[1] + place[3]).div_euclid(2));
-                if place[2] - place[0] < 4
-                    || place[3] - place[1] < 4
-                    || above.iter().any(|a| a.left <= cx && cx < a.right && a.top <= cy && cy < a.bottom)
-                {
-                    continue;
-                }
-                if places.insert(place) {
-                    // one per place
-                    items.push(Found { kind: control_type(kind), name: e.text(EL_CACHED_NAME)?, place });
-                }
-            }
-            above.push(w);
-        }
-        Ok(items)
-    };
+    let read = || find_elements(&uia, &every, &cache, &windows);
 
     // Chromium (so WebView2 and Electron) builds its element tree only when
     // someone first asks: read until two reads in a row agree.
@@ -1832,12 +1878,206 @@ unsafe fn serve(frames: &Arc<Frames>, job: Handle) -> Res<()> {
     for line in std::io::stdin().lines() {
         let Ok(line) = line else { break };
         if let Some(command) = line.strip_prefix("run ") {
-            if let Err(e) = start_on_desktop(command.trim(), DESKTOP, job) {
+            if let Err(e) = start_on_desktop(command.trim(), DESKTOP, job, None) {
                 send("note", format!("could not start on the second desktop: {command}: {e}").as_bytes());
             }
         }
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------- the device: the app's agent works here
+
+/// A string as JSON text, quotes included.
+fn json_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// A window's frame as you see it, without the invisible resize borders.
+unsafe fn frame_of(hwnd: Handle) -> Rect {
+    let mut f = Rect::default();
+    if DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &mut f as *mut Rect as *mut c_void,
+                             size_of::<Rect>() as u32) != 0
+    {
+        GetWindowRect(hwnd, &mut f);
+    }
+    f
+}
+
+/// The agent's scan of the second desktop, as JSON: the windows on show,
+/// top first, and what UI Automation finds to click or type in, numbered
+/// from 1. Boxes are in screen pixels. `seen` holds the windows of the scan
+/// before: a window new since then is read again until two reads agree,
+/// since Chromium (so WebView2 and Electron) builds its element tree only
+/// when someone first asks.
+unsafe fn device_scan(uia: &Com, every: &Com, cache: &Com, seen: &mut HashSet<usize>) -> Res<String> {
+    let windows = visible_windows();
+    let mut items = find_elements(uia, every, cache, &windows)?;
+    if windows.iter().any(|w| !seen.contains(w)) {
+        for _ in 0..3 {
+            sleep(0.5);
+            let again = find_elements(uia, every, cache, &windows)?;
+            let same = again.len() == items.len();
+            items = again;
+            if same {
+                break;
+            }
+        }
+    }
+    *seen = windows.iter().copied().collect();
+    let mut json = String::from("{\"windows\":[");
+    for (i, &hwnd) in windows.iter().enumerate() {
+        let info = window_info(hwnd as Handle);
+        let f = frame_of(hwnd as Handle);
+        if i > 0 {
+            json.push(',');
+        }
+        json.push_str(&format!(
+            "{{\"hwnd\":{hwnd},\"pid\":{},\"exe\":{},\"class\":{},\"title\":{},\"box\":[{},{},{},{}]}}",
+            info.pid, json_text(&process_name(info.pid)), json_text(&info.class), json_text(&info.title),
+            f.left, f.top, f.right, f.bottom
+        ));
+    }
+    json.push_str("],\"elements\":[");
+    for (n, item) in items.iter().enumerate() {
+        let [left, top, right, bottom] = item.place;
+        if n > 0 {
+            json.push(',');
+        }
+        json.push_str(&format!(
+            "{{\"n\":{},\"kind\":{},\"name\":{},\"box\":[{left},{top},{right},{bottom}],\"window\":{}}}",
+            n + 1, json_text(item.kind), json_text(&item.name), item.window
+        ));
+    }
+    json.push_str("]}");
+    Ok(json)
+}
+
+/// An app's own window: titled and at least 100 by 100, as the agent's
+/// open_app counts them, and not the desktop or a taskbar. While the second
+/// desktop is new, Explorer's own windows come up there too, the desktop
+/// ("Program Manager") and small untitled ones (seen): those are not.
+unsafe fn is_app_window(hwnd: Handle) -> bool {
+    let f = frame_of(hwnd);
+    let shell = ["Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"];
+    !title_of(hwnd).trim().is_empty() && f.right - f.left >= 100 && f.bottom - f.top >= 100
+        && !shell.contains(&class_of(hwnd).as_str())
+}
+
+/// Start a program on the second desktop for the agent, its window
+/// maximized as the agent's open_app does, and wait up to 10 seconds for a
+/// new app window there. As JSON: the pid, the new window's title (null when
+/// none came), and whether the program ended with no window: a one-copy app
+/// can hand its start to the copy on your desktop and quit.
+unsafe fn device_open(command: &str, job: Handle) -> Res<String> {
+    if command.is_empty() {
+        return Err("open needs a command line".to_string());
+    }
+    let before: HashSet<usize> = visible_windows().into_iter().collect();
+    let pid = start_on_desktop(command, DESKTOP, job, Some(SW_SHOWMAXIMIZED))?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut window = None;
+    while Instant::now() < deadline {
+        let new = visible_windows().into_iter().find(|&hwnd| !before.contains(&hwnd) && is_app_window(hwnd as Handle));
+        if let Some(hwnd) = new {
+            thread::sleep(Duration::from_millis(300)); // its first paint
+            window = Some(title_of(hwnd as Handle));
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    let exited = window.is_none() && process_state(pid) != "still running";
+    let window = window.map(|title| json_text(&title)).unwrap_or_else(|| "null".to_string());
+    Ok(format!("{{\"pid\":{pid},\"window\":{window},\"exited\":{exited}}}"))
+}
+
+/// The device, on a thread of its own that joins the second desktop before
+/// anything else: window messages, PrintWindow and UI Automation reach that
+/// desktop's windows only from there. The app (service.py beside this file)
+/// sends one request a line on stdin, and gets exactly one reply for each, in
+/// the order asked, as `send` writes them: a line "<kind> <bytes>", then the
+/// bytes. First, unasked, "ready" with the picture's place on the screen.
+///   ping           -> ok {}
+///   shot           -> bmp: the picture of the second desktop (the primary
+///                     monitor's work area, the taskbar strip cut off)
+///   scan           -> ok {"windows": [...], "elements": [...]} (device_scan)
+///   open CMDLINE   -> ok {"pid", "window", "exited"} (device_open)
+/// What fails answers err, with why in words. Nothing else may go to stdout.
+unsafe fn device_loop(desk: usize, frames: &Frames, job: usize, requests: Receiver<String>) -> Res<()> {
+    if SetThreadDesktop(desk as Handle) == 0 {
+        let error = last_error("could not join the second desktop");
+        send("err", error.as_bytes());
+        return Err(error);
+    }
+    let uia = uia_client()?;
+    let every = uia.object(UIA_CREATE_TRUE_CONDITION)?;
+    let cache = scan_cache(&uia)?;
+    let ready = format!("{{\"x0\":{},\"y0\":{},\"width\":{},\"height\":{}}}",
+                        frames.x0, frames.y0, frames.width, frames.height);
+    if !send("ready", ready.as_bytes()) {
+        return Ok(());
+    }
+    let mut seen = HashSet::new();
+    for line in requests {
+        let (verb, rest) = line.split_once(' ').unwrap_or((line.as_str(), ""));
+        let reply = match verb.trim() {
+            "" => continue,
+            "ping" => Ok(("ok", b"{}".to_vec())),
+            "shot" => capture(frames, &[]).map(|(pixels, _)| ("bmp", bmp(frames.width, frames.height, &pixels))),
+            "scan" => device_scan(&uia, &every, &cache, &mut seen).map(|json| ("ok", json.into_bytes())),
+            "open" => device_open(rest.trim(), job as Handle).map(|json| ("ok", json.into_bytes())),
+            other => Err(format!("unknown request: {other}")),
+        };
+        let sent = match reply {
+            Ok((kind, data)) => send(kind, &data),
+            Err(e) => send("err", e.as_bytes()),
+        };
+        if !sent {
+            break; // nobody reads any more
+        }
+    }
+    Ok(())
+}
+
+/// The device for the app's agent: device_loop on its thread, till stdin
+/// closes. This thread reads stdin and hands each line over, so the end of
+/// stdin (the app gone, however it went) is seen even while a request is
+/// still being answered: then it waits two seconds at most, and returns.
+/// run() then ends every app on the second desktop, a hung one included,
+/// and the program ends with them.
+unsafe fn device(frames: &Arc<Frames>, desk: usize, job: Handle) -> Res<()> {
+    let (frames, job) = (frames.clone(), job as usize);
+    let (hand_over, requests) = channel::<String>();
+    let worker = thread::spawn(move || unsafe { device_loop(desk, &frames, job, requests) });
+    for line in std::io::stdin().lines() {
+        let Ok(line) = line else { break };
+        if hand_over.send(line).is_err() {
+            break; // the device thread has ended
+        }
+    }
+    drop(hand_over);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !worker.is_finished() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(20));
+    }
+    if !worker.is_finished() {
+        return Ok(()); // still busy with a request nobody waits for any more
+    }
+    worker.join().unwrap_or_else(|_| Err("the device thread stopped".to_string()))
 }
 
 // ---------------------------------------------------------------- main
@@ -1850,6 +2090,7 @@ struct Args {
     scan: Option<String>,
     wait: f64,
     serve: bool,
+    device: bool,
 }
 
 fn parse_args() -> Res<Args> {
@@ -1861,6 +2102,7 @@ fn parse_args() -> Res<Args> {
         scan: None,
         wait: 6.0,
         serve: false,
+        device: false,
     };
     let mut rest = std::env::args().skip(1);
     while let Some(arg) = rest.next() {
@@ -1878,6 +2120,7 @@ fn parse_args() -> Res<Args> {
             "--computer-use" => args.computer_use = true,
             "--no-shell" => args.no_shell = true,
             "--serve" => args.serve = true,
+            "--device" => args.device = true,
             "-h" | "--help" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -1893,28 +2136,31 @@ unsafe fn go(args: &Args, frames: &Arc<Frames>, desk: Handle, job: Handle, befor
              capture_thread: &mut Option<thread::JoinHandle<()>>) -> Res<()> {
     let windir = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
     let mut commands = if args.no_shell { Vec::new() } else { vec![format!("{windir}\\explorer.exe")] };
-    if args.computer_use || (args.run.is_empty() && !args.serve) {
+    if args.computer_use || (args.run.is_empty() && !args.serve && !args.device) {
         commands.push(format!("{windir}\\System32\\charmap.exe"));
     } else {
         commands.extend(args.run.iter().cloned());
     }
     let mut started = Vec::new();
     for command in commands {
-        let said = match start_on_desktop(&command, DESKTOP, job) {
+        let said = match start_on_desktop(&command, DESKTOP, job, None) {
             Ok(pid) => {
                 started.push((command.clone(), pid));
                 format!("started on the second desktop: {command} (pid {pid})")
             }
             Err(e) => format!("could not start on the second desktop: {command}: {e}"),
         };
-        if args.serve {
-            eprintln!("{said}"); // stdout carries the pictures then
+        if args.serve || args.device {
+            eprintln!("{said}"); // stdout carries the pictures or the replies then
         } else {
             println!("{said}");
         }
     }
 
     let desk = desk as usize; // as a plain number it can go to another thread
+    if args.device {
+        return device(frames, desk, job);
+    }
     if args.computer_use || args.scan.is_some() {
         if args.scan.is_some() {
             sleep(args.wait); // the apps get to start

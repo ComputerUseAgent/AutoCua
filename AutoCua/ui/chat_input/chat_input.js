@@ -112,7 +112,12 @@
                     // sub-agents are reachable), sent the same way.
                     os: (agentMode === 'mobile' || agentMode === 'computer') ? agentSub : null,
                     // ⚡/✨ toggle state lives only in the .quality class (read live at send)
-                    speed: (flipToggle && !flipToggle.classList.contains('quality')) ? 'fast' : 'quality'
+                    speed: (flipToggle && !flipToggle.classList.contains('quality')) ? 'fast' : 'quality',
+                    // The strip's picker (sb_toggle.js): AutoCua SB runs Computer use
+                    // on a desktop of its own; Full control on the user's screen. Sent in
+                    // every mode it shows in (not Coder), so the backend can refuse a
+                    // mode AutoCua SB does not cover yet.
+                    control: (agentMode !== 'coder' && window.agentControl) ? window.agentControl() : 'full'
                 })
             })
             .then(response => response.json())

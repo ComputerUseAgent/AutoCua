@@ -192,9 +192,15 @@ class ControllerService:
         self.elements_mapping = {}  # Will store {index: element_info}
         self.application_name = ""  # Current application name for typing mode detection
         self.stop_event = stop_event
+        # False in AutoCua SB (ControllerView.control): the agent works on a
+        # desktop of its own and never touches the user's keys or buttons.
+        self.real_input = True
     
     def release_all_inputs(self):
-        """Emergency release all hardware inputs (keyboard + mouse) via both Interception and pyautogui."""
+        """Emergency release all hardware inputs (keyboard + mouse) via both Interception and pyautogui.
+        Not in AutoCua SB: the keys held down then are the user's."""
+        if not self.real_input:
+            return
         kernel_release()
         try:
             for key in ['shift', 'ctrl', 'alt', 'shiftleft', 'shiftright', 'ctrlleft', 'ctrlright', 'altleft', 'altright']:
