@@ -30,6 +30,7 @@
 #   mode = "browser"          -> browser agent driving CDP-controlled Chrome
 #                                (AutoCua/browser). Host OS independent.
 import atexit
+import functools
 import inspect
 import json
 import os
@@ -407,6 +408,29 @@ def _device_target(device):
     return target
 
 
+def _any_case(launch):
+    """Flag names in any letter case: Fullscreen=True is fullscreen=True.
+
+    Every flag is spelt in lower case (agent_capabilities.md), and Python
+    tells capitals apart: a flag written with one was another flag, which
+    nobody takes, so it was dropped without a word (seen: main.py's
+    Fullscreen=True, and no full screen). Only the names are lowered; a value
+    goes through as it is written. A flag given twice in two spellings is
+    refused, as Python refuses one given twice.
+    """
+    @functools.wraps(launch)
+    def any_case(*args, **flags):
+        lowered = {}
+        for name, value in flags.items():
+            if name.lower() in lowered:
+                raise TypeError(f"{launch.__name__}() got multiple values for "
+                                f"keyword argument '{name.lower()}'")
+            lowered[name.lower()] = value
+        return launch(*args, **lowered)
+    return any_case
+
+
+@_any_case
 def run_agent(mode, provider, model, task=None, os=None,
               device=None, ios_version=None, sim_device=None, app_build=None,
               android_version=None,

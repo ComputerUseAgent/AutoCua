@@ -9,6 +9,10 @@ argument that call takes.
 and pass that in. The only values worth a variable of their own are the task
 strings of a parallel run (Part 2), and `mode` if you switch it often.
 
+**Flag names take any letter case:** `Fullscreen=True` and `HEADLESS=True` are
+`fullscreen=True` and `headless=True`. Only the names: a value is used as you
+write it.
+
 ## The four required arguments
 
 ```python
