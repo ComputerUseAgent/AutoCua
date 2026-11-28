@@ -2306,13 +2306,14 @@ def _start_agent_run(data, via=None, hooks=None):
         device_os = (data.get('os') or '').strip().lower()
         speed = (data.get('speed') or 'quality').strip().lower()   # ⚡/✨ toggle
         # AutoCua SB (the chat box's picker, sb_toggle.js): Computer use works on
-        # a second desktop of its own (AutoCua/CUA_Sandbox/windows), so the
-        # user keeps their screen, mouse and keyboard. Only Windows has one
-        # so far: anywhere else the run is refused, never run on the screen.
+        # a second desktop of its own (AutoCua/CUA_Sandbox/windows) or, on a
+        # Mac, on a second display of its own (AutoCua/CUA_Sandbox/mac), so the
+        # user keeps their screen, mouse and keyboard. Linux has none so far:
+        # there the run is refused, never run on the screen.
         sb_asked = (data.get('control') or '').strip().lower() == 'sandbox'
         sb_run = agent_mode == 'computer' and sb_asked
-        if sb_run and not IS_WINDOWS:
-            return jsonify({'error': 'AutoCua SB runs on Windows only for now. '
+        if sb_run and not (IS_WINDOWS or IS_MAC):
+            return jsonify({'error': 'AutoCua SB runs on Windows and macOS only for now. '
                                      'Pick Full control to run on this computer.'}), 400
         # The strip shows the picker in Browser too, and the browser agent's
         # window would take the user's screen: refused the same way.

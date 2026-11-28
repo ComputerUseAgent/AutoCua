@@ -92,7 +92,7 @@
         msgRO.observe(box);
     }
 
-    // ── Media of earlier turns: loaded and played only near the view ──────
+    // ── Media of earlier turns: loaded only near the view ─────────────────
     var io = null;
     function wake(zone, near) {
         zone.dataset.near = near ? '1' : '';
@@ -102,12 +102,15 @@
         }
         var bg = zone.querySelector('.cu-bg');
         if (!bg) return;
-        if (near) {
-            if (!bg.getAttribute('src')) bg.src = BG;
-            var playing = bg.play();
-            if (playing && playing.catch) playing.catch(function () { /* stays on its first frame */ });
-        } else {
-            bg.pause();
+        // An earlier turn's background is loaded near the view and stays on
+        // its first frame: it is not played. The page draws one moving
+        // background smoothly, the live turn's (run_bot.js). With an earlier
+        // turn's playing beside it the whole page fell from 60 frames a second
+        // to 15, and pausing the earlier one alone brought 60 back (measured in
+        // the app's own window on 2026-11-28, with its page idle meanwhile).
+        if (near && !bg.getAttribute('src')) {
+            bg.preload = 'auto';            // the first frame shows without play()
+            bg.src = BG;
         }
     }
     function watch(zone) {

@@ -76,6 +76,11 @@ class ControllerService:
         self.stop_event = stop_event
         # Where this batch's pointer actions landed, read by data_extraction.
         self.clicks = []
+        # A sandbox run: the screen tools work on the second display
+        # (CUA_Sandbox/mac/service.py) and the person's pointer and keyboard
+        # are never touched. Off by default: the main screen. The controller
+        # view sets it from the run's `control`.
+        self.sandbox = False
 
         trusted = AXIsProcessTrusted()
         if not trusted:
@@ -88,6 +93,10 @@ class ControllerService:
 
     def release_all_inputs(self):
         """Emergency release all hardware inputs (keyboard + mouse) via pyautogui."""
+        # A sandbox run pressed nothing of the person's: the keys and buttons
+        # held now are their own.
+        if self.sandbox:
+            return
         try:
             for key in ['shift', 'ctrl', 'alt', 'shiftleft', 'shiftright',
                         'ctrlleft', 'ctrlright', 'altleft', 'altright']:
@@ -143,7 +152,18 @@ class ControllerService:
         """
         Full click sequence with ONE event source (proven working approach):
         force-focus target app → warp cursor → move event → click down/up.
+
+        In a sandbox run the click goes to the second display instead: the
+        same point and count, sent by the sandbox to the app that has a
+        window there. No app comes in front and the pointer does not move.
+        A click it could not send is raised, and the tool that asked for it
+        reports the reason.
         """
+        if self.sandbox:
+            from ...CUA_Sandbox.mac.service import sandbox
+            sandbox().click(x, y, click_count)
+            return
+
         self._force_focus_target_app()
 
         point = CGPointMake(float(x), float(y))
@@ -190,7 +210,15 @@ class ControllerService:
     def _warp_move_right_click(self, x, y):
         """
         Full right-click sequence with ONE event source.
+
+        Not in a sandbox run: the second display sends no right click. A
+        menu it opens in an app that is not in front takes the person's
+        keyboard for as long as it is open (Mac_CUA.rs, `press`). It is
+        raised here so that it can never fall through to the real pointer.
         """
+        if self.sandbox:
+            raise RuntimeError("right_click does not work on the second screen yet")
+
         self._force_focus_target_app()
 
         point = CGPointMake(float(x), float(y))
@@ -503,6 +531,19 @@ class ControllerService:
                 return {"status": "error", "action": "input", "index": index,
                         "message": f"Element is hidden (clipped by '{clipped_by}'). Scroll to make it visible first."}
 
+            # A sandbox run: the sandbox clicks the element on the second
+            # display and puts the whole text in it, in place of what was
+            # there. The person's pointer, keyboard and clipboard are not used.
+            if self.sandbox:
+                from ...CUA_Sandbox.mac.service import sandbox
+                value = "" if value is None else str(value)
+                sandbox().set_text(index, value)
+                self._note_click(index, *self._rect_center(element_info['rect']))
+                time.sleep(0.5)
+                return {"status": "success", "action": "input", "index": index, "value": value,
+                        "element_name": element_info.get('name', 'Unknown'),
+                        "message": "verify yourself using Raw Vision"}
+
             click_x, click_y = self._get_click_coords_for_element(element_info)
             self._warp_move_click(click_x, click_y, click_count=1)
             self._note_click(index, click_x, click_y)
@@ -790,6 +831,20 @@ class ControllerService:
     def typewrite(self, text):
         """Type text directly into currently focused location (no element targeting)."""
         try:
+            # A sandbox run: the sandbox types it into the app the agent last
+            # acted on, on the second display. The person's keyboard is not
+            # used. Long texts go in pieces, with a Stop check between them.
+            if self.sandbox:
+                from ...CUA_Sandbox.mac.service import sandbox
+                text = "" if text is None else str(text)
+                for start in range(0, len(text), 200):
+                    if self.stop_event and self.stop_event.is_set():
+                        return {"status": "stopped", "action": "typewrite", "message": "Stopped by user"}
+                    sandbox().typewrite(text[start:start + 200])
+                time.sleep(0.22)
+                return {"status": "success", "action": "typewrite", "text": text,
+                        "message": "verify yourself using visual"}
+
             # Multi-line: paste verbatim so auto-indenting editors don't compound
             # the indentation (see _paste_text). Replaces any active selection,
             # which is exactly what the line-edit workflow expects.
