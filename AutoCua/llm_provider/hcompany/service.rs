@@ -30,6 +30,10 @@
 //! or from a request sent to the API on 2026-11-27:
 //! - a screenshot goes in "<observation>" tags, the way Holo is trained to
 //!   get one, and a request holds 5 images at most;
+//! - the screenshots of the two steps before go out again with every
+//!   request, each in front of the answer the model gave on it: the docs say
+//!   to keep at most the last 3 in context. The loops keep only the current
+//!   one, so this provider keeps the two before it by itself (past_shots);
 //! - the output cap never passes the model's own (the table's max_output);
 //! - temperature is H Company's figure for the kind of call;
 //! - a 429 (over the tier's requests a minute: 10 on a free account) is
@@ -59,13 +63,32 @@ const CLASS_LINE: i32 = 7;
 
 /// What the class's methods set through self, sorted: the class's
 /// __static_attributes__ from Python 3.13.
-const STATIC_ATTRIBUTES: [&str; 7] = ["api_key", "api_url", "cli_agent", "max_tokens", "model_info", "session", "tools"];
+const STATIC_ATTRIBUTES: [&str; 8] =
+    ["api_key", "api_url", "cli_agent", "max_tokens", "model_info", "past_shots", "session", "tools"];
 
 /// Where every request goes.
 const API_URL: &str = "https://api.hcompany.ai/v1/chat/completions";
 
 /// The images one request may hold: the API takes 5 (JPEG, PNG or WebP).
 const MAX_IMAGES: usize = 5;
+
+/// The screenshots of a run one request holds: this step's own and those of
+/// the two steps before it, a window that slides with the run. The docs
+/// (hub.hcompany.ai/models-api/build-an-agent/core-concepts): "Keep at most
+/// the last 3 screenshots in context: more degrades accuracy."
+const SHOTS_IN_MEMORY: usize = 3;
+
+/// What an earlier screenshot is told to be, in front of its <observation>,
+/// and this step's own when earlier ones are in the request with it. The
+/// boxes drawn on an earlier one carry the [id]s of its own scan, which the
+/// next scan gave to other elements.
+const EARLIER_SCREEN: &str =
+    "Earlier screen: what you saw before the step that follows. Its [id] labels are out of date.\n<observation>\n";
+const CURRENT_SCREEN: &str = "Current screen: act on this one.\n<observation>\n";
+
+/// The id _normalize_tool_response gives a reply's first call when the API
+/// sent none: it is the same in every reply, so it names no step.
+const NO_CALL_ID: &str = "call_0";
 
 /// The output cap of every agent but the coder, when the caller gives none.
 const STEP_MAX_TOKENS: i64 = 8192;
@@ -350,6 +373,11 @@ impl HCompanyProvider {
         // Native tool calling: OpenAI-format function tools — the model's
         // output contract. None only for mode="text" (plain prose).
         me.setattr("tools", or(tools, || Ok(none(py)))?)?;
+        // The screenshots of the last steps, oldest first, each with the id
+        // of the first call the model made on it: [(call_id, base64 JPEG)].
+        // send_request puts them back at their steps (see with_earlier_shots).
+        // self.past_shots = []
+        me.setattr("past_shots", PyList::empty(py))?;
         Ok(())
     }
 
@@ -379,6 +407,11 @@ impl HCompanyProvider {
             let count = g(py, "len")?.call1((&messages,))?;
             count.rich_compare(1, CompareOp::Gt)?.is_truthy()
         };
+        // What goes out: `messages`, or a copy of the list with the earlier
+        // screenshots put back. And this step's own screenshot, kept for the
+        // steps that follow once the model has answered it.
+        let mut sent = messages.clone();
+        let mut own_shot: Option<Obj<'py>> = None;
         if shot.is_truthy()? && !attr(me, "cli_agent")?.is_truthy()? && several()? {
             let user_message = messages.get_item(-1)?.get_item("content")?;
             // The step's text, then each screenshot the way Holo is trained to
@@ -391,18 +424,32 @@ impl HCompanyProvider {
             //                  {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{shot}"}},
             //                  {"type": "text", "text": "\n</observation>"})]
             let text = list1(dict(py, &[("type", &lit(py, "text")), ("text", &user_message)])?)?;
-            let images = PyList::empty(py);
             let shots = g(py, "screenshots")?.call1((&shot,))?;
+            let mut own: Vec<Obj<'py>> = Vec::new();
             for one in comprehension(&shots)?.take(MAX_IMAGES) {
-                let one = one?;
-                let url = Fmt::new(py).s("data:image/jpeg;base64,").v(&one)?.done()?;
+                own.push(one?);
+            }
+            // The screenshots of the steps before, back at their steps: as
+            // many as SHOTS_IN_MEMORY and the API's MAX_IMAGES leave room for
+            // beside this step's own.
+            // sent, earlier = self._with_earlier_shots(messages, room)
+            let room = (SHOTS_IN_MEMORY - 1).min(MAX_IMAGES - own.len());
+            let (with_earlier, earlier) = with_earlier_shots(me, &messages, room)?;
+            let images = PyList::empty(py);
+            for (n, one) in own.iter().enumerate() {
+                let url = Fmt::new(py).s("data:image/jpeg;base64,").v(one)?.done()?;
                 let image_url = dict(py, &[("url", &url)])?;
-                images.append(dict(py, &[("type", &lit(py, "text")), ("text", &lit(py, "<observation>\n"))])?)?;
+                // With earlier ones in the request, the first of this step's
+                // own is told to be the current screen.
+                let opening = if earlier > 0 && n == 0 { CURRENT_SCREEN } else { "<observation>\n" };
+                images.append(dict(py, &[("type", &lit(py, "text")), ("text", &lit(py, opening))])?)?;
                 images.append(dict(py, &[("type", &lit(py, "image_url")), ("image_url", &image_url)])?)?;
                 images.append(dict(py, &[("type", &lit(py, "text")), ("text", &lit(py, "\n</observation>"))])?)?;
             }
             let content = text.add(&images)?;
             messages.get_item(-1)?.set_item("content", content)?;
+            sent = with_earlier;
+            own_shot = own.into_iter().next();
         }
 
         // headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
@@ -435,7 +482,7 @@ impl HCompanyProvider {
         let temperature = PyFloat::new(py, if looping { 0.8 } else { 0.0 }).into_any();
         let data = dict(
             py,
-            &[("model", &model), ("messages", &messages), ("temperature", &temperature), ("max_tokens", &max_tokens)],
+            &[("model", &model), ("messages", &sent), ("temperature", &temperature), ("max_tokens", &max_tokens)],
         )?;
         // The table's level for this caller (the coder reads coder_effort
         // when the entry has one); with none, the API's own default:
@@ -504,7 +551,14 @@ impl HCompanyProvider {
             response.call_method0("raise_for_status")?;
             let result = response.call_method0("json")?;
             if attr(me, "tools")?.is_truthy()? {
-                return g(py, "_normalize_tool_response")?.call1((result,));
+                let reply = g(py, "_normalize_tool_response")?.call1((result,))?;
+                // The model answered this screenshot: it is kept for the
+                // steps that follow, under the id of the answer's first call.
+                // self._remember_shot(reply, own_shot)
+                if let Some(image) = &own_shot {
+                    remember_shot(me, &reply, image)?;
+                }
+                return Ok(reply);
             }
             Ok(result)
         })();
@@ -541,6 +595,114 @@ impl HCompanyProvider {
 // ---------------------------------------------------------------------------
 // The functions
 // ---------------------------------------------------------------------------
+
+/// Where in `messages` the model's answer is that holds the call `id`: the
+/// place of that assistant message, or None when the history has no such
+/// answer (it was never kept, or a compression or a new chat took it away).
+/// for at, message in enumerate(messages):
+///     if message.get("role") == "assistant" and any(
+///             (call or {}).get("id") == id for call in message.get("tool_calls") or []):
+///         return at
+/// return None
+fn turn_of_call<'py>(messages: &Obj<'py>, id: &Obj<'py>) -> PyResult<Option<usize>> {
+    let py = messages.py();
+    for (at, message) in messages.try_iter()?.enumerate() {
+        let message = message?;
+        if !isinstance(&message, "dict")? || !get(&message, "role")?.eq("assistant")? {
+            continue;
+        }
+        let calls = or(get(&message, "tool_calls")?, || Ok(PyList::empty(py).into_any()))?;
+        for call in calls.try_iter()? {
+            let call = call?;
+            if isinstance(&call, "dict")? && get(&call, "id")?.eq(id)? {
+                return Ok(Some(at));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// An earlier screenshot as a turn of the history: a user message the way
+/// Holo is trained to get an observation, told to be an earlier screen.
+/// {"role": "user", "content": [{"type": "text", "text": EARLIER_SCREEN},
+///     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image}"}},
+///     {"type": "text", "text": "\n</observation>"}]}
+fn earlier_turn<'py>(image: &Obj<'py>) -> PyResult<Obj<'py>> {
+    let py = image.py();
+    let url = Fmt::new(py).s("data:image/jpeg;base64,").v(image)?.done()?;
+    let image_url = dict(py, &[("url", &url)])?;
+    let parts = PyList::empty(py);
+    parts.append(dict(py, &[("type", &lit(py, "text")), ("text", &lit(py, EARLIER_SCREEN))])?)?;
+    parts.append(dict(py, &[("type", &lit(py, "image_url")), ("image_url", &image_url)])?)?;
+    parts.append(dict(py, &[("type", &lit(py, "text")), ("text", &lit(py, "\n</observation>"))])?)?;
+    dict(py, &[("role", &lit(py, "user")), ("content", parts.as_any())])
+}
+
+/// The messages to send, with the screenshots of the steps before put back,
+/// and how many were put back. Each goes in front of the answer the model
+/// gave on it, so the history reads as Holo's own loop does: the screen, what
+/// the model did on it, what came of it, the next screen. `messages` itself
+/// is left as it is: the loop keeps it, and sends it again when a request
+/// fails.
+///
+/// This is also where the window slides. A kept screenshot whose step is
+/// not in the history is forgotten first (the loop threw that answer away,
+/// or a compression or a new chat took the step). Of the rest the newest
+/// SHOTS_IN_MEMORY - 1 stay, and the newest `room` of those are put back.
+fn with_earlier_shots<'py>(me: &Obj<'py>, messages: &Obj<'py>, room: usize) -> PyResult<(Obj<'py>, usize)> {
+    let py = me.py();
+    let mut found: Vec<(usize, Obj<'py>, Obj<'py>)> = Vec::new();
+    for kept in attr(me, "past_shots")?.try_iter()? {
+        let kept = kept?;
+        if let Some(at) = turn_of_call(messages, &kept.get_item(0)?)? {
+            found.push((at, kept.get_item(1)?, kept));
+        }
+    }
+    let found = &found[found.len().saturating_sub(SHOTS_IN_MEMORY - 1)..];
+    let still = PyList::empty(py);
+    for (_, _, kept) in found {
+        still.append(kept)?;
+    }
+    me.setattr("past_shots", &still)?;
+    let places: Vec<(usize, &Obj<'py>)> =
+        found[found.len().saturating_sub(room)..].iter().map(|(at, image, _)| (*at, image)).collect();
+    if places.is_empty() {
+        return Ok((messages.clone(), 0));
+    }
+    let sent = PyList::empty(py);
+    for (at, message) in messages.try_iter()?.enumerate() {
+        for (place, image) in &places {
+            if *place == at {
+                sent.append(earlier_turn(image)?)?;
+            }
+        }
+        sent.append(message?)?;
+    }
+    Ok((sent.into_any(), places.len()))
+}
+
+/// Keep the screenshot the model just answered, for the steps that follow:
+/// under the id of the answer's first call, which the loop sends back in the
+/// history. An answer with no call, or with no id of its own, names no step
+/// and its screenshot is not kept. Nothing is dropped here: whether the loop
+/// keeps this answer is only known at the next request, where the window
+/// slides (with_earlier_shots). So at most SHOTS_IN_MEMORY are held.
+/// calls = reply["choices"][0]["message"]["tool_calls"]
+/// if calls and calls[0]["id"] != NO_CALL_ID:
+///     self.past_shots.append((calls[0]["id"], image))
+fn remember_shot<'py>(me: &Obj<'py>, reply: &Obj<'py>, image: &Obj<'py>) -> PyResult<()> {
+    let py = me.py();
+    let calls = reply.get_item("choices")?.get_item(0)?.get_item("message")?.get_item("tool_calls")?;
+    if !calls.is_truthy()? {
+        return Ok(());
+    }
+    let id = calls.get_item(0)?.get_item("id")?;
+    if id.eq(NO_CALL_ID)? {
+        return Ok(());
+    }
+    attr(me, "past_shots")?.call_method1("append", (PyTuple::new(py, [id, image.clone()])?,))?;
+    Ok(())
+}
 
 /// The seconds a 429 says to wait: its retry-after header as a number, kept
 /// within RATE_LIMIT_WAIT_BOUNDS; RATE_LIMIT_WAIT when it has none or one
