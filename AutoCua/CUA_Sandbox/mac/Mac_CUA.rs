@@ -56,6 +56,15 @@
 //! be set, through Accessibility alone. No other app is ever asked: its
 //! window on the display is only listed, under the name macOS has for it.
 //!
+//! The agent's mouse: macOS has one real pointer and it stays with you, so
+//! the agent's own is only drawn: into the pictures this program saves, and
+//! over the picture in the viewer window. It is the arrow the browser agent
+//! has on its pages (AutoCua/browser/connector/glow: its cursor only, none
+//! of its glow), with a faint dark tint behind it, this file's own, so that
+//! it stands out on a light page too. It is where the agent last clicked,
+//! ended a drag or turned the wheel, and --mouse X,Y puts it at any point
+//! of the display.
+//!
 //! Good to know, all seen on this Mac:
 //!   - The display counts as an external monitor: on power with the lid
 //!     closed, the Mac stays awake while this program runs.
@@ -120,6 +129,9 @@
 //!     --size WxH    its size in points (default: the size of your main screen)
 //!     --retina      two pixels a point, as on a Retina screen
 //!     --display ID  use a display that is on already instead of making one
+//!     --mouse X,Y   put the agent's mouse at that point of it, in points from
+//!                   its top left: it is drawn into the saved pictures and in
+//!                   the live window
 //!     --back        open the viewer window behind your other windows: it
 //!                   then takes nothing from the app in front (seen)
 //!
@@ -148,7 +160,7 @@ const GUARD_WORD: &str = "--guard";
 const USAGE: &str = "Second Mac: a second display for the agent.
 
 Mac_CUA [--shot PNG] [--computer-use] [--run APP] [--scan PNG] [--wait SEC] [--serve]
-        [--size WxH] [--retina] [--display ID] [--back]
+        [--size WxH] [--retina] [--display ID] [--mouse X,Y] [--back]
 
   --shot PNG       save one screenshot and exit
   --computer-use   scan and act on Calculator and TextEdit there
@@ -159,6 +171,7 @@ Mac_CUA [--shot PNG] [--computer-use] [--run APP] [--scan PNG] [--wait SEC] [--s
   --size WxH       its size in points (default: the size of your main screen)
   --retina         two pixels a point
   --display ID     use a display that is on already instead of making one
+  --mouse X,Y      put the agent's mouse at that point of it (points from its top left): drawn into the pictures
   --back           open the live window behind your other windows (with --computer-use: watch it there)
 
 A picture given as a file name only is saved in the debug folder at the root.";
@@ -469,6 +482,32 @@ extern "C" {
     fn CGContextSetRGBFillColor(context: Id, red: f64, green: f64, blue: f64, alpha: f64);
     fn CGContextStrokeRectWithWidth(context: Id, rect: Rect, width: f64);
     fn CGContextSetTextPosition(context: Id, x: f64, y: f64);
+
+    // What draws the agent's mouse. Each `transform` is a CGAffineTransform *, and null for none.
+    fn CGPathCreateMutable() -> Id;
+    fn CGPathMoveToPoint(path: Id, transform: *const c_void, x: f64, y: f64);
+    fn CGPathAddLineToPoint(path: Id, transform: *const c_void, x: f64, y: f64);
+    fn CGPathAddCurveToPoint(path: Id, transform: *const c_void, pull_1_x: f64, pull_1_y: f64, pull_2_x: f64,
+                             pull_2_y: f64, x: f64, y: f64);
+    fn CGPathCloseSubpath(path: Id);
+    fn CGPathGetPathBoundingBox(path: Id) -> Rect;
+    fn CGContextSaveGState(context: Id);
+    fn CGContextRestoreGState(context: Id);
+    fn CGContextTranslateCTM(context: Id, x: f64, y: f64);
+    fn CGContextScaleCTM(context: Id, x: f64, y: f64);
+    fn CGContextAddPath(context: Id, path: Id);
+    fn CGContextSetLineWidth(context: Id, width: f64);
+    fn CGContextSetLineJoin(context: Id, join: i32);
+    fn CGContextSetLineCap(context: Id, cap: i32);
+    fn CGContextReplacePathWithStrokedPath(context: Id);
+    fn CGContextClip(context: Id);
+    fn CGContextDrawPath(context: Id, mode: i32);
+    fn CGColorCreate(space: Id, components: *const f64) -> Id;
+    fn CGContextSetShadowWithColor(context: Id, offset: Size, blur: f64, color: Id);
+    fn CGContextBeginTransparencyLayer(context: Id, info: Id);
+    fn CGContextEndTransparencyLayer(context: Id);
+    fn CGGradientCreateWithColorComponents(space: Id, components: *const f64, places: *const f64, count: usize) -> Id;
+    fn CGContextDrawLinearGradient(context: Id, gradient: Id, start: Point, end: Point, options: u32);
 
     fn CGEventSourceCreate(state: i32) -> Id;
     fn CGEventCreate(source: Id) -> Id;
@@ -1942,88 +1981,220 @@ fn bmp(width: i32, height: i32, bgra: &[u8]) -> Vec<u8> {
     file
 }
 
-/// The agent's pointer: an arrow as its corner points, in points, the tip at
-/// 0,0 and y going down. macOS has one real pointer and it stays with you,
-/// so this one is only drawn: over the picture in the viewer, and into
-/// pictures that leave the program. Black with a white edge, as the Mac's own.
-const ARROW: [(f64, f64); 7] =
-    [(0.0, 0.0), (0.0, 16.4), (3.8, 12.8), (6.6, 19.0), (9.2, 17.9), (6.5, 11.8), (11.7, 11.8)];
-const ARROW_SIZE: (f64, f64) = (12.0, 19.0); // the box around those points
-const ARROW_EDGE: f64 = 1.0; // how wide its white edge is
-/// The eight directions the edge is looked for in.
-const AROUND: [(f64, f64); 8] =
-    [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0), (0.7, 0.7), (0.7, -0.7), (-0.7, 0.7), (-0.7, -0.7)];
+/// The agent's mouse. macOS has one real pointer and it stays with you, so
+/// this one is only drawn: over the picture in the viewer, and into pictures
+/// that leave the program. It is the browser agent's own arrow, the one
+/// AutoCua/browser/connector/glow puts on a page: only its cursor, none of
+/// its glow. A hollow arrow with a lavender outline and a soft shadow.
+/// The numbers are those of glow.js (`cursorSvg`, TIP) and of glow.css
+/// (.AutoCua-cursor and the svg in it).
+const MOUSE_UNITS: f64 = 32.0; // the arrow is drawn in a square of 32 units
+const MOUSE_BOX: f64 = 23.0; // that square is 23 points wide on a page
+const MOUSE_TIP: f64 = 2.0; // the tip is 2 points in from the square's top left
+const MOUSE_LINE: f64 = 2.5; // how wide the outline is, in the 32 units
+/// The outline's three colours, from its top left to its bottom right:
+/// #b6a3eb, #8f7bc9 and #d6ccf5. On a page they keep changing places. Here
+/// they stay as the page starts them.
+const MOUSE_COLOURS: [[f64; 3]; 3] = [[182.0, 163.0, 235.0], [143.0, 123.0, 201.0], [214.0, 204.0, 245.0]];
+/// Its shadow: 1 point to the right and 3 down, soft over 8, black at a
+/// quarter. The page says 4px for the softness: there that is a standard
+/// deviation, and Core Graphics takes about twice that as its blur.
+const MOUSE_SHADOW: (f64, f64, f64, f64) = (1.0, 3.0, 8.0, 0.25);
+/// A dark tint behind the arrow and a little around it, so that its pale
+/// outline stands out on a light page too. The browser's cursor has none:
+/// it is this file's own. It is the arrow's whole shape in black, at this
+/// share of full black, made this many points bigger all around, its edge
+/// then made soft over this many points (a standard deviation).
+const MOUSE_TINT: (f64, f64, f64) = (0.2, 3.0, 3.0);
+const MOUSE_ROOM: f64 = 16.0; // points kept free around the square, for the shadow and the tint
+const ROUND: i32 = 1; // kCGLineJoinRound and kCGLineCapRound
+const PAST_BOTH_ENDS: u32 = 1 | 2; // kCGGradientDrawsBeforeStartLocation and AfterEndLocation
+const FILL_AND_LINE: i32 = 3; // kCGPathFillStroke
 
-/// Where the agent's pointer is: the point of the second display where it
-/// last clicked, ended a drag or turned the wheel, counted from that
-/// display's top left. None before the first of those.
+/// Where the agent's mouse is: the point of the second display where it
+/// last clicked, ended a drag or turned the wheel, or where --mouse put it,
+/// counted from that display's top left. None before the first of those.
 static POINTER: Mutex<Option<Point>> = Mutex::new(None);
-/// The pointer changed and the viewer has not drawn it there yet.
+/// The mouse changed and the viewer has not drawn it there yet.
 static POINTER_MOVED: AtomicBool = AtomicBool::new(false);
 
-/// Say where the agent's pointer is now, or None to take it away. From any
-/// thread: the viewer draws its arrow there within a quarter of a second.
+/// Say where the agent's mouse is now, or None to take it away. From any
+/// thread: the viewer draws it there within a quarter of a second.
 fn set_pointer(at: Option<Point>) {
     *POINTER.lock().unwrap() = at;
     POINTER_MOVED.store(true, Ordering::SeqCst);
 }
 
-/// Whether a point lies inside the arrow: a line from it to the left crosses
-/// the arrow's outline an odd number of times.
-fn in_arrow(x: f64, y: f64) -> bool {
-    let mut inside = false;
-    for n in 0..ARROW.len() {
-        let ((x1, y1), (x2, y2)) = (ARROW[n], ARROW[(n + 1) % ARROW.len()]);
-        if (y1 > y) != (y2 > y) && x < x1 + (y - y1) / (y2 - y1) * (x2 - x1) {
-            inside = !inside;
+/// The agent's mouse as pixels (top-down BGRA, the colours already
+/// multiplied by alpha, see-through around the arrow): a square, `scale`
+/// pixels to a point, with MOUSE_ROOM points around the arrow's own square.
+/// Gives the pixels and how many the square has along a side.
+unsafe fn mouse_art(scale: f64) -> Res<(Vec<u8>, usize)> {
+    let side = ((MOUSE_BOX + 2.0 * MOUSE_ROOM) * scale).ceil() as usize;
+    let space = Cf(CGColorSpaceCreateDeviceRGB());
+    // glow.js: M8 4 C5 2 3 3 3 7 L4 24 C4 28 7 28 9 25 L13 20 C14 19 15 18 17 18 L24 18 C28 18 29 15 25 13 Z
+    let outline = Cf(CGPathCreateMutable());
+    CGPathMoveToPoint(outline.0, null(), 8.0, 4.0);
+    CGPathAddCurveToPoint(outline.0, null(), 5.0, 2.0, 3.0, 3.0, 3.0, 7.0);
+    CGPathAddLineToPoint(outline.0, null(), 4.0, 24.0);
+    CGPathAddCurveToPoint(outline.0, null(), 4.0, 28.0, 7.0, 28.0, 9.0, 25.0);
+    CGPathAddLineToPoint(outline.0, null(), 13.0, 20.0);
+    CGPathAddCurveToPoint(outline.0, null(), 14.0, 19.0, 15.0, 18.0, 17.0, 18.0);
+    CGPathAddLineToPoint(outline.0, null(), 24.0, 18.0);
+    CGPathAddCurveToPoint(outline.0, null(), 28.0, 18.0, 29.0, 15.0, 25.0, 13.0);
+    CGPathCloseSubpath(outline.0);
+
+    // The arrow's whole shape, the line and what the line goes around, for the tint. A
+    // wider line makes it bigger all around: the line is counted in the arrow's 32 units.
+    let (share, bigger, soft) = MOUSE_TINT;
+    let mut shape = vec![0u8; side * side * 4];
+    let made = arrow_canvas(&mut shape, side, scale, space.0)?;
+    CGContextAddPath(made.0, outline.0);
+    CGContextSetLineWidth(made.0, MOUSE_LINE + 2.0 * bigger * MOUSE_UNITS / MOUSE_BOX);
+    CGContextSetLineJoin(made.0, ROUND);
+    CGContextSetRGBFillColor(made.0, 0.0, 0.0, 0.0, 1.0);
+    CGContextSetRGBStrokeColor(made.0, 0.0, 0.0, 0.0, 1.0);
+    CGContextDrawPath(made.0, FILL_AND_LINE);
+    drop(made); // the canvas drew straight into `shape`
+
+    let mut pixels = vec![0u8; side * side * 4];
+    let made = arrow_canvas(&mut pixels, side, scale, space.0)?;
+    let canvas = made.0;
+    // The shadow falls from all that is drawn until the layer ends. It is given in the
+    // canvas's own pixels, which count from the bottom left: down is below zero.
+    let (right, down, blur, dark) = MOUSE_SHADOW;
+    let black = [0.0, 0.0, 0.0, dark];
+    let shadow = Cf(CGColorCreate(space.0, black.as_ptr()));
+    CGContextSetShadowWithColor(canvas, Size { width: right * scale, height: -down * scale }, blur * scale, shadow.0);
+    CGContextBeginTransparencyLayer(canvas, null_mut());
+    CGContextSaveGState(canvas);
+    // The line itself becomes the shape that is filled, with the three colours across it.
+    CGContextAddPath(canvas, outline.0);
+    CGContextSetLineWidth(canvas, MOUSE_LINE);
+    CGContextSetLineJoin(canvas, ROUND);
+    CGContextSetLineCap(canvas, ROUND);
+    CGContextReplacePathWithStrokedPath(canvas);
+    CGContextClip(canvas);
+    let around = CGPathGetPathBoundingBox(outline.0);
+    let mut colours = [1.0f64; 12]; // red, green, blue and alpha of each: alpha stays 1
+    for (n, colour) in MOUSE_COLOURS.iter().enumerate() {
+        for (part, value) in colour.iter().enumerate() {
+            colours[n * 4 + part] = value / 255.0;
         }
     }
-    inside
+    let places = [0.0, 0.5, 1.0];
+    let flow = Cf(CGGradientCreateWithColorComponents(space.0, colours.as_ptr(), places.as_ptr(), places.len()));
+    let far = Point { x: around.origin.x + around.size.width, y: around.origin.y + around.size.height };
+    CGContextDrawLinearGradient(canvas, flow.0, around.origin, far, PAST_BOTH_ENDS);
+    CGContextRestoreGState(canvas);
+    CGContextEndTransparencyLayer(canvas);
+    drop(made); // the canvas drew straight into `pixels`
+
+    // The tint goes under the arrow: the bigger shape with a soft edge, in black. Black
+    // adds nothing to the colours, which are multiplied by alpha: only the alpha grows.
+    let covered: Vec<f32> = shape.chunks_exact(4).map(|pixel| pixel[3] as f32 / 255.0).collect();
+    for (pixel, here) in pixels.chunks_exact_mut(4).zip(blurred(&covered, side, soft * scale)) {
+        let (tint, alpha) = ((share * here as f64 * 255.0).round() as u32, pixel[3] as u32);
+        pixel[3] = (alpha + (tint.min(255) * (255 - alpha) + 127) / 255).min(255) as u8;
+    }
+    Ok((pixels, side))
 }
 
-/// Stamp the agent's pointer into pixels (top-down BGRA), its tip at the
-/// point `at` of the display. `scale` is how many pixels of the picture make
-/// one point: 1, or 2 for a Retina picture. Every pixel is looked at in
-/// sixteen spots, so the arrow gets soft outlines. Parts that fall outside
-/// the picture are left out.
-fn stamp_pointer(bgra: &mut [u8], width: usize, height: usize, at: Point, scale: f64) {
-    if bgra.len() < width * height * 4 || scale.is_nan() || scale <= 0.0 {
-        return;
+/// A canvas over `pixels`, a square of `side` pixels (top-down BGRA), that
+/// counts in the arrow's own 32 units, from the arrow's top left with y
+/// going down. It draws straight into the pixels.
+unsafe fn arrow_canvas(pixels: &mut [u8], side: usize, scale: f64, space: Id) -> Res<Cf> {
+    if pixels.len() < side * side * 4 {
+        return Err("could not draw the agent's mouse".to_string());
     }
-    let (tip_x, tip_y) = ((at.x * scale).round() as i64, (at.y * scale).round() as i64);
-    let around = ((ARROW_EDGE + 1.0) * scale).ceil() as i64;
-    let right = (ARROW_SIZE.0 * scale).ceil() as i64 + around;
-    let bottom = (ARROW_SIZE.1 * scale).ceil() as i64 + around;
-    for dy in -around..bottom {
-        for dx in -around..right {
-            let (x, y) = (tip_x + dx, tip_y + dy);
-            if x < 0 || y < 0 || x >= width as i64 || y >= height as i64 {
-                continue;
-            }
-            // how much of this pixel is arrow, and how much is arrow or edge, in sixteenths
-            let (mut arrow, mut covered) = (0u32, 0u32);
-            for spot in 0..16 {
-                let px = (dx as f64 + (spot % 4) as f64 / 4.0 + 0.125) / scale;
-                let py = (dy as f64 + (spot / 4) as f64 / 4.0 + 0.125) / scale;
-                if in_arrow(px, py) {
-                    arrow += 1;
-                    covered += 1;
-                } else if AROUND.iter().any(|&(ax, ay)| in_arrow(px + ax * ARROW_EDGE, py + ay * ARROW_EDGE)) {
-                    covered += 1;
+    let canvas = Cf(CGBitmapContextCreate(pixels.as_mut_ptr() as *mut c_void, side, side, 8, side * 4, space, BGRA));
+    if canvas.0.is_null() {
+        return Err("could not draw the agent's mouse".to_string());
+    }
+    CGContextTranslateCTM(canvas.0, 0.0, side as f64); // a canvas counts from its bottom left
+    CGContextScaleCTM(canvas.0, scale, -scale);
+    CGContextTranslateCTM(canvas.0, MOUSE_ROOM, MOUSE_ROOM);
+    CGContextScaleCTM(canvas.0, MOUSE_BOX / MOUSE_UNITS, MOUSE_BOX / MOUSE_UNITS);
+    Ok(canvas)
+}
+
+/// A square of values with every edge in it made soft: each value becomes
+/// the mean of those around it, the near ones counting most (a Gaussian
+/// blur, `spread` pixels its standard deviation). Beyond the square counts
+/// as nothing.
+fn blurred(values: &[f32], side: usize, spread: f64) -> Vec<f32> {
+    if !(spread > 0.0) || values.len() < side * side {
+        return values.to_vec();
+    }
+    let reach = (spread * 3.0).ceil() as isize;
+    let weights: Vec<f32> = (-reach..=reach).map(|n| (-((n * n) as f64) / (2.0 * spread * spread)).exp() as f32).collect();
+    let total: f32 = weights.iter().sum();
+    let side = side as isize;
+    let pass = |from: &[f32], along_a_row: bool| {
+        let mut to = vec![0f32; (side * side) as usize];
+        for y in 0..side {
+            for x in 0..side {
+                let mut sum = 0f32;
+                for (n, weight) in weights.iter().enumerate() {
+                    let step = n as isize - reach;
+                    let (near_x, near_y) = if along_a_row { (x + step, y) } else { (x, y + step) };
+                    if near_x >= 0 && near_y >= 0 && near_x < side && near_y < side {
+                        sum += from[(near_y * side + near_x) as usize] * weight;
+                    }
                 }
+                to[(y * side + x) as usize] = sum / total;
             }
-            if covered == 0 {
+        }
+        to
+    };
+    pass(&pass(values, true), false)
+}
+
+/// Draw the agent's mouse into pixels (top-down BGRA), its tip at the point
+/// `at` of the display. `scale` is how many pixels of the picture make one
+/// point: 1, or 2 for a Retina picture. Parts that fall outside the picture
+/// are left out.
+unsafe fn stamp_pointer(bgra: &mut [u8], width: usize, height: usize, at: Point, scale: f64) -> Res<()> {
+    if bgra.len() < width * height * 4 || !(scale > 0.0 && scale <= 8.0) {
+        return Err("there is no picture to draw the agent's mouse into".to_string());
+    }
+    let (art, side) = mouse_art(scale)?;
+    // Where the art's top left is in the picture: the arrow's square is MOUSE_TIP in
+    // from the tip, and the art has MOUSE_ROOM around that square.
+    let left = ((at.x - MOUSE_TIP - MOUSE_ROOM) * scale).round() as i64;
+    let top = ((at.y - MOUSE_TIP - MOUSE_ROOM) * scale).round() as i64;
+    for row in 0..side {
+        let y = top + row as i64;
+        if y < 0 || y >= height as i64 {
+            continue;
+        }
+        for column in 0..side {
+            let x = left + column as i64;
+            let from = &art[(row * side + column) * 4..][..4];
+            let cover = from[3] as u32; // how much of this pixel the mouse covers, of 255
+            if x < 0 || x >= width as i64 || cover == 0 {
                 continue;
             }
             let pixel = &mut bgra[(y as usize * width + x as usize) * 4..][..4];
-            let white = 255 * (covered - arrow);
-            for colour in &mut pixel[..3] {
-                *colour = ((*colour as u32 * (16 - covered) + white) / 16) as u8;
+            for part in 0..4 {
+                // the mouse's colours are multiplied by its alpha already: it goes over what is there
+                pixel[part] = (from[part] as u32 + (pixel[part] as u32 * (255 - cover) + 127) / 255).min(255) as u8;
             }
-            // on see-through pixels the arrow comes out solid and its surroundings stay see-through
-            pixel[3] = ((pixel[3] as u32 * (16 - covered) + 255 * covered) / 16) as u8;
         }
     }
+    Ok(())
+}
+
+/// A picture of the display with the agent's mouse drawn into it. None when
+/// the mouse has no place yet: the picture is good as it is. `wide` is how
+/// many points wide the display is, which says how many pixels a point has
+/// in the picture.
+unsafe fn mouse_into(picture: &Picture, wide: f64) -> Res<Option<Picture>> {
+    let Some(at) = *POINTER.lock().unwrap() else { return Ok(None) };
+    let (width, height) = picture.size();
+    let mut pixels = pixels_of(picture)?;
+    stamp_pointer(&mut pixels, width, height, at, width as f64 / wide.max(1.0))?;
+    Ok(Some(picture_from(width, height, &pixels, Some(picture))?))
 }
 
 const LABEL_HEIGHT: f64 = 13.0; // the numbers on the scan's picture, in points
@@ -3388,18 +3559,12 @@ fn pick<'a>(items: &'a [Found], pid: i32, kind: &str, name: &str) -> Res<&'a Fou
 }
 
 /// Save the scan's picture: the display with the scan's elements numbered
-/// on it, and the agent's pointer where it last clicked. Gives back where it is.
+/// on it, and the agent's mouse where it is. Gives back where the picture is.
 unsafe fn save_numbered(display: u32, found: &Scan, name: &str) -> Res<String> {
     let path = picture_path(name)?;
-    let mut numbered = draw_boxes(&capture(display)?, &found.bounds, &found.items)?;
-    let pointer = *POINTER.lock().unwrap();
-    if let Some(at) = pointer {
-        let (width, height) = numbered.size();
-        let mut pixels = pixels_of(&numbered)?;
-        stamp_pointer(&mut pixels, width, height, at, width as f64 / found.bounds.size.width.max(1.0));
-        numbered = picture_from(width, height, &pixels, Some(&numbered))?;
-    }
-    save_png(&numbered, &path)?;
+    let numbered = draw_boxes(&capture(display)?, &found.bounds, &found.items)?;
+    let with_mouse = mouse_into(&numbered, found.bounds.size.width)?;
+    save_png(with_mouse.as_ref().unwrap_or(&numbered), &path)?;
     Ok(path.display().to_string())
 }
 
@@ -3695,9 +3860,15 @@ unsafe fn take_shot(name: &str, wait: f64, frames: &Frames, before: &Before) -> 
         }
     };
     let path = picture_path(name)?;
-    save_png(&picture, &path)?;
+    // The agent's mouse is drawn into the picture, when it has a place (--mouse).
+    let with_mouse = mouse_into(&picture, CGDisplayBounds(frames.display).size.width)?;
+    save_png(with_mouse.as_ref().unwrap_or(&*picture), &path)?;
     let (w, h) = picture.size();
     println!("\nScreenshot of the second display: {} ({w}x{h})", path.display());
+    let mouse = *POINTER.lock().unwrap();
+    if let (Some(_), Some(at)) = (&with_mouse, mouse) {
+        println!("The agent's mouse is drawn in it, its tip at {:.0},{:.0}.", at.x, at.y);
+    }
     report(&window_rows(frames.display), before);
     Ok(())
 }
@@ -4028,13 +4199,13 @@ unsafe fn show_viewer(frames: &Arc<Frames>, back: bool) -> Res<()> {
     msg!((); view, "setLayer:", picture => Id); // the layer first, then "wants": AppKit then never draws into it
     msg!((); view, "setWantsLayer:", true => bool);
 
-    // The agent's arrow: the stamp's own drawing, as sharp as the screen the window is on.
-    let scale = msg!(f64; window, "backingScaleFactor").max(1.0);
-    let room = ARROW_EDGE + 1.0;
-    let wide = ((ARROW_SIZE.0 + 2.0 * room) * scale).ceil() as usize;
-    let high = ((ARROW_SIZE.1 + 2.0 * room) * scale).ceil() as usize;
+    // The agent's mouse: the stamp's own drawing, as sharp as the screen the window is on.
+    let scale = msg!(f64; window, "backingScaleFactor").max(1.0).min(8.0);
+    let room = MOUSE_ROOM + MOUSE_TIP; // how far in the tip is from the drawing's top left
+    let wide = ((MOUSE_BOX + 2.0 * MOUSE_ROOM) * scale).ceil() as usize;
+    let high = wide;
     let mut drawn = vec![0u8; wide * high * 4];
-    stamp_pointer(&mut drawn, wide, high, Point { x: room, y: room }, scale);
+    stamp_pointer(&mut drawn, wide, high, Point { x: room, y: room }, scale)?;
     let arrow = picture_from(wide, high, &drawn, None)?;
     let pointer = new_object("CALayer");
     msg!((); pointer, "setContents:", arrow.0 => Id);
@@ -4155,6 +4326,8 @@ struct Args {
     size: Option<(u32, u32)>,
     retina: bool,
     display: Option<u32>,
+    /// Where the agent's mouse is put, in points from the display's top left.
+    mouse: Option<(f64, f64)>,
     back: bool,
 }
 
@@ -4169,6 +4342,7 @@ fn parse_args() -> Res<Args> {
         size: None,
         retina: false,
         display: None,
+        mouse: None,
         back: false,
     };
     let mut rest = std::env::args().skip(1);
@@ -4195,6 +4369,16 @@ fn parse_args() -> Res<Args> {
             "--display" => {
                 let id = value()?.parse().map_err(|_| "--display needs the number of a display".to_string())?;
                 args.display = Some(id);
+            }
+            "--mouse" => {
+                let at = value()?;
+                let parsed = at.split_once(',')
+                    .and_then(|(x, y)| Some((x.trim().parse::<f64>().ok()?, y.trim().parse::<f64>().ok()?)));
+                match parsed {
+                    Some((x, y)) if x >= 0.0 && y >= 0.0 => args.mouse = Some((x, y)),
+                    _ => return Err("--mouse needs a point like 300,200: points from the top left of the second \
+                                     display".to_string()),
+                }
             }
             "--computer-use" => args.computer_use = true,
             "--serve" => args.serve = true,
@@ -4223,6 +4407,10 @@ fn parse_args() -> Res<Args> {
     }
     if let (true, Some(mode)) = (args.back, modes.iter().find(|mode| **mode != "--computer-use")) {
         return Err(format!("--back cannot go with {mode}: there is no live window then"));
+    }
+    if args.mouse.is_some() && args.serve {
+        return Err("--mouse cannot go with --serve: the pictures sent there do not have the mouse in them yet"
+            .to_string());
     }
     Ok(args)
 }
@@ -4335,6 +4523,15 @@ unsafe fn run(args: &Args) -> i32 {
         eprintln!("{said}");
     } else {
         println!("{said}");
+    }
+    if let Some((x, y)) = args.mouse {
+        let size = CGDisplayBounds(display).size;
+        if x >= size.width || y >= size.height {
+            eprintln!("--mouse {x:.0},{y:.0} is not on the second display: it is {:.0} by {:.0} points",
+                      size.width, size.height);
+            return 1; // nothing was started yet: the display goes with the program
+        }
+        set_pointer(Some(Point { x, y }));
     }
     watch(display);
     let frames = Arc::new(Frames { display, stop: AtomicBool::new(false), latest: Mutex::new(Latest::default()) });
