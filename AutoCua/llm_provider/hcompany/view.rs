@@ -63,9 +63,12 @@ use Value::{Flag, Number, Text};
 // max_output_length in GET /v1/models; the docs say a request for more is a
 // 400). service.rs never asks for more, whatever the caller's cap is.
 //
-// Thinking is left as the API has it, on for every model (holo4-27b at its
-// top level, xhigh): no entry has an effort. An entry may set one, and the
-// coder its own (coder_effort), as on the other providers:
+// Thinking is on for every model, as the API has it. holo4-27b is asked for
+// its top level, xhigh, by its entry's effort (the owner, 2026-11-28: "switch
+// to xhigh"). The docs say that is also what the API takes when no level is
+// sent, and 6 answers each way on 2026-11-28 thought about the same amount (58
+// and 43 tokens on average). The other two have no effort. An entry may set
+// one, and the coder its own (coder_effort), as on the other providers:
 // ("effort", Text("none")) turns thinking off on every model; holo4-27b also
 // takes "low" and "medium" (and answers 400 to "high"); the others ignore a
 // level.
@@ -80,6 +83,7 @@ const MODEL_MAPPINGS: &[(&str, &[(&str, Value)])] = &[
         ("vision", Flag(true)),
         ("display_name", Text("Holo4 27B")),
         ("max_output", Number(16384)),
+        ("effort", Text("xhigh")),
     ]),
     ("holo4-35b-a3b", &[
         ("api_name", Text("holo4-35b-a3b")),
