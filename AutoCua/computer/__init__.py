@@ -85,6 +85,8 @@ def _bind_service():
                        snapshot_turn, compression_dump, compression_entry,
                        _looks_native, SKIPPED_THINKING, REASONING_RESULT)
     from ..mac.tree.element import UIElementScanner, ELEMENT_CONFIG, get_screen
+    # The second screen's scanner: init picks it when the run's control is 'sandbox'
+    from ..CUA_Sandbox.mac.service import SandboxScanner
     from ..mac.controller import ControllerView
     from ..mac.controller.view import PHONE_AGENTS
     from .skills import DomainKnowledgeService

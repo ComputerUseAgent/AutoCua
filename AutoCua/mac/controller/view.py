@@ -148,8 +148,8 @@ class ControllerView:
         its own, CUA_Sandbox/mac/service.py) or 'full' (the person's own
         screen, the default). The main driver sets it. On the second screen a
         screen tool does its work there by the sandbox branch in the tool
-        itself (left_click so far), and the person's pointer, keys and
-        buttons are never touched, on Stop either."""
+        itself (open_app and left_click so far), and the person's pointer,
+        keys and buttons are never touched, on Stop either."""
         return self._control
 
     @control.setter
@@ -160,7 +160,20 @@ class ControllerView:
     # The tools that touch the screen, the pointer or the keyboard and have no
     # sandbox branch yet. One leaves this list when its branch is written.
     _NOT_ON_SECOND_SCREEN = ("right_click", "input", "typewrite", "scroll", "hotkey", "drag_drop",
-                             "screenshot", "open_app", "applescript")
+                             "screenshot", "applescript")
+
+    def _open_in_sandbox(self, app_name):
+        """open_app in a sandbox run: a new copy of the app is started on the
+        second screen, by its name or the path of its .app. The sandbox says
+        in words why an app cannot run there (one built on Chromium, one that
+        keeps to a single copy and runs already, a name it does not know)."""
+        from ...CUA_Sandbox.mac.service import sandbox, SandboxError
+        try:
+            sandbox().launch(str(app_name or "").strip())
+        except SandboxError as e:
+            return {"status": "error", "action": "tool", "tool": "open_app", "app": app_name,
+                    "message": f"{app_name} could not be opened on the second screen: {e}"}
+        return {"status": "success", "action": "tool", "tool": "open_app", "app": app_name}
 
     def _not_in_sandbox(self, action_item):
         """A sandbox run: the refusal for a tool that does not work on the
@@ -170,7 +183,7 @@ class ControllerView:
         browser agent's browser."""
         kind = action_item.get("type")
         if kind in self._NOT_ON_SECOND_SCREEN:
-            message = f"{kind} does not work on the second screen yet. left_click works there so far."
+            message = f"{kind} does not work on the second screen yet. open_app and left_click work there so far."
         elif kind == "shell":
             message = ("shell does not work on the second screen yet: what it starts would open on the "
                        "person's own screen.")
@@ -686,8 +699,8 @@ class ControllerView:
                     continue
 
                 # A sandbox run: a tool that does not work on the second
-                # screen yet says so. The ones that do (left_click) have
-                # their sandbox branch where the tool is.
+                # screen yet says so. The ones that do (open_app, left_click)
+                # have their sandbox branch where the tool is.
                 if self._control == 'sandbox':
                     refused = self._not_in_sandbox(action_item)
                     if refused:
@@ -794,7 +807,16 @@ class ControllerView:
                 elif action_type == "open_app":
                     app_name = action_item.get("value")
                     logger.info(f"Opening application: {app_name}")
-                    
+
+                    # A sandbox run: a new copy of the app starts on the second
+                    # screen, and nothing opens on the person's own.
+                    if self._control == 'sandbox':
+                        result = self._open_in_sandbox(app_name)
+                        results.append(result)
+                        if result.get("status") == "error":
+                            return result
+                        continue
+
                     success = open_app(app_name)
                     
                     if success:

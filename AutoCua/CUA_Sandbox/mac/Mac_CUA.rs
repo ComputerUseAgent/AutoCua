@@ -131,8 +131,8 @@
 //!     --retina      two pixels a point, as on a Retina screen
 //!     --display ID  use a display that is on already instead of making one
 //!     --mouse X,Y   put the agent's mouse at that point of it, in points from
-//!                   its top left: it is drawn into the saved pictures and in
-//!                   the live window
+//!                   its top left: it is drawn into the saved pictures, into
+//!                   those --serve sends and in the live window
 //!     --back        open the viewer window behind your other windows: it
 //!                   then takes nothing from the app in front (seen)
 //!
@@ -4284,6 +4284,11 @@ fn send(kind: &str, data: &[u8]) -> bool {
 ///                        out) at a point, in the points all screens share.
 ///                        Answer: "ok process <pid> window <id>", the window
 ///                        the clicks went to. See `served_click`.
+///   scan                 what there is to click or type in on it. Answer:
+///                        "ok " and one line of JSON. See `served_scan`.
+///
+/// The agent's mouse is drawn into the pictures, where it last clicked, and a
+/// picture goes out when it moved, also when nothing else did.
 ///
 /// It ends when stdin closes, so when the other program ends, and every app
 /// on the second display ends with it.
@@ -4292,8 +4297,9 @@ unsafe fn serve(frames: &Arc<Frames>) -> Res<()> {
     let said = format!("{} {} {} {}", place.origin.x, place.origin.y, place.size.width, place.size.height);
     send("place", said.as_bytes());
     let pictures = frames.clone();
+    let wide = place.size.width; // in points: says how many pixels of a picture make one
     thread::spawn(move || {
-        let (mut seen, mut noted) = (0u64, None::<String>);
+        let (mut seen, mut noted, mut mouse_shown) = (0u64, None::<String>, None::<Point>);
         loop {
             let (count, pixels, width, height, error) = {
                 let latest = pictures.latest.lock().unwrap();
@@ -4306,10 +4312,21 @@ unsafe fn serve(frames: &Arc<Frames>) -> Res<()> {
                 }
                 noted = error;
             }
-            // `count` only goes up when the display changed: one where nothing moved is not sent again
-            if let (true, Some(pixels)) = (count != seen, pixels) {
-                seen = count;
-                if !send("frame", &bmp(width as i32, height as i32, &pixels)) {
+            // `count` only goes up when the display changed: one where nothing moved is not sent
+            // again, unless the agent's mouse moved on it
+            let mouse = *POINTER.lock().unwrap();
+            if let (true, Some(pixels)) = (count != seen || mouse != mouse_shown, pixels) {
+                (seen, mouse_shown) = (count, mouse);
+                // The agent's mouse is drawn into the picture that goes out, as into a saved one.
+                let mut drawn = None;
+                if let Some(at) = mouse {
+                    let mut copy = pixels.to_vec();
+                    let scale = width as f64 / wide.max(1.0);
+                    if unsafe { stamp_pointer(&mut copy, width, height, at, scale) }.is_ok() {
+                        drawn = Some(copy);
+                    }
+                }
+                if !send("frame", &bmp(width as i32, height as i32, drawn.as_deref().unwrap_or(pixels.as_slice()))) {
                     return;
                 }
             }
@@ -4333,6 +4350,8 @@ unsafe fn serve(frames: &Arc<Frames>) -> Res<()> {
             }
         } else if let Some(asked) = line.strip_prefix("click ") {
             served_click(frames.display, &mut input, asked)
+        } else if line.trim() == "scan" {
+            served_scan(frames.display)
         } else {
             continue;
         };
@@ -4379,6 +4398,51 @@ unsafe fn served_click(display: u32, input: &mut Option<Input>, asked: &str) -> 
     let window = input.press(x, y, clicks)?;
     input.give_keyboard_back()?;
     Ok(format!("process {} window {}", window.pid, window.id))
+}
+
+/// One "scan" order of --serve: what there is to click or type in on the
+/// second display, as one line of JSON for the other program:
+///   {"windows": [{"app", "title", "pid", "window", "box", "ours", "popup"}],
+///    "elements": [{"n", "kind", "name", "box", "pid", "window"}]}
+/// The windows are front to back and the elements are numbered from 1, as
+/// `scan` gives them. A box is [x, y, width, height] in the points all
+/// screens share, so its middle is a point a "click" order takes. Only the
+/// apps this program started are asked, as in every scan of this file.
+unsafe fn served_scan(display: u32) -> Res<String> {
+    let apps: Vec<Process> = started_apps().iter().map(|app| app.process).filter(|app| alive(app)).collect();
+    let found = scan(display, &apps)?;
+    let boxed = |place: &Rect| {
+        format!("[{:.0},{:.0},{:.0},{:.0}]", place.origin.x, place.origin.y, place.size.width, place.size.height)
+    };
+    let windows: Vec<String> = found.windows.iter().map(|shown| {
+        format!("{{\"app\":{},\"title\":{},\"pid\":{},\"window\":{},\"box\":{},\"ours\":{},\"popup\":{}}}",
+                json_text(&shown.app), json_text(&shown.title), shown.window.pid, shown.window.id,
+                boxed(&shown.window.frame), shown.ours, shown.popup)
+    }).collect();
+    let elements: Vec<String> = found.items.iter().enumerate().map(|(n, item)| {
+        format!("{{\"n\":{},\"kind\":{},\"name\":{},\"box\":{},\"pid\":{},\"window\":{}}}",
+                n + 1, json_text(&item.kind), json_text(&item.name), boxed(&item.place), item.app.pid, item.window)
+    }).collect();
+    Ok(format!("{{\"windows\":[{}],\"elements\":[{}]}}", windows.join(","), elements.join(",")))
+}
+
+/// A text as a JSON string, in its quotes.
+fn json_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for letter in text.chars() {
+        match letter {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other if (other as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", other as u32)),
+            other => out.push(other),
+        }
+    }
+    out.push('"');
+    out
 }
 
 // ---------------------------------------------------------------- main
@@ -4474,10 +4538,6 @@ fn parse_args() -> Res<Args> {
     }
     if let (true, Some(mode)) = (args.back, modes.iter().find(|mode| **mode != "--computer-use")) {
         return Err(format!("--back cannot go with {mode}: there is no live window then"));
-    }
-    if args.mouse.is_some() && args.serve {
-        return Err("--mouse cannot go with --serve: the pictures sent there do not have the mouse in them yet"
-            .to_string());
     }
     Ok(args)
 }
