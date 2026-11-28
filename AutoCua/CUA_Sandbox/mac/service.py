@@ -6,8 +6,9 @@ This file starts it once, in its --serve mode, and passes the agent's orders
 on over its pipes: one short method per thing asked of it, as the Windows
 sandbox has (CUA_Sandbox/windows/service.py). A tool of the Mac controller
 that works on the second display calls `sandbox()` and one of these methods.
-So far: `launch`, `click` (the left button) and `scan`. The main screen stays
-the default: nothing here runs unless a run was asked for the sandbox.
+So far: `launch`, `click` (the left button), `typewrite`, `set_text` and
+`scan`. The main screen stays the default: nothing here runs unless a run was
+asked for the sandbox.
 
 `SandboxScanner` is the agent loop's scanner in such a run: the scan and the
 picture of the second display, in the form the Mac scan gives for the
@@ -46,6 +47,7 @@ _PROGRAM = _HERE / "build" / "Mac_CUA"
 _START_WAIT = 20
 _RUN_WAIT = 40
 _CLICK_WAIT = 15
+_TYPE_WAIT = 90
 _SCAN_WAIT = 30
 _FIRST_PICTURE_WAIT = 5
 
@@ -199,6 +201,19 @@ class Sandbox:
         display, in the points all screens share (what a scan's rect holds).
         The person's pointer does not move and nothing comes in front."""
         return self._ask(f"click {float(x)} {float(y)} {int(clicks)}", _CLICK_WAIT)
+
+    def typewrite(self, text):
+        """Type a text into the app the agent last acted on (the one it last
+        clicked in, set a text in, or opened), at its caret. It rides on key
+        events handed to that app: the person's keyboard is not used. A line
+        end is the Return key."""
+        return self._ask("type " + str(text).encode("utf-8").hex(), _TYPE_WAIT)
+
+    def set_text(self, number, text):
+        """Put a text into element `number` of the last scan, in place of what
+        is in it. The element is clicked first, so the app's keyboard is in
+        it afterwards."""
+        return self._ask(f"set {int(number)} " + str(text).encode("utf-8").hex(), _TYPE_WAIT)
 
     def scan(self):
         """What there is to click or type in on the second display:

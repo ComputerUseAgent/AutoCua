@@ -30,9 +30,16 @@
 //!   - Each started app has an icon in your Dock while it runs, and shares
 //!     the saved settings and the list of recent documents of the copy you
 //!     run yourself.
-//!   - Apps built on Chromium (Chrome, Edge, Electron apps such as Cursor,
-//!     web apps made by Chrome) are refused for now: a new copy would use
-//!     the profile of your copy.
+//!   - A browser built on Chromium (Brave, Chrome, Edge) is started on a
+//!     profile folder of its own, ~/Library/Application Support/Mac_CUA/
+//!     profiles/<its name>, kept between runs: it knows nothing of the copy
+//!     you use. Seen with Brave, with your Brave closed: when it starts it
+//!     is in front of your apps for about 0.09 seconds, then your app has
+//!     the front back. No window of it was seen on your screen. Not tried:
+//!     with your own Brave open, and Chrome or Edge.
+//!   - The other apps built on Chromium (Electron apps such as Cursor, web
+//!     apps made by a browser) are refused for now: a new copy would use the
+//!     profile of your copy.
 //!   - However this program ends, every app it started ends too: a guard
 //!     process ends them when the program is killed (seen with kill -9).
 //!     Work in them that was not saved is dropped.
@@ -230,9 +237,10 @@ const KEYS_OWN_FLAGS: u64 = 0x20_0000 | 0x80_0000; // number pad and fn: what an
 
 // Virtual key codes (Events.h in HIToolbox) of keys that are the same in every keyboard
 // layout. The key of a letter is looked up, see `key_for`.
-const TEXT_KEY: u16 = 0; // the key typed text rides on: what counts is the text it carries
+const TEXT_KEY: u16 = 0; // the key a typed character rides on when your layout has no key for it
 const KEY_RETURN: u16 = 36;
 const KEY_TAB: u16 = 48;
+const KEY_SPACE: u16 = 49;
 const KEY_ESCAPE: u16 = 53;
 const KEY_UP: u16 = 126;
 // Where H and Q are on every ANSI and ISO keyboard, whatever letter the layout gives the key.
@@ -910,6 +918,7 @@ const APP_FOLDERS: [&str; 5] = ["/System/Applications", "/System/Applications/Ut
 const WINDOW_WAIT: f64 = 10.0; // seconds a started app gets to make its first window
 const MENU_BAR: f64 = 40.0; // the room a window is left at the top of the display, for its menu bar
 const WATCH_EVERY: f64 = 0.1; // seconds between two rounds of the watcher
+const INSISTS: f64 = 2.0; // an app that comes in front again this many seconds after it was shown again stays hidden
 
 /// One process for good: its id and the moment it was born. macOS gives the
 /// id of an ended process to a later one, so a signal is only sent after the
@@ -1094,7 +1103,10 @@ enum Stage {
     Hidden,
     /// Its windows are on the display.
     Shown,
-    /// It came in front of your apps: it was hidden again, and stays hidden.
+    /// It came in front of your apps and was hidden again: it is shown
+    /// again, behind your apps, once your app has the front back.
+    Returning,
+    /// It came in front of your apps again right after that: it stays hidden.
     Withdrawn,
 }
 
@@ -1104,6 +1116,8 @@ struct App {
     process: Process,
     name: String,
     stage: Stage,
+    /// When it was last shown again after it came in front of your apps.
+    back: Option<Instant>,
 }
 
 /// The apps this program started, in the order they were started.
@@ -1145,14 +1159,66 @@ fn app_path(app: &str) -> Res<PathBuf> {
 /// in Brave, Edge, Cursor, Claude and GitHub Desktop, and in none of Apple's
 /// own apps). A web app has no such folder: its program is app_mode_loader,
 /// which loads your browser and hands the start to it (seen on the disk, in
-/// a web app made by Chrome). Asked of the disk, not of the app. No such app
-/// was started in the tests.
+/// a web app made by Chrome). Asked of the disk, not of the app. Of these
+/// only Brave was started in the tests, see `is_browser`.
 fn is_chromium(app: &Path) -> bool {
     if app.join("Contents/MacOS/app_mode_loader").exists() {
         return true;
     }
     let Ok(frameworks) = std::fs::read_dir(app.join("Contents/Frameworks")) else { return false };
     frameworks.flatten().any(|entry| entry.file_name().to_string_lossy().ends_with(" Framework.framework"))
+}
+
+/// Whether an app is a browser built from Chromium itself (Brave, Chrome,
+/// Edge, Chromium): its engine is then a framework named after its own
+/// program, "Brave Browser Framework.framework" for the program "Brave
+/// Browser" (seen on the disk, in Brave and in Chrome). Such a browser takes
+/// its profile folder on its command line. The engine of an Electron app is
+/// "Electron Framework" whatever the app is called (seen on the disk, in
+/// Cursor and Claude), and a web app has none: neither is a browser here.
+fn is_browser(app: &Path) -> bool {
+    let Ok(programs) = std::fs::read_dir(app.join("Contents/MacOS")) else { return false };
+    programs.flatten().any(|program| {
+        let engine = format!("{} Framework.framework", program.file_name().to_string_lossy());
+        app.join("Contents/Frameworks").join(engine).is_dir()
+    })
+}
+
+/// Where the browsers started here keep their profiles: one folder per
+/// browser in it, named as the browser.
+const PROFILES: &str = "Library/Application Support/Mac_CUA/profiles";
+
+/// What a started browser is told besides its profile folder: no pages of a
+/// first run, no question about the default browser, and no "restore pages"
+/// bubble after a run that was ended with its browser open.
+const BROWSER_SWITCHES: [&str; 3] = ["--no-first-run", "--no-default-browser-check", "--hide-crash-restore-bubble"];
+
+/// The profile folder of a browser started here, made when it is not there.
+/// It is the browser's own and never the one of the copy you use, so the two
+/// know nothing of each other: not your tabs, your history or your logins.
+/// It is kept between runs: what the agent signed in to stays signed in.
+fn profile_folder(name: &str) -> Res<PathBuf> {
+    let home = std::env::var("HOME").map_err(|_| "there is no home folder (HOME is not set)".to_string())?;
+    let folder = Path::new(&home).join(PROFILES).join(name);
+    std::fs::create_dir_all(&folder).map_err(|e| format!("the folder {} could not be made: {e}", folder.display()))?;
+    Ok(folder)
+}
+
+/// What a started app is told on its command line. A Cocoa app reads
+/// APP_SETTINGS as settings. An app built on Chromium would take "YES", "NO"
+/// and "always" for pages or files to open: a browser gets its profile
+/// folder and BROWSER_SWITCHES instead.
+fn start_words(app: &Path) -> Res<Vec<String>> {
+    if !is_chromium(app) {
+        return Ok(APP_SETTINGS.iter().map(|word| word.to_string()).collect());
+    }
+    if !is_browser(app) {
+        return Ok(Vec::new()); // not reached: `start` refuses such an app
+    }
+    let name = app.file_stem().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut words = vec![format!("--user-data-dir={}", profile_folder(&name)?.display())];
+    words.extend(BROWSER_SWITCHES.iter().map(|word| word.to_string()));
+    Ok(words)
 }
 
 /// Start a NEW copy of an app hidden and in the background, with files to
@@ -1169,11 +1235,7 @@ unsafe fn launch_hidden(app: &Path, files: &[PathBuf]) -> Res<i32> {
         let text = Cf(cf_string(&path.to_string_lossy()));
         msg!(Id; class("NSURL"), "fileURLWithPath:", text.0 => Id)
     };
-    // A Cocoa app reads APP_SETTINGS as settings. An app built on Chromium
-    // would take "YES", "NO" and "always" for pages or files to open: it gets none.
-    // (Not reached for now: `start` refuses an app built on Chromium.)
-    let settings: &[&str] = if is_chromium(app) { &[] } else { &APP_SETTINGS };
-    let settings: Vec<Cf> = settings.iter().map(|word| Cf(cf_string(word))).collect();
+    let settings: Vec<Cf> = start_words(app)?.iter().map(|word| Cf(cf_string(word))).collect();
     let words: Vec<Id> = settings.iter().map(|word| word.0).collect();
     let arguments = msg!(Id; class("NSArray"), "arrayWithObjects:count:", words.as_ptr() => *const Id,
                          words.len() => usize);
@@ -1280,7 +1342,8 @@ unsafe fn show_app(pid: i32) {
 }
 
 /// Hide an app again, as it was when it started: for one that came in front
-/// of your apps. None ever did in the tests, so this has not run.
+/// of your apps. Seen with Brave, which comes in front by itself when it
+/// starts: your app had the front back 0.09 seconds after Brave took it.
 unsafe fn hide_app(pid: i32) {
     let app = msg!(Id; class("NSRunningApplication"), "runningApplicationWithProcessIdentifier:", pid => i32);
     if !app.is_null() {
@@ -1369,13 +1432,26 @@ unsafe fn place(display: u32, windows: &[Cf]) {
 unsafe fn start(display: u32, app: &str, files: &[&str]) -> Res<i32> {
     let path = app_path(app)?;
     let name = path.file_stem().map(|name| name.to_string_lossy().into_owned()).unwrap_or(app.to_string());
-    // An app built on Chromium (Chrome, Edge, Brave, and Electron apps like Cursor) is
-    // refused for now, before anything is launched. Read, not tried: none was ever started.
+    // An app built on Chromium runs on a profile folder, one copy per folder: a new copy
+    // on the folder of the copy you use would hand its start to that copy, which opens a
+    // window on your screen. A browser of that family (Brave, Chrome, Edge) is given a
+    // folder of its own on its command line, see `start_words`. An Electron app (Cursor)
+    // or a web app made by a browser is refused, before anything is launched: none was
+    // ever started, and it is not known that one keeps to a folder given that way.
     if is_chromium(&path) {
-        return Err(format!("{name} was not started: it is built on Chromium. A new copy of such an app would \
-                            run on the profile of the copy you use, or hand its start to that copy, which opens \
-                            a window on your screen. Not supported until --run can give the app a profile \
-                            folder of its own."));
+        if !is_browser(&path) {
+            return Err(format!("{name} was not started: it is built on Chromium and is not a browser (an \
+                                Electron app, or a web app made by a browser). A new copy of such an app would \
+                                run on the profile of the copy you use, or hand its start to that copy, which \
+                                opens a window on your screen. Only the browsers of that family are started \
+                                here (Brave, Chrome, Edge): each on a profile folder of its own."));
+        }
+        // One copy per profile folder: a second start would hand itself to the copy that
+        // runs here already and end. That copy is the answer.
+        if let Some(runs) = started_apps().iter().rev().find(|app| app.name == name && alive(&app.process)) {
+            eprintln!("{name} runs on the second display already (process {}): no second copy", runs.process.pid);
+            return Ok(runs.process.pid);
+        }
     }
     let mut opened = Vec::new();
     for file in files {
@@ -1404,7 +1480,7 @@ unsafe fn start_hidden(display: u32, path: &Path, name: &str, files: &[PathBuf])
         process = launch_new(path, files, name)?;
     }
     let pid = process.pid;
-    APPS.lock().unwrap().push(App { process, name: name.to_string(), stage: Stage::Starting });
+    APPS.lock().unwrap().push(App { process, name: name.to_string(), stage: Stage::Starting, back: None });
 
     // Its own first windows: moved while it is hidden, then it is shown.
     let (element, deadline) = (ax_app(pid), Instant::now() + Duration::from_secs_f64(WINDOW_WAIT));
@@ -1414,6 +1490,11 @@ unsafe fn start_hidden(display: u32, path: &Path, name: &str, files: &[PathBuf])
         if !alive(&process) {
             return Err(format!("{name} ended right after it started"));
         }
+        // A browser comes in front of your apps by itself when it shows its first
+        // window, though it was started hidden (seen with Brave). The watcher hides it
+        // again (see `look`), and macOS gives your app the front back. It looks every
+        // 10 ms for as long as the start lasts, so that this is as short as it can be.
+        expect_window();
         if answers.is_none() && ax_text(element.0, "AXRole").is_some() {
             answers = Some(Instant::now()); // it answers Accessibility: it has done starting
         }
@@ -1429,6 +1510,12 @@ unsafe fn start_hidden(display: u32, path: &Path, name: &str, files: &[PathBuf])
                 shows_on_your_screen(app, display, &windows_on_screen());
             }
             place(display, &windows);
+            // Not shown while it has the front: it would be on show in front of your apps.
+            let patience = Instant::now() + Duration::from_secs(1);
+            while front_process() == Some(pid) && Instant::now() < patience {
+                hide_app(pid);
+                sleep(0.02);
+            }
             show_app(pid);
             stage = Stage::Shown;
             break;
@@ -1535,7 +1622,13 @@ fn seen_times() -> u32 {
 /// your keyboard. Neither should ever be, and what is seen is remembered for
 /// the report, as the keeper remembers a window on your screen. What lasts
 /// less than the time between two rounds can be missed. An app that is in
-/// front of yours is hidden again at once and stays hidden.
+/// front of yours is hidden again at once, and shown again behind your apps
+/// in a later round, when your app has the front back: a browser comes in
+/// front by itself when it shows a window (seen with Brave, at its start),
+/// and would be lost to the agent if it stayed hidden. One that comes in
+/// front again within INSISTS seconds of that stays hidden. Seen: an app
+/// that came in front while `start` was busy with it. Not run yet: one that
+/// comes in front later, and so the way back.
 unsafe fn look() {
     let (front, keyboard) = (front_process(), keyboard_process());
     for app in started_apps() {
@@ -1545,10 +1638,22 @@ unsafe fn look() {
         }
         if front == Some(pid) {
             saw(format!("{} was the front app", app.name));
-            if app.stage != Stage::Withdrawn {
-                hide_app(pid);
-                set_stage(pid, Stage::Withdrawn);
-                eprintln!("{} (process {pid}) came in front of your apps: it was hidden again", app.name);
+            match app.stage {
+                Stage::Returning | Stage::Withdrawn => {}
+                // `start` is still busy with it, and shows it when its windows are on the display
+                Stage::Starting => hide_app(pid),
+                _ => {
+                    hide_app(pid);
+                    let insists = app.back.is_some_and(|at| at.elapsed().as_secs_f64() < INSISTS);
+                    set_stage(pid, if insists { Stage::Withdrawn } else { Stage::Returning });
+                    let then = if insists { "it stays hidden" } else { "it is shown again behind them" };
+                    eprintln!("{} (process {pid}) came in front of your apps: it was hidden, and {then}", app.name);
+                }
+            }
+        } else if app.stage == Stage::Returning {
+            show_app(pid);
+            if let Some(known) = APPS.lock().unwrap().iter_mut().rev().find(|known| known.process.pid == pid) {
+                (known.stage, known.back) = (Stage::Shown, Some(Instant::now()));
             }
         }
         if keyboard == Some(pid) {
@@ -1613,6 +1718,7 @@ unsafe fn process_state(app: &App) -> String {
     match (alive(&app.process), app.stage) {
         (false, _) => "exited".to_string(),
         (true, Stage::Shown) => "still running".to_string(),
+        (true, Stage::Returning) => "still running, hidden for a moment: it came in front of your apps".to_string(),
         (true, Stage::Withdrawn) => "still running, hidden: it came in front of your apps".to_string(),
         (true, _) => "still running, hidden: it has made no window".to_string(),
     }
@@ -2402,6 +2508,23 @@ unsafe fn key_for(letter: &str) -> Res<u16> {
         .ok_or(format!("your keyboard layout has no key for {}", quote(letter)))
 }
 
+/// The key a character is typed with in your keyboard layout, and the flags
+/// held with it: the key that gives it with nothing held (a small letter, a
+/// digit, a full stop), and that key with Shift for a capital letter. A
+/// character your layout has no such key for rides on TEXT_KEY. The event
+/// carries the character itself either way (see `type_text`), so the key
+/// only says which key it was to an app that asks.
+unsafe fn key_of(letter: char) -> (u16, u64) {
+    if letter == ' ' {
+        return (KEY_SPACE, 0);
+    }
+    let capital: String = letter.to_uppercase().collect();
+    match (0..128u16).find(|&key| key_letter(key).as_deref() == Some(capital.as_str())) {
+        Some(key) => (key, if letter.is_uppercase() { SHIFT } else { 0 }),
+        None => (TEXT_KEY, 0),
+    }
+}
+
 impl Input {
     unsafe fn new(display: u32, apps: &[Process]) -> Res<Input> {
         let no_click = "a click cannot reach an app that is not in front";
@@ -2709,39 +2832,31 @@ impl Input {
         self.press_key(pid, keycode, flags, &[])
     }
 
-    /// Type a text into an app at its caret: any Unicode. The text rides on
-    /// key events, up to 20 UTF-16 units each. A line end is the Return key
-    /// and a tab the Tab key. The app takes it as typing, so its own
-    /// autocorrection applies: with "Capitalise words automatically" on in
-    /// System Settings, TextEdit made "turn 1. turn 2." into "Turn 1. Turn 2.".
+    /// Type a text into an app at its caret: any Unicode. Every character is
+    /// one key press of its own, on its key in your keyboard layout (see
+    /// `key_of`), and the event carries the character. A line end is the
+    /// Return key and a tab the Tab key. The app takes it as typing, so its
+    /// own autocorrection applies: with "Capitalise words automatically" on
+    /// in System Settings, TextEdit made "turn 1. turn 2." into "Turn 1.
+    /// Turn 2.".
+    ///
+    /// One character a press, and not more: several on one key event are to
+    /// a browser the text of an input method, not typing. Seen in Brave with
+    /// 20 a press: a part of a page that only listens to keys (a canvas) got
+    /// one key for all of them, with the last character and key code 229,
+    /// and the text went into the field the caret was last in.
     unsafe fn type_text(&mut self, pid: i32, text: &str) -> Res<()> {
         self.ready_for_keys(pid)?;
-        let mut units: Vec<u16> = Vec::new();
         for letter in text.chars() {
             match letter {
                 '\r' => {}
-                '\n' | '\t' => {
-                    self.typed(pid, &mut units)?;
-                    self.press_key(pid, if letter == '\n' { KEY_RETURN } else { KEY_TAB }, 0, &[])?;
-                }
+                '\n' => self.press_key(pid, KEY_RETURN, 0, &[])?,
+                '\t' => self.press_key(pid, KEY_TAB, 0, &[])?,
                 _ => {
-                    let mut pair = [0u16; 2];
-                    let encoded = letter.encode_utf16(&mut pair);
-                    if units.len() + encoded.len() > 20 {
-                        self.typed(pid, &mut units)?;
-                    }
-                    units.extend_from_slice(encoded);
+                    let (mut pair, (key, flags)) = ([0u16; 2], key_of(letter));
+                    self.press_key(pid, key, flags, letter.encode_utf16(&mut pair))?;
                 }
             }
-        }
-        self.typed(pid, &mut units)
-    }
-
-    /// Send the letters gathered so far as one key press, and start again.
-    unsafe fn typed(&self, pid: i32, units: &mut Vec<u16>) -> Res<()> {
-        if !units.is_empty() {
-            self.press_key(pid, TEXT_KEY, 0, units)?;
-            units.clear();
         }
         Ok(())
     }
@@ -3147,9 +3262,9 @@ unsafe fn app_folder(pid: i32) -> Option<PathBuf> {
 /// AXEnhancedUserInterface is the one a screen reader sets. Every app takes
 /// it and it changes how AppKit animates windows, so it is only set on an
 /// app that is built on Chromium. Gives back whether the app took a switch,
-/// and None when it does not answer at all. No Chromium or Electron app was
-/// scanned in the tests, so for those this has not run.
-/// For now no app takes a switch: `start` refuses every app built on Chromium.
+/// and None when it does not answer at all. Seen with Brave: a scan of its
+/// new tab found 44 elements, those of the page among them. No Electron app
+/// was scanned: `start` refuses them.
 unsafe fn wake(pid: i32, app: Id) -> Option<bool> {
     match ax_set(app, "AXManualAccessibility", TRUE) {
         0 => Some(true),
@@ -3476,7 +3591,9 @@ unsafe fn press(item: &Found) -> Res<&'static str> {
 
 /// Put a text into one of the scan's elements: its AXValue, the counterpart
 /// of UI Automation's value pattern. The whole text of a field is replaced,
-/// with no typing: the app's autocorrection does not touch it.
+/// with no typing: the app's autocorrection does not touch it. The caret
+/// is then put at the end of the new text, as after typing it, so what is
+/// typed next comes after it.
 unsafe fn set_value(item: &Found, text: &str) -> Res<()> {
     if !alive(&item.app) {
         return Err(format!("the app of {} {} has ended", item.kind, quote(&item.name)));
@@ -3484,7 +3601,12 @@ unsafe fn set_value(item: &Found, text: &str) -> Res<()> {
     AXUIElementSetMessagingTimeout(item.element.0, SCAN_TIMEOUT);
     let value = Cf(cf_string(text));
     match ax_set(item.element.0, "AXValue", value.0) {
-        0 => Ok(()),
+        0 => {
+            let end = Range { start: text.encode_utf16().count() as isize, length: 0 };
+            let caret = Cf(AXValueCreate(AX_RANGE, &end as *const Range as *const c_void));
+            ax_set(item.element.0, "AXSelectedTextRange", caret.0); // an element with no caret refuses it: nothing is lost
+            Ok(())
+        }
         error => Err(format!("{} {} did not take the text (Accessibility error {error})", item.kind,
                              quote(&item.name))),
     }
@@ -4286,6 +4408,11 @@ fn send(kind: &str, data: &[u8]) -> bool {
 ///                        the clicks went to. See `served_click`.
 ///   scan                 what there is to click or type in on it. Answer:
 ///                        "ok " and one line of JSON. See `served_scan`.
+///   type <text>          type a text into the app the last order acted on,
+///                        at its caret. The text is the hexadecimal digits
+///                        of its UTF-8 bytes. See `served_type`.
+///   set <n> <text>       put a text into element n of the last scan, in
+///                        place of what is in it. See `served_set`.
 ///
 /// The agent's mouse is drawn into the pictures, where it last clicked, and a
 /// picture goes out when it moved, also when nothing else did.
@@ -4333,13 +4460,17 @@ unsafe fn serve(frames: &Arc<Frames>) -> Res<()> {
             thread::sleep(Duration::from_millis(30));
         }
     });
-    let mut input: Option<Input> = None; // what sends the clicks: made by the first "click"
+    key_letter(0); // the letters of the keys are read here, on the main thread
+    let mut input: Option<Input> = None; // what sends the clicks and the keys: made by the first order that needs it
+    let mut scanned: Option<Scan> = None; // the last scan: "set" names one of its elements
+    let mut target: Option<i32> = None; // the app the last order acted on: typed text goes there
     for line in std::io::stdin().lines() {
         let Ok(line) = line else { break };
         let done = if let Some(app) = line.strip_prefix("run ") {
             match start(frames.display, app.trim(), &[]) {
                 Ok(pid) => {
                     eprintln!("started on the second display: {} (process {pid})", app.trim());
+                    target = Some(pid);
                     Ok(format!("process {pid}"))
                 }
                 Err(e) => {
@@ -4349,9 +4480,13 @@ unsafe fn serve(frames: &Arc<Frames>) -> Res<()> {
                 }
             }
         } else if let Some(asked) = line.strip_prefix("click ") {
-            served_click(frames.display, &mut input, asked)
+            served_click(frames.display, &mut input, &mut target, asked)
         } else if line.trim() == "scan" {
-            served_scan(frames.display)
+            served_scan(frames.display, &mut scanned)
+        } else if let Some(asked) = line.strip_prefix("type ") {
+            served_type(frames.display, &mut input, &mut target, asked)
+        } else if let Some(asked) = line.strip_prefix("set ") {
+            served_set(frames.display, &mut input, &scanned, &mut target, asked)
         } else {
             continue;
         };
@@ -4379,7 +4514,7 @@ unsafe fn serve(frames: &Arc<Frames>) -> Res<()> {
 /// clicks a popup that took your keyboard is closed with Escape, as after
 /// every step of the self-test: `click_at` does not look at what is at the
 /// point, so a click on a pop-up button opens its menu.
-unsafe fn served_click(display: u32, input: &mut Option<Input>, asked: &str) -> Res<String> {
+unsafe fn served_click(display: u32, input: &mut Option<Input>, target: &mut Option<i32>, asked: &str) -> Res<String> {
     let parts: Vec<&str> = asked.split_whitespace().collect();
     let number = |at: usize| parts.get(at).and_then(|part| part.parse::<f64>().ok()).filter(|n| n.is_finite());
     let (Some(x), Some(y), true) = (number(0), number(1), parts.len() == 2 || parts.len() == 3) else {
@@ -4390,14 +4525,94 @@ unsafe fn served_click(display: u32, input: &mut Option<Input>, asked: &str) -> 
         Some(Ok(count)) if (1..=3).contains(&count) => count,
         Some(_) => return Err("click takes 1, 2 or 3 clicks".to_string()),
     };
+    let input = served_input(display, input)?;
+    let window = input.press(x, y, clicks)?;
+    input.give_keyboard_back()?;
+    *target = Some(window.pid);
+    Ok(format!("process {} window {}", window.pid, window.id))
+}
+
+/// The sender of --serve: made by the first order that needs it, and before
+/// every order told the apps started so far, also those a later "run"
+/// started. Nothing is ever sent to another process.
+unsafe fn served_input(display: u32, input: &mut Option<Input>) -> Res<&mut Input> {
     if input.is_none() {
         *input = Some(Input::new(display, &[])?);
     }
-    let Some(input) = input.as_mut() else { return Err("no sender for the click".to_string()) };
-    input.apps = started_apps().iter().map(|app| app.process).collect();
-    let window = input.press(x, y, clicks)?;
+    let Some(sender) = input.as_mut() else { return Err("there is no sender for the order".to_string()) };
+    sender.apps = started_apps().iter().map(|app| app.process).collect();
+    Ok(sender)
+}
+
+/// The text of an order: the hexadecimal digits of its UTF-8 bytes, so that
+/// it stays on one line whatever is in it.
+fn text_of_hex(digits: &str) -> Res<String> {
+    let digits = digits.trim();
+    let wrong = || "the text of an order is the hexadecimal digits of its UTF-8 bytes".to_string();
+    if !digits.is_ascii() || digits.len() % 2 != 0 {
+        return Err(wrong());
+    }
+    let bytes: Result<Vec<u8>, _> = (0..digits.len()).step_by(2).map(|at| u8::from_str_radix(&digits[at..at + 2], 16)).collect();
+    String::from_utf8(bytes.map_err(|_| wrong())?).map_err(|_| wrong())
+}
+
+/// One "type" order of --serve: type a text, the way `Input::type_text`
+/// does: on key events handed to one app, at its caret, with no keyboard of
+/// yours. It goes to the app the last order acted on (the one a click went
+/// to, a text was set in, or that was started last). With none of those
+/// still running, to the app of the agent's front-most window.
+unsafe fn served_type(display: u32, input: &mut Option<Input>, target: &mut Option<i32>, asked: &str) -> Res<String> {
+    let text = text_of_hex(asked)?;
+    let input = served_input(display, input)?;
+    let pid = match *target {
+        Some(pid) if input.ours(pid).is_ok() => pid,
+        _ => windows_on_screen().into_iter()
+            .find(|w| input.knows(w.pid) && w.layer == 0 && !is_menu_bar_piece(w))
+            .map(|w| w.pid)
+            .ok_or("there is no app on the second display to type into")?,
+    };
+    input.type_text(pid, &text)?;
     input.give_keyboard_back()?;
-    Ok(format!("process {} window {}", window.pid, window.id))
+    *target = Some(pid);
+    Ok(format!("process {pid} characters {}", text.chars().count()))
+}
+
+/// One "set" order of --serve: "<n> <text>" puts a text into element n of
+/// the last scan, in place of what is in it. The element is clicked first,
+/// so its app's keyboard is in it afterwards, as after a person's click.
+/// Then the text is set through Accessibility (`set_value`): whole, with no
+/// typing. An element that does not take a text that way gets it typed: all
+/// that is in it is selected with Cmd+A and the text is typed over it.
+unsafe fn served_set(display: u32, input: &mut Option<Input>, scanned: &Option<Scan>, target: &mut Option<i32>,
+                     asked: &str) -> Res<String> {
+    let asked = asked.trim();
+    let (number, digits) = asked.split_once(' ').unwrap_or((asked, ""));
+    let Ok(n) = number.parse::<usize>() else {
+        return Err("set needs the number of an element of the last scan, then the text".to_string());
+    };
+    let text = text_of_hex(digits)?;
+    let Some(scan) = scanned else { return Err("there is no scan yet: scan first".to_string()) };
+    let Some(item) = n.checked_sub(1).and_then(|at| scan.items.get(at)) else {
+        return Err(format!("the last scan has no element {n}"));
+    };
+    let input = served_input(display, input)?;
+    let (x, y) = middle(&item.place);
+    input.press(x, y, 1)?;
+    // The app takes the click first. With no wait the text was set while the click was
+    // still on its way: a run of the new text ended up selected, and what was typed next
+    // replaced that run (seen in TextEdit, with a text put in place of a longer one).
+    sleep(0.15);
+    let how = match set_value(item, &text) {
+        Ok(()) => "set",
+        Err(_) => {
+            input.key(item.app.pid, key_for("A")?, COMMAND)?;
+            input.type_text(item.app.pid, &text)?;
+            "typed"
+        }
+    };
+    input.give_keyboard_back()?;
+    *target = Some(item.app.pid);
+    Ok(format!("process {} {how}", item.app.pid))
 }
 
 /// One "scan" order of --serve: what there is to click or type in on the
@@ -4408,7 +4623,7 @@ unsafe fn served_click(display: u32, input: &mut Option<Input>, asked: &str) -> 
 /// `scan` gives them. A box is [x, y, width, height] in the points all
 /// screens share, so its middle is a point a "click" order takes. Only the
 /// apps this program started are asked, as in every scan of this file.
-unsafe fn served_scan(display: u32) -> Res<String> {
+unsafe fn served_scan(display: u32, kept: &mut Option<Scan>) -> Res<String> {
     let apps: Vec<Process> = started_apps().iter().map(|app| app.process).filter(|app| alive(app)).collect();
     let found = scan(display, &apps)?;
     let boxed = |place: &Rect| {
@@ -4423,7 +4638,9 @@ unsafe fn served_scan(display: u32) -> Res<String> {
         format!("{{\"n\":{},\"kind\":{},\"name\":{},\"box\":{},\"pid\":{},\"window\":{}}}",
                 n + 1, json_text(&item.kind), json_text(&item.name), boxed(&item.place), item.app.pid, item.window)
     }).collect();
-    Ok(format!("{{\"windows\":[{}],\"elements\":[{}]}}", windows.join(","), elements.join(",")))
+    let said = format!("{{\"windows\":[{}],\"elements\":[{}]}}", windows.join(","), elements.join(","));
+    *kept = Some(found); // "set" names an element of this scan by its number
+    Ok(said)
 }
 
 /// A text as a JSON string, in its quotes.

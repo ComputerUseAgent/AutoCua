@@ -148,8 +148,8 @@ class ControllerView:
         its own, CUA_Sandbox/mac/service.py) or 'full' (the person's own
         screen, the default). The main driver sets it. On the second screen a
         screen tool does its work there by the sandbox branch in the tool
-        itself (open_app and left_click so far), and the person's pointer,
-        keys and buttons are never touched, on Stop either."""
+        itself (open_app, left_click, input and typewrite so far), and the
+        person's pointer, keys and buttons are never touched, on Stop either."""
         return self._control
 
     @control.setter
@@ -159,14 +159,16 @@ class ControllerView:
 
     # The tools that touch the screen, the pointer or the keyboard and have no
     # sandbox branch yet. One leaves this list when its branch is written.
-    _NOT_ON_SECOND_SCREEN = ("right_click", "input", "typewrite", "scroll", "hotkey", "drag_drop",
-                             "screenshot", "applescript")
+    _NOT_ON_SECOND_SCREEN = ("right_click", "scroll", "hotkey", "drag_drop", "screenshot", "applescript")
 
     def _open_in_sandbox(self, app_name):
         """open_app in a sandbox run: a new copy of the app is started on the
-        second screen, by its name or the path of its .app. The sandbox says
-        in words why an app cannot run there (one built on Chromium, one that
-        keeps to a single copy and runs already, a name it does not know)."""
+        second screen, by its name or the path of its .app. A browser built
+        on Chromium (Brave, Chrome, Edge) runs there on a profile folder of
+        its own, and a second open_app of it gives the copy that runs there.
+        The sandbox says in words why an app cannot run there (an Electron
+        app, one that keeps to a single copy and runs already, a name it does
+        not know)."""
         from ...CUA_Sandbox.mac.service import sandbox, SandboxError
         try:
             sandbox().launch(str(app_name or "").strip())
@@ -183,7 +185,8 @@ class ControllerView:
         browser agent's browser."""
         kind = action_item.get("type")
         if kind in self._NOT_ON_SECOND_SCREEN:
-            message = f"{kind} does not work on the second screen yet. open_app and left_click work there so far."
+            message = (f"{kind} does not work on the second screen yet. open_app, left_click, input and "
+                       "typewrite work there so far.")
         elif kind == "shell":
             message = ("shell does not work on the second screen yet: what it starts would open on the "
                        "person's own screen.")
@@ -699,8 +702,8 @@ class ControllerView:
                     continue
 
                 # A sandbox run: a tool that does not work on the second
-                # screen yet says so. The ones that do (open_app, left_click)
-                # have their sandbox branch where the tool is.
+                # screen yet says so. The ones that do (open_app, left_click,
+                # input, typewrite) have their sandbox branch where the tool is.
                 if self._control == 'sandbox':
                     refused = self._not_in_sandbox(action_item)
                     if refused:
