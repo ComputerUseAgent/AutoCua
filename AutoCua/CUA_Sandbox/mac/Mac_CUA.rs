@@ -120,8 +120,9 @@
 //!     AutoCua/CUA_Sandbox/mac/build/Mac_CUA --serve
 //!         For another program. No app and no window: every new picture of
 //!         it goes out on stdout, and a line "run APP" on stdin starts APP
-//!         on it. It ends when stdin closes. The messages are those of
-//!         Win_CUA.rs.
+//!         on it. A line "click X Y" clicks there, with no pointer of yours,
+//!         and every order is answered (see `serve`). It ends when stdin
+//!         closes. The messages are those of Win_CUA.rs.
 //!
 //!     --run APP     start APP on it instead of Calculator: its name or the
 //!                   path of its .app (can repeat)
@@ -167,7 +168,7 @@ Mac_CUA [--shot PNG] [--computer-use] [--run APP] [--scan PNG] [--wait SEC] [--s
   --run APP        app to start on it, by its name or the path of its .app (can repeat)
   --scan PNG       save the agent's scan of it and exit
   --wait SEC       seconds before --shot or --scan (default 3)
-  --serve          for another program: pictures out on stdout, \"run APP\" lines in on stdin
+  --serve          for another program: pictures out on stdout, \"run APP\" and \"click X Y\" lines in on stdin
   --size WxH       its size in points (default: the size of your main screen)
   --retina         two pixels a point
   --display ID     use a display that is on already instead of making one
@@ -4268,13 +4269,28 @@ fn send(kind: &str, data: &[u8]) -> bool {
 }
 
 /// The second display for another program, over this program's own pipes.
-/// Out on stdout, as messages: "frame", every new picture as a BMP file, and
-/// "note", words about a picture that could not be taken or an order that
-/// failed. In on stdin, one order a line: "run <app>" starts an app on the
-/// second display, by its name or the path of its .app. It ends when stdin
-/// closes, so when the other program ends, and every app on the second
-/// display ends with it.
+///
+/// Out on stdout, as messages: "place", once at the start, where the display
+/// is among the screens ("x y width height", in the points all screens
+/// share); "frame", every new picture as a BMP file; "note", words about a
+/// picture that could not be taken or an app that could not be started; and
+/// "answer", one for every order below, in the order they came: "ok" and
+/// what was done, or "error: " and why not.
+///
+/// In on stdin, one order a line. A line that is no order gets no answer.
+///   run <app>            start an app on the second display, by its name or
+///                        the path of its .app. Answer: "ok process <pid>".
+///   click <x> <y> <n>    n clicks of the left button (1, 2 or 3; 1 when left
+///                        out) at a point, in the points all screens share.
+///                        Answer: "ok process <pid> window <id>", the window
+///                        the clicks went to. See `served_click`.
+///
+/// It ends when stdin closes, so when the other program ends, and every app
+/// on the second display ends with it.
 unsafe fn serve(frames: &Arc<Frames>) -> Res<()> {
+    let place = CGDisplayBounds(frames.display);
+    let said = format!("{} {} {} {}", place.origin.x, place.origin.y, place.size.width, place.size.height);
+    send("place", said.as_bytes());
     let pictures = frames.clone();
     thread::spawn(move || {
         let (mut seen, mut noted) = (0u64, None::<String>);
@@ -4300,18 +4316,69 @@ unsafe fn serve(frames: &Arc<Frames>) -> Res<()> {
             thread::sleep(Duration::from_millis(30));
         }
     });
+    let mut input: Option<Input> = None; // what sends the clicks: made by the first "click"
     for line in std::io::stdin().lines() {
         let Ok(line) = line else { break };
-        if let Some(app) = line.strip_prefix("run ") {
+        let done = if let Some(app) = line.strip_prefix("run ") {
             match start(frames.display, app.trim(), &[]) {
-                Ok(pid) => eprintln!("started on the second display: {} (process {pid})", app.trim()),
+                Ok(pid) => {
+                    eprintln!("started on the second display: {} (process {pid})", app.trim());
+                    Ok(format!("process {pid}"))
+                }
                 Err(e) => {
-                    send("note", format!("could not start on the second display: {}: {e}", app.trim()).as_bytes());
+                    let said = format!("could not start on the second display: {}: {e}", app.trim());
+                    send("note", said.as_bytes());
+                    Err(said)
                 }
             }
+        } else if let Some(asked) = line.strip_prefix("click ") {
+            served_click(frames.display, &mut input, asked)
+        } else {
+            continue;
+        };
+        let said = match done {
+            Ok(what) => format!("ok {what}"),
+            Err(why) => format!("error: {why}"),
+        };
+        if !send("answer", said.as_bytes()) {
+            break;
         }
     }
     Ok(())
+}
+
+/// One "click" order of --serve. `asked` is what follows the word: "<x> <y>"
+/// or "<x> <y> <clicks>", the point in the points all screens share.
+///
+/// The clicks go the way every click of this file goes (`Input::press`): to
+/// the app of this program that has a window at the point, by its process
+/// id. Your pointer does not move and nothing comes in front. A point with no
+/// window of such an app is an error, and nothing is sent.
+///
+/// The sender is made by the first order, and before every order it is told
+/// the apps started so far, also those a later "run" started. After the
+/// clicks a popup that took your keyboard is closed with Escape, as after
+/// every step of the self-test: `click_at` does not look at what is at the
+/// point, so a click on a pop-up button opens its menu.
+unsafe fn served_click(display: u32, input: &mut Option<Input>, asked: &str) -> Res<String> {
+    let parts: Vec<&str> = asked.split_whitespace().collect();
+    let number = |at: usize| parts.get(at).and_then(|part| part.parse::<f64>().ok()).filter(|n| n.is_finite());
+    let (Some(x), Some(y), true) = (number(0), number(1), parts.len() == 2 || parts.len() == 3) else {
+        return Err("click needs a point, and may have a count: click X Y, or click X Y 2".to_string());
+    };
+    let clicks = match parts.get(2).map(|count| count.parse::<i64>()) {
+        None => 1,
+        Some(Ok(count)) if (1..=3).contains(&count) => count,
+        Some(_) => return Err("click takes 1, 2 or 3 clicks".to_string()),
+    };
+    if input.is_none() {
+        *input = Some(Input::new(display, &[])?);
+    }
+    let Some(input) = input.as_mut() else { return Err("no sender for the click".to_string()) };
+    input.apps = started_apps().iter().map(|app| app.process).collect();
+    let window = input.press(x, y, clicks)?;
+    input.give_keyboard_back()?;
+    Ok(format!("process {} window {}", window.pid, window.id))
 }
 
 // ---------------------------------------------------------------- main

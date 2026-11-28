@@ -76,6 +76,11 @@ class ControllerService:
         self.stop_event = stop_event
         # Where this batch's pointer actions landed, read by data_extraction.
         self.clicks = []
+        # A sandbox run: the screen tools work on the second display
+        # (CUA_Sandbox/mac/service.py) and the person's pointer and keyboard
+        # are never touched. Off by default: the main screen. The controller
+        # view sets it from the run's `control`.
+        self.sandbox = False
 
         trusted = AXIsProcessTrusted()
         if not trusted:
@@ -88,6 +93,10 @@ class ControllerService:
 
     def release_all_inputs(self):
         """Emergency release all hardware inputs (keyboard + mouse) via pyautogui."""
+        # A sandbox run pressed nothing of the person's: the keys and buttons
+        # held now are their own.
+        if self.sandbox:
+            return
         try:
             for key in ['shift', 'ctrl', 'alt', 'shiftleft', 'shiftright',
                         'ctrlleft', 'ctrlright', 'altleft', 'altright']:
@@ -143,7 +152,18 @@ class ControllerService:
         """
         Full click sequence with ONE event source (proven working approach):
         force-focus target app → warp cursor → move event → click down/up.
+
+        In a sandbox run the click goes to the second display instead: the
+        same point and count, sent by the sandbox to the app that has a
+        window there. No app comes in front and the pointer does not move.
+        A click it could not send is raised, and the tool that asked for it
+        reports the reason.
         """
+        if self.sandbox:
+            from ...CUA_Sandbox.mac.service import sandbox
+            sandbox().click(x, y, click_count)
+            return
+
         self._force_focus_target_app()
 
         point = CGPointMake(float(x), float(y))
@@ -190,7 +210,15 @@ class ControllerService:
     def _warp_move_right_click(self, x, y):
         """
         Full right-click sequence with ONE event source.
+
+        Not in a sandbox run: the second display sends no right click. A
+        menu it opens in an app that is not in front takes the person's
+        keyboard for as long as it is open (Mac_CUA.rs, `press`). It is
+        raised here so that it can never fall through to the real pointer.
         """
+        if self.sandbox:
+            raise RuntimeError("right_click does not work on the second screen yet")
+
         self._force_focus_target_app()
 
         point = CGPointMake(float(x), float(y))
